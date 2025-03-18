@@ -52,6 +52,7 @@ def warmup_jit():
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("device", CUDA_DEVICES)
 @pytest.mark.parametrize("backend", ["sm90", "sm80"])
+@pytest.mark.parametrize("ctas", [4, 32, 256])
 def test_segment_gemm(
     batch_size,
     num_rows_per_batch,
@@ -62,6 +63,7 @@ def test_segment_gemm(
     dtype,
     device,
     backend,
+    ctas,
 ):
     if batch_size * num_rows_per_batch > 8192:
         pytest.skip("batch_size * num_rows_per_batch too large for test.")
@@ -71,6 +73,8 @@ def test_segment_gemm(
     torch.manual_seed(42)
     workspace_buffer = torch.empty(32 * 1024 * 1024, dtype=torch.int8, device=device)
     segment_gemm = flashinfer.gemm.SegmentGEMMWrapper(workspace_buffer, backend=backend)
+    if backend == "sm80":
+        segment_gemm.plan(num_ctas=ctas)
     x = torch.randn(batch_size * num_rows_per_batch, d_in, dtype=dtype, device=device)
     if use_weight_indices:
         num_weights = 1024

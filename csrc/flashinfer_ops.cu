@@ -62,7 +62,9 @@ void bmm_fp8(at::Tensor A, at::Tensor B, at::Tensor D, at::Tensor A_scale, at::T
 void CutlassSegmentGEMM(at::Tensor workspace_buffer, at::Tensor all_problems, at::Tensor x_ptr,
                         at::Tensor w_ptr, at::Tensor y_ptr, at::Tensor x_ld, at::Tensor w_ld,
                         at::Tensor y_ld, at::Tensor empty_x_data, bool weight_column_major,
-                        int64_t cuda_stream);
+                        std::vector<int64_t> plan_info_vec, int64_t cuda_stream);
+
+std::vector<int64_t> CutlassSegmentGEMMPlan(int64_t num_ctas);
 
 //========== norm ==========
 
@@ -256,6 +258,7 @@ TORCH_LIBRARY_FRAGMENT(TORCH_EXTENSION_NAME, m) {
   m.def("bmm_fp8", bmm_fp8);
   // Cutlass Segment GEMM operator
   m.def("cutlass_segment_gemm", CutlassSegmentGEMM);
+  m.def("cutlass_segment_gemm_plan", CutlassSegmentGEMMPlan);
 
   // norm
   // Root mean square normalization

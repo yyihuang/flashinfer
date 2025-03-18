@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 #include <flashinfer/gemm/group_gemm.cuh>
-
+#include <flashinfer/gemm/scheduler.cuh>
 #include "pytorch_extension_utils.h"
 
 using namespace flashinfer;
@@ -23,8 +23,10 @@ using namespace flashinfer::group_gemm;
 void CutlassSegmentGEMM(at::Tensor workspace_buffer, at::Tensor all_problems, at::Tensor x_ptr,
                         at::Tensor w_ptr, at::Tensor y_ptr, at::Tensor x_ld, at::Tensor w_ld,
                         at::Tensor y_ld, at::Tensor empty_x_data, bool weight_column_major,
-                        int64_t cuda_stream) {
+                        std::vector<int64_t> plan_info_vec, int64_t cuda_stream) {
   unsigned int batch_size = x_ptr.size(0);
+  GemmPlanInfo plan_info;
+  plan_info.FromVector(plan_info_vec);
 
   cudaStream_t stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   DISPATCH_PYTORCH_DTYPE_TO_CTYPE_FP16(empty_x_data.scalar_type(), c_type, [&] {
@@ -32,9 +34,16 @@ void CutlassSegmentGEMM(at::Tensor workspace_buffer, at::Tensor all_problems, at
     auto status = CutlassSegmentGEMMRun<cutlass_t>(
         workspace_buffer.data_ptr(), workspace_buffer.element_size() * workspace_buffer.size(0),
         all_problems.data_ptr(), batch_size, x_ptr.data_ptr(), w_ptr.data_ptr(), y_ptr.data_ptr(),
-        x_ld.data_ptr(), w_ld.data_ptr(), y_ld.data_ptr(), weight_column_major, stream);
+        x_ld.data_ptr(), w_ld.data_ptr(), y_ld.data_ptr(), weight_column_major, plan_info.num_ctas, stream);
     TORCH_CHECK(status == cudaSuccess,
                 "Failed to run CutlassSegmentGEMM: ", cudaGetErrorString(status));
     return true;
   });
+}
+
+std::vector<int64_t> CutlassSegmentGEMMPlan(int64_t num_ctas) {
+  GemmPlanInfo plan_info;
+  cudaError_t status = GemmPlan(num_ctas, plan_info);
+  TORCH_CHECK(status == cudaSuccess, "GemmPlan failed with error: ", cudaGetErrorString(status));
+  return plan_info.ToVector();
 }

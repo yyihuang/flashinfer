@@ -15,7 +15,7 @@ limitations under the License.
 """
 
 from types import SimpleNamespace
-from typing import Optional
+from typing import Optional, List
 
 import torch
 
@@ -103,6 +103,7 @@ def get_gemm_module():
             y: torch.Tensor,
             empty_x_data: torch.Tensor,
             weight_column_major: bool,
+            plan_info: List[int],
         ) -> None:
             with x_data.device as device:
                 module.cutlass_segment_gemm(
@@ -116,6 +117,7 @@ def get_gemm_module():
                     y_ld,
                     empty_x_data,
                     weight_column_major,
+                    plan_info,
                     get_cuda_stream(device),
                 )
 
@@ -138,6 +140,7 @@ def get_gemm_module():
         # Register the module
         _gemm_module = SimpleNamespace(
             bmm_fp8=bmm_fp8,
+            plan=module.cutlass_segment_gemm_plan,
             cutlass_segment_gemm=cutlass_segment_gemm,
         )
 
@@ -429,6 +432,22 @@ class SegmentGEMMWrapper:
         self._float_workspace_buffer = float_workspace_buffer
         self._int_workspace_buffer = int_workspace_buffer
 
+    def plan(self, num_ctas: int = 0) -> None:
+        r"""Plan Group GEMM kernel with an upper limit on the number of CTAs. 
+        This method must be executed before gemm.run(...).
+
+        Parameters
+        ----------
+        num_ctas : int
+            Upper limit of CTAs scheduled. Value is 0 by default. Supplying 0
+            will schedule the number of CTAs the same as the number of SMs
+            (i.e. use all available SMs).
+        """
+        if num_ctas < 0:
+            raise ValueError("Num_ctas must be greater than or equal to 0.")
+
+        self._plan_info = get_gemm_module().plan(num_ctas)
+
     def run(
         self,
         x: torch.Tensor,
@@ -576,6 +595,7 @@ class SegmentGEMMWrapper:
                 y,
                 empty_x_data,
                 weight_column_major,
+                self._plan_info,
             )
         else:
             raise ValueError(f"Unsupported gemm backend: {backend}")
