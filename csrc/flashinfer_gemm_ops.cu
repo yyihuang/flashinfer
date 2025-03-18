@@ -23,9 +23,17 @@ void CutlassSegmentGEMM(at::Tensor workspace_buffer, at::Tensor all_problems, at
                         at::Tensor y_ld, at::Tensor empty_x_data, bool weight_column_major,
                         int64_t cuda_stream);
 
+std::vector<int64_t> CutlassGEMMPlan(int64_t num_ctas);
+
+void CutlassGEMM(at::Tensor A, at::Tensor B, at::Tensor D, at::Tensor workspace_buffer, 
+                 int64_t cublas_handle, int64_t cuda_stream, std::vector<int64_t> plan_info_vec);
+
 TORCH_LIBRARY_FRAGMENT(TORCH_EXTENSION_NAME, m) {
   // "Cutlass Segment GEMM"
   m.def("cutlass_segment_gemm", CutlassSegmentGEMM);
   // "BMM FP8"
   m.def("bmm_fp8", bmm_fp8);
+  // "Cutlass GEMM"
+  m.def("cutlass_gemm_plan", CutlassGEMMPlan);
+  m.def("cutlass_gemm", CutlassGEMM);
 }

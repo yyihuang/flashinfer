@@ -15,7 +15,7 @@ limitations under the License.
 """
 
 from types import SimpleNamespace
-from typing import Optional
+from typing import Optional, List
 
 import torch
 
@@ -46,6 +46,7 @@ def get_gemm_module():
                 [
                     FLASHINFER_CSRC_DIR / "bmm_fp8.cu",
                     FLASHINFER_CSRC_DIR / "group_gemm.cu",
+                    FLASHINFER_CSRC_DIR / "gemm.cu",
                     FLASHINFER_CSRC_DIR / "flashinfer_gemm_ops.cu",
                 ],
                 extra_ldflags=["-lcublas", "-lcublasLt"],
@@ -135,10 +136,34 @@ def get_gemm_module():
         ) -> None:
             pass
 
+        @register_custom_op(
+            "flashinfer::cutlass_gemm", mutates_args=("workspace_buffer", "D")
+        )
+        def cutlass_gemm(
+            workspace_buffer: torch.Tensor,
+            A: torch.Tensor,
+            B: torch.Tensor,
+            D: torch.Tensor,
+            plan_info: List[int],
+        ) -> None:
+            with A.device as device:
+                cublas_handle = torch.cuda.current_blas_handle()
+                module.cutlass_gemm(
+                    A,
+                    B,
+                    D,
+                    workspace_buffer,
+                    cublas_handle,
+                    get_cuda_stream(device),
+                    plan_info,
+                )
+
         # Register the module
         _gemm_module = SimpleNamespace(
             bmm_fp8=bmm_fp8,
             cutlass_segment_gemm=cutlass_segment_gemm,
+            cutlass_gemm_plan=module.cutlass_gemm_plan,
+            cutlass_gemm=cutlass_gemm,
         )
 
     return _gemm_module
@@ -344,6 +369,55 @@ def launch_compute_sm90_group_gemm_args(
         w_stride_data,
         y_stride_data,
     )
+
+
+class GEMMWrapper:
+
+    def __init__(self, backend: str = "auto") -> None:
+        r"""Initialize the wrapper.
+
+        Parameters
+        ----------
+        float_workspace_buffer : torch.Tensor
+            The workspace buffer for the kernels, we use it for storing intermediate results in cutlass
+            GEMM kernels. Encouraged size is 128MB.
+        """
+        self.backend = backend
+
+    def plan(self, num_ctas: int = 1) -> None:
+        r"""Plan basic GEMM kernel with an upper limit on the number of CTAs. 
+        This method must be executed before gemm.run(...).
+
+        Parameters
+        ----------
+        num_ctas : int
+            Upper limit of CTAs scheduled. Value is 1 by default, so one CTA
+            will be launched by default.
+        """
+        if num_ctas < 0:
+            raise ValueError("Num_ctas must be greater than or equal to 0.")
+
+        self._plan_info: List[int] = get_gemm_module().cutlass_gemm_plan(num_ctas)
+
+    def run(
+        self,
+        A: torch.Tensor,
+        B: torch.Tensor,
+        dtype: torch.dtype,
+        out: Optional[torch.Tensor] = None,
+    ):
+        assert len(A.shape) == len(B.shape) == 2, "Basic GEMM only supports matrices with two dimensions"
+        assert A.shape[1] == B.shape[0], "mat1 and mat2 shapes cannot be multiplied" \
+                                         f"({A.shape[0]}x{A.shape[1]} and {B.shape[0]}x{B.shape[1]})"
+        if out is None:
+            out = torch.empty(
+                (A.shape[0], B.shape[1]),
+                device=A.device,
+                dtype=dtype,
+            )
+        workspace_buffer = _get_cache_buf("gemm_workspace", 32 * 1024 * 1024, A.device)
+        get_gemm_module().cutlass_gemm(workspace_buffer, A, B, out, self._plan_info)
+        return out
 
 
 class SegmentGEMMWrapper:
