@@ -16,6 +16,8 @@
 #ifndef FLASHINFER_GEMM_GEMM_CUH_
 #define FLASHINFER_GEMM_GEMM_CUH_
 
+#define GEMM_BLOCK_DIM 128
+
 #include <sstream>
 
 #include "../allocator.h"
@@ -44,7 +46,7 @@ cudaError_t CutlassGEMMRun(void* workspace_buffer, size_t workspace_buffer_size_
         float,
         cutlass::arch::OpClassTensorOp,
         cutlass::arch::Sm80,
-        cutlass::gemm::GemmShape<128, 128, 32>,
+        cutlass::gemm::GemmShape<GEMM_BLOCK_DIM, GEMM_BLOCK_DIM, 32>,
         cutlass::gemm::GemmShape<64, 64, 32>,
         cutlass::gemm::GemmShape<16, 8, 16>,
         cutlass::epilogue::thread::LinearCombination<DType, 8, float, float>,
@@ -52,8 +54,22 @@ cudaError_t CutlassGEMMRun(void* workspace_buffer, size_t workspace_buffer_size_
         2,    // Number of stages
         1,    // AlignmentA
         1,    // AlignmentB 
-        true  // Enable split‑K serial mode explicitly
+        true  // Enable split‑K serial mode
     >;
+
+    // compute CTA-limit-related arguments
+    int cta_limit = num_ctas > 0 ? static_cast<int>(num_ctas) : 1;
+    int grid_dim_x = (m + GEMM_BLOCK_DIM - 1) / GEMM_BLOCK_DIM;
+    int grid_dim_y = (n + GEMM_BLOCK_DIM - 1) / GEMM_BLOCK_DIM;
+    int min_ctas_required = grid_dim_x * grid_dim_y;
+    if (min_ctas_required > cta_limit) {
+        std::ostringstream err_msg;
+        err_msg << "cutlass gemm.run requires at least " << min_ctas_required
+                << " CTAs, but only " << cta_limit << " were given";
+        FLASHINFER_ERROR(err_msg.str());
+    }
+    int split_k_slices = cta_limit / min_ctas_required;
+    split_k_slices = split_k_slices < 1 ? 1 : split_k_slices; 
 
     cutlass::gemm::GemmCoord problem_size(m, n, k);
     typename Gemm::Arguments arguments{
@@ -63,17 +79,10 @@ cudaError_t CutlassGEMMRun(void* workspace_buffer, size_t workspace_buffer_size_
         {static_cast<DType*>(out), ld_out},
         {static_cast<DType*>(out), ld_out},
         {1.0f, 0.0f},
-        num_ctas > 0 ? static_cast<int>(num_ctas) : 1, // split_k_slices argument
+        split_k_slices, // split_k_slices argument
     };
 
     Gemm gemm_op;
-    // auto status = gemm_op.initialize(arguments, workspace_buffer, stream);
-    // if (status != cutlass::Status::kSuccess) {
-    //   std::ostringstream err_msg;
-    //   err_msg << "cutlass gemm.initialize failed: " << cutlassGetStatusString(status);
-    //   FLASHINFER_ERROR(err_msg.str());
-    // }
-
     auto status = gemm_op(arguments, workspace_buffer, stream);
     if (status != cutlass::Status::kSuccess) {
         std::ostringstream err_msg;
