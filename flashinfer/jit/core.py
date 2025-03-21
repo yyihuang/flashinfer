@@ -125,7 +125,7 @@ def load_cuda_ops(
             list(map(lambda _: str(_), sources)),
             extra_cflags=cflags,
             extra_cuda_cflags=cuda_cflags,
-            extra_ldflags=extra_ldflags,
+            extra_ldflags=["-lcuda"],
             extra_include_paths=list(map(lambda _: str(_), extra_include_paths)),
             build_directory=build_directory,
             verbose=verbose,

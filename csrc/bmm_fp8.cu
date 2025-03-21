@@ -51,13 +51,15 @@ void bmm_fp8(at::Tensor A, at::Tensor B, at::Tensor D, at::Tensor A_scale, at::T
 
         auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
 
-        int smCount = 128;
+        int smCount = 32;
         /* Get CUDA stream device */
         CUresult cu_result;
 
         int device;
-        auto cuda_err = cudaStreamGetDevice(stream, &device);
-        TORCH_CHECK(cuda_err == cudaSuccess, "cudaStreamGetDevice failed: ", cublasGetStatusString(cuda_err));
+        cuDeviceGet(&device, 0);
+        // auto cuda_err = cudaStreamGetAttribute(stream, cudaStreamAttributeDevice, &device);
+        // auto cuda_err = cudaStreamGetDevice(stream, &device);
+        // TORCH_CHECK(cuda_err == cudaSuccess, "cudaStreamGetDevice failed: ", cublasGetStatusString(cuda_err));
 
         CUdevResource resource_all;
         cu_result = cuDeviceGetDevResource(device, &resource_all, CU_DEV_RESOURCE_TYPE_SM);
