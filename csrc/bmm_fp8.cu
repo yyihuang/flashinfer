@@ -48,7 +48,6 @@ void bmm_fp8(at::Tensor A, at::Tensor B, at::Tensor D, at::Tensor A_scale, at::T
         auto n = B.size(2);
 
         auto lt_handle = reinterpret_cast<cublasLtHandle_t>(cublas_handle);
-
         auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
 
         int smCount = 32;
@@ -68,6 +67,7 @@ void bmm_fp8(at::Tensor A, at::Tensor B, at::Tensor D, at::Tensor A_scale, at::T
         unsigned int one = 1;
         cu_result = cuDevSmResourceSplitByCount(&resource_split, &one, &resource_all, NULL, 0, smCount);
         TORCH_CHECK(cu_result == CUDA_SUCCESS, "cuDevSmResourceSplitByCount failed");
+        TORCH_CHECK(one == 1, "cuDevSmResourceSplitByCount failed");
         CUdevResourceDesc resourceDesc;
         cu_result = cuDevResourceGenerateDesc(&resourceDesc, &resource_split, 1);
         TORCH_CHECK(cu_result == CUDA_SUCCESS, "cuDevResourceGenerateDesc failed");
