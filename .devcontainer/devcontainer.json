@@ -18,7 +18,8 @@
         }
     },
     "mounts": [
-        "type=bind,source=${localEnv:HOME}/.ssh,target=/home/devuser/.ssh,readonly"
+        "type=bind,source=${localEnv:HOME}/.ssh,target=/home/devuser/.ssh,readonly",
+        "type=bind,source=/m-coriander/coriander/yingyi,target=/workspaces"
     ],
     "remoteUser": "devuser"
 }
