@@ -271,10 +271,10 @@ def test_trtllm_batch_decode_mla(
     qk_nope_head_dim = 128
     qk_rope_head_dim = 64
     kv_lora_rank = 512
-
+    acc_q_len = 2
     # Initialize tensors
     query = (
-        torch.zeros(batch_size, num_q_heads, kv_lora_rank + qk_rope_head_dim)
+        torch.zeros(batch_size, acc_q_len, num_q_heads, kv_lora_rank + qk_rope_head_dim)
         .to(device)
         .to(dtype)
     )
@@ -351,13 +351,13 @@ def test_trtllm_batch_decode_mla(
         seq_lens=seq_lens_tensor,
         block_size=page_size,
         max_seq_len=max_seq_len,
-        scale=scale / ((512 + 64) ** 0.5) * ((128 + 64) ** 0.5),
+        scale=scale * ((512 + 64) ** 0.5) / ((128 + 64) ** 0.5),
     )
     torch.cuda.synchronize()
 
     # Run reference attention and align output
     sm_scale = (
-        1.0 / scale / ((128 + 64) ** 0.5)
+        scale / ((128 + 64) ** 0.5)
     )  # use head dimension before matrix absorption
     workspace_buffer_ref = torch.empty(
         128 * 1024 * 1024, dtype=torch.int8, device=device
@@ -401,6 +401,7 @@ def test_trtllm_batch_decode_mla(
         query.dtype,
         kv_cache.dtype,
     )
+    query = query.view(batch_size * acc_q_len, num_q_heads, kv_lora_rank + qk_rope_head_dim)
     q_nope = query[..., :kv_lora_rank]
     q_pe = query[..., kv_lora_rank:]
 
@@ -415,7 +416,7 @@ def test_trtllm_batch_decode_mla(
     if dtype == torch.float8_e4m3fn:
         try:
             torch.testing.assert_close(
-                output, o_ref, rtol=1e-1, atol=1e-1
+                output.flatten(), o_ref.flatten(), rtol=1e-1, atol=1e-1
             )  # todo: do reference with normal attention?
         except AssertionError as e:
             print("output:", output)
@@ -423,7 +424,7 @@ def test_trtllm_batch_decode_mla(
             raise e
     else:
         try:
-            torch.testing.assert_close(output, o_ref, rtol=1e-2, atol=1e-2)
+            torch.testing.assert_close(output.flatten(), o_ref.flatten(), rtol=1e-2, atol=1e-2)
         except AssertionError as e:
             print("output:", output)
             print("o_ref:", o_ref)
@@ -432,4 +433,4 @@ def test_trtllm_batch_decode_mla(
 
 if __name__ == "__main__":
     # run all tests in the order of pytest
-    test_trtllm_batch_decode_mla(16, 0.5, torch.float8_e4m3fn, 16)
+    test_trtllm_batch_decode_mla(1, 0.5, torch.float8_e4m3fn, 32)

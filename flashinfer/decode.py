@@ -1748,8 +1748,8 @@ def _check_trtllm_gen_mla_shape(
     page_table,
     page_size,
 ):
-    if query.ndim != 3:
-        raise ValueError(f"Expected query.ndim == 3, got {query.ndim}")
+    if query.ndim != 4:
+        raise ValueError(f"Expected query.ndim == 4, got {query.ndim}")
     if kv_cache.ndim != 4:
         raise ValueError(f"Expected kv_cache.ndim == 4, got {kv_cache.ndim}")
     if qk_nope_head_dim != 128:
@@ -1759,7 +1759,7 @@ def _check_trtllm_gen_mla_shape(
     if qk_rope_head_dim != 64:
         raise ValueError(f"Expected qk_rope_head_dim == 64, got {qk_rope_head_dim}")
 
-    B_q, H, D_q = query.shape
+    B_q, Q_len, H, D_q = query.shape
     D_ckv = kv_cache.shape[3]
     # if H != 128:
     #     raise ValueError(f"Expected 128 heads for query, got {H}")
