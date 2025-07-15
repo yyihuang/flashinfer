@@ -433,4 +433,4 @@ def test_trtllm_batch_decode_mla(
 
 if __name__ == "__main__":
     # run all tests in the order of pytest
-    test_trtllm_batch_decode_mla(1, 0.5, torch.float8_e4m3fn, 32)
+    test_trtllm_batch_decode_mla(1, 0.5, torch.bfloat16, 32)

@@ -1875,7 +1875,6 @@ def trtllm_batch_decode_with_kv_cache_mla(
         qk_rope_head_dim,
         bmm1_scale,
         bmm2_scale,
-        None,  # acc_q_len, speculative not supported for now
         None,  # max_attention_window_size, sliding window not supported for now
         None,  # cyclic_attention_window_size, cyclic window not supported for now
     )
