@@ -11,7 +11,7 @@
 # and related documentation outside the scope permitted by the EULA
 # is strictly prohibited.
 
-from typing import Tuple
+from typing import Tuple, Optional
 
 from cutlass.cutlass_dsl import (
     Boolean,
@@ -384,3 +384,101 @@ class StaticPersistentTileScheduler:
     @property
     def num_tiles_executed(self) -> Int32:
         return self._num_tiles_executed
+
+
+class MGroupedMaskedPersistentTileScheduler(StaticPersistentTileScheduler):
+    def __init__(
+        self,
+        params: PersistentTileSchedulerParams,
+        num_persistent_clusters: Int32,
+        current_work_linear_idx: Int32,
+        cta_id_in_cluster: cute.Coord,
+        num_tiles_executed: Int32,
+        grouped_m_per_batch: cute.Tensor,
+        cta_tile_m: int,
+    ):
+        """
+        Initializes the MGroupedMaskedPersistentTileScheduler with the given parameters.
+
+        :param params: Tile schedule related params, including cluster shape and problem_layout_ncluster_mnl.
+        :type params: PersistentTileSchedulerParams
+        :param num_persistent_clusters: Number of persistent clusters that can be launched.
+        :type num_persistent_clusters: Int32
+        :param current_work_linear_idx: Current cluster index.
+        :type current_work_linear_idx: Int32
+        :param cta_id_in_cluster: ID of the CTA within its cluster.
+        :type cta_id_in_cluster: cute.Coord
+        :param num_tiles_executed: Counter for executed tiles.
+        :type num_tiles_executed: Int32
+        :param grouped_m_per_batch: A tensor where each element represents the
+            number of valid rows in the M dimension for each batch.
+        :type grouped_m_per_batch: cute.Tensor
+        :param cta_tile_m: The tile size in the M dimension for each CTA.
+        :type cta_tile_m: int
+        """
+        super().__init__(
+            params,
+            num_persistent_clusters,
+            current_work_linear_idx,
+            cta_id_in_cluster,
+            num_tiles_executed,
+        )
+        self.grouped_m_per_batch = grouped_m_per_batch
+        self.cta_tile_m = cta_tile_m
+        self.current_group_idx = Int32(0)
+        self.current_m_cumsum = Int32(0)
+        self.current_work_linear_idx_in_group = self._current_work_linear_idx
+        num_n_blocks = self.params.problem_shape_ntile_mnl[1]
+        num_m_blocks_total = Int32(0)
+        for i in cute.arange(cute.size(self.grouped_m_per_batch)):
+            num_m_blocks_total += cute.ceil_div(
+                self.grouped_m_per_batch[i], self.cta_tile_m
+            )
+        self.total_tiles_in_problem = num_m_blocks_total * num_n_blocks
+
+    @dsl_user_op
+    def advance_to_next_work(self, *, advance_count: int = 1, loc=None, ip=None):
+        num_n_blocks = self.params.problem_shape_ntile_mnl[1]
+        num_m_blocks = cute.ceil_div(
+            self.grouped_m_per_batch[self.current_group_idx],
+            self.cta_tile_m,
+        )
+        current_m_block_cumsum = self.current_m_cumsum + num_m_blocks
+
+        self._current_work_linear_idx += Int32(advance_count) * Int32(
+            self.num_persistent_clusters
+        )
+        self.current_work_linear_idx_in_group += Int32(
+            advance_count
+        ) * Int32(self.num_persistent_clusters)
+
+        if self.current_work_linear_idx_in_group >= num_m_blocks * num_n_blocks:
+            self.current_group_idx += 1
+            self.current_m_cumsum = current_m_block_cumsum
+            self.current_work_linear_idx_in_group = (
+                self._current_work_linear_idx
+                - (self.current_m_cumsum * num_n_blocks)
+            )
+        self._num_tiles_executed += Int32(1)
+
+    def _get_current_work_for_linear_idx(
+        self, current_work_linear_idx: Int32, *, loc=None, ip=None
+    ) -> WorkTileInfo:
+        is_valid = current_work_linear_idx < self.total_tiles_in_problem
+        cur_cluster_coord = self.params.problem_layout_ncluster_mnl.get_hier_coord(
+            self.current_work_linear_idx_in_group, loc=loc, ip=ip
+        )
+        cur_tile_coord = tuple(
+            Int32(x) * Int32(z) + Int32(y)
+            for x, y, z in zip(
+                (cur_cluster_coord[0] + self.current_m_cumsum, cur_cluster_coord[1]),
+                self.cta_id_in_cluster,
+                (*self.params.cluster_shape_mn, Int32(1)),
+            )
+        )
+        cur_tile_coord = (
+            cur_tile_coord[0],
+            cur_tile_coord[1],
+            self.current_group_idx,
+        )
+        return WorkTileInfo(cur_tile_coord, is_valid)

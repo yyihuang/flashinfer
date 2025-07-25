@@ -17,6 +17,11 @@ import cutlass.utils.blackwell_helpers as sm100_utils
 import cutlass.utils.blockscaled_layout as blockscaled_utils
 from cutlass.cute.runtime import from_dlpack
 
+from flashinfer.cutedsl.static_persistent_tile_scheduler import (
+    StaticPersistentTileScheduler,
+    MGroupedMaskedPersistentTileScheduler,
+)
+
 """
 This example provides an experimental implementation of the SM100 batched dense blockscaled GEMM kernel, please note that the APIs and implementation details related to this kernel may change in future releases.
 
@@ -343,6 +348,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         c_tensor: cute.Tensor,
         max_active_clusters: cutlass.Constexpr,
         stream: cuda.CUstream,
+        grouped_m_per_batch: Optional[cute.Tensor] = None,
         epilogue_op: cutlass.Constexpr = lambda x: x,
     ):
         """Execute the GEMM operation in steps:
@@ -366,6 +372,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         :type max_active_clusters: cutlass.Constexpr
         :param stream: CUDA stream for asynchronous execution
         :type stream: cuda.CUstream
+        :param grouped_m_per_batch: A tensor where each element represents the
+            number of valid rows in the M dimension for each batch.
+        :type grouped_m_per_batch: cute.Tensor, optional
         :param epilogue_op: Optional elementwise lambda function to apply to the output tensor
         :type epilogue_op: cutlass.Constexpr
         :raises TypeError: If input data types are incompatible with the MMA instruction.
@@ -378,6 +387,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         self.a_major_mode = utils.LayoutEnum.from_tensor(a_tensor).mma_major_mode()
         self.b_major_mode = utils.LayoutEnum.from_tensor(b_tensor).mma_major_mode()
         self.c_layout = utils.LayoutEnum.from_tensor(c_tensor)
+        self.grouped_m_per_batch = grouped_m_per_batch
 
         # Check if input data types are compatible with MMA instruction
         if cutlass.const_expr(self.a_dtype != self.b_dtype):
@@ -505,6 +515,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             self.cta_tile_shape_mnk,
             self.cluster_shape_mn,
             max_active_clusters,
+            self.grouped_m_per_batch,
         )
 
         self.buffer_align_bytes = 1024
@@ -580,6 +591,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             self.c_smem_layout_staged,
             self.epi_tile,
             self.tile_sched_params,
+            grouped_m_per_batch,
             epilogue_op,
         ).launch(
             grid=grid,
@@ -615,6 +627,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         c_smem_layout_staged: Union[cute.Layout, cute.ComposedLayout, None],
         epi_tile: cute.Tile,
         tile_sched_params: utils.PersistentTileSchedulerParams,
+        grouped_m_per_batch: Optional[cute.Tensor],
         epilogue_op: cutlass.Constexpr,
     ):
         """
@@ -881,9 +894,19 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             #
             # Persistent tile scheduling loop
             #
-            tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
-            )
+            if tile_sched_params.tile_sched_type == MGroupedMaskedPersistentTileScheduler:
+                tile_sched = MGroupedMaskedPersistentTileScheduler(
+                    tile_sched_params,
+                    cute.arch.block_idx(),
+                    cute.arch.grid_dim(),
+                    grouped_m_per_batch,
+                    self.cta_tile_shape_mnk[0],
+                )
+            else:
+                tile_sched = StaticPersistentTileScheduler.create(
+                    tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                )
+
             work_tile = tile_sched.initial_work_tile_info()
 
             ab_producer_state = pipeline.make_pipeline_state(
@@ -1053,9 +1076,18 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             #
             # Persistent tile scheduling loop
             #
-            tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
-            )
+            if tile_sched_params.tile_sched_type == MGroupedMaskedPersistentTileScheduler:
+                tile_sched = MGroupedMaskedPersistentTileScheduler(
+                    tile_sched_params,
+                    cute.arch.block_idx(),
+                    cute.arch.grid_dim(),
+                    grouped_m_per_batch,
+                    self.cta_tile_shape_mnk[0],
+                )
+            else:
+                tile_sched = StaticPersistentTileScheduler.create(
+                    tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                )
             work_tile = tile_sched.initial_work_tile_info()
 
             ab_consumer_state = pipeline.make_pipeline_state(
@@ -1246,9 +1278,18 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
             #
             # Persistent tile scheduling loop
             #
-            tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
-            )
+            if tile_sched_params.tile_sched_type == MGroupedMaskedPersistentTileScheduler:
+                tile_sched = MGroupedMaskedPersistentTileScheduler(
+                    tile_sched_params,
+                    cute.arch.block_idx(),
+                    cute.arch.grid_dim(),
+                    grouped_m_per_batch,
+                    self.cta_tile_shape_mnk[0],
+                )
+            else:
+                tile_sched = StaticPersistentTileScheduler.create(
+                    tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                )
             work_tile = tile_sched.initial_work_tile_info()
 
             acc_consumer_state = pipeline.make_pipeline_state(
@@ -1708,6 +1749,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         cta_tile_shape_mnk: Tuple[int, int, int],
         cluster_shape_mn: Tuple[int, int],
         max_active_clusters: cutlass.Constexpr,
+        grouped_m_per_batch: Optional[cute.Tensor] = None,
     ) -> Tuple[utils.PersistentTileSchedulerParams, Tuple[int, int, int]]:
         """Use persistent tile scheduler to compute the grid size for the output tensor C.
 
@@ -1719,6 +1761,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         :type cluster_shape_mn: tuple[int, int]
         :param max_active_clusters: Maximum number of active clusters.
         :type max_active_clusters: cutlass.Constexpr
+        :param grouped_m_per_batch: A tensor where each element represents the
+            number of valid rows in the M dimension for each batch.
+        :type grouped_m_per_batch: cute.Tensor, optional
 
         :return: A tuple containing:
             - tile_sched_params: Parameters for the persistent tile scheduler.
@@ -1733,9 +1778,25 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         tile_sched_params = utils.PersistentTileSchedulerParams(
             num_ctas_mnl, cluster_shape_mnl
         )
-        grid = utils.StaticPersistentTileScheduler.get_grid_shape(
-            tile_sched_params, max_active_clusters
-        )
+        if grouped_m_per_batch is not None:
+            num_n_blocks = num_ctas_mnl[1]
+            num_m_blocks_total = 0
+            for i in range(len(grouped_m_per_batch)):
+                num_m_blocks_total += cute.ceil_div(
+                    grouped_m_per_batch[i], cta_tile_shape_mnk[0]
+                )
+            total_tiles_in_problem = num_m_blocks_total * num_n_blocks
+            grid = (
+                *cluster_shape_mn,
+                min(
+                    max_active_clusters,
+                    cute.ceil_div(total_tiles_in_problem, cute.size(cluster_shape_mn)),
+                ),
+            )
+        else:
+            grid = utils.StaticPersistentTileScheduler.get_grid_shape(
+                tile_sched_params, max_active_clusters
+            )
 
         return tile_sched_params, grid
 
@@ -1937,6 +1998,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         a_major: str,
         b_major: str,
         c_major: str,
+        grouped_m_per_batch: Optional[torch.Tensor] = None,
     ) -> bool:
         """
         Check if the gemm can be implemented
@@ -1967,6 +2029,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         :type b_major: str
         :param c_major: The major axis of the C tensor
         :type c_major: str
+        :param grouped_m_per_batch: A tensor where each element represents the
+            number of valid rows in the M dimension for each batch.
+        :type grouped_m_per_batch: torch.Tensor, optional
 
         :return: True if the gemm can be implemented, False otherwise
         :rtype: bool
@@ -1991,6 +2056,8 @@ class Sm100BlockScaledPersistentDenseGemmKernel:
         if not Sm100BlockScaledPersistentDenseGemmKernel.is_valid_tensor_alignment(
             m, n, k, l, ab_dtype, c_dtype, a_major, b_major, c_major
         ):
+            can_implement = False
+        if grouped_m_per_batch is not None and l != len(grouped_m_per_batch):
             can_implement = False
         return can_implement
 
@@ -2026,6 +2093,7 @@ def run(
     iterations: int = 1,
     skip_ref_check: bool = False,
     use_cold_l2: bool = False,
+    grouped_m_per_batch: Optional[torch.Tensor] = None,
     **kwargs,
 ):
     """Execute a persistent batched dense blockscaled GEMM operation on Blackwell architecture with performance benchmarking.
@@ -2059,6 +2127,9 @@ def run(
     :type skip_ref_check: bool, optional
     :param use_cold_l2: Whether to use circular buffer strategy to ensure cold L2 cache, defaults to False
     :type use_cold_l2: bool, optional
+    :param grouped_m_per_batch: A tensor where each element represents the
+        number of valid rows in the M dimension for each batch.
+    :type grouped_m_per_batch: torch.Tensor, optional
     :raises RuntimeError: If CUDA GPU is not available
     :raises ValueError: If the configuration is invalid or unsupported by the kernel
     :return: Execution time of the GEMM kernel
@@ -2094,6 +2165,7 @@ def run(
         a_major,
         b_major,
         c_major,
+        grouped_m_per_batch,
     ):
         raise TypeError(
             f"Unsupported testcase {ab_dtype}, {sf_dtype}, {sf_vec_size}, {c_dtype},  {mma_tiler_mn}, {cluster_shape_mn}, {m}, {n}, {k}, {l}, {a_major}, {b_major}, {c_major}"
@@ -2241,6 +2313,12 @@ def run(
     current_stream = cutlass_torch.default_stream()
 
     # Compile gemm kernel
+    if grouped_m_per_batch is not None:
+        grouped_m_per_batch_tensor = from_dlpack(grouped_m_per_batch)
+        tile_sched_type = MGroupedMaskedPersistentTileScheduler
+    else:
+        grouped_m_per_batch_tensor = None
+        tile_sched_type = StaticPersistentTileScheduler
     compiled_gemm = cute.compile(
         gemm,
         a_tensor,
@@ -2250,13 +2328,21 @@ def run(
         c_tensor,
         max_active_clusters,
         current_stream,
+        tile_sched_type,
+        grouped_m_per_batch=grouped_m_per_batch_tensor,
     )
 
     # Compute reference result
     if not skip_ref_check:
         # Execute kernel once for reference checking
         compiled_gemm(
-            a_tensor, b_tensor, sfa_tensor, sfb_tensor, c_tensor, current_stream
+            a_tensor,
+            b_tensor,
+            sfa_tensor,
+            sfb_tensor,
+            c_tensor,
+            current_stream,
+            grouped_m_per_batch=grouped_m_per_batch_tensor,
         )
         print("Verifying results...")
         res_a = torch.einsum("mkl,mkl->mkl", a_ref, sfa_ref)
@@ -2292,6 +2378,7 @@ def run(
             cute.testing.convert(ref_f8, ref_tensor)
             ref = ref_device.cpu()
             torch.testing.assert_close(c_ref, ref, atol=tolerance, rtol=1e-02)
+
     def generate_tensors():
         a_tensor, _ = cutlass_torch.cute_tensor_like(
             a_ref, ab_dtype, is_dynamic_layout=True, assumed_align=16
@@ -2322,8 +2409,18 @@ def run(
 
         _, sfa_tensor, _ = create_scale_factor_tensor(l, m, k, sf_vec_size, sf_dtype)
         _, sfb_tensor, _ = create_scale_factor_tensor(l, n, k, sf_vec_size, sf_dtype)
+        if grouped_m_per_batch is not None:
+            grouped_m_per_batch_tensor = from_dlpack(grouped_m_per_batch.cuda())
+        else:
+            grouped_m_per_batch_tensor = None
         return cute.testing.JitArguments(
-            a_tensor, b_tensor, sfa_tensor, sfb_tensor, c_tensor, current_stream
+            a_tensor,
+            b_tensor,
+            sfa_tensor,
+            sfb_tensor,
+            c_tensor,
+            current_stream,
+            grouped_m_per_batch=grouped_m_per_batch_tensor,
         )
 
     workspace_count = 1
@@ -2438,5 +2535,29 @@ if __name__ == "__main__":
         args.iterations,
         args.skip_ref_check,
         args.use_cold_l2,
+    )
+    print("PASS")
+
+    m, n, k, l = args.mnkl
+    grouped_m_per_batch = torch.randint(
+        m // 2, m, (l,), dtype=torch.int32, device="cuda"
+    )
+    run(
+        args.mnkl,
+        args.ab_dtype,
+        args.sf_dtype,
+        args.sf_vec_size,
+        args.c_dtype,
+        args.a_major,
+        args.b_major,
+        args.c_major,
+        args.mma_tiler_mn,
+        args.cluster_shape_mn,
+        args.tolerance,
+        args.warmup_iterations,
+        args.iterations,
+        True,  # skip ref check for grouped gemm for now
+        args.use_cold_l2,
+        grouped_m_per_batch=grouped_m_per_batch,
     )
     print("PASS")
