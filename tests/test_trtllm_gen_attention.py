@@ -17,7 +17,7 @@ DTYPE_MAP = {
 GPU_DEVICE = "cuda:0"
 
 global_workspace_buffer = None
-workspace_size = 384 * 1024 * 1024
+workspace_size = 512 * 1024 * 1024
 
 
 def flip_coin(*args, **kwargs):
@@ -708,5 +708,5 @@ def test_trtllm_gen_prefill_deepseek(
 
 
 if __name__ == "__main__":
-    test_trtllm_batch_prefill("HND", 128, 32, 2, 5, -1, "fp16", "fp16", "fp16", False)
-    test_trtllm_batch_decode("HND", 128, 32, 2, 5, -1, "fp16", "fp16", "fp16", False)
+    test_trtllm_batch_prefill("HND", 128, 16, 2, 1, 1, "bf16", "bf16", "bf16", True)
+    test_trtllm_batch_decode("HND", 128, 16, 2, 1, 1, "bf16", "bf16", "bf16", True)

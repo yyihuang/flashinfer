@@ -143,7 +143,7 @@ void trtllm_paged_attention_launcher(
       num_semaphores * sizeof(uint32_t), 16, "trtllm_gen_counter_workspace");
   // softmax buffer for lse return
   runner_params.softmaxStatsPtr = float_allocator.aligned_alloc<float2>(
-      sizeof(float2) * num_qo_heads * runner_params.mSumOfSeqLensQ * 2, 16,
+      sizeof(float2) * num_qo_heads * runner_params.mSumOfSeqLensQ, 16,
       "trtllm_gen_softmax_stats_workspace");
   // scratch takes the rest of the workspace buffer
   runner_params.multiCtasKvScratchPtr =
@@ -157,7 +157,9 @@ void trtllm_paged_attention_launcher(
 
     runner_params.cumSeqLensQPtr = cum_seq_lens_q;
     runner_params.cumSeqLensKvPtr = cum_seq_lens_kv;
-    // runner_params.softmaxStatsPtr = nullptr;
+    runner_params.multiCtasKvCounterPtr = nullptr;
+    runner_params.softmaxStatsPtr = nullptr;
+    runner_params.multiCtasKvScratchPtr = nullptr;
   } else {
     // ForGen
     runner_params.mMaskType = TrtllmGenAttentionMaskType::Dense;
