@@ -142,12 +142,12 @@ void trtllm_paged_attention_launcher(
   runner_params.multiCtasKvCounterPtr = float_allocator.aligned_alloc<int32_t>(
       num_semaphores * sizeof(uint32_t), 16, "trtllm_gen_counter_workspace");
   // softmax buffer for lse return
+  // if (runner_params.lsePtr != nullptr) {
   runner_params.softmaxStatsPtr = float_allocator.aligned_alloc<float2>(
       sizeof(float2) * num_qo_heads * runner_params.mSumOfSeqLensQ, 16,
       "trtllm_gen_softmax_stats_workspace");
-  // scratch takes the rest of the workspace buffer
-  runner_params.multiCtasKvScratchPtr =
-      float_allocator.aligned_alloc<void>(0, 16, "trtllm_gen_scratch_workspace");
+  printf("softmax size = %d\n", sizeof(float2) * num_qo_heads * runner_params.mSumOfSeqLensQ);
+  // }
 
   if (mode == TllmPagedAttentionMode::Context) {
     runner_params.mMaskType = TrtllmGenAttentionMaskType::Causal;
@@ -158,8 +158,8 @@ void trtllm_paged_attention_launcher(
     runner_params.cumSeqLensQPtr = cum_seq_lens_q;
     runner_params.cumSeqLensKvPtr = cum_seq_lens_kv;
     runner_params.multiCtasKvCounterPtr = nullptr;
-    runner_params.softmaxStatsPtr = nullptr;
     runner_params.multiCtasKvScratchPtr = nullptr;
+    runner_params.softmaxStatsPtr = nullptr;
   } else {
     // ForGen
     runner_params.mMaskType = TrtllmGenAttentionMaskType::Dense;
@@ -168,6 +168,10 @@ void trtllm_paged_attention_launcher(
     runner_params.mTileScheduler =
         use_multi_block ? TileScheduler::Static : TileScheduler::Persistent;
     runner_params.mMultiCtasKvMode = use_multi_block;
+    // scratch takes the rest of the workspace buffer
+    runner_params.multiCtasKvScratchPtr =
+        float_allocator.aligned_alloc<void>(0, 16, "trtllm_gen_scratch_workspace");
+    runner_params.softmaxStatsPtr = nullptr;
   }
 
   auto [foundKernels, kinfo] = fmha_runner->isSupportedWithInfo(runner_params);
