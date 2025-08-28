@@ -17,7 +17,7 @@ DTYPE_MAP = {
 GPU_DEVICE = "cuda:0"
 
 global_workspace_buffer = None
-workspace_size = 128 * 1024 * 1024
+workspace_size = 384 * 1024 * 1024
 
 
 def flip_coin(*args, **kwargs):

@@ -195,6 +195,7 @@ def get_trtllm_gen_prefill_module():
         sm_count = get_device_sm_count(query.device)
         if out is None:
             out = torch.empty_like(query)
+        assert workspace_size > 0, "workspace_size must be greater than 0"
         op.trtllm_paged_attention_context(
             out,
             None,  # fp4 output not supported in wrapper api yet.
@@ -2145,8 +2146,8 @@ class BatchPrefillWithPagedKVCacheWrapper:
                     None,  # scale_v
                     rope_scale,
                     rope_theta,
-                    self._workspace_size,
                     self._token_pos_in_items_len,
+                    self._workspace_size,
                     self._num_qo_heads,
                     self._num_kv_heads,
                     self._block_tables,

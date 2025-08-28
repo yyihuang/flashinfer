@@ -134,6 +134,21 @@ void trtllm_paged_attention_launcher(
   runner_params.enable_pdl = enable_pdl;
 
   AlignedAllocator float_allocator(workspace_buffer, workspace_size);
+  size_t max_batch_size = 8192;   // todo(Yingyi): get from dlfw
+  size_t max_num_qo_heads = 256;  // todo(Yingyi): get from dlfw, in total 8MB
+  size_t num_semaphores =
+      round_up(max_batch_size * max_num_qo_heads, 8);  // max 8MB, should align to 16 bytes
+  // semaphores be at the first 8MB of workspace buffer: counter | softmax | scratch
+  runner_params.multiCtasKvCounterPtr = float_allocator.aligned_alloc<int32_t>(
+      num_semaphores * sizeof(uint32_t), 16, "trtllm_gen_counter_workspace");
+  // softmax buffer for lse return
+  runner_params.softmaxStatsPtr = float_allocator.aligned_alloc<float2>(
+      sizeof(float2) * num_qo_heads * runner_params.mSumOfSeqLensQ * 2, 16,
+      "trtllm_gen_softmax_stats_workspace");
+  // scratch takes the rest of the workspace buffer
+  runner_params.multiCtasKvScratchPtr =
+      float_allocator.aligned_alloc<void>(0, 16, "trtllm_gen_scratch_workspace");
+
   if (mode == TllmPagedAttentionMode::Context) {
     runner_params.mMaskType = TrtllmGenAttentionMaskType::Causal;
     runner_params.mKernelType = FmhaKernelType::Context;
@@ -142,6 +157,7 @@ void trtllm_paged_attention_launcher(
 
     runner_params.cumSeqLensQPtr = cum_seq_lens_q;
     runner_params.cumSeqLensKvPtr = cum_seq_lens_kv;
+    // runner_params.softmaxStatsPtr = nullptr;
   } else {
     // ForGen
     runner_params.mMaskType = TrtllmGenAttentionMaskType::Dense;
@@ -150,18 +166,6 @@ void trtllm_paged_attention_launcher(
     runner_params.mTileScheduler =
         use_multi_block ? TileScheduler::Static : TileScheduler::Persistent;
     runner_params.mMultiCtasKvMode = use_multi_block;
-
-    size_t max_batch_size = 8192;   // todo(Yingyi): get from dlfw
-    size_t max_num_qo_heads = 256;  // todo(Yingyi): get from dlfw, in total 8MB
-    size_t num_semaphores =
-        round_up(max_batch_size * max_num_qo_heads, 8);  // max 8MB, should align to 16 bytes
-    // semaphores be at the first 8MB of workspace buffer: counter | scratch
-    // todo(Yingyi): add softmax buffer later for lse return
-    runner_params.multiCtasKvCounterPtr = float_allocator.aligned_alloc<int32_t>(
-        num_semaphores * sizeof(uint32_t), 16, "trtllm_gen_counter_workspace");
-    // scratch takes the rest of the workspace buffer
-    runner_params.multiCtasKvScratchPtr =
-        float_allocator.aligned_alloc<void>(0, 16, "trtllm_gen_scratch_workspace");
   }
 
   auto [foundKernels, kinfo] = fmha_runner->isSupportedWithInfo(runner_params);
