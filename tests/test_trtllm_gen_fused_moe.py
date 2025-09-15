@@ -1300,6 +1300,13 @@ def routing_reference_topk(expert_logits, top_k, num_experts, padding):
     return permute_info, scores
 
 
+def check_nan_inf(a, b):
+    assert not torch.isnan(a).any(), "Reference output contains NaN"
+    assert not torch.isnan(b).any(), "Actual output contains NaN"
+    assert not torch.isinf(a).any(), "Reference output contains Inf"
+    assert not torch.isinf(b).any(), "Actual output contains Inf"
+
+
 def get_accuracy_pct(a, b, atol, rtol):
     if torch.any(torch.isnan(a)):
         raise Exception("NaN in reference output")
@@ -2384,6 +2391,8 @@ def test_moe_quantization_classes(
         f"Max mismatch percentage: {max(atol_mismatch_percentages):.2f} at atol={atol_values[np.argmax(atol_mismatch_percentages)]:.3f}"
     )
     print(f"Average mismatch percentage: {np.mean(atol_mismatch_percentages):.2f}")
+
+    check_nan_inf(output_dequant_reference, output_dequant_actual)
 
     # check_accuracy(
     #     output_dequant_reference,
