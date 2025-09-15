@@ -614,7 +614,7 @@ class FP8BlockScaleMoe(Moe):
     def __init__(self):
         super().__init__()
         self.atol = 0.1
-        self.rtol = 0.85
+        self.rtol = 0.4
         self.percent = 0.8
 
     def quantize_weights(self, gemm1_weights, gemm2_weights, hidden_states_sample):
@@ -1298,8 +1298,7 @@ def routing_reference_topk(expert_logits, top_k, num_experts, padding):
     return permute_info, scores
 
 
-def check_accuracy(a, b, atol, rtol, percent):
-    """Unified accuracy checking function with detailed error reporting."""
+def get_accuracy_pct(a, b, atol, rtol):
     if torch.any(torch.isnan(a)):
         raise Exception("NaN in reference output")
     if torch.any(torch.isnan(b)):
@@ -1314,6 +1313,12 @@ def check_accuracy(a, b, atol, rtol, percent):
     right = atol + rtol * torch.abs(b)
     count = torch.sum(left > right)
     mismatch_percent = count / a.numel()
+    return mismatch_percent
+
+
+def check_accuracy(a, b, atol, rtol, percent):
+    """Unified accuracy checking function with detailed error reporting."""
+    mismatch_percent = get_accuracy_pct(a, b, atol, rtol)
     if mismatch_percent > 1 - percent:
         print(a)
         print(b)
