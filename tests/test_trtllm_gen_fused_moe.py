@@ -291,6 +291,11 @@ class Moe(ABC):
         """Get accuracy tolerances for this quantization mode."""
         pass
 
+    @abstractmethod
+    def set_tolerances(self, atol, rtol, percent):
+        """Set accuracy tolerances for this quantization mode."""
+        pass
+
     def __str__(self):
         return self.name
 
@@ -315,6 +320,9 @@ class FP4Moe(Moe):
             quant_mode == QuantMode.FP4_MXFP4_MXFP8
             or quant_mode == QuantMode.FP4_MXFP4_Bf16
         )
+        self.atol = 0.1
+        self.rtol = 0.85
+        self.percent = 0.925
         self.sf_vec_size = 32 if self.is_mxfp4 else 16
 
     def quantize_weights(self, gemm1_weights, gemm2_weights, hidden_states_sample):
@@ -585,7 +593,14 @@ class FP4Moe(Moe):
 
     def get_tolerances(self):
         """Get FP4-specific accuracy tolerances."""
-        return {"atol": 0.1, "rtol": 0.85, "percent": 0.925}
+        """Default: atol=0.1, rtol=0.85, percent=0.925"""
+        return {"atol": self.atol, "rtol": self.rtol, "percent": self.percent}
+
+    def set_tolerances(self, atol, rtol, percent):
+        """Set FP4-specific accuracy tolerances."""
+        self.atol = atol
+        self.rtol = rtol
+        self.percent = percent
 
 
 # ====================================================================================
@@ -595,6 +610,12 @@ class FP4Moe(Moe):
 
 class FP8BlockScaleMoe(Moe):
     """FP8 MoE implementation with block scaling (DeepSeek style)."""
+
+    def __init__(self):
+        super().__init__()
+        self.atol = 0.1
+        self.rtol = 0.85
+        self.percent = 0.8
 
     def quantize_weights(self, gemm1_weights, gemm2_weights, hidden_states_sample):
         """Quantize weights to FP8 with block scaling."""
@@ -805,7 +826,13 @@ class FP8BlockScaleMoe(Moe):
 
     def get_tolerances(self):
         """Get FP8 block-scale accuracy tolerances."""
-        return {"atol": 0.1, "rtol": 0.85, "percent": 0.8}
+        return {"atol": self.atol, "rtol": self.rtol, "percent": self.percent}
+
+    def set_tolerances(self, atol, rtol, percent):
+        """Set FP8 block-scale accuracy tolerances."""
+        self.atol = atol
+        self.rtol = rtol
+        self.percent = percent
 
 
 # ====================================================================================
@@ -815,6 +842,12 @@ class FP8BlockScaleMoe(Moe):
 
 class FP8PerTensorMoe(Moe):
     """FP8 MoE implementation with per-tensor scaling (Llama4 style)."""
+
+    def __init__(self):
+        super().__init__()
+        self.atol = 0.1
+        self.rtol = 0.85
+        self.percent = 0.925
 
     def quantize_weights(self, gemm1_weights, gemm2_weights, hidden_states_sample):
         """Quantize weights to FP8 per-tensor and compute global scale factors."""
@@ -980,7 +1013,13 @@ class FP8PerTensorMoe(Moe):
 
     def get_tolerances(self):
         """Get FP8 per-tensor accuracy tolerances."""
-        return {"atol": 0.1, "rtol": 0.85, "percent": 0.925}
+        return {"atol": self.atol, "rtol": self.rtol, "percent": self.percent}
+
+    def set_tolerances(self, atol, rtol, percent):
+        """Set FP8 per-tensor accuracy tolerances."""
+        self.atol = atol
+        self.rtol = rtol
+        self.percent = percent
 
 
 # ====================================================================================
