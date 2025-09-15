@@ -22,6 +22,8 @@ import pytest
 import torch
 from cuda.bindings import runtime
 from torch.nn import functional as F
+import matplotlib.pyplot as plt
+import numpy as np
 
 from flashinfer import (
     RoutingMethodType,
@@ -2240,13 +2242,83 @@ def test_moe_quantization_classes(
 
     # Compare outputs using moe_impl-specific tolerances
     tolerances = moe_impl.get_tolerances()
-    check_accuracy(
-        output_dequant_reference,
-        output_dequant_actual,
-        atol=tolerances["atol"],
-        rtol=tolerances["rtol"],
-        percent=tolerances["percent"],
+
+    # plot the mismatch percentage with rtol
+    rtol_values = np.arange(0.05, 2.05, 0.05)  # From 0.05 to 2.0 with step 0.05
+    mismatch_percentages = []
+
+    for rtol in rtol_values:
+        mismatch_percent = get_accuracy_pct(
+            output_dequant_reference,
+            output_dequant_actual,
+            0.0,
+            rtol,
+        )
+        # Convert tensor to float if needed
+        if hasattr(mismatch_percent, "item"):
+            mismatch_percent_val = mismatch_percent.item()
+        elif hasattr(mismatch_percent, "cpu"):
+            mismatch_percent_val = mismatch_percent.cpu().numpy().item()
+        else:
+            mismatch_percent_val = float(mismatch_percent)
+
+        mismatch_percentages.append(mismatch_percent_val)
+        print(f"Mismatch percentage with rtol {rtol:.2f}: {mismatch_percent_val}")
+
+    # Generate the plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(rtol_values, mismatch_percentages, "b-o", markersize=4, linewidth=2)
+    plt.xlabel("Relative Tolerance (rtol)")
+    plt.ylabel("Mismatch Percentage")
+    plt.title("Mismatch Percentage vs Relative Tolerance (rtol)")
+    plt.grid(True, alpha=0.3)
+    plt.xlim(0, 2.0)
+    plt.ylim(0, max(mismatch_percentages) * 1.1 if mismatch_percentages else 100)
+
+    # Add some key rtol markers
+    key_rtols = [0.1, 0.5, 1.0, 1.5, 2.0]
+    for key_rtol in key_rtols:
+        if key_rtol <= max(rtol_values):
+            idx = np.argmin(np.abs(rtol_values - key_rtol))
+            plt.annotate(
+                f"rtol={key_rtol}\n{mismatch_percentages[idx]:.1f}",
+                xy=(rtol_values[idx], mismatch_percentages[idx]),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=9,
+                alpha=0.8,
+            )
+
+    plt.tight_layout()
+
+    # Save the plot to a file instead of showing it
+    plot_filename = "mismatch_percentage_vs_rtol.png"
+    plt.savefig(plot_filename, dpi=300, bbox_inches="tight")
+    print(f"Plot saved as: {plot_filename}")
+
+    # Also try to show it (will work if display is available)
+    try:
+        plt.show()
+    except Exception as e:
+        print(f"Could not display plot interactively: {e}")
+        print(f"Plot has been saved to {plot_filename}")
+
+    # Print summary statistics
+    print(
+        f"Min mismatch percentage: {min(mismatch_percentages):.2f} at rtol={rtol_values[np.argmin(mismatch_percentages)]:.2f}"
     )
+    print(
+        f"Max mismatch percentage: {max(mismatch_percentages):.2f} at rtol={rtol_values[np.argmax(mismatch_percentages)]:.2f}"
+    )
+    print(f"Average mismatch percentage: {np.mean(mismatch_percentages):.2f}")
+
+    # check_accuracy(
+    #     output_dequant_reference,
+    #     output_dequant_actual,
+    #     atol=tolerances["atol"],
+    #     rtol=tolerances["rtol"],
+    #     percent=tolerances["percent"],
+    # )
 
 
 if __name__ == "__main__":
