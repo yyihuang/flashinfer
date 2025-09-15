@@ -2315,7 +2315,7 @@ def test_moe_quantization_classes(
     print("=" * 50)
 
     # Use a range of atol values from 0.01 to 1.0
-    atol_values = np.arange(1, 100, 1)  # From 0.01 to 1.0 with step 0.02
+    atol_values = np.arange(0, 50000, 2500)  # From 0.01 to 1.0 with step 0.02
     atol_mismatch_percentages = []
 
     for atol in atol_values:
@@ -2343,13 +2343,13 @@ def test_moe_quantization_classes(
     plt.ylabel("Mismatch Percentage")
     plt.title("Mismatch Percentage vs Absolute Tolerance (rtol=0.0)")
     plt.grid(True, alpha=0.3)
-    plt.xlim(0, 100)
+    plt.xlim(0, 50000)
     plt.ylim(
         0, max(atol_mismatch_percentages) * 1.1 if atol_mismatch_percentages else 100
     )
 
     # Add some key atol markers
-    key_atols = [1, 5, 10, 20, 50, 100]
+    key_atols = [5000, 10000, 20000, 50000]
     for key_atol in key_atols:
         if key_atol <= max(atol_values):
             idx = np.argmin(np.abs(atol_values - key_atol))
