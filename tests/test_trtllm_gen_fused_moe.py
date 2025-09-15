@@ -2240,9 +2240,6 @@ def test_moe_quantization_classes(
         ],  # NOTE(yingyi): only for fp8 block scale for now, refactor later
     )
 
-    # Compare outputs using moe_impl-specific tolerances
-    tolerances = moe_impl.get_tolerances()
-
     # plot the mismatch percentage with rtol
     rtol_values = np.arange(0.05, 2.05, 0.05)  # From 0.05 to 2.0 with step 0.05
     mismatch_percentages = []
@@ -2311,6 +2308,82 @@ def test_moe_quantization_classes(
         f"Max mismatch percentage: {max(mismatch_percentages):.2f} at rtol={rtol_values[np.argmax(mismatch_percentages)]:.2f}"
     )
     print(f"Average mismatch percentage: {np.mean(mismatch_percentages):.2f}")
+
+    # Now plot the mismatch percentage with varying atol values (rtol=0.0)
+    print("\n" + "=" * 50)
+    print("Analyzing mismatch percentage vs atol values (rtol=0.0)")
+    print("=" * 50)
+
+    # Use a range of atol values from 0.01 to 1.0
+    atol_values = np.arange(1, 100, 1)  # From 0.01 to 1.0 with step 0.02
+    atol_mismatch_percentages = []
+
+    for atol in atol_values:
+        mismatch_percent = get_accuracy_pct(
+            output_dequant_reference,
+            output_dequant_actual,
+            atol,
+            0.0,  # Keep rtol=0.0
+        )
+        # Convert tensor to float if needed
+        if hasattr(mismatch_percent, "item"):
+            mismatch_percent_val = mismatch_percent.item()
+        elif hasattr(mismatch_percent, "cpu"):
+            mismatch_percent_val = mismatch_percent.cpu().numpy().item()
+        else:
+            mismatch_percent_val = float(mismatch_percent)
+
+        atol_mismatch_percentages.append(mismatch_percent_val)
+        print(f"Mismatch percentage with atol {atol:.3f}: {mismatch_percent_val}")
+
+    # Generate the atol plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(atol_values, atol_mismatch_percentages, "r-o", markersize=4, linewidth=2)
+    plt.xlabel("Absolute Tolerance (atol)")
+    plt.ylabel("Mismatch Percentage")
+    plt.title("Mismatch Percentage vs Absolute Tolerance (rtol=0.0)")
+    plt.grid(True, alpha=0.3)
+    plt.xlim(0, 100)
+    plt.ylim(
+        0, max(atol_mismatch_percentages) * 1.1 if atol_mismatch_percentages else 100
+    )
+
+    # Add some key atol markers
+    key_atols = [1, 5, 10, 20, 50, 100]
+    for key_atol in key_atols:
+        if key_atol <= max(atol_values):
+            idx = np.argmin(np.abs(atol_values - key_atol))
+            plt.annotate(
+                f"atol={key_atol}\n{atol_mismatch_percentages[idx]:.1f}",
+                xy=(atol_values[idx], atol_mismatch_percentages[idx]),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=9,
+                alpha=0.8,
+            )
+
+    plt.tight_layout()
+
+    # Save the atol plot to a file
+    atol_plot_filename = "mismatch_percentage_vs_atol.png"
+    plt.savefig(atol_plot_filename, dpi=300, bbox_inches="tight")
+    print(f"Atol plot saved as: {atol_plot_filename}")
+
+    # Also try to show it (will work if display is available)
+    try:
+        plt.show()
+    except Exception as e:
+        print(f"Could not display atol plot interactively: {e}")
+        print(f"Atol plot has been saved to {atol_plot_filename}")
+
+    # Print atol summary statistics
+    print(
+        f"Min mismatch percentage: {min(atol_mismatch_percentages):.2f} at atol={atol_values[np.argmin(atol_mismatch_percentages)]:.3f}"
+    )
+    print(
+        f"Max mismatch percentage: {max(atol_mismatch_percentages):.2f} at atol={atol_values[np.argmax(atol_mismatch_percentages)]:.3f}"
+    )
+    print(f"Average mismatch percentage: {np.mean(atol_mismatch_percentages):.2f}")
 
     # check_accuracy(
     #     output_dequant_reference,
