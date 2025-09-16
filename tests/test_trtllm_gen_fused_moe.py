@@ -2267,7 +2267,7 @@ def test_moe_quantization_classes(
             mismatch_percent_val = float(mismatch_percent)
 
         mismatch_percentages.append(mismatch_percent_val)
-        print(f"Mismatch percentage with rtol {rtol:.2f}: {mismatch_percent_val}")
+        print(f"Mismatch percentage with rtol {rtol:.4f}: {mismatch_percent_val}")
 
     # Generate the plot
     plt.figure(figsize=(10, 6))
@@ -2285,7 +2285,7 @@ def test_moe_quantization_classes(
         if key_rtol <= max(rtol_values):
             idx = np.argmin(np.abs(rtol_values - key_rtol))
             plt.annotate(
-                f"rtol={key_rtol}\n{mismatch_percentages[idx]:.1f}",
+                f"rtol={key_rtol}\n{mismatch_percentages[idx]:.4f}",
                 xy=(rtol_values[idx], mismatch_percentages[idx]),
                 xytext=(5, 5),
                 textcoords="offset points",
@@ -2309,12 +2309,12 @@ def test_moe_quantization_classes(
 
     # Print summary statistics
     print(
-        f"Min mismatch percentage: {min(mismatch_percentages):.2f} at rtol={rtol_values[np.argmin(mismatch_percentages)]:.2f}"
+        f"Min mismatch percentage: {min(mismatch_percentages):.4f} at rtol={rtol_values[np.argmin(mismatch_percentages)]:.4f}"
     )
     print(
-        f"Max mismatch percentage: {max(mismatch_percentages):.2f} at rtol={rtol_values[np.argmax(mismatch_percentages)]:.2f}"
+        f"Max mismatch percentage: {max(mismatch_percentages):.4f} at rtol={rtol_values[np.argmax(mismatch_percentages)]:.4f}"
     )
-    print(f"Average mismatch percentage: {np.mean(mismatch_percentages):.2f}")
+    print(f"Average mismatch percentage: {np.mean(mismatch_percentages):.4f}")
 
     # Now plot the mismatch percentage with varying atol values (rtol=0.0)
     print("\n" + "=" * 50)
@@ -2361,7 +2361,7 @@ def test_moe_quantization_classes(
         if key_atol <= max(atol_values):
             idx = np.argmin(np.abs(atol_values - key_atol))
             plt.annotate(
-                f"atol={key_atol}\n{atol_mismatch_percentages[idx]:.1f}",
+                f"atol={key_atol}\n{atol_mismatch_percentages[idx]:.4f}",
                 xy=(atol_values[idx], atol_mismatch_percentages[idx]),
                 xytext=(5, 5),
                 textcoords="offset points",
@@ -2385,12 +2385,12 @@ def test_moe_quantization_classes(
 
     # Print atol summary statistics
     print(
-        f"Min mismatch percentage: {min(atol_mismatch_percentages):.2f} at atol={atol_values[np.argmin(atol_mismatch_percentages)]:.3f}"
+        f"Min mismatch percentage: {min(atol_mismatch_percentages):.4f} at atol={atol_values[np.argmin(atol_mismatch_percentages)]:.4f}"
     )
     print(
-        f"Max mismatch percentage: {max(atol_mismatch_percentages):.2f} at atol={atol_values[np.argmax(atol_mismatch_percentages)]:.3f}"
+        f"Max mismatch percentage: {max(atol_mismatch_percentages):.4f} at atol={atol_values[np.argmax(atol_mismatch_percentages)]:.4f}"
     )
-    print(f"Average mismatch percentage: {np.mean(atol_mismatch_percentages):.2f}")
+    print(f"Average mismatch percentage: {np.mean(atol_mismatch_percentages):.4f}")
 
     check_nan_inf(output_dequant_reference, output_dequant_actual)
 
