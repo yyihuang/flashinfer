@@ -2130,6 +2130,9 @@ def test_moe_quantization_classes(
     hidden_states = 2 * torch.randn(
         (num_tokens, hidden_size), device="cuda", dtype=torch.bfloat16
     )
+    # hidden_states = torch.full(
+    #     (num_tokens, hidden_size), 1e-4, device="cuda", dtype=torch.bfloat16
+    # )
     gemm1_weights = torch.randn(
         (num_experts, 2 * intermediate_size, hidden_size),
         device="cuda",
