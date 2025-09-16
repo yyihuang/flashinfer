@@ -2251,7 +2251,14 @@ def test_moe_quantization_classes(
     )
 
     # plot the mismatch percentage with rtol
-    rtol_values = np.arange(0.05, 2.05, 0.05)  # From 0.05 to 2.0 with step 0.05
+    # Add more points in the 0-0.25 range for finer granularity
+    rtol_values_fine = np.arange(0.0, 0.26, 0.01)  # 0.00, 0.01, ..., 0.25
+    rtol_values_coarse = np.arange(0.3, 2.0, 0.05)  # 0.30, 0.35, ..., 2.0
+    # Add a very large range for rtol values
+    rtol_values_very_large = np.arange(2.5, 10.5, 1.0)  # 2.5, 3.0, ..., 10.0
+    rtol_values = np.unique(
+        np.concatenate([rtol_values_fine, rtol_values_coarse, rtol_values_very_large])
+    )
     mismatch_percentages = []
 
     for rtol in rtol_values:
@@ -2279,11 +2286,28 @@ def test_moe_quantization_classes(
     plt.ylabel("Mismatch Percentage")
     plt.title("Mismatch Percentage vs Relative Tolerance (rtol)")
     plt.grid(True, alpha=0.3)
-    plt.xlim(0, 2.0)
+    plt.xlim(0, 2.0) # todo: change to max(rtol_values)
     plt.ylim(0, max(mismatch_percentages) * 1.1 if mismatch_percentages else 100)
 
     # Add some key rtol markers
-    key_rtols = [0.1, 0.5, 1.0, 1.5, 2.0]
+    key_rtols = [
+        0.05,
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        1.0,
+        1.5,
+        2.0,
+        9.5,
+    ]
     for key_rtol in key_rtols:
         if key_rtol <= max(rtol_values):
             idx = np.argmin(np.abs(rtol_values - key_rtol))
@@ -2325,7 +2349,9 @@ def test_moe_quantization_classes(
     print("=" * 50)
 
     # Use a range of atol values from 0.01 to 1.0
-    atol_values = np.arange(0, 50000, 2500)  # From 0.01 to 1.0 with step 0.02
+    atol_values_fine = np.arange(0, 2500, 100)  # From 0.01 to 1.0 with step 0.02
+    atol_values_coarse = np.arange(2500, 50000, 2500)  # From 0.01 to 1.0 with step 0.02
+    atol_values = np.unique(np.concatenate([atol_values_fine, atol_values_coarse]))
     atol_mismatch_percentages = []
 
     for atol in atol_values:
