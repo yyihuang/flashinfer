@@ -2323,7 +2323,9 @@ def test_moe_quantization_classes(
     plt.tight_layout()
 
     # Save the plot to a file instead of showing it
-    plot_filename = "mismatch_percentage_vs_rtol.png"
+    plot_filename = (
+        "mismatch_percentage_vs_rtol.png"  # update for 1e-4 or 1e-3 init hidden states
+    )
     plt.savefig(plot_filename, dpi=300, bbox_inches="tight")
     print(f"Plot saved as: {plot_filename}")
 
@@ -2380,6 +2382,7 @@ def test_moe_quantization_classes(
     plt.title("Mismatch Percentage vs Absolute Tolerance (rtol=0.0)")
     plt.grid(True, alpha=0.3)
     plt.xlim(0, 50000)
+    # plt.xlim(0, 300) # for 1e-4 / 1e-3 init hidden states
     plt.ylim(
         0, max(atol_mismatch_percentages) * 1.1 if atol_mismatch_percentages else 100
     )
@@ -2401,7 +2404,9 @@ def test_moe_quantization_classes(
     plt.tight_layout()
 
     # Save the atol plot to a file
-    atol_plot_filename = "mismatch_percentage_vs_atol.png"
+    atol_plot_filename = (
+        "mismatch_percentage_vs_atol.png"  # update for 1e-4 or 1e-3 init hidden states
+    )
     plt.savefig(atol_plot_filename, dpi=300, bbox_inches="tight")
     print(f"Atol plot saved as: {atol_plot_filename}")
 
