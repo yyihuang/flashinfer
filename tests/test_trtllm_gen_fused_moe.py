@@ -2286,7 +2286,7 @@ def test_moe_quantization_classes(
     plt.ylabel("Mismatch Percentage")
     plt.title("Mismatch Percentage vs Relative Tolerance (rtol)")
     plt.grid(True, alpha=0.3)
-    plt.xlim(0, 2.0) # todo: change to max(rtol_values)
+    plt.xlim(0, 2.0)  # todo: change to max(rtol_values)
     plt.ylim(0, max(mismatch_percentages) * 1.1 if mismatch_percentages else 100)
 
     # Add some key rtol markers
