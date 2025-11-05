@@ -39,4 +39,10 @@ from .vllm_ar import meta_size as vllm_meta_size
 from .vllm_ar import register_buffer as vllm_register_buffer
 from .vllm_ar import register_graph_buffers as vllm_register_graph_buffers
 
+from .mapping import Mapping as Mapping
+from .trtllm_mnnvl_ar import get_allreduce_mnnvl_workspace as get_allreduce_mnnvl_workspace
+from .trtllm_mnnvl_ar import trtllm_mnnvl_all_reduce as trtllm_mnnvl_all_reduce
+from .trtllm_mnnvl_ar import trtllm_mnnvl_fused_allreduce_rmsnorm as trtllm_mnnvl_fused_allreduce_rmsnorm
+# from .trtllm_mnnvl_ar import mpi_barrier as mpi_barrier
+
 # from .mnnvl import MnnvlMemory, MnnvlMoe, MoEAlltoallInfo
