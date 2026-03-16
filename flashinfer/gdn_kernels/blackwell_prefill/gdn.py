@@ -4405,7 +4405,8 @@ class GDN:
 
         self.shared_storage = SharedStorage
 
-        if stream is None:
+        if cutlass.const_expr(stream is None):
+        # if stream is None:
             stream = cutlass.cuda.default_stream()
 
         # Launch kernel

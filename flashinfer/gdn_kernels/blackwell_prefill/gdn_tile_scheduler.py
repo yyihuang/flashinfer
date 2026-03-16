@@ -2,8 +2,8 @@ import cutlass
 import cutlass.cute as cute
 import cutlass.utils as utils
 
-from cutlass.cute.typing import Int32, Boolean
-
+from cutlass.cute.typing import Int32, Int64, Boolean
+# from cutlass.cute.typing import Int32, Boolean
 
 class GdnStaticTileSchedulerParams:
     def __init__(
