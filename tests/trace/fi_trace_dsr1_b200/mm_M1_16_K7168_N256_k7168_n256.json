@@ -1,0 +1,60 @@
+{
+  "name": "mm_M1_16_K7168_N256_k7168_n256",
+  "description": "DeepSeek-V3 router-GEMM specialization: out = mat_a @ mat_b for M in [1, 16], K=7168, N=256. Mutates ``out`` in-place.",
+  "op_type": "gemm_bf16",
+  "tags": [
+    "fi_api:flashinfer.gemm.routergemm.mm_M1_16_K7168_N256",
+    "status:verified",
+    "moe"
+  ],
+  "axes": {
+    "M": {
+      "type": "var",
+      "description": "Number of tokens (1-16)."
+    },
+    "K": {
+      "type": "const",
+      "value": 7168,
+      "description": "DeepSeek-V3 hidden dim (7168)."
+    },
+    "N": {
+      "type": "const",
+      "value": 256,
+      "description": "Number of experts (256)."
+    }
+  },
+  "inputs": {
+    "mat_a": {
+      "shape": [
+        "M",
+        "K"
+      ],
+      "dtype": "bfloat16"
+    },
+    "mat_b": {
+      "shape": [
+        "K",
+        "N"
+      ],
+      "dtype": "bfloat16"
+    },
+    "out": {
+      "shape": [
+        "M",
+        "N"
+      ],
+      "dtype": "float32",
+      "description": "In-place output."
+    }
+  },
+  "outputs": {
+    "out": {
+      "shape": [
+        "M",
+        "N"
+      ],
+      "dtype": "bfloat16"
+    }
+  },
+  "reference": "@torch.no_grad()\ndef _mm_M1_16_K7168_N256_reference(\n    mat_a, mat_b, out, launch_with_pdl: bool = False, **_unused\n):\n    \"\"\"Reference for the DeepSeek-V3 router GEMM (M=1..16, K=7168, N=256).\n    Mutates ``out`` in-place; returns it.\n    \"\"\"\n    a = mat_a.to(torch.float32)\n    b = mat_b.to(torch.float32)\n    out.copy_((a @ b).to(out.dtype))\n    return out\n"
+}
