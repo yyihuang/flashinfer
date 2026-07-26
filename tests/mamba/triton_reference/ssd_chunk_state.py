@@ -25,18 +25,6 @@ import triton.language as tl
 from .softplus import softplus
 
 
-@triton.autotune(
-    configs=[
-        triton.Config({"BLOCK_SIZE_H": 1}),
-        triton.Config({"BLOCK_SIZE_H": 2}),
-        triton.Config({"BLOCK_SIZE_H": 4}),
-        triton.Config({"BLOCK_SIZE_H": 8}),
-        triton.Config({"BLOCK_SIZE_H": 16}),
-        triton.Config({"BLOCK_SIZE_H": 32}),
-        triton.Config({"BLOCK_SIZE_H": 64}),
-    ],
-    key=["chunk_size", "nheads"],
-)
 @triton.jit
 def _chunk_cumsum_fwd_kernel(
     # Pointers to matrices
@@ -580,10 +568,11 @@ def _chunk_cumsum_fwd(
     dA_cumsum = torch.empty(
         batch, nheads, nchunks, chunk_size, device=dt.device, dtype=torch.float32
     )
-    grid_chunk_cs = lambda META: (
+    block_size_h = 8
+    grid_chunk_cs = (
         batch,
         nchunks,
-        triton.cdiv(nheads, META["BLOCK_SIZE_H"]),
+        triton.cdiv(nheads, block_size_h),
     )
     with torch.cuda.device(dt.device.index):
         _chunk_cumsum_fwd_kernel[grid_chunk_cs](
@@ -613,6 +602,7 @@ def _chunk_cumsum_fwd(
             dA_cumsum.stride(3),
             dt_softplus,
             HAS_DT_BIAS=dt_bias is not None,
+            BLOCK_SIZE_H=block_size_h,
             BLOCK_SIZE_CHUNK=triton.next_power_of_2(chunk_size),
         )
     return dA_cumsum, dt_out
