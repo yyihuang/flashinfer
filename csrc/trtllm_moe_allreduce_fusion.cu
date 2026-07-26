@@ -97,6 +97,21 @@ void trtllm_moe_finalize_allreduce_fusion(
 
     int hidden_dim = residual_in.size(-1);
     int top_k = expanded_idx_to_permuted_idx.size(-1);
+    TVM_FFI_ICHECK_EQ(hidden_dim % 16, 0)
+        << "hidden_dim must be divisible by the FP4 scale vector size";
+    if (quant_out.has_value()) {
+      TVM_FFI_ICHECK(scale_out.has_value())
+          << "scale_out is required when quant_out is enabled";
+      int64_t const padded_rows =
+          ((residual_in.size(0) + 127) / 128) * 128;
+      int64_t const scale_columns = hidden_dim / 16;
+      int64_t const padded_scale_columns =
+          ((scale_columns + 3) / 4) * 4;
+      int64_t const required_scale_elements =
+          padded_rows * padded_scale_columns;
+      TVM_FFI_ICHECK_GE(scale_out.value().numel(), required_scale_elements)
+          << "scale_out is too small for the SWIZZLED_128x4 FP4 layout";
+    }
 
     params.nranks = static_cast<int>(world_size);
     params.rank = static_cast<int>(world_rank);
@@ -136,6 +151,9 @@ void trtllm_moe_finalize_allreduce_fusion(
         scale_out.has_value() ? reinterpret_cast<void*>(scale_out.value().data_ptr()) : nullptr;
     params.routed_scaling_factor =
         routed_scaling_factor.has_value() ? routed_scaling_factor.value() : 1.0f;
+    // The legacy finalize ABI has no quant scale argument.  Use the neutral
+    // deterministic scale instead of leaving the inherited field undefined.
+    params.scale_factor = 1.0f;
 
     auto status = moefinalize_allreduce_fusion_op(params, launch_with_pdl);
     TVM_FFI_ICHECK(status == cudaSuccess)

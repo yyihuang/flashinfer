@@ -100,7 +100,12 @@ def _run_correctness_worker(
                         seq_len * hidden_size // 4, dtype=dtype, device=device
                     )
                     scale_out = torch.empty(
-                        seq_len * hidden_size // SF_VEC_SIZE, dtype=dtype, device=device
+                        comm.compute_fp4_swizzled_layout_sf_size(
+                            seq_len,
+                            hidden_size // SF_VEC_SIZE,
+                        ),
+                        dtype=dtype,
+                        device=device,
                     )
                     routed_scaling_factor = 2.5
 
