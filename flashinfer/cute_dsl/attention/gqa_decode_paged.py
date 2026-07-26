@@ -9,6 +9,8 @@ import cuda.bindings.driver as cuda
 
 import cutlass
 import cutlass.cute as cute
+from cutlass._mlir.dialects import nvvm as nvvm_dialect
+from cutlass.cutlass_dsl import dsl_user_op
 from cutlass.cute.nvgpu import tcgen05, OperandMajorMode
 import cutlass.utils as utils
 import cutlass.pipeline as pipeline
@@ -53,6 +55,21 @@ warp_or = partial(cute.arch.warp_redux_sync, kind="or")  # skip predicate reduct
 # Debug helpers
 debug_blasst = False
 gmem_add = partial(cute.arch.atomic_add, sem="relaxed", scope="gpu")  # count skips
+
+
+@dsl_user_op
+def nbar_sync_unaligned(barrier_id, num_threads, *, loc=None, ip=None):
+    """Block on a named barrier reached by a divergent warpgroup subset."""
+
+    barrier_id_ir = Int32(barrier_id).ir_value(loc=loc, ip=ip)
+    num_threads_ir = Int32(num_threads).ir_value(loc=loc, ip=ip)
+    nvvm_dialect.barrier_cta_sync(
+        barrier_id_ir,
+        thread_count=num_threads_ir,
+        aligned=False,
+        loc=loc,
+        ip=ip,
+    )
 
 
 class GroupedQueryAttentionDecodePaged:
@@ -1544,7 +1561,10 @@ class GroupedQueryAttentionDecodePaged:
                         # Reduce colmax in smem
                         if cutlass.const_expr(softmax_warpgroups == 2):
                             sM_acquire_nbar.arrive_and_wait()
-                        sM_consumer_nbar.arrive_and_wait()
+                        nbar_sync_unaligned(
+                            sM_consumer_nbar.barrier_id,
+                            sM_consumer_nbar.num_threads,
+                        )
                         if lane_store_max:
                             smem_fmax(sM.iterator + sM.layout(lane_idx), rM_lane)
 
@@ -1554,7 +1574,10 @@ class GroupedQueryAttentionDecodePaged:
                         tSsP_s = tSsP[None, None, p_handle.index]
 
                         # Load colmax
-                        sM_producer_nbar.arrive_and_wait()
+                        nbar_sync_unaligned(
+                            sM_producer_nbar.barrier_id,
+                            sM_producer_nbar.num_threads,
+                        )
                         colmax = sM.load()
                         if cutlass.const_expr(enable_blasst):
                             if lane_store_max:
@@ -1656,7 +1679,7 @@ class GroupedQueryAttentionDecodePaged:
             cute.arch.fence_view_async_tmem_store()
 
             # Initialize consumer barriers
-            sM_consumer_nbar.arrive()
+            sM_consumer_nbar.arrive_unaligned()
             for phase in cutlass.range_constexpr(o_stages):
                 with_phase(tL_consumer_nbar, phase).arrive()
 
@@ -1673,10 +1696,13 @@ class GroupedQueryAttentionDecodePaged:
                     if cutlass.const_expr(enable_blasst):
                         sp_handle = sp_consumer.wait_and_advance()
                         sp_handle.release()
-                    sM_producer_nbar.arrive_and_wait()
+                    nbar_sync_unaligned(
+                        sM_producer_nbar.barrier_id,
+                        sM_producer_nbar.num_threads,
+                    )
                     if lane_store_max:
                         sM_lane_prev = sM[lane_idx]
-                    sM_consumer_nbar.arrive()
+                    sM_consumer_nbar.arrive_unaligned()
 
             # Sequence loop
             softmax_phase = 0
@@ -1694,13 +1720,16 @@ class GroupedQueryAttentionDecodePaged:
                     colsum_s = colsum_load(softmax_phase)
 
                     # Load colmax of s
-                    sM_producer_nbar.arrive_and_wait()
+                    nbar_sync_unaligned(
+                        sM_producer_nbar.barrier_id,
+                        sM_producer_nbar.num_threads,
+                    )
                     if s == iters_s - o_stages - 1:
                         sM_final_nbar.arrive()
                     sM_lane = Float32(0)
                     if lane_store_max:
                         sM_lane = sM[lane_idx]
-                    sM_consumer_nbar.arrive()
+                    sM_consumer_nbar.arrive_unaligned()
 
                     # Wait for O of s-2
                     # Here so we can interleave shuffle_sync with correction muls
