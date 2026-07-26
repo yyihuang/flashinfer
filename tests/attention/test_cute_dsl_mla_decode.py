@@ -1116,6 +1116,87 @@ def test_cute_dsl_mla_decode_attention_sink(batch_size, seq_len_k, page_size):
     torch.testing.assert_close(out, ref_out_cast, atol=1e-2, rtol=1e-2)
 
 
+@pytest.mark.parametrize("seq_lens_values", ([1024, 5], [5, 1024]))
+def test_cute_dsl_mla_decode_attention_sink_var_seq_batch_order(
+    seq_lens_values,
+):
+    """A short request receives one sink mass with either batch ordering."""
+    skip_if_unsupported()
+
+    from flashinfer.cute_dsl.attention.wrappers.batch_mla import (
+        BatchMLADecodeCuteDSLWrapper,
+    )
+    from flashinfer.cute_dsl.attention.fusion.variant import AttentionWithSink
+
+    torch.manual_seed(42)
+    dtype = torch.bfloat16
+    batch_size, max_seq_len, page_size = 2, 1024, 64
+    (
+        query,
+        kv_cache,
+        block_tables,
+        _,
+        workspace_buffer,
+        num_heads,
+        latent_dim,
+        rope_dim,
+    ) = _make_mla_test_data(
+        batch_size,
+        max_seq_len,
+        page_size,
+        dtype,
+    )
+    seq_lens = torch.tensor(
+        seq_lens_values,
+        dtype=torch.int32,
+        device="cuda",
+    )
+    softmax_scale = 1.0 / (latent_dim**0.5)
+    output_scale = 1.0
+    sink = torch.randn((num_heads,), dtype=dtype, device="cuda")
+    variant = AttentionWithSink(sink)
+
+    wrapper = BatchMLADecodeCuteDSLWrapper(workspace_buffer)
+    wrapper.plan(
+        kv_lora_rank=latent_dim,
+        qk_rope_head_dim=rope_dim,
+        num_heads=num_heads,
+        page_size=page_size,
+        q_dtype=dtype,
+        is_var_seq=True,
+        variant=variant,
+    )
+    out = wrapper.run(
+        q=query,
+        kv_cache=kv_cache,
+        block_tables=block_tables,
+        seq_lens=seq_lens,
+        max_seq_len=max_seq_len,
+        softmax_scale=softmax_scale,
+        output_scale=output_scale,
+    )
+
+    kv_flat = kv_cache.reshape(-1, latent_dim + rope_dim)
+    ref_out = torch_reference_mla_with_variant(
+        query[..., :latent_dim],
+        query[..., latent_dim:],
+        kv_flat[:, :latent_dim],
+        kv_flat[:, latent_dim:],
+        block_tables,
+        seq_lens,
+        softmax_scale,
+        output_scale,
+        page_size,
+        sink=sink.cpu(),
+    )
+    torch.testing.assert_close(
+        out,
+        ref_out.to(dtype),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+
+
 @pytest.mark.parametrize("cute_dsl_impl_arg", ["auto", "modular"])
 def test_cute_dsl_mla_decode_via_api_with_sinks(cute_dsl_impl_arg):
     """Public trtllm_batch_decode_with_kv_cache_mla(backend='cute-dsl', sinks=...)
