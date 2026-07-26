@@ -242,14 +242,26 @@ class MLAComputeRole:
         if cutlass.const_expr(self.has_statistics_update):
             if cutlass.const_expr(self.has_params):
                 self.variant.params = params
-            qo_head_idx_for_stats = tTR_tS[0][0] + common_params.cta_m_offset
-            row_max, row_sum = self.variant.update_statistics(
-                k_index,
-                qo_head_idx_for_stats,
-                row_max,
-                row_sum,
-                softmax_params.softmax_scale_log2,
-            )
+            statistics_owner = True
+            if cutlass.const_expr(self.warps_in_n == 2):
+                # Paired N-warps exchange row_max below and sum row_sum in the
+                # correction epilogue.  Only one side may inject a virtual
+                # token, otherwise attention sinks contribute twice.
+                statistics_owner = cute.elem_less(
+                    tidx,
+                    self.num_compute_warps * self.threads_per_warp // 2,
+                )
+            if statistics_owner:
+                qo_head_idx_for_stats = (
+                    tTR_tS[0][0] + common_params.cta_m_offset
+                )
+                row_max, row_sum = self.variant.update_statistics(
+                    k_index,
+                    qo_head_idx_for_stats,
+                    row_max,
+                    row_sum,
+                    softmax_params.softmax_scale_log2,
+                )
 
         tTR_rAcc = cute.make_fragment_like(tTR_tS, self.acc_dtype)
 
