@@ -34,10 +34,11 @@ def bsa_attn_blk64_fwd(
     out: Optional[torch.Tensor] = None,
     lse: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-    """Forward pass for BSA block-sparse attention using the blk64 CUDA C++ kernel (SM100 only).
+    """Forward pass for BSA block-sparse attention using the blk64 CUDA C++ kernel.
 
     Block granularity is 64 tokens (kSparseBlockSize=64, kRows=64).  Only bfloat16
-    inputs are supported and head_dim must be 128.
+    inputs are supported, head_dim must be 128, and the GPU must be SM100a or
+    SM103a.
 
     Args:
         q: Query tensor (batch, seqlen_q, num_heads, head_dim).
@@ -69,8 +70,11 @@ def bsa_attn_blk64_fwd(
     assert q.is_cuda and k.is_cuda and v.is_cuda
     major, minor = torch.cuda.get_device_capability(q.device)
     arch = major * 10 + minor
-    if arch // 10 != 10:
-        raise RuntimeError(f"BSA blk64 only supports SM100, current device is SM{arch}")
+    if (major, minor) not in ((10, 0), (10, 3)):
+        raise RuntimeError(
+            "BSA blk64 only supports SM100a and SM103a, "
+            f"current device is SM{arch}"
+        )
 
     if softmax_scale is None:
         softmax_scale = 1.0 / math.sqrt(head_dim)
@@ -99,7 +103,7 @@ def bsa_attn_blk64_fwd(
         q2k_block_nums.contiguous() if has_variable_block_nums else torch.Tensor()
     )
 
-    ext = load_blk64_ext()
+    ext = load_blk64_ext((major, minor))
     results = ext.bsa_fused_fwd_blk64(
         q,
         k,
