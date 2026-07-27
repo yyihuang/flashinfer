@@ -263,7 +263,7 @@ class GroupedQueryAttentionDecodePaged:
         # Calculate stage counts
         ##############################
         # Fixed stage counts
-        self.pt_stages = pt_stages = 4  # smem page table buffer
+        self.pt_stages = pt_stages = 5  # smem page table reuse distance
         self.sp_stages = sp_stages = 4  # smem skip predicates
         self.p_stages = p_stages = 4  # smem P (BMM2 B)
         self.o_stages = o_stages = 2  # tmem O (BMM2 C)
@@ -893,6 +893,10 @@ class GroupedQueryAttentionDecodePaged:
                 sM[lane_idx] = -Float32.inf
         init_warp += 1
 
+        # N - final normalization. Keep it disjoint from sM so the reduction
+        # warp cannot overwrite colmax while a softmax warp still reads it.
+        sN = smem.allocate_tensor(acc_dtype, sM_layout, svector_align)
+
         # L - colsum
         sL_layout = cute.make_layout((blk_tile_n, warpgroup_warps))
         sL = smem.allocate_tensor(acc_dtype, sL_layout, svector_align)
@@ -938,7 +942,7 @@ class GroupedQueryAttentionDecodePaged:
         iters_s = cute.ceil_div(tiles_s - kv_split_idx, kv_splits)
         exit_early = kv_split_idx >= tiles_s
         prefetch_iters = min(2, s_stages - 1)  # MMA KQ iters to hide first softmax
-        assert pt_stages > prefetch_iters + 1
+        assert pt_stages > prefetch_iters + 2
 
         ##############################
         # Tmem tensor allocation
@@ -974,8 +978,8 @@ class GroupedQueryAttentionDecodePaged:
                 cute.arch.dealloc_tmem(tmem_ptr, self.tmem_alloc_cols)
 
             elif warpgroup_idx == correction_warpgroup_id:
-                sM_final_nbar.arrive()
-                sL_final_nbar.arrive()
+                sM_final_nbar.arrive_unaligned()
+                sL_final_nbar.arrive_unaligned()
 
         ##############################
         # TMA QK Dispatch
@@ -1073,18 +1077,26 @@ class GroupedQueryAttentionDecodePaged:
 
                 # Load page indices
                 cute.arch.cp_async_wait_group(1)
+                # Each lane issues cp.async for its page-table element, while
+                # every lane consumes the complete staged table below.  The
+                # wait is lane-local, so make all staged writes visible before
+                # any lane reads another lane's element.
+                cute.arch.sync_warp()
                 rPT = sPT[None, pt_index].load().reshape((pages_m, tiles_sm))
                 pt_index = pt_index_next
 
                 # Load K
-                tma_order_v_nbar.arrive_and_wait()
+                nbar_sync_unaligned(
+                    tma_order_v_nbar.barrier_id,
+                    tma_order_v_nbar.num_threads,
+                )
                 kv_token = kv_producer.try_acquire()
                 for sm in cutlass.range_constexpr(tiles_sm):
                     for dk in cutlass.range_constexpr(tiles_dk):
                         kv_handle = kv_producer.acquire_and_advance(kv_token)
                         is_last_iter = sm == tiles_sm - 1 and dk == tiles_dk - 1
                         if is_last_iter:
-                            tma_order_k_nbar.arrive()
+                            tma_order_k_nbar.arrive_unaligned()
                         else:
                             kv_token = kv_producer.try_acquire()
 
@@ -1112,8 +1124,11 @@ class GroupedQueryAttentionDecodePaged:
 
             # Tail V loop
             for s in cutlass.range_constexpr(prefetch_iters):
-                tma_order_v_nbar.arrive_and_wait()
-                tma_order_k_nbar.arrive()
+                nbar_sync_unaligned(
+                    tma_order_v_nbar.barrier_id,
+                    tma_order_v_nbar.num_threads,
+                )
+                tma_order_k_nbar.arrive_unaligned()
                 if cutlass.const_expr(enable_blasst):
                     if s < min(prefetch_iters, iters_s):
                         sp_handle = sp_consumer.wait_and_advance()
@@ -1143,13 +1158,16 @@ class GroupedQueryAttentionDecodePaged:
             )  # (TMA, Rest...)
 
             # Prefetch K loop
-            tma_order_v_nbar.arrive()
+            tma_order_v_nbar.arrive_unaligned()
             for s in cutlass.range_constexpr(prefetch_iters):
                 if s < iters_s:
                     for _ in cutlass.range_constexpr(tiles_sm * tiles_dk):
                         kv_producer.advance()
-                tma_order_k_nbar.arrive_and_wait()
-                tma_order_v_nbar.arrive()
+                nbar_sync_unaligned(
+                    tma_order_k_nbar.barrier_id,
+                    tma_order_k_nbar.num_threads,
+                )
+                tma_order_v_nbar.arrive_unaligned()
 
             # Sequence loop
             pt_index = 0
@@ -1166,12 +1184,18 @@ class GroupedQueryAttentionDecodePaged:
                     keep_tile = sSP_i32[sp_handle.index] != 0
                     sp_handle.release()
                     if not keep_tile:
-                        tma_order_k_nbar.arrive_and_wait()
-                        tma_order_v_nbar.arrive()
+                        nbar_sync_unaligned(
+                            tma_order_k_nbar.barrier_id,
+                            tma_order_k_nbar.num_threads,
+                        )
+                        tma_order_v_nbar.arrive_unaligned()
 
                 if keep_tile:
                     # Load page indices
-                    tma_order_k_nbar.arrive_and_wait()
+                    nbar_sync_unaligned(
+                        tma_order_k_nbar.barrier_id,
+                        tma_order_k_nbar.num_threads,
+                    )
                     rPT = sPT[None, pt_index].load().reshape((pages_k, tiles_sk))
 
                     # Load V
@@ -1181,7 +1205,7 @@ class GroupedQueryAttentionDecodePaged:
                             kv_handle = kv_producer.acquire_and_advance(kv_token)
                             is_last_iter = sk == tiles_sk - 1 and dm == tiles_dm - 1
                             if is_last_iter:
-                                tma_order_v_nbar.arrive()
+                                tma_order_v_nbar.arrive_unaligned()
                             else:
                                 kv_token = kv_producer.try_acquire()
 
@@ -1217,7 +1241,10 @@ class GroupedQueryAttentionDecodePaged:
             )
 
             # Store O to gmem
-            sO_final_nbar.arrive_and_wait()
+            nbar_sync_unaligned(
+                sO_final_nbar.barrier_id,
+                sO_final_nbar.num_threads,
+            )
             cute.copy(tma_atom_o, sO_tma, gO_tma)
 
         ##############################
@@ -1239,7 +1266,10 @@ class GroupedQueryAttentionDecodePaged:
             for s in cutlass.range(iters_s):
                 s_token = s_producer.try_acquire()
 
-                mma_order_vp_nbar.arrive_and_wait()
+                nbar_sync_unaligned(
+                    mma_order_vp_nbar.barrier_id,
+                    mma_order_vp_nbar.num_threads,
+                )
                 k_token = kv_consumer.try_wait()
 
                 s_handle = s_producer.acquire_and_advance(s_token)
@@ -1249,7 +1279,7 @@ class GroupedQueryAttentionDecodePaged:
                         k_handle = kv_consumer.wait_and_advance(k_token)
                         is_last_iter = sm == tiles_sm - 1 and dk == tiles_dk - 1
                         if is_last_iter:
-                            mma_order_kq_nbar.arrive()
+                            mma_order_kq_nbar.arrive_unaligned()
                         else:
                             k_token = kv_consumer.try_wait()
 
@@ -1281,8 +1311,11 @@ class GroupedQueryAttentionDecodePaged:
 
             # Tail loop
             for s in cutlass.range_constexpr(prefetch_iters):
-                mma_order_vp_nbar.arrive_and_wait()
-                mma_order_kq_nbar.arrive()
+                nbar_sync_unaligned(
+                    mma_order_vp_nbar.barrier_id,
+                    mma_order_vp_nbar.num_threads,
+                )
+                mma_order_kq_nbar.arrive_unaligned()
                 if cutlass.const_expr(enable_blasst):
                     if s < min(prefetch_iters, iters_s):
                         sp_handle = sp_consumer.wait_and_advance()
@@ -1302,13 +1335,16 @@ class GroupedQueryAttentionDecodePaged:
             tBsP_desc = thrblk_mma_vp.make_fragment_B(tBsP_nk)
 
             # Prefetch loop
-            mma_order_vp_nbar.arrive()
+            mma_order_vp_nbar.arrive_unaligned()
             for s in cutlass.range_constexpr(prefetch_iters):
                 if s < iters_s:
                     for _ in cutlass.range_constexpr(tiles_sm * tiles_dk):
                         kv_consumer.advance()
-                mma_order_kq_nbar.arrive_and_wait()
-                mma_order_vp_nbar.arrive()
+                nbar_sync_unaligned(
+                    mma_order_kq_nbar.barrier_id,
+                    mma_order_kq_nbar.num_threads,
+                )
+                mma_order_vp_nbar.arrive_unaligned()
 
             # Sequence loop
             for s in cutlass.range(iters_s):
@@ -1323,14 +1359,20 @@ class GroupedQueryAttentionDecodePaged:
                     keep_tile = sSP_i32[sp_handle.index] != 0
                     sp_handle.release()
                     if not keep_tile:
-                        mma_order_kq_nbar.arrive_and_wait()
-                        mma_order_vp_nbar.arrive()
+                        nbar_sync_unaligned(
+                            mma_order_kq_nbar.barrier_id,
+                            mma_order_kq_nbar.num_threads,
+                        )
+                        mma_order_vp_nbar.arrive_unaligned()
 
                 if keep_tile:
                     p_token = p_consumer.try_wait()
                     o_token = o_producer.try_acquire()
 
-                    mma_order_kq_nbar.arrive_and_wait()
+                    nbar_sync_unaligned(
+                        mma_order_kq_nbar.barrier_id,
+                        mma_order_kq_nbar.num_threads,
+                    )
                     v_token = kv_consumer.try_wait()
 
                     p_handle = p_consumer.wait_and_advance(p_token)
@@ -1340,7 +1382,7 @@ class GroupedQueryAttentionDecodePaged:
                             v_handle = kv_consumer.wait_and_advance(v_token)
                             is_last_iter = sk == tiles_sk - 1 and dm == tiles_dm - 1
                             if is_last_iter:
-                                mma_order_vp_nbar.arrive()
+                                mma_order_vp_nbar.arrive_unaligned()
                             else:
                                 v_token = kv_consumer.try_wait()
 
@@ -1383,9 +1425,9 @@ class GroupedQueryAttentionDecodePaged:
                 if softmax_phase == 1:
                     s_consumer.advance()
                     p_producer.advance()
-                    sM_release_nbar.arrive()
+                    sM_release_nbar.arrive_unaligned()
             if iters_s == 1 and softmax_phase == softmax_warpgroups - 1:
-                with_phase(tL_producer_nbar, 1).arrive()
+                with_phase(tL_producer_nbar, 1).arrive_unaligned()
             assert not (enable_blasst and softmax_warpgroups != 1), (
                 "blasst only supports 1 softmax wg"
             )
@@ -1552,7 +1594,10 @@ class GroupedQueryAttentionDecodePaged:
                                 warp_keep_tile
                             )
                         sp_handle.commit()
-                        sSP_producer_nbar.sync()
+                        nbar_sync_unaligned(
+                            sSP_producer_nbar.barrier_id,
+                            sSP_producer_nbar.num_threads,
+                        )
                         keep_tile = sSP_i32[sp_handle.index] != 0
 
                     if keep_tile:
@@ -1560,11 +1605,10 @@ class GroupedQueryAttentionDecodePaged:
 
                         # Reduce colmax in smem
                         if cutlass.const_expr(softmax_warpgroups == 2):
-                            sM_acquire_nbar.arrive_and_wait()
-                        nbar_sync_unaligned(
-                            sM_consumer_nbar.barrier_id,
-                            sM_consumer_nbar.num_threads,
-                        )
+                            nbar_sync_unaligned(
+                                sM_acquire_nbar.barrier_id,
+                                sM_acquire_nbar.num_threads,
+                            )
                         if lane_store_max:
                             smem_fmax(sM.iterator + sM.layout(lane_idx), rM_lane)
 
@@ -1582,8 +1626,14 @@ class GroupedQueryAttentionDecodePaged:
                         if cutlass.const_expr(enable_blasst):
                             if lane_store_max:
                                 sM_lane_prev = sM[lane_idx]
+                        # Release sM only after both the active softmax
+                        # warpgroup and correction warpgroup have consumed it.
+                        nbar_sync_unaligned(
+                            sM_consumer_nbar.barrier_id,
+                            sM_consumer_nbar.num_threads,
+                        )
                         if cutlass.const_expr(softmax_warpgroups == 2):
-                            sM_release_nbar.arrive()
+                            sM_release_nbar.arrive_unaligned()
 
                         # Handle if we never saw any in-bounds values
                         if cutlass.const_expr(is_masked_loop and do_atomic_red):
@@ -1611,10 +1661,20 @@ class GroupedQueryAttentionDecodePaged:
                         tSrL.store(colsum.reshape(tSrL.shape))
 
                         # Store per-thread colsum to tmem
-                        with_phase(tL_consumer_nbar, softmax_phase).arrive_and_wait()
+                        tL_consumer_phase_nbar = with_phase(
+                            tL_consumer_nbar,
+                            softmax_phase,
+                        )
+                        nbar_sync_unaligned(
+                            tL_consumer_phase_nbar.barrier_id,
+                            tL_consumer_phase_nbar.num_threads,
+                        )
                         cute.copy(tmem_store_atom_l, tSrL, tStL[None, softmax_phase])
                         cute.arch.fence_view_async_tmem_store()
-                        with_phase(tL_producer_nbar, softmax_phase).arrive()
+                        with_phase(
+                            tL_producer_nbar,
+                            softmax_phase,
+                        ).arrive_unaligned()
 
                         # Advance state
                         if cutlass.const_expr(softmax_warpgroups == 2):
@@ -1662,12 +1722,22 @@ class GroupedQueryAttentionDecodePaged:
                 tL_producer_nbar=tL_producer_nbar,
                 tL_consumer_nbar=tL_consumer_nbar,
             ):
-                with_phase(tL_producer_nbar, phase).arrive_and_wait()
+                tL_producer_phase_nbar = with_phase(
+                    tL_producer_nbar,
+                    phase,
+                )
+                nbar_sync_unaligned(
+                    tL_producer_phase_nbar.barrier_id,
+                    tL_producer_phase_nbar.num_threads,
+                )
                 tOtL_s = tOtL[None, phase]
                 tOrL_s = cute.make_rmem_tensor(tOrO_shape, Float32)
                 cute.copy(tmem_load_atom_o, tOtL_s, tOrL_s)
                 cute.arch.fence_view_async_tmem_load()
-                with_phase(tL_consumer_nbar, phase).arrive()
+                with_phase(
+                    tL_consumer_nbar,
+                    phase,
+                ).arrive_unaligned()
                 return tOrL_s.load().reshape(blk_tile_n)
 
             # Initialize O and colsum in tmem
@@ -1678,10 +1748,12 @@ class GroupedQueryAttentionDecodePaged:
             cute.copy(tmem_store_atom_o, tOrO[None, 0], tOtL[None, 1])
             cute.arch.fence_view_async_tmem_store()
 
-            # Initialize consumer barriers
-            sM_consumer_nbar.arrive_unaligned()
+            # Initialize tmem consumer barriers
             for phase in cutlass.range_constexpr(o_stages):
-                with_phase(tL_consumer_nbar, phase).arrive()
+                with_phase(
+                    tL_consumer_nbar,
+                    phase,
+                ).arrive_unaligned()
 
             # Initialize colsum in RF
             colsum_p = cute.make_rmem_tensor((blk_tile_n, o_stages), Float32)
@@ -1702,7 +1774,10 @@ class GroupedQueryAttentionDecodePaged:
                     )
                     if lane_store_max:
                         sM_lane_prev = sM[lane_idx]
-                    sM_consumer_nbar.arrive_unaligned()
+                    nbar_sync_unaligned(
+                        sM_consumer_nbar.barrier_id,
+                        sM_consumer_nbar.num_threads,
+                    )
 
             # Sequence loop
             softmax_phase = 0
@@ -1724,12 +1799,15 @@ class GroupedQueryAttentionDecodePaged:
                         sM_producer_nbar.barrier_id,
                         sM_producer_nbar.num_threads,
                     )
-                    if s == iters_s - o_stages - 1:
-                        sM_final_nbar.arrive()
                     sM_lane = Float32(0)
                     if lane_store_max:
                         sM_lane = sM[lane_idx]
-                    sM_consumer_nbar.arrive_unaligned()
+                    nbar_sync_unaligned(
+                        sM_consumer_nbar.barrier_id,
+                        sM_consumer_nbar.num_threads,
+                    )
+                    if s == iters_s - o_stages - 1:
+                        sM_final_nbar.arrive_unaligned()
 
                     # Wait for O of s-2
                     # Here so we can interleave shuffle_sync with correction muls
@@ -1767,7 +1845,7 @@ class GroupedQueryAttentionDecodePaged:
 
             # Notify for final colmax if we didn't already
             if not keep_tile or iters_s <= o_stages:
-                sM_final_nbar.arrive()
+                sM_final_nbar.arrive_unaligned()
 
             # Handle if we never saw any in-bounds values
             if cutlass.const_expr(not tma_mask and do_atomic_red):
@@ -1801,7 +1879,10 @@ class GroupedQueryAttentionDecodePaged:
                     if lane_store_max:
                         sL[lane_idx, warpgroup_widx] = rL_lane
                     # Wait to ensure reduction warp has reset sM_final_nbar
-                    sL_final_nbar.arrive_and_wait()
+                    nbar_sync_unaligned(
+                        sL_final_nbar.barrier_id,
+                        sL_final_nbar.num_threads,
+                    )
 
             # Load O of s-1, s
             tOrO_tail = cute.make_rmem_tensor((*tOsO.shape, o_stages), acc_dtype)
@@ -1822,15 +1903,19 @@ class GroupedQueryAttentionDecodePaged:
 
             # Apply final normalization
             if cutlass.const_expr(do_atomic_red or do_none_red):
-                # final normalization stored in sM
-                sM_final_nbar.arrive_and_wait()
-                normalization = sM.load()
+                # Final normalization is published through the second phase
+                # of sM_final_nbar, but stored in disjoint scratch.
+                nbar_sync_unaligned(
+                    sM_final_nbar.barrier_id,
+                    sM_final_nbar.num_threads,
+                )
+                normalization = sN.load()
                 output_final *= normalization
 
             # Store O to smem and notify
             tOsO.store(output_final.to(o_dtype).reshape(tOsO.shape))
             cute.arch.fence_view_async_shared()
-            sO_final_nbar.arrive()
+            sO_final_nbar.arrive_unaligned()
 
             # Debug
             if cutlass.const_expr(enable_blasst and debug_blasst):
@@ -1874,6 +1959,7 @@ class GroupedQueryAttentionDecodePaged:
                     sL_final_nbar,
                     reduction_mbars_ptr,
                     sM,
+                    sN,
                     sL,
                     sR,
                     gL,
@@ -1889,6 +1975,7 @@ class GroupedQueryAttentionDecodePaged:
                     sM_final_nbar,
                     sL_final_nbar,
                     sM,
+                    sN,
                     sL,
                     gL,
                     scale_o,
