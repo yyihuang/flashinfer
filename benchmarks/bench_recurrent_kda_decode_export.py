@@ -14,9 +14,10 @@
 
 """CUPTI A/B harness for the frozen recurrent-KDA speculative-decode export.
 
-Run this script in separate processes with ``PYTHONPATH`` pointing at either
-the pinned upstream checkout or the candidate checkout. Both modes call the
-same public ``flashinfer.kda_decode.recurrent_kda`` API with identical inputs.
+Run this script in separate processes with ``PYTHONPATH`` pointing at the
+pinned current-upstream, MR !452 peer, or candidate checkout. All modes call
+the same public ``flashinfer.kda_decode.recurrent_kda`` API with identical
+inputs.
 """
 
 import argparse
@@ -38,6 +39,7 @@ from flashinfer.testing import bench_gpu_time
 
 
 UPSTREAM_MAIN_SHA = "43f12df41252949b7663f4a74a5ea9aa5f2cb074"
+MR452_PEER_SHA = "3fd5c55bc84bc00b27bed5099031fa3aab8a4fb2"
 CASES = (
     {
         "name": "d128_t4_b64_h16_hv32_precomputed",
@@ -192,13 +194,39 @@ def _assert_frozen_route(spec: dict, kwargs: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("upstream", "frozen"), required=True)
+    parser.add_argument(
+        "--mode", choices=("upstream", "mr452-peer", "frozen"), required=True
+    )
     parser.add_argument("--expected-source-root", type=Path, required=True)
     parser.add_argument("--expected-source-sha", required=True)
-    parser.add_argument("--warmup", type=int, default=10)
-    parser.add_argument("--iters", type=int, default=100)
+    parser.add_argument("--warmup", type=int)
+    parser.add_argument("--iters", type=int)
+    parser.add_argument("--warmup-ms", type=int)
+    parser.add_argument("--bench-ms", type=int)
     parser.add_argument("--json", type=Path, required=True)
     args = parser.parse_args()
+
+    iteration_protocol = args.warmup is not None or args.iters is not None
+    duration_protocol = args.warmup_ms is not None or args.bench_ms is not None
+    if iteration_protocol and duration_protocol:
+        parser.error(
+            "choose either --warmup/--iters or --warmup-ms/--bench-ms, not both"
+        )
+    if iteration_protocol and (args.warmup is None or args.iters is None):
+        parser.error("--warmup and --iters must be specified together")
+    if duration_protocol and (args.warmup_ms is None or args.bench_ms is None):
+        parser.error("--warmup-ms and --bench-ms must be specified together")
+    if not iteration_protocol and not duration_protocol:
+        args.warmup = 10
+        args.iters = 100
+        iteration_protocol = True
+    timing_values = (
+        (args.warmup, args.iters)
+        if iteration_protocol
+        else (args.warmup_ms, args.bench_ms)
+    )
+    if any(value <= 0 for value in timing_values):
+        parser.error("benchmark iteration counts and durations must be positive")
 
     try:
         from cupti import cupti  # noqa: F401
@@ -232,6 +260,11 @@ def main() -> None:
             f"upstream mode must use pinned {UPSTREAM_MAIN_SHA}, "
             f"got {actual_source_sha}"
         )
+    if args.mode == "mr452-peer" and actual_source_sha != MR452_PEER_SHA:
+        raise RuntimeError(
+            f"mr452-peer mode must use pinned {MR452_PEER_SHA}, "
+            f"got {actual_source_sha}"
+        )
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required")
     device = torch.device("cuda")
@@ -248,6 +281,19 @@ def main() -> None:
 
         run()
         torch.cuda.synchronize()
+        timing_kwargs = (
+            {
+                "dry_run_iters": args.warmup,
+                "repeat_iters": args.iters,
+            }
+            if iteration_protocol
+            else {
+                "dry_run_iters": None,
+                "repeat_iters": None,
+                "dry_run_time_ms": args.warmup_ms,
+                "repeat_time_ms": args.bench_ms,
+            }
+        )
         samples_ms = [
             float(value)
             for value in bench_gpu_time(
@@ -255,8 +301,7 @@ def main() -> None:
                 enable_cupti=True,
                 cold_l2_cache=True,
                 use_cuda_graph=False,
-                dry_run_iters=args.warmup,
-                repeat_iters=args.iters,
+                **timing_kwargs,
             )
         ]
         median_ms = float(statistics.median(samples_ms))
@@ -273,7 +318,21 @@ def main() -> None:
             "cuda_graph": False,
             "timing_scope": "public_recurrent_kda_gpu_activity",
             "upstream_main_sha": UPSTREAM_MAIN_SHA,
+            "mr452_peer_sha": MR452_PEER_SHA,
             "source_sha": actual_source_sha,
+            "sampling_protocol": (
+                {
+                    "kind": "iterations",
+                    "warmup_iters": args.warmup,
+                    "repeat_iters": args.iters,
+                }
+                if iteration_protocol
+                else {
+                    "kind": "duration",
+                    "warmup_ms": args.warmup_ms,
+                    "bench_ms": args.bench_ms,
+                }
+            ),
         }
         rows.append(row)
         print(f"{args.mode:<8} {spec['name']:<43} {median_ms * 1000.0:10.3f} us")
