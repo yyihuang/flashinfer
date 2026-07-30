@@ -48,6 +48,12 @@ from cutlass.cute.runtime import from_dlpack, make_fake_stream
 from cutlass.utils import SmemAllocator
 import tvm_ffi  # noqa: F401 -- TVM FFI required for zero-overhead kernel dispatch
 
+from ..jit.flash_kda_decode import (
+    FlashKDADecodeVariant,
+    get_flash_kda_decode_module,
+)
+from ..utils import get_compute_capability
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -1130,6 +1136,183 @@ def _select_kernel_schedule(
     return tile_rows, reduction_schedule
 
 
+def _tensor_byte_range(tensor: torch.Tensor) -> tuple[int, int]:
+    """Return the conservative byte range touched by a nonnegative-stride tensor."""
+
+    begin = tensor.data_ptr()
+    if tensor.numel() == 0:
+        return begin, begin
+    last_element = sum(
+        (size - 1) * stride
+        for size, stride in zip(tensor.shape, tensor.stride(), strict=True)
+    )
+    return begin, begin + (last_element + 1) * tensor.element_size()
+
+
+def _tensors_overlap(lhs: torch.Tensor, rhs: torch.Tensor) -> bool:
+    lhs_begin, lhs_end = _tensor_byte_range(lhs)
+    rhs_begin, rhs_end = _tensor_byte_range(rhs)
+    return lhs_begin < rhs_end and rhs_begin < lhs_end
+
+
+def _select_flash_kda_decode_variant(
+    *,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    state: torch.Tensor,
+    out: torch.Tensor,
+    cu_seqlens: Optional[torch.Tensor],
+    ssm_state_indices: Optional[torch.Tensor],
+    num_accepted_tokens: torch.Tensor,
+    scale: float,
+    num_tokens: int,
+    num_spec_tokens: Optional[int],
+    use_qk_l2norm_in_kernel: bool,
+    use_gate_in_kernel: bool,
+    lower_bound: Optional[float],
+    A_log: Optional[torch.Tensor],
+    dt_bias: Optional[torch.Tensor],
+    initial_state_source: Optional[torch.Tensor],
+    beta_is_logit: bool,
+) -> Optional[FlashKDADecodeVariant]:
+    """Select a frozen B200 speculative-decode schedule or return ``None``.
+
+    This predicate is intentionally strict. Any public-API feature or layout
+    outside the measured export surface remains on the existing CuTe backend.
+    """
+
+    if (
+        not q.is_cuda
+        or get_compute_capability(q.device) != (10, 0)
+        or num_spec_tokens is None
+        or cu_seqlens is None
+        or ssm_state_indices is None
+        or initial_state_source is not None
+        or beta_is_logit
+        or not use_qk_l2norm_in_kernel
+        or not math.isfinite(scale)
+        or abs(scale) > torch.finfo(torch.float32).max
+    ):
+        return None
+
+    _, total_tokens, H, D = q.shape
+    _, _, HV, V = v.shape
+    num_sequences = cu_seqlens.numel() - 1
+    int32_max = torch.iinfo(torch.int32).max
+    if (
+        D != V
+        or q.shape[0] != 1
+        or total_tokens <= 0
+        or num_sequences <= 0
+        or num_sequences > 65535
+        or total_tokens != num_sequences * num_tokens
+        or total_tokens * H * D > int32_max
+        or total_tokens * HV * D > int32_max
+        or any(t.dtype != torch.bfloat16 for t in (q, k, v, g, beta, state, out))
+        or not all(t.is_contiguous() for t in (q, k, v, beta, out))
+        or g.ndim != 4
+        or g.stride(-1) != 1
+        or g.stride(-2) != D
+        or g.stride(1) <= 0
+        or g.stride(1) < HV * D
+        or g.stride(1) > int32_max
+        or g.stride(1) % 4 != 0
+        or total_tokens * g.stride(1) > int32_max
+        or q.data_ptr() % 8 != 0
+        or k.data_ptr() % 8 != 0
+        or g.data_ptr() % 8 != 0
+        or state.ndim != 4
+        or state.shape[0] <= 0
+        or state.shape[1:] != (HV, D, D)
+        or state.stride(-1) != 1
+        or state.stride(-2) != D
+        or state.stride(-3) != D * D
+        or state.stride(0) < HV * D * D
+        or state.stride(0) % 8 != 0
+        or state.stride(0) > int32_max
+        or state.shape[0] * state.stride(0) > int32_max
+        or state.data_ptr() % 16 != 0
+        or not cu_seqlens.is_contiguous()
+        or not ssm_state_indices.is_contiguous()
+        or not num_accepted_tokens.is_contiguous()
+    ):
+        return None
+
+    read_tensors = [
+        q,
+        k,
+        v,
+        g,
+        beta,
+        cu_seqlens,
+        ssm_state_indices,
+        num_accepted_tokens,
+    ]
+    read_tensors.extend(tensor for tensor in (A_log, dt_bias) if tensor is not None)
+    if _tensors_overlap(out, state) or any(
+        _tensors_overlap(mutated, read)
+        for mutated in (out, state)
+        for read in read_tensors
+    ):
+        return None
+
+    if (D, num_tokens, num_sequences, H, HV) != (128, 4, 64, 16, 32):
+        return None
+
+    if (
+        not use_gate_in_kernel
+        and lower_bound is None
+        and A_log is None
+        and dt_bias is None
+    ):
+        return "d128_t4_precomputed"
+    return None
+
+
+def _run_flash_kda_decode(
+    variant: FlashKDADecodeVariant,
+    *,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    A_log: Optional[torch.Tensor],
+    dt_bias: Optional[torch.Tensor],
+    state: torch.Tensor,
+    out: torch.Tensor,
+    cu_seqlens: torch.Tensor,
+    ssm_state_indices: torch.Tensor,
+    num_accepted_tokens: torch.Tensor,
+    scale: float,
+    lower_bound: Optional[float],
+    dummy_f32: torch.Tensor,
+) -> None:
+    """Launch one frozen decode specialization on the current CUDA stream."""
+
+    module = get_flash_kda_decode_module(variant)
+    module.run(
+        q,
+        k,
+        v,
+        g,
+        beta,
+        A_log if A_log is not None else dummy_f32,
+        dt_bias if dt_bias is not None else dummy_f32,
+        state,
+        out,
+        cu_seqlens,
+        ssm_state_indices,
+        num_accepted_tokens,
+        float(scale),
+        float(lower_bound if lower_bound is not None else 0.0),
+        int(torch.cuda.current_stream(q.device).cuda_stream),
+    )
+
+
 def run_recurrent_kda(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -1514,6 +1697,52 @@ def run_recurrent_kda(
         num_accepted_tokens_i32 = dc[nat_key]
     else:
         num_accepted_tokens_i32 = dc["i32_1"]
+
+    effective_scale = scale if scale is not None else 1.0 / math.sqrt(K)
+    flash_kda_decode_variant = _select_flash_kda_decode_variant(
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        beta=beta,
+        state=state,
+        out=out_buf,
+        cu_seqlens=cu_seqlens_i32,
+        ssm_state_indices=ssi,
+        num_accepted_tokens=num_accepted_tokens_i32,
+        scale=effective_scale,
+        num_tokens=NUM_TOKENS,
+        num_spec_tokens=num_spec_tokens,
+        use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
+        use_gate_in_kernel=use_gate_in_kernel,
+        lower_bound=lower_bound,
+        A_log=A_log,
+        dt_bias=dt_bias,
+        initial_state_source=initial_state_source,
+        beta_is_logit=beta_is_logit,
+    )
+    if flash_kda_decode_variant is not None:
+        _run_flash_kda_decode(
+            flash_kda_decode_variant,
+            q=q,
+            k=k,
+            v=v,
+            g=g,
+            beta=beta,
+            A_log=A_log,
+            dt_bias=dt_bias,
+            state=state,
+            out=out_buf,
+            cu_seqlens=cu_seqlens_i32,
+            ssm_state_indices=ssi,
+            num_accepted_tokens=num_accepted_tokens_i32,
+            scale=effective_scale,
+            lower_bound=lower_bound,
+            dummy_f32=dc["f32_1"],
+        )
+        if _batched_spec_B is not None:
+            out_buf = out_buf.reshape(_batched_spec_B, 1 + num_spec_tokens, HV, V)
+        return (out_buf, state if output_final_state else None)
 
     if use_one_warp:
         USE_GATE = 1 if use_gate_in_kernel else 0

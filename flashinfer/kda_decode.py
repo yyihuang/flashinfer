@@ -64,7 +64,9 @@ def recurrent_kda(
 ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
     r"""Recurrent KDA (Kimi Delta Attention) decode kernel.
 
-    This is the public API layer for the CuTe DSL implementation in
+    This public API dispatches the measured B200 D128/T4/N64/H16/HV32
+    precomputed-gate specialization to an optimized frozen CUDA kernel and
+    otherwise uses the CuTe DSL implementation in
     ``flashinfer.kda_kernels.recurrent_kda``. It supports single-token decode,
     fused speculative decode, GQA, optional cu_seqlens packing, and the same
     gate modes as the backend implementation.
