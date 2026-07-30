@@ -17,7 +17,9 @@ from flashinfer.utils import get_compute_capability
 @pytest.mark.parametrize("n", [80, 64])
 @pytest.mark.parametrize("k", [64, 256])
 @pytest.mark.parametrize("res_dtype", [torch.bfloat16, torch.float16, torch.float32])
-@pytest.mark.parametrize("backend", ["cutlass", "cudnn", "cutile", "tgv", "auto"])
+@pytest.mark.parametrize(
+    "backend", ["cutlass", "cudnn", "cutile", "tgv", "weave", "auto"]
+)
 def test_bmm_bf16(b, m, n, k, res_dtype, backend):
     compute_capability = get_compute_capability(torch.device(device="cuda"))
     compute_capability_number = compute_capability[0] * 10 + compute_capability[1]
@@ -63,6 +65,85 @@ def test_bmm_bf16(b, m, n, k, res_dtype, backend):
 
     cos_sim = F.cosine_similarity(reference.reshape(-1), out.reshape(-1), dim=0)
     assert cos_sim > 0.99
+
+
+@pytest.mark.parametrize(
+    "shape,res_dtype",
+    [
+        ((1, 48, 80, 64), torch.float32),
+        ((16, 128, 64, 256), torch.bfloat16),
+        ((4, 16, 1024, 1024), torch.bfloat16),
+        ((7, 32, 96, 128), torch.float16),
+    ],
+)
+def test_bmm_bf16_weave_routes_and_output_identity(shape, res_dtype):
+    if not bmm_bf16.is_backend_supported("weave", 100):
+        pytest.skip("Weave BF16 BMM requires exact SM100.")
+    if get_compute_capability(torch.device("cuda")) != (10, 0):
+        pytest.skip("Weave BF16 BMM requires exact SM100.")
+
+    b, m, n, k = shape
+    torch.manual_seed(7)
+    input = torch.randn((b, m, k), device="cuda", dtype=torch.bfloat16)
+    mat2 = torch.randn((b, n, k), device="cuda", dtype=torch.bfloat16).transpose(
+        -2, -1
+    )
+    out = torch.empty((b, m, n), device="cuda", dtype=res_dtype)
+    expected = torch.bmm(input.float(), mat2.float()).to(res_dtype)
+
+    result = bmm_bf16(
+        input,
+        mat2,
+        out=out,
+        out_dtype=res_dtype,
+        backend="weave",
+    )
+
+    assert result is out
+    torch.testing.assert_close(result, expected, atol=1e-2, rtol=1e-2)
+
+
+def test_bmm_bf16_weave_repeat_reuses_module_and_output():
+    if get_compute_capability(torch.device("cuda")) != (10, 0):
+        pytest.skip("Weave BF16 BMM requires exact SM100.")
+
+    torch.manual_seed(0)
+    input = torch.randn((4, 128, 256), device="cuda", dtype=torch.bfloat16)
+    mat2 = torch.randn((4, 256, 256), device="cuda", dtype=torch.bfloat16).transpose(
+        -2, -1
+    )
+    out = torch.empty((4, 128, 256), device="cuda", dtype=torch.bfloat16)
+    expected = torch.bmm(input.float(), mat2.float()).to(torch.bfloat16)
+
+    first = bmm_bf16(input, mat2, out=out, backend="weave")
+    second = bmm_bf16(input, mat2, out=out, backend="weave")
+
+    assert first is out
+    assert second is out
+    torch.testing.assert_close(second, expected, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("k", [56, 65])
+def test_bmm_bf16_weave_rejects_unsupported_k(k):
+    if get_compute_capability(torch.device("cuda")) != (10, 0):
+        pytest.skip("Weave BF16 BMM requires exact SM100.")
+
+    input = torch.randn((1, 16, k), device="cuda", dtype=torch.bfloat16)
+    mat2 = torch.randn((1, 32, k), device="cuda", dtype=torch.bfloat16).transpose(
+        -2, -1
+    )
+    with pytest.raises(ValueError, match="K >= 64 and K divisible by 8"):
+        bmm_bf16(input, mat2, backend="weave")
+
+
+def test_bmm_bf16_weave_rejects_non_transposed_b():
+    if get_compute_capability(torch.device("cuda")) != (10, 0):
+        pytest.skip("Weave BF16 BMM requires exact SM100.")
+
+    input = torch.randn((1, 16, 64), device="cuda", dtype=torch.bfloat16)
+    mat2 = torch.randn((1, 64, 32), device="cuda", dtype=torch.bfloat16)
+    with pytest.raises(ValueError, match="exact column-major"):
+        bmm_bf16(input, mat2, backend="weave")
 
 
 def test_bmm_bf16_cutile_repeat_uses_tune_cache():
