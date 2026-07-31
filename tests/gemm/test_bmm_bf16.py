@@ -74,6 +74,7 @@ def test_bmm_bf16(b, m, n, k, res_dtype, backend):
         ((16, 128, 64, 256), torch.bfloat16),
         ((4, 16, 1024, 1024), torch.bfloat16),
         ((7, 32, 96, 128), torch.float16),
+        ((3, 32, 96, 72), torch.float32),
     ],
 )
 def test_bmm_bf16_weave_routes_and_output_identity(shape, res_dtype):
@@ -143,6 +144,18 @@ def test_bmm_bf16_weave_rejects_non_transposed_b():
     input = torch.randn((1, 16, 64), device="cuda", dtype=torch.bfloat16)
     mat2 = torch.randn((1, 64, 32), device="cuda", dtype=torch.bfloat16)
     with pytest.raises(ValueError, match="exact column-major"):
+        bmm_bf16(input, mat2, backend="weave")
+
+
+def test_bmm_bf16_weave_rejects_odd_n():
+    if get_compute_capability(torch.device("cuda")) != (10, 0):
+        pytest.skip("Weave BF16 BMM requires exact SM100.")
+
+    input = torch.randn((1, 16, 64), device="cuda", dtype=torch.bfloat16)
+    mat2 = torch.randn((1, 65, 64), device="cuda", dtype=torch.bfloat16).transpose(
+        -2, -1
+    )
+    with pytest.raises(ValueError, match="N to be divisible by 8"):
         bmm_bf16(input, mat2, backend="weave")
 
 

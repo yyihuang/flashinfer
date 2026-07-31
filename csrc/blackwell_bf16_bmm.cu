@@ -116,6 +116,8 @@ void CheckExactLayout(const TensorView& A, const TensorView& B, const TensorView
   CheckedInt(A.stride(1), "A row stride");
   CheckedInt(B.stride(0), "B batch stride");
   CheckedInt(B.stride(2), "B column stride");
+  CheckedInt(static_cast<int64_t>(batch_size) * m * k, "A element count");
+  CheckedInt(static_cast<int64_t>(batch_size) * k * n, "B element count");
   CheckedInt(static_cast<int64_t>(batch_size) * m * n, "output element count");
 }
 
@@ -141,6 +143,10 @@ void Run(TensorView A, TensorView B, TensorView out) {
   TVM_FFI_ICHECK_GT(batch_size, 0) << "batch size must be positive";
   TVM_FFI_ICHECK_GT(m, 0) << "M must be positive";
   TVM_FFI_ICHECK_GT(n, 0) << "N must be positive";
+  TVM_FFI_ICHECK_LE(batch_size, 65535) << "batch size exceeds CUDA grid.z";
+  TVM_FFI_ICHECK_LE((static_cast<int64_t>(n) + 31) / 32, 65535)
+      << "N exceeds CUDA grid.y for the narrowest dispatcher tile";
+  TVM_FFI_ICHECK_EQ(n % 8, 0) << "Weave BF16 BMM requires N to be a multiple of 8";
   TVM_FFI_ICHECK_GE(k, 64) << "Weave BF16 BMM requires K >= 64";
   TVM_FFI_ICHECK_EQ(k % 8, 0) << "Weave BF16 BMM requires K to be a multiple of 8";
 
@@ -150,6 +156,9 @@ void Run(TensorView A, TensorView B, TensorView out) {
   TVM_FFI_ICHECK_EQ(out.size(1), m) << "out M dimension mismatch";
   TVM_FFI_ICHECK_EQ(out.size(2), n) << "out N dimension mismatch";
   int out_type = OutputType(out);
+  int out_element_bytes = out_type == kOutF32 ? 4 : 2;
+  CheckedInt(static_cast<int64_t>(batch_size) * m * n * out_element_bytes,
+             "output byte span");
 
   CheckExactLayout(A, B, out, batch_size, m, n, k);
   int a_stride_b = CheckedInt(A.stride(0), "A batch stride");

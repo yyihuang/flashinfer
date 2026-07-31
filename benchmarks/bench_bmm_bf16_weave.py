@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import statistics
 import subprocess
 import warnings
@@ -43,6 +44,12 @@ OUT_DTYPES = {
     "float16": torch.float16,
     "float32": torch.float32,
 }
+
+CAKE_SOURCE_COMMIT = "312c190d52f68e9af3adfa2d8d5729ce194a4f4e"
+CONTRACT_VERSION = "v16-2026-07-29"
+UPSTREAM_REGRESSION_SHA256 = (
+    "7ae6f944c663d929a26e44dfb3fd598b35dc7052a5e6cc238ec00a6820b66244"
+)
 
 
 def _focused_rows() -> list[dict]:
@@ -72,8 +79,13 @@ def _focused_rows() -> list[dict]:
                                     "M": m,
                                     "N": n,
                                     "K": k,
+                                    "benchmark": False,
+                                    "check_correctness": True,
+                                    "fixture": "focused_grid",
+                                    "mr344_perf_gate": False,
                                     "out_dtype": out_dtype,
                                     "peer_backend": peer_backend,
+                                    "preallocated": True,
                                     "seed": 7,
                                     "reuse_rounds": 1,
                                 }
@@ -89,8 +101,13 @@ def _rows() -> list[dict]:
             "M": 128,
             "N": 256,
             "K": 256,
+            "benchmark": False,
+            "check_correctness": True,
+            "fixture": "cutile_cache",
+            "mr344_perf_gate": False,
             "out_dtype": "bfloat16",
             "peer_backend": "cutile",
+            "preallocated": True,
             "seed": 0,
             "reuse_rounds": 2,
         },
@@ -100,8 +117,13 @@ def _rows() -> list[dict]:
             "M": 16,
             "N": 1024,
             "K": 1024,
+            "benchmark": False,
+            "check_correctness": True,
+            "fixture": "trace",
+            "mr344_perf_gate": False,
             "out_dtype": "bfloat16",
             "peer_backend": "cutlass",
+            "preallocated": False,
             "seed": 0,
             "reuse_rounds": 1,
         },
@@ -111,8 +133,13 @@ def _rows() -> list[dict]:
             "M": 8,
             "N": 1024,
             "K": 1024,
+            "benchmark": False,
+            "check_correctness": True,
+            "fixture": "trace",
+            "mr344_perf_gate": False,
             "out_dtype": "bfloat16",
             "peer_backend": "cutlass",
+            "preallocated": False,
             "seed": 0,
             "reuse_rounds": 1,
         },
@@ -127,6 +154,22 @@ def _route_for_k(k: int) -> str:
     if k == 64:
         return "hmma_m16n64k64"
     return "tcgen05_m128n64k64"
+
+
+def _row_manifest_sha256(rows: list[dict]) -> str:
+    payload = "".join(
+        json.dumps(
+            {
+                "label": row["label"],
+                "params": {key: value for key, value in row.items() if key != "label"},
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+        for row in rows
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _git_metadata(root: Path) -> dict:
@@ -179,12 +222,15 @@ def _make_inputs(row: dict, device: torch.device):
         generator=generator,
     ).transpose(-2, -1)
     out_dtype = OUT_DTYPES[row["out_dtype"]]
-    candidate_out = torch.empty(
-        (row["B"], row["M"], row["N"]),
-        device=device,
-        dtype=out_dtype,
-    )
-    baseline_out = torch.empty_like(candidate_out)
+    candidate_out = None
+    baseline_out = None
+    if row["preallocated"]:
+        candidate_out = torch.empty(
+            (row["B"], row["M"], row["N"]),
+            device=device,
+            dtype=out_dtype,
+        )
+        baseline_out = torch.empty_like(candidate_out)
     return A, B, candidate_out, baseline_out, out_dtype
 
 
@@ -204,6 +250,30 @@ def _source_hashes(root: Path) -> dict:
             "sha256": hashlib.sha256(payload).hexdigest(),
         }
     return result
+
+
+def _optional_package_versions() -> dict:
+    packages = (
+        "flashinfer-python",
+        "cudnn",
+        "nvidia-cutlass-dsl",
+        "cuda-tile",
+        "nvidia-cuda-tileiras",
+    )
+    result = {}
+    for package in packages:
+        try:
+            result[package] = version(package)
+        except PackageNotFoundError:
+            result[package] = None
+    return result
+
+
+def _command_output(command: list[str]) -> str | None:
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
 
 
 def main() -> None:
@@ -236,6 +306,12 @@ def main() -> None:
     rows = _rows()
     if len(rows) != 211:
         raise AssertionError(f"expected 211 frozen rows, got {len(rows)}")
+    manifest_sha256 = _row_manifest_sha256(rows)
+    if manifest_sha256 != UPSTREAM_REGRESSION_SHA256:
+        raise AssertionError(
+            "frozen 211-row view drifted: "
+            f"expected {UPSTREAM_REGRESSION_SHA256}, got {manifest_sha256}"
+        )
 
     measured = []
     for index, row in enumerate(rows):
@@ -260,22 +336,39 @@ def main() -> None:
             )
 
         with autotune():
-            candidate_result = candidate()
-            baseline_result = baseline()
+            candidate_results = [
+                candidate() for _ in range(row["reuse_rounds"])
+            ]
+            baseline_results = [
+                baseline() for _ in range(row["reuse_rounds"])
+            ]
+        candidate_result = candidate_results[-1]
+        baseline_result = baseline_results[-1]
         reference = torch.bmm(A.float(), B.float()).to(out_dtype)
-        if candidate_result is not candidate_out:
-            raise AssertionError(f"{row['label']}: candidate lost output identity")
-        if baseline_result is not baseline_out:
-            raise AssertionError(f"{row['label']}: baseline lost output identity")
+        if row["preallocated"]:
+            if any(result is not candidate_out for result in candidate_results):
+                raise AssertionError(
+                    f"{row['label']}: candidate lost output identity"
+                )
+            if any(result is not baseline_out for result in baseline_results):
+                raise AssertionError(
+                    f"{row['label']}: baseline lost output identity"
+                )
         torch.testing.assert_close(
-            candidate_out, reference, atol=1e-2, rtol=1e-2
+            candidate_result, reference, atol=1e-2, rtol=1e-2
         )
-        torch.testing.assert_close(baseline_out, reference, atol=1e-2, rtol=1e-2)
+        torch.testing.assert_close(
+            baseline_result, reference, atol=1e-2, rtol=1e-2
+        )
 
         candidate_blocks = []
         baseline_blocks = []
         paired_speedups = []
-        tensors = (A, B, candidate_out, baseline_out)
+        tensors = tuple(
+            tensor
+            for tensor in (A, B, candidate_out, baseline_out)
+            if tensor is not None
+        )
         for round_index in range(args.rounds):
             ordered = (
                 (("candidate", candidate), ("baseline", baseline))
@@ -295,7 +388,7 @@ def main() -> None:
         result = {
             **row,
             "candidate_backend": "weave",
-            "candidate_route": _route_for_k(row["K"]),
+            "expected_candidate_route": _route_for_k(row["K"]),
             "candidate_ms": candidate_ms,
             "baseline_ms": baseline_ms,
             "speedup": speedup,
@@ -316,6 +409,13 @@ def main() -> None:
     report = {
         "source": source,
         "source_files": _source_hashes(source_root),
+        "closed_view": {
+            "cake_source_commit": CAKE_SOURCE_COMMIT,
+            "contract_version": CONTRACT_VERSION,
+            "rows": len(rows),
+            "upstream_regression_sha256": manifest_sha256,
+            "status": "collected_only coverage performance sweep",
+        },
         "candidate": "flashinfer.bmm_bf16(..., backend='weave')",
         "baseline": "flashinfer.bmm_bf16(..., backend=<row.peer_backend>)",
         "timing": {
@@ -328,11 +428,31 @@ def main() -> None:
         },
         "environment": {
             "gpu_name": gpu.name,
-            "gpu_uuid": str(gpu.uuid),
+            "gpu_uuid": str(getattr(gpu, "uuid", "unknown")),
             "compute_capability": list(torch.cuda.get_device_capability(device)),
             "torch": torch.__version__,
             "cuda_runtime": torch.version.cuda,
             "cupti_python": cupti_python_version,
+            "packages": _optional_package_versions(),
+            "driver": _command_output(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=driver_version",
+                    "--format=csv,noheader",
+                ]
+            ),
+            "nvcc": _command_output(["nvcc", "--version"]),
+            "hostname": os.uname().nodename,
+            "slurm": {
+                key: os.environ.get(key)
+                for key in (
+                    "SLURM_CLUSTER_NAME",
+                    "SLURM_JOB_ID",
+                    "SLURM_JOB_NAME",
+                    "SLURMD_NODENAME",
+                    "CUDA_VISIBLE_DEVICES",
+                )
+            },
         },
         "summary": {
             "rows": len(measured),

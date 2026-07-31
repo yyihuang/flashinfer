@@ -16,6 +16,9 @@
 // Generated from Cake MR472 commit 312c190d52f68e9af3adfa2d8d5729ce194a4f4e.
 // Raw generated payload SHA-256:
 // dcaa9686b5b198a81bc16bf76ab30a43da284cb96458e51f7fe30caf3842bf06.
+// Export portability patch: the generated PTX 8.8 st.global.v8.b32 below was
+// split into two naturally aligned st.global.v4.b32 stores so this translation
+// unit remains buildable with FlashInfer's CUDA 12.8 toolchain floor.
 // clang-format off
 typedef unsigned char      uint8_t;
 typedef unsigned short     uint16_t;
@@ -508,8 +511,11 @@ kernel_flashinfer_blackwell_bf16_bmm_m128n64k64(__nv_bfloat16* __restrict__ A, _
                                 unsigned _stv8_0_6 = __float_as_uint(_tmem_load_0[0 + 6]);
                                 unsigned _stv8_0_7 = __float_as_uint(_tmem_load_0[0 + 7]);
                                 asm volatile(
-                                    "st.global.v8.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8};"
-                                    :: "l"((void*)(out_bytes + (output_idx * 4) + (0))), "r"(_stv8_0_0), "r"(_stv8_0_1), "r"(_stv8_0_2), "r"(_stv8_0_3), "r"(_stv8_0_4), "r"(_stv8_0_5), "r"(_stv8_0_6), "r"(_stv8_0_7) : "memory");
+                                    "st.global.v4.b32 [%0], {%1, %2, %3, %4};"
+                                    :: "l"((void*)(out_bytes + (output_idx * 4) + (0))), "r"(_stv8_0_0), "r"(_stv8_0_1), "r"(_stv8_0_2), "r"(_stv8_0_3) : "memory");
+                                asm volatile(
+                                    "st.global.v4.b32 [%0], {%1, %2, %3, %4};"
+                                    :: "l"((void*)(out_bytes + (output_idx * 4) + (16))), "r"(_stv8_0_4), "r"(_stv8_0_5), "r"(_stv8_0_6), "r"(_stv8_0_7) : "memory");
                             }
                         }
                     } else {

@@ -763,6 +763,8 @@ def _weave_bmm_bf16_requirement(
     n = B.shape[2]
     if min(batch_size, m, n, k) <= 0:
         raise ValueError("The Weave backend requires positive B, M, N, and K.")
+    if n % 8 != 0:
+        raise ValueError("The Weave backend requires N to be divisible by 8.")
     if k < 64 or k % 8 != 0:
         raise ValueError(
             "The Weave backend requires K >= 64 and K divisible by 8."
@@ -878,8 +880,10 @@ def bmm_bf16(
 
     backend: Literal["cudnn", "cutlass", "cutile", "tgv", "weave", "auto"]
         Backend to use, defaults to "cudnn". ``"weave"`` selects the frozen
-        SM100a generated dispatcher. ``"auto"`` allows selecting the best
-        tactic from the existing autotuned backends.
+        SM100a generated dispatcher for contiguous A/output, exact transposed
+        column-major B, N divisible by 8, and K >= 64 divisible by 8.
+        ``"weave"`` is explicit-only and is not considered by ``"auto"``;
+        ``"auto"`` continues to select from the existing autotuned backends.
 
     Returns
     -------
