@@ -271,9 +271,7 @@ def main() -> None:
     authority_rows = _rows()
     if len(authority_rows) != 211:
         raise AssertionError(f"expected 211 frozen rows, got {len(authority_rows)}")
-    authority_index = {
-        row["label"]: index for index, row in enumerate(authority_rows)
-    }
+    authority_index = {row["label"]: index for index, row in enumerate(authority_rows)}
     rows = authority_rows[args.shard_index :: args.shard_count]
     if not rows:
         raise AssertionError("selected shard has no rows")
