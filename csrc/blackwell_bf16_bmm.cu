@@ -13,9 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <flashinfer/gemm/blackwell_bf16_bmm.cuh>
-
 #include <cstdint>
+#include <flashinfer/gemm/blackwell_bf16_bmm.cuh>
 #include <limits>
 
 #include "tvm_ffi_utils.h"
@@ -60,8 +59,7 @@ int OutputType(const TensorView& out) {
 LaunchSpec SelectLaunch(int batch_size, int m, int n, int k) {
   if (k == 1024) {
     return {
-        reinterpret_cast<const void*>(
-            kernel_flashinfer_blackwell_bf16_bmm_m16n32k1024_cooperative),
+        reinterpret_cast<const void*>(kernel_flashinfer_blackwell_bf16_bmm_m16n32k1024_cooperative),
         dim3((m + 15) / 16, (n + 31) / 32, batch_size),
         128,
         98304,
@@ -69,8 +67,7 @@ LaunchSpec SelectLaunch(int batch_size, int m, int n, int k) {
   }
   if (k == 256) {
     return {
-        reinterpret_cast<const void*>(
-            kernel_flashinfer_blackwell_bf16_bmm_m16n32k256_cooperative),
+        reinterpret_cast<const void*>(kernel_flashinfer_blackwell_bf16_bmm_m16n32k256_cooperative),
         dim3((m + 15) / 16, (n + 31) / 32, batch_size),
         128,
         24576,
@@ -78,8 +75,7 @@ LaunchSpec SelectLaunch(int batch_size, int m, int n, int k) {
   }
   if (k == 64) {
     return {
-        reinterpret_cast<const void*>(
-            kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative),
+        reinterpret_cast<const void*>(kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative),
         dim3((m + 15) / 16, (n + 63) / 64, batch_size),
         256,
         10240,
@@ -93,17 +89,15 @@ LaunchSpec SelectLaunch(int batch_size, int m, int n, int k) {
   };
 }
 
-void CheckExactLayout(const TensorView& A, const TensorView& B, const TensorView& out, int batch_size,
-                      int m, int n, int k) {
+void CheckExactLayout(const TensorView& A, const TensorView& B, const TensorView& out,
+                      int batch_size, int m, int n, int k) {
   TVM_FFI_ICHECK_EQ(A.stride(2), 1) << "A must be row-major in K";
   TVM_FFI_ICHECK_EQ(A.stride(1), k) << "A must have exact row-major [B,M,K] strides";
   TVM_FFI_ICHECK_EQ(A.stride(0), static_cast<int64_t>(m) * k)
       << "A must have exact row-major [B,M,K] strides";
 
-  TVM_FFI_ICHECK_EQ(B.stride(1), 1)
-      << "B must be the exact column-major/transposed [B,K,N] view";
-  TVM_FFI_ICHECK_EQ(B.stride(2), k)
-      << "B must be the exact column-major/transposed [B,K,N] view";
+  TVM_FFI_ICHECK_EQ(B.stride(1), 1) << "B must be the exact column-major/transposed [B,K,N] view";
+  TVM_FFI_ICHECK_EQ(B.stride(2), k) << "B must be the exact column-major/transposed [B,K,N] view";
   TVM_FFI_ICHECK_EQ(B.stride(0), static_cast<int64_t>(k) * n)
       << "B must be the exact column-major/transposed [B,K,N] view";
 
@@ -157,8 +151,7 @@ void Run(TensorView A, TensorView B, TensorView out) {
   TVM_FFI_ICHECK_EQ(out.size(2), n) << "out N dimension mismatch";
   int out_type = OutputType(out);
   int out_element_bytes = out_type == kOutF32 ? 4 : 2;
-  CheckedInt(static_cast<int64_t>(batch_size) * m * n * out_element_bytes,
-             "output byte span");
+  CheckedInt(static_cast<int64_t>(batch_size) * m * n * out_element_bytes, "output byte span");
 
   CheckExactLayout(A, B, out, batch_size, m, n, k);
   int a_stride_b = CheckedInt(A.stride(0), "A batch stride");
@@ -170,9 +163,8 @@ void Run(TensorView A, TensorView B, TensorView out) {
 
   ffi::CUDADeviceGuard device_guard(A.device().device_id);
   const LaunchSpec launch = SelectLaunch(batch_size, m, n, k);
-  cudaError_t status =
-      cudaFuncSetAttribute(launch.kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                           launch.dynamic_smem_bytes);
+  cudaError_t status = cudaFuncSetAttribute(
+      launch.kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, launch.dynamic_smem_bytes);
   TVM_FFI_ICHECK_EQ(status, cudaSuccess)
       << "Failed to set Weave BF16 BMM dynamic shared memory: " << cudaGetErrorString(status);
 
