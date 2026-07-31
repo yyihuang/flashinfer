@@ -13,9 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Generated from Cake MR472 commit 312c190d52f68e9af3adfa2d8d5729ce194a4f4e.
-// Raw generated payload SHA-256:
-// 5e60c6b0f1b2bc50595c9b50399d1c115d1d03606efafa3a7901f9bf33ac51b2.
 // clang-format off
 typedef unsigned char      uint8_t;
 typedef unsigned short     uint16_t;

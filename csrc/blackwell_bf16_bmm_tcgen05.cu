@@ -13,12 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Generated from Cake MR472 commit 312c190d52f68e9af3adfa2d8d5729ce194a4f4e.
-// Raw generated payload SHA-256:
-// dcaa9686b5b198a81bc16bf76ab30a43da284cb96458e51f7fe30caf3842bf06.
 // Export portability patch: the generated PTX 8.8 st.global.v8.b32 below was
-// split into two naturally aligned st.global.v4.b32 stores so this translation
-// unit remains buildable with FlashInfer's CUDA 12.8 toolchain floor.
+// split into two naturally aligned st.global.v4.b32 stores so this source
+// remains buildable with FlashInfer's CUDA 12.8 toolchain floor.
 // clang-format off
 typedef unsigned char      uint8_t;
 typedef unsigned short     uint16_t;

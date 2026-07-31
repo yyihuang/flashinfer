@@ -19,10 +19,6 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
-// Frozen from Cake MR472 commit 312c190d52f68e9af3adfa2d8d5729ce194a4f4e.
-// Payload SHA-256 identities are recorded next to each generated translation
-// unit and in the public-API benchmark report.
-
 extern "C" {
 
 __global__ void kernel_flashinfer_blackwell_bf16_bmm_m128n64k64(

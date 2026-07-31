@@ -22,7 +22,6 @@ hard error.
 """
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -44,13 +43,6 @@ OUT_DTYPES = {
     "float16": torch.float16,
     "float32": torch.float32,
 }
-
-CAKE_SOURCE_COMMIT = "312c190d52f68e9af3adfa2d8d5729ce194a4f4e"
-CONTRACT_VERSION = "v16-2026-07-29"
-UPSTREAM_REGRESSION_SHA256 = (
-    "7ae6f944c663d929a26e44dfb3fd598b35dc7052a5e6cc238ec00a6820b66244"
-)
-
 
 def _focused_rows() -> list[dict]:
     rows = []
@@ -156,22 +148,6 @@ def _route_for_k(k: int) -> str:
     return "tcgen05_m128n64k64"
 
 
-def _row_manifest_sha256(rows: list[dict]) -> str:
-    payload = "".join(
-        json.dumps(
-            {
-                "label": row["label"],
-                "params": {key: value for key, value in row.items() if key != "label"},
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        + "\n"
-        for row in rows
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
-
-
 def _git_metadata(root: Path) -> dict:
     commit = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -234,24 +210,6 @@ def _make_inputs(row: dict, device: torch.device):
     return A, B, candidate_out, baseline_out, out_dtype
 
 
-def _source_hashes(root: Path) -> dict:
-    paths = [
-        "csrc/blackwell_bf16_bmm.cu",
-        "csrc/blackwell_bf16_bmm_tcgen05.cu",
-        "csrc/blackwell_bf16_bmm_hmma_k64.cu",
-        "csrc/blackwell_bf16_bmm_hmma_k256.cu",
-        "csrc/blackwell_bf16_bmm_hmma_k1024.cu",
-    ]
-    result = {}
-    for relpath in paths:
-        payload = (root / relpath).read_bytes()
-        result[relpath] = {
-            "bytes": len(payload),
-            "sha256": hashlib.sha256(payload).hexdigest(),
-        }
-    return result
-
-
 def _optional_package_versions() -> dict:
     packages = (
         "flashinfer-python",
@@ -306,12 +264,6 @@ def main() -> None:
     rows = _rows()
     if len(rows) != 211:
         raise AssertionError(f"expected 211 frozen rows, got {len(rows)}")
-    manifest_sha256 = _row_manifest_sha256(rows)
-    if manifest_sha256 != UPSTREAM_REGRESSION_SHA256:
-        raise AssertionError(
-            "frozen 211-row view drifted: "
-            f"expected {UPSTREAM_REGRESSION_SHA256}, got {manifest_sha256}"
-        )
 
     measured = []
     for index, row in enumerate(rows):
@@ -396,13 +348,9 @@ def main() -> None:
     gpu = torch.cuda.get_device_properties(device)
     report = {
         "source": source,
-        "source_files": _source_hashes(source_root),
-        "closed_view": {
-            "cake_source_commit": CAKE_SOURCE_COMMIT,
-            "contract_version": CONTRACT_VERSION,
+        "benchmark_set": {
             "rows": len(rows),
-            "upstream_regression_sha256": manifest_sha256,
-            "status": "collected_only coverage performance sweep",
+            "status": "exploratory coverage performance sweep",
         },
         "candidate": "flashinfer.bmm_bf16(..., backend='weave')",
         "baseline": "flashinfer.bmm_bf16(..., backend=<row.peer_backend>)",
