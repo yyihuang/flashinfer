@@ -86,9 +86,7 @@ def test_bmm_bf16_weave_routes_and_output_identity(shape, res_dtype):
     b, m, n, k = shape
     torch.manual_seed(7)
     input = torch.randn((b, m, k), device="cuda", dtype=torch.bfloat16)
-    mat2 = torch.randn((b, n, k), device="cuda", dtype=torch.bfloat16).transpose(
-        -2, -1
-    )
+    mat2 = torch.randn((b, n, k), device="cuda", dtype=torch.bfloat16).transpose(-2, -1)
     out = torch.empty((b, m, n), device="cuda", dtype=res_dtype)
     expected = torch.bmm(input.float(), mat2.float()).to(res_dtype)
 

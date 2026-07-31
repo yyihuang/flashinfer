@@ -336,30 +336,18 @@ def main() -> None:
             )
 
         with autotune():
-            candidate_results = [
-                candidate() for _ in range(row["reuse_rounds"])
-            ]
-            baseline_results = [
-                baseline() for _ in range(row["reuse_rounds"])
-            ]
+            candidate_results = [candidate() for _ in range(row["reuse_rounds"])]
+            baseline_results = [baseline() for _ in range(row["reuse_rounds"])]
         candidate_result = candidate_results[-1]
         baseline_result = baseline_results[-1]
         reference = torch.bmm(A.float(), B.float()).to(out_dtype)
         if row["preallocated"]:
             if any(result is not candidate_out for result in candidate_results):
-                raise AssertionError(
-                    f"{row['label']}: candidate lost output identity"
-                )
+                raise AssertionError(f"{row['label']}: candidate lost output identity")
             if any(result is not baseline_out for result in baseline_results):
-                raise AssertionError(
-                    f"{row['label']}: baseline lost output identity"
-                )
-        torch.testing.assert_close(
-            candidate_result, reference, atol=1e-2, rtol=1e-2
-        )
-        torch.testing.assert_close(
-            baseline_result, reference, atol=1e-2, rtol=1e-2
-        )
+                raise AssertionError(f"{row['label']}: baseline lost output identity")
+        torch.testing.assert_close(candidate_result, reference, atol=1e-2, rtol=1e-2)
+        torch.testing.assert_close(baseline_result, reference, atol=1e-2, rtol=1e-2)
 
         candidate_blocks = []
         baseline_blocks = []
@@ -463,9 +451,7 @@ def main() -> None:
             "geomean_speedup": math.exp(
                 sum(math.log(speedup) for speedup in speedups) / len(speedups)
             ),
-            "total_workload_speedup": sum(
-                row["baseline_ms"] for row in measured
-            )
+            "total_workload_speedup": sum(row["baseline_ms"] for row in measured)
             / sum(row["candidate_ms"] for row in measured),
         },
         "rows": measured,

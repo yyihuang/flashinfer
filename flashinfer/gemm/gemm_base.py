@@ -747,9 +747,7 @@ def _weave_bmm_bf16_requirement(
     B: torch.Tensor,
     out: Optional[torch.Tensor] = None,
     out_dtype: torch.dtype = torch.bfloat16,
-    backend: Literal[
-        "cudnn", "cutlass", "cutile", "tgv", "weave", "auto"
-    ] = "cudnn",
+    backend: Literal["cudnn", "cutlass", "cutile", "tgv", "weave", "auto"] = "cudnn",
 ):
     _validate_bf16_output_dtype(out_dtype)
     if A.ndim != 3 or B.ndim != 3:
@@ -766,9 +764,7 @@ def _weave_bmm_bf16_requirement(
     if n % 8 != 0:
         raise ValueError("The Weave backend requires N to be divisible by 8.")
     if k < 64 or k % 8 != 0:
-        raise ValueError(
-            "The Weave backend requires K >= 64 and K divisible by 8."
-        )
+        raise ValueError("The Weave backend requires K >= 64 and K divisible by 8.")
     if not A.is_cuda or not B.is_cuda or A.device != B.device:
         raise ValueError("The Weave backend requires A and B on the same CUDA device.")
     if not A.is_contiguous():
@@ -790,9 +786,7 @@ def _check_bmm_bf16_problem_size(
     B: torch.Tensor,
     out: Optional[torch.Tensor] = None,
     out_dtype: torch.dtype = torch.bfloat16,
-    backend: Literal[
-        "cudnn", "cutlass", "cutile", "tgv", "weave", "auto"
-    ] = "cudnn",
+    backend: Literal["cudnn", "cutlass", "cutile", "tgv", "weave", "auto"] = "cudnn",
 ):
     if A.dtype != torch.bfloat16:
         raise ValueError(
@@ -827,9 +821,7 @@ def _heuristic_func_bmm_bf16(
     B: torch.Tensor,
     out: Optional[torch.Tensor] = None,
     out_dtype: torch.dtype = torch.bfloat16,
-    backend: Literal[
-        "cudnn", "cutlass", "cutile", "tgv", "weave", "auto"
-    ] = "cudnn",
+    backend: Literal["cudnn", "cutlass", "cutile", "tgv", "weave", "auto"] = "cudnn",
 ):
     heuristic_backends = []
     if "cudnn" in suitable_backends:
@@ -858,9 +850,7 @@ def bmm_bf16(
     B: torch.Tensor,
     out: Optional[torch.Tensor] = None,
     out_dtype: torch.dtype = torch.bfloat16,
-    backend: Literal[
-        "cudnn", "cutlass", "cutile", "tgv", "weave", "auto"
-    ] = "cudnn",
+    backend: Literal["cudnn", "cutlass", "cutile", "tgv", "weave", "auto"] = "cudnn",
 ) -> torch.Tensor:
     r"""BMM BF16
 
