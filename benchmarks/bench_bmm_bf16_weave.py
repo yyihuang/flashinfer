@@ -44,6 +44,7 @@ OUT_DTYPES = {
     "float32": torch.float32,
 }
 
+
 def _focused_rows() -> list[dict]:
     rows = []
     for batch_size in (1, 16):
@@ -144,7 +145,7 @@ def _route_for_k(k: int) -> str:
     if k == 256:
         return "hmma_m16n32k256"
     if k == 64:
-        return "hmma_m16n64k64"
+        return "hmma_m32n64k64"
     return "tcgen05_m128n64k64"
 
 
@@ -240,9 +241,15 @@ def main() -> None:
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--repeat-time-ms", type=int, default=100)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     args = parser.parse_args()
     if min(args.rounds, args.warmup, args.repeat_time_ms) <= 0:
         parser.error("--rounds, --warmup, and --repeat-time-ms must be positive")
+    if args.shard_count <= 0:
+        parser.error("--shard-count must be positive")
+    if not 0 <= args.shard_index < args.shard_count:
+        parser.error("--shard-index must be in [0, --shard-count)")
 
     try:
         cupti_python_version = version("cupti-python")
@@ -261,9 +268,15 @@ def main() -> None:
 
     source_root = Path(flashinfer.__file__).resolve().parents[1]
     source = _git_metadata(source_root)
-    rows = _rows()
-    if len(rows) != 211:
-        raise AssertionError(f"expected 211 frozen rows, got {len(rows)}")
+    authority_rows = _rows()
+    if len(authority_rows) != 211:
+        raise AssertionError(f"expected 211 frozen rows, got {len(authority_rows)}")
+    authority_index = {
+        row["label"]: index for index, row in enumerate(authority_rows)
+    }
+    rows = authority_rows[args.shard_index :: args.shard_count]
+    if not rows:
+        raise AssertionError("selected shard has no rows")
 
     measured = []
     for index, row in enumerate(rows):
@@ -327,6 +340,7 @@ def main() -> None:
         speedup = statistics.median(paired_speedups)
         result = {
             **row,
+            "authority_index": authority_index[row["label"]],
             "candidate_backend": "weave",
             "expected_candidate_route": _route_for_k(row["K"]),
             "candidate_ms": candidate_ms,
@@ -339,18 +353,24 @@ def main() -> None:
         }
         measured.append(result)
         print(
-            f"[{index + 1:03d}/211] {row['label']}: "
+            f"[{index + 1:03d}/{len(rows):03d}] {row['label']}: "
             f"{candidate_ms:.6f} ms vs {baseline_ms:.6f} ms, {speedup:.4f}x",
             flush=True,
         )
 
     speedups = [row["speedup"] for row in measured]
     gpu = torch.cuda.get_device_properties(device)
+    gpu_uuid = _command_output(
+        ["nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader"]
+    )
     report = {
         "source": source,
         "benchmark_set": {
             "rows": len(rows),
+            "authority_rows": len(authority_rows),
             "status": "exploratory coverage performance sweep",
+            "shard_index": args.shard_index,
+            "shard_count": args.shard_count,
         },
         "candidate": "flashinfer.bmm_bf16(..., backend='weave')",
         "baseline": "flashinfer.bmm_bf16(..., backend=<row.peer_backend>)",
@@ -364,7 +384,7 @@ def main() -> None:
         },
         "environment": {
             "gpu_name": gpu.name,
-            "gpu_uuid": str(getattr(gpu, "uuid", "unknown")),
+            "gpu_uuid": gpu_uuid or str(getattr(gpu, "uuid", "unknown")),
             "compute_capability": list(torch.cuda.get_device_capability(device)),
             "torch": torch.__version__,
             "cuda_runtime": torch.version.cuda,

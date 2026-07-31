@@ -26,7 +26,7 @@ __global__ void kernel_flashinfer_blackwell_bf16_bmm_m128n64k64(
     int K, int a_stride_b, int a_stride_m, int a_stride_k, int b_stride_b, int b_stride_k,
     int b_stride_n, int out_type);
 
-__global__ void kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(
+__global__ void kernel_flashinfer_blackwell_bf16_bmm_m32n64k64_cooperative(
     __nv_bfloat16* A, __nv_bfloat16* B_tensor, uint8_t* out_bytes, int batch_size, int M, int N,
     int K, int a_stride_b, int a_stride_m, int a_stride_k, int b_stride_b, int b_stride_k,
     int b_stride_n, int out_type);

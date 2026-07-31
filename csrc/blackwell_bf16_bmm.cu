@@ -75,10 +75,10 @@ LaunchSpec SelectLaunch(int batch_size, int m, int n, int k) {
   }
   if (k == 64) {
     return {
-        reinterpret_cast<const void*>(kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative),
-        dim3((m + 15) / 16, (n + 63) / 64, batch_size),
+        reinterpret_cast<const void*>(kernel_flashinfer_blackwell_bf16_bmm_m32n64k64_cooperative),
+        dim3((m + 31) / 32, (n + 63) / 64, batch_size),
         256,
-        10240,
+        12288,
     };
   }
   return {

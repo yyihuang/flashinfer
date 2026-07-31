@@ -38,12 +38,12 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define LOOM_INF CUDART_INF_F
 #define NUM_MAIN_STAGES 1
 #define SMEM_SMEM_A_OFF 0
-#define SMEM_SMEM_A_STAGE_BYTES 2048
-#define SMEM_SMEM_A_STRIDE 2048
-#define SMEM_SMEM_B_OFF 2048
+#define SMEM_SMEM_A_STAGE_BYTES 4096
+#define SMEM_SMEM_A_STRIDE 4096
+#define SMEM_SMEM_B_OFF 4096
 #define SMEM_SMEM_B_STAGE_BYTES 8192
 #define SMEM_SMEM_B_STRIDE 8192
-#define SMEM_TOTAL 10240
+#define SMEM_TOTAL 12288
 #define THREADS 256
 
 #include <math_constants.h>
@@ -51,7 +51,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 extern "C" {
 
 __global__ __launch_bounds__(256) void
-kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(__nv_bfloat16* __restrict__ A, __nv_bfloat16* __restrict__ B_tensor, uint8_t* __restrict__ out_bytes, int batch_size, int M, int N, int K, int a_stride_b, int a_stride_m, int a_stride_k, int b_stride_b, int b_stride_k, int b_stride_n, int out_type)
+kernel_flashinfer_blackwell_bf16_bmm_m32n64k64_cooperative(__nv_bfloat16* __restrict__ A, __nv_bfloat16* __restrict__ B_tensor, uint8_t* __restrict__ out_bytes, int batch_size, int M, int N, int K, int a_stride_b, int a_stride_m, int a_stride_k, int b_stride_b, int b_stride_k, int b_stride_n, int out_type)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -67,18 +67,21 @@ kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(__nv_bfloat16* __rest
     // Kernel setup ops
     __nv_bfloat16* smem_a = reinterpret_cast<__nv_bfloat16*>(smem_raw + 0);
     const int smem_a_addr = smem + 0;
-    __nv_bfloat16* smem_b = reinterpret_cast<__nv_bfloat16*>(smem_raw + 2048);
-    const int smem_b_addr = smem + 2048;
+    __nv_bfloat16* smem_b = reinterpret_cast<__nv_bfloat16*>(smem_raw + 4096);
+    const int smem_b_addr = smem + 4096;
 
     // === Task calls (dependency order) ===
     int batch_idx = blockIdx.z;
-    int m_base = blockIdx.x * 16;
+    int m_base = blockIdx.x * 32;
     int n_base = blockIdx.y * 64;
     float accum[4];
     float accum_upper[4];
     #pragma unroll
     for (int acc_idx = 0; acc_idx < 4; acc_idx++) {
         accum[acc_idx] = 0.0f;
+        {
+            accum_upper[acc_idx] = 0.0f;
+        }
     }
     unsigned int lane_div8 = lane / 8;
     unsigned int lane_mod8 = lane % 8;
@@ -95,12 +98,12 @@ kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(__nv_bfloat16* __rest
         #pragma unroll 4
         for (int copy_iter = 0; copy_iter < 1; copy_iter++) {
             int copy_idx = copy_iter * 256 + tid;
-            if (copy_idx < 128) {
+            if (copy_idx < 256) {
                 int copy_row = copy_idx / 8;
                 int copy_chunk = copy_idx % 8;
                 int a_src = batch_idx * a_stride_b + (m_base + copy_row) * a_stride_m + (k_base + copy_chunk * 8) * a_stride_k;
                 asm volatile("cp.async.cg.shared::cta.global [%0], [%1], 16, %2;"
-                    :: "r"((smem_a_addr + (unsigned int)((copy_chunk * 8 / 64 * 16 + copy_row) * 128 + copy_chunk * 8 % 64 * 2 ^ ((copy_chunk * 8 / 64 * 16 + copy_row) * 128 + copy_chunk * 8 % 64 * 2 >> 7 & 7) << 4))), "l"(A + a_src), "r"((m_base + copy_row < M) ? 16 : 0));
+                    :: "r"((smem_a_addr + (unsigned int)((copy_chunk * 8 / 64 * 32 + copy_row) * 128 + copy_chunk * 8 % 64 * 2 ^ ((copy_chunk * 8 / 64 * 32 + copy_row) * 128 + copy_chunk * 8 % 64 * 2 >> 7 & 7) << 4))), "l"(A + a_src), "r"((m_base + copy_row < M) ? 16 : 0));
             }
         }
         #pragma unroll 4
@@ -127,7 +130,7 @@ kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(__nv_bfloat16* __rest
                 unsigned int b_frag[2];
                 unsigned int k_group = k_atom / 4;
                 unsigned int atom_in_group = k_atom % 4;
-                unsigned int a_group_base = base_a + k_group * 2048;
+                unsigned int a_group_base = base_a + k_group * 4096;
                 unsigned int b_group_base = base_b + k_group * 8192;
                 unsigned int col_a = 2 * atom_in_group + col_off_a;
                 unsigned int col_sw_a = row_a % 8 ^ col_a;
@@ -135,6 +138,12 @@ kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(__nv_bfloat16* __rest
                     : "=r"(a_frag[0]), "=r"(a_frag[1]), "=r"(a_frag[2]), "=r"(a_frag[3])
                     : "r"(a_group_base + (row_a + (unsigned int)m_warp_offset) * 128 + col_sw_a * 16)
                     : "memory");
+                {
+                    asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
+                        : "=r"(a_frag_upper[0]), "=r"(a_frag_upper[1]), "=r"(a_frag_upper[2]), "=r"(a_frag_upper[3])
+                        : "r"(a_group_base + (row_a + (unsigned int)m_warp_offset + 16) * 128 + col_sw_a * 16)
+                        : "memory");
+                }
                 unsigned int col_b = 2 * atom_in_group + lane_div8;
                 unsigned int col_sw_b = row_b % 8 ^ col_b;
                 asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];\n"
@@ -144,6 +153,11 @@ kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(__nv_bfloat16* __rest
                 asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};\n"
                     : "+f"(accum[0]), "+f"(accum[1]), "+f"(accum[2]), "+f"(accum[3])
                     : "r"(a_frag[0]), "r"(a_frag[1]), "r"(a_frag[2]), "r"(a_frag[3]), "r"(b_frag[0]), "r"(b_frag[1]));
+                {
+                    asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};\n"
+                        : "+f"(accum_upper[0]), "+f"(accum_upper[1]), "+f"(accum_upper[2]), "+f"(accum_upper[3])
+                        : "r"(a_frag_upper[0]), "r"(a_frag_upper[1]), "r"(a_frag_upper[2]), "r"(a_frag_upper[3]), "r"(b_frag[0]), "r"(b_frag[1]));
+                }
             }
         }
     }
@@ -200,6 +214,41 @@ kernel_flashinfer_blackwell_bf16_bmm_m16n64k64_cooperative(__nv_bfloat16* __rest
                             *((__half*)(out_bytes + (output_idx_1 * 2))) = __float2half_rn(accum[value_idx_1]);
                         } else {
                             *((float*)(out_bytes + (output_idx_1 * 4))) = accum[value_idx_1];
+                        }
+                    }
+                }
+            }
+        }
+        {
+            #pragma unroll
+            for (int frag_row_2 = 0; frag_row_2 < 2; frag_row_2++) {
+                int m_idx_2 = m_warp_base + 16 + lane / 4 + frag_row_2 * 8;
+                int n_idx_2 = n_warp_base + 2 * (lane % 4);
+                if (m_idx_2 < M && n_idx_2 < N) {
+                    int output_idx_2 = (batch_idx * M + m_idx_2) * N + n_idx_2;
+                    const int value_idx_2 = frag_row_2 * 2;
+                    if (n_idx_2 + 1 < N) {
+                        if (out_type == 0) {
+                            {
+                                __nv_bfloat162 _pk = __floats2bfloat162_rn(accum_upper[value_idx_2 + 0], accum_upper[value_idx_2 + 1]);
+                                *reinterpret_cast<__nv_bfloat162*>(&((__nv_bfloat16*)(out_bytes + (output_idx_2 * 2)))[0]) = _pk;
+                            }
+                        } else if (out_type == 1) {
+                            *((__half*)(out_bytes + (output_idx_2 * 2))) = __float2half_rn(accum_upper[value_idx_2]);
+                            *((__half*)(out_bytes + ((output_idx_2 + 1) * 2))) = __float2half_rn(accum_upper[value_idx_2 + 1]);
+                        } else {
+                            {
+                                float2 _v2 = make_float2(accum_upper[value_idx_2 + 0], accum_upper[value_idx_2 + 1]);
+                                *reinterpret_cast<float2*>(out_bytes + (output_idx_2 * 4) + 0) = _v2;
+                            }
+                        }
+                    } else if (out_type == 0) {
+                        *((__nv_bfloat16*)(out_bytes + (output_idx_2 * 2))) = __float2bfloat16_rn(accum_upper[value_idx_2]);
+                    } else {
+                        if (out_type == 1) {
+                            *((__half*)(out_bytes + (output_idx_2 * 2))) = __float2half_rn(accum_upper[value_idx_2]);
+                        } else {
+                            *((float*)(out_bytes + (output_idx_2 * 4))) = accum_upper[value_idx_2];
                         }
                     }
                 }
