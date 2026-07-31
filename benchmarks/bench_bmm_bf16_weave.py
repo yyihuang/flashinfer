@@ -243,6 +243,11 @@ def main() -> None:
     parser.add_argument("--repeat-time-ms", type=int, default=100)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
+    parser.add_argument(
+        "--partition-mode",
+        choices=("index", "backend-dtype"),
+        default="index",
+    )
     args = parser.parse_args()
     if min(args.rounds, args.warmup, args.repeat_time_ms) <= 0:
         parser.error("--rounds, --warmup, and --repeat-time-ms must be positive")
@@ -272,7 +277,22 @@ def main() -> None:
     if len(authority_rows) != 211:
         raise AssertionError(f"expected 211 frozen rows, got {len(authority_rows)}")
     authority_index = {row["label"]: index for index, row in enumerate(authority_rows)}
-    rows = authority_rows[args.shard_index :: args.shard_count]
+    if args.partition_mode == "index":
+        rows = authority_rows[args.shard_index :: args.shard_count]
+    else:
+        groups = sorted(
+            {(row["out_dtype"], row["peer_backend"]) for row in authority_rows}
+        )
+        selected_groups = {
+            group
+            for index, group in enumerate(groups)
+            if index % args.shard_count == args.shard_index
+        }
+        rows = [
+            row
+            for row in authority_rows
+            if (row["out_dtype"], row["peer_backend"]) in selected_groups
+        ]
     if not rows:
         raise AssertionError("selected shard has no rows")
 
@@ -369,6 +389,7 @@ def main() -> None:
             "status": "exploratory coverage performance sweep",
             "shard_index": args.shard_index,
             "shard_count": args.shard_count,
+            "partition_mode": args.partition_mode,
         },
         "candidate": "flashinfer.bmm_bf16(..., backend='weave')",
         "baseline": "flashinfer.bmm_bf16(..., backend=<row.peer_backend>)",
