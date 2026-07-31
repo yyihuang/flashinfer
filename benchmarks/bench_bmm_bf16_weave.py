@@ -248,6 +248,11 @@ def main() -> None:
         choices=("index", "backend-dtype"),
         default="index",
     )
+    parser.add_argument(
+        "--exhaustive-autotune",
+        action="store_true",
+        help="profile all live FlashInfer tactics before measuring each row",
+    )
     args = parser.parse_args()
     if min(args.rounds, args.warmup, args.repeat_time_ms) <= 0:
         parser.error("--rounds, --warmup, and --repeat-time-ms must be positive")
@@ -318,7 +323,11 @@ def main() -> None:
                 backend=row["peer_backend"],
             )
 
-        with autotune():
+        if args.exhaustive_autotune:
+            with autotune():
+                candidate_results = [candidate() for _ in range(row["reuse_rounds"])]
+                baseline_results = [baseline() for _ in range(row["reuse_rounds"])]
+        else:
             candidate_results = [candidate() for _ in range(row["reuse_rounds"])]
             baseline_results = [baseline() for _ in range(row["reuse_rounds"])]
         candidate_result = candidate_results[-1]
@@ -400,6 +409,7 @@ def main() -> None:
             "rounds": args.rounds,
             "repeat_time_ms": args.repeat_time_ms,
             "order": "alternating candidate/baseline blocks",
+            "exhaustive_autotune": args.exhaustive_autotune,
         },
         "environment": {
             "gpu_name": gpu.name,
