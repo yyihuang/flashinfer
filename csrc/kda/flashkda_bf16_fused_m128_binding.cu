@@ -69,6 +69,7 @@ void RunM128(TensorView q, TensorView k, TensorView v, TensorView g, TensorView 
   const cudaStream_t stream = reinterpret_cast<cudaStream_t>(static_cast<uintptr_t>(cuda_stream));
   const TmaPointers tma = EncodeTmaPointers<128>(q, k, v, g, beta_tma, out, descriptor_storage,
                                                  prepare_descriptors, stream);
+  PackBetaForTmaIfNeeded(beta, beta_tma, num_heads, stream);
 
   kernel_flashkda_bf16_fused_m128<<<grid, block, kSmemBytes, stream>>>(
       reinterpret_cast<__nv_bfloat16*>(q.data_ptr()), tma.q,
