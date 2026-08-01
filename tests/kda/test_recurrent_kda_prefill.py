@@ -311,12 +311,8 @@ def test_frozen_route_and_ffi_abi(
     assert math.isclose(args[18], 128**-0.5)
     assert args[19] == -5.0
     assert args[20] == int(torch.cuda.current_stream(cuda_device).cuda_stream)
-    if args[5].data_ptr() != inputs["beta"].data_ptr():
-        total_tokens = inputs["q"].numel() // (num_heads * 128)
-        torch.testing.assert_close(
-            args[5][:total_tokens, :num_heads],
-            inputs["beta"].reshape(-1, num_heads),
-        )
+    if num_heads < 8:
+        assert args[5].data_ptr() != inputs["beta"].data_ptr()
 
 
 def test_frozen_route_passes_nondefault_stream(cuda_device, monkeypatch):
@@ -701,6 +697,43 @@ def test_frozen_prefill_without_initial_or_final_state(flash_kda_device):
     )
 
 
+def test_frozen_prefill_h6_full_tma_chunk_matches_reference(flash_kda_device):
+    inputs = _make_inputs(
+        seq_lens=[32],
+        num_heads=6,
+        packed=True,
+        initial_state=True,
+        seed=2032,
+    )
+    reference_inputs = {
+        **inputs,
+        "initial_state": inputs["initial_state"].clone(),
+    }
+    expected_output, expected_state = _reference(reference_inputs)
+    output = torch.empty_like(inputs["q"])
+
+    actual_output, actual_state = recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=output,
+        output_final_state=True,
+    )
+
+    assert actual_output.data_ptr() == output.data_ptr()
+    assert actual_state is inputs["initial_state"]
+    torch.testing.assert_close(
+        actual_output.float(),
+        expected_output.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        actual_state.float(),
+        expected_state.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+
+
 def test_frozen_prefill_m64_matches_reference(flash_kda_device):
     inputs = _make_inputs(
         seq_lens=[2],
@@ -809,6 +842,67 @@ def test_frozen_prefill_cuda_graph_capture_and_replay(
     else:
         assert captured_state is inputs["initial_state"]
     assert workspace._captured
+    torch.testing.assert_close(
+        captured_output.float(),
+        expected_output.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        captured_state.float(),
+        expected_state.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+
+
+def test_frozen_prefill_h6_full_chunk_graph_refreshes_beta(flash_kda_device):
+    inputs = _make_inputs(
+        seq_lens=[32],
+        num_heads=6,
+        packed=False,
+        initial_state=True,
+        seed=2033,
+    )
+    initial_state_seed = inputs["initial_state"].clone()
+    output = torch.empty_like(inputs["q"])
+    workspace = RecurrentKDAPrefillWorkspace(flash_kda_device)
+    capture_stream = torch.cuda.Stream(device=flash_kda_device)
+    capture_stream.wait_stream(torch.cuda.current_stream(flash_kda_device))
+    call_kwargs = {
+        **_strict_prefill_kwargs(inputs),
+        "output": output,
+        "output_final_state": True,
+        "prefill_workspace": workspace,
+    }
+
+    with torch.cuda.stream(capture_stream):
+        recurrent_kda(**call_kwargs)
+        inputs["initial_state"].copy_(initial_state_seed)
+    capture_stream.synchronize()
+
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph, stream=capture_stream):
+        captured_output, captured_state = recurrent_kda(**call_kwargs)
+
+    with torch.cuda.stream(capture_stream):
+        inputs["beta"].fill_(2.0)
+        inputs["initial_state"].copy_(initial_state_seed)
+        output.fill_(float("nan"))
+    capture_stream.synchronize()
+    expected_output, expected_state = _reference(
+        {
+            **inputs,
+            "initial_state": initial_state_seed,
+        }
+    )
+    torch.cuda.synchronize()
+
+    graph.replay()
+    torch.cuda.synchronize()
+
+    assert captured_output.data_ptr() == output.data_ptr()
+    assert captured_state is inputs["initial_state"]
     torch.testing.assert_close(
         captured_output.float(),
         expected_output.float(),

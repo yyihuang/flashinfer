@@ -397,10 +397,10 @@ def _beta_tma_source(
             "this stream before capture"
         ),
     ).view(shape)
-    # The descriptor may fetch a full (32 token, 8 head) box at the tail.
-    # Clear reused padding so every legal OOB-adjacent fetch has defined data.
-    padded.zero_()
-    padded[:total_tokens, :num_heads].copy_(beta_flat)
+    # The frozen binding refreshes head-padded storage from ``beta`` immediately
+    # before launching the frozen kernel. Keeping pack + main-kernel submission
+    # in one FFI call avoids two Python-dispatched activities and their host gap,
+    # while retaining stable storage for the TMA descriptor and CUDA graphs.
     return padded
 
 

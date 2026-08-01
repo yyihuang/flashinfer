@@ -176,6 +176,18 @@ def test_flash_kda_descriptor_workspace_contract():
     assert "kFlashKDATargetMinor == 0 || kFlashKDATargetMinor == 3" in common_text
     assert "major == 10 && minor == kFlashKDATargetMinor" in common_text
     assert "minor == 0 || minor == 3" not in common_text
+    assert "PackBetaForTmaKernel" in common_text
+    assert (
+        'CheckNoPartialOverlapOrExactAlias(beta, "beta", beta_tma, "beta_tma")'
+        in common_text
+    )
+
+    m128_binding = (
+        flash_kda._get_flash_kda_csrc_dir() / "flashkda_bf16_fused_m128_binding.cu"
+    ).read_text()
+    assert "PackBetaForTmaIfNeeded(beta, beta_tma, num_heads, stream);" in (
+        m128_binding
+    )
 
 
 def test_flash_kda_variant_validation_and_public_getter(monkeypatch):
