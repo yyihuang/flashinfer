@@ -137,6 +137,18 @@ def test_flash_kda_descriptor_workspace_contract():
     assert "PublishTensorMaps<<<1, 128, 0, stream>>>" in common_text
     assert "prepare_descriptors must be 0 during CUDA graph capture" in common_text
     assert "cudaMemcpyAsync(TMA descriptors)" not in common_text
+    assert "PackBetaForTmaKernel" in common_text
+    assert (
+        'CheckNoPartialOverlapOrExactAlias(beta, "beta", beta_tma, "beta_tma")'
+        in common_text
+    )
+
+    m128_binding = (
+        flash_kda._get_flash_kda_csrc_dir() / "flashkda_bf16_fused_m128_binding.cu"
+    ).read_text()
+    assert "PackBetaForTmaIfNeeded(beta, beta_tma, num_heads, stream);" in (
+        m128_binding
+    )
 
 
 def test_flash_kda_variant_validation_and_public_getter(monkeypatch):
