@@ -19,7 +19,13 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 from . import env as jit_env
-from .core import JitSpec, gen_jit_spec, logger, sm100a_nvcc_flags
+from .core import (
+    JitSpec,
+    gen_jit_spec,
+    logger,
+    sm100a_nvcc_flags,
+    sm103a_nvcc_flags,
+)
 from .utils import write_if_different
 
 FlashKDADecodeVariant = Literal[
@@ -47,6 +53,13 @@ FlashKDADecodeVariant = Literal[
     "d128_t6_precomputed_gram_split4",
     "d128_t6_precomputed_gram_split8",
 ]
+FlashKDADecodeArch = Literal["sm100a", "sm103a"]
+
+_FLASH_KDA_DECODE_NVCC_FLAGS = {
+    "sm100a": sm100a_nvcc_flags,
+    "sm103a": sm103a_nvcc_flags,
+}
+_FLASH_KDA_DECODE_TARGET_MINOR = {"sm100a": 0, "sm103a": 3}
 
 FLASH_KDA_DECODE_VARIANTS: tuple[FlashKDADecodeVariant, ...] = (
     "d128_t1_precomputed_split1",
@@ -173,12 +186,16 @@ def _get_include_dir() -> Path:
     )
 
 
-def get_flash_kda_decode_uri(variant: FlashKDADecodeVariant) -> str:
-    """Return the stable JIT/AOT cache key for one physical decode schedule."""
+def get_flash_kda_decode_uri(
+    variant: FlashKDADecodeVariant, arch: FlashKDADecodeArch = "sm100a"
+) -> str:
+    """Return the architecture-specific JIT/AOT key for one decode schedule."""
 
     if variant not in FLASH_KDA_DECODE_VARIANTS:
         raise ValueError(f"unsupported FlashKDA decode variant: {variant}")
-    return f"flash_kda_decode_{variant}_sm100a"
+    if arch not in _FLASH_KDA_DECODE_NVCC_FLAGS:
+        raise ValueError(f"unsupported FlashKDA decode architecture: {arch}")
+    return f"flash_kda_decode_{variant}_{arch}"
 
 
 def _get_binding_cu(
@@ -221,8 +238,10 @@ def _get_binding_cu(
 
 
 @functools.cache
-def gen_flash_kda_decode_module(variant: FlashKDADecodeVariant) -> JitSpec:
-    """Generate one exact-sm_100a frozen FlashKDA decode module."""
+def gen_flash_kda_decode_module(
+    variant: FlashKDADecodeVariant, arch: FlashKDADecodeArch = "sm100a"
+) -> JitSpec:
+    """Generate one exact-SM100a or exact-SM103a decode module."""
 
     csrc_dir = _get_csrc_dir()
     body = csrc_dir / f"flashkda_decode_{variant}.cu"
@@ -235,42 +254,54 @@ def gen_flash_kda_decode_module(variant: FlashKDADecodeVariant) -> JitSpec:
         )
 
     metadata = FLASH_KDA_DECODE_VARIANT_METADATA[variant]
-    uri = get_flash_kda_decode_uri(variant)
+    uri = get_flash_kda_decode_uri(variant, arch)
     binding = jit_env.FLASHINFER_GEN_SRC_DIR / uri / "flashkda_decode_binding.cu"
     write_if_different(binding, _get_binding_cu(variant, metadata))
 
     spec = gen_jit_spec(
         name=uri,
         sources=[binding],
-        extra_cuda_cflags=[*sm100a_nvcc_flags, "--maxrregcount=128"],
+        extra_cuda_cflags=[
+            *_FLASH_KDA_DECODE_NVCC_FLAGS[arch],
+            (
+                "-DFLASHINFER_FLASH_KDA_DECODE_TARGET_MINOR="
+                f"{_FLASH_KDA_DECODE_TARGET_MINOR[arch]}"
+            ),
+            "--maxrregcount=128",
+        ],
         extra_include_paths=[
             csrc_dir,
             csrc_dir.parent,
             _get_include_dir(),
         ],
     )
-    logger.info(f"Generated FlashKDA decode {variant} JIT spec: {spec.name}")
+    logger.info(f"Generated FlashKDA decode {variant} {arch} JIT spec: {spec.name}")
     return spec
 
 
 @functools.cache
-def load_flash_kda_decode_module(variant: FlashKDADecodeVariant):
-    """Build or load one physical FlashKDA decode module."""
+def load_flash_kda_decode_module(
+    variant: FlashKDADecodeVariant, arch: FlashKDADecodeArch = "sm100a"
+):
+    """Build or load one physical, architecture-specific decode module."""
 
-    module = gen_flash_kda_decode_module(variant).build_and_load()
-    logger.info(f"Loaded FlashKDA decode {variant} module")
+    module = gen_flash_kda_decode_module(variant, arch).build_and_load()
+    logger.info(f"Loaded FlashKDA decode {variant} {arch} module")
     return module
 
 
-def get_flash_kda_decode_module(variant: FlashKDADecodeVariant):
+def get_flash_kda_decode_module(
+    variant: FlashKDADecodeVariant, arch: FlashKDADecodeArch = "sm100a"
+):
     """Return the loaded module used by the recurrent-KDA dispatcher."""
 
-    return load_flash_kda_decode_module(variant)
+    return load_flash_kda_decode_module(variant, arch)
 
 
 __all__ = [
     "FLASH_KDA_DECODE_VARIANT_METADATA",
     "FLASH_KDA_DECODE_VARIANTS",
+    "FlashKDADecodeArch",
     "FlashKDADecodeVariant",
     "FlashKDADecodeVariantMetadata",
     "gen_flash_kda_decode_module",

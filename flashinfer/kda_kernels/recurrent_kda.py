@@ -49,10 +49,18 @@ from cutlass.utils import SmemAllocator
 import tvm_ffi  # noqa: F401 -- TVM FFI required for zero-overhead kernel dispatch
 
 from ..jit.flash_kda_decode import (
+    FlashKDADecodeArch,
     FlashKDADecodeVariant,
     get_flash_kda_decode_module,
 )
 from ..utils import get_compute_capability
+
+_FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY: dict[
+    tuple[int, int], FlashKDADecodeArch
+] = {
+    (10, 0): "sm100a",
+    (10, 3): "sm103a",
+}
 
 # ==============================================================================
 # CONSTANTS
@@ -1155,10 +1163,10 @@ def _tensors_overlap(lhs: torch.Tensor, rhs: torch.Tensor) -> bool:
     return lhs_begin < rhs_end and rhs_begin < lhs_end
 
 
-def _select_flash_kda_decode_value_split(
+def _select_flash_kda_decode_value_split_current(
     num_tokens: int, work: int, sm_count: int
 ) -> int:
-    """Select the measured public-export route across frozen value-row splits."""
+    """Apply the B200-measured public-export split policy."""
 
     if num_tokens == 1:
         return 16 if work <= 2 * sm_count else 8
@@ -1178,6 +1186,31 @@ def _select_flash_kda_decode_value_split(
             return 2
         return 1
     raise ValueError(f"unsupported precomputed token count: {num_tokens}")
+
+
+# SM103a initially reuses the B200-measured policy. Keep the architecture hook
+# explicit so a GB300 split sweep can retune it without changing SM100a routes.
+_FLASH_KDA_DECODE_VALUE_SPLIT_SELECTOR_BY_ARCH: dict[
+    FlashKDADecodeArch, Callable[[int, int, int], int]
+] = {
+    "sm100a": _select_flash_kda_decode_value_split_current,
+    "sm103a": _select_flash_kda_decode_value_split_current,
+}
+
+
+def _select_flash_kda_decode_value_split(
+    num_tokens: int,
+    work: int,
+    sm_count: int,
+    arch: FlashKDADecodeArch = "sm100a",
+) -> int:
+    """Select a frozen value-row split using the target architecture policy."""
+
+    try:
+        selector = _FLASH_KDA_DECODE_VALUE_SPLIT_SELECTOR_BY_ARCH[arch]
+    except KeyError as error:
+        raise ValueError(f"unsupported FlashKDA decode architecture: {arch}") from error
+    return selector(num_tokens, work, sm_count)
 
 
 def _select_flash_kda_decode_variant(
@@ -1203,7 +1236,7 @@ def _select_flash_kda_decode_variant(
     initial_state_source: Optional[torch.Tensor],
     beta_is_logit: bool,
 ) -> Optional[FlashKDADecodeVariant]:
-    """Select a frozen B200 decode schedule for the strict Cake contract.
+    """Select a frozen SM100a/SM103a schedule for the strict Cake contract.
 
     The exported family covers D128/T=1..6. T=3 preserves its measured
     lower-bound contract; T=1/2/4/5/6 use precomputed gates, with T1 routed to
@@ -1234,10 +1267,15 @@ def _select_flash_kda_decode_variant(
         and A_log is None
         and dt_bias is None
     )
+    if not q.is_cuda:
+        return None
+    arch = _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY.get(
+        get_compute_capability(q.device)
+    )
+    if arch is None:
+        return None
     if (
-        not q.is_cuda
-        or get_compute_capability(q.device) != (10, 0)
-        or not (is_t3_lower_bound or is_precomputed)
+        not (is_t3_lower_bound or is_precomputed)
         or cu_seqlens is None
         or ssm_state_indices is None
         or initial_state_source is not None
@@ -1365,7 +1403,7 @@ def _select_flash_kda_decode_variant(
 
     work = num_sequences * num_value_heads
     sm_count = torch.cuda.get_device_properties(q.device).multi_processor_count
-    value_split = _select_flash_kda_decode_value_split(num_tokens, work, sm_count)
+    value_split = _select_flash_kda_decode_value_split(num_tokens, work, sm_count, arch)
     if num_tokens == 1:
         return cast(
             FlashKDADecodeVariant,
@@ -1404,7 +1442,16 @@ def _run_flash_kda_decode(
 ) -> None:
     """Launch one frozen decode specialization on the current CUDA stream."""
 
-    module = get_flash_kda_decode_module(variant)
+    compute_capability = get_compute_capability(q.device)
+    try:
+        arch = _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY[compute_capability]
+    except KeyError as error:
+        raise RuntimeError(
+            "frozen recurrent-KDA decode requires exact compute capability "
+            "10.0 (SM100a) or 10.3 (SM103a); got "
+            f"{compute_capability[0]}.{compute_capability[1]}"
+        ) from error
+    module = get_flash_kda_decode_module(variant, arch)
     module.run(
         q,
         k,

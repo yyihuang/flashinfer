@@ -63,6 +63,7 @@ from .jit.fp4_kv_dequantization import gen_fp4_kv_dequantization_module
 from .jit.fp4_kv_quantization import gen_fp4_kv_quantization_module
 from .jit.flash_kda_decode import (
     FLASH_KDA_DECODE_VARIANTS,
+    FlashKDADecodeArch,
     gen_flash_kda_decode_module,
 )
 from .jit.nvfp4_attention_sm120 import gen_nvfp4_attention_sm120_module
@@ -506,6 +507,7 @@ def gen_all_modules(
     has_sm100a_exact = sm_capabilities.get("sm100a_exact", False)
     has_sm100f = sm_capabilities.get("sm100f", False)
     has_sm103 = sm_capabilities.get("sm103", False)
+    has_sm103a_exact = sm_capabilities.get("sm103a_exact", False)
     has_sm107 = sm_capabilities.get("sm107", False)
     has_sm110 = sm_capabilities.get("sm110", False)
     has_sm120 = sm_capabilities.get("sm120", False)
@@ -528,11 +530,19 @@ def gen_all_modules(
     )
     if has_sm120 or has_sm121:
         jit_specs.append(gen_nvfp4_attention_sm120_module())
-    if has_sm100a_exact:
-        jit_specs.extend(
-            gen_flash_kda_decode_module(variant)
-            for variant in FLASH_KDA_DECODE_VARIANTS
-        )
+    # Keep exact SM100a and SM103a cubins under architecture-bearing URIs.
+    # The checked-in frozen bodies are shared, but every body is compiled and
+    # registered independently for each validated target.
+    flash_kda_decode_arches: tuple[tuple[FlashKDADecodeArch, bool], ...] = (
+        ("sm100a", has_sm100a_exact),
+        ("sm103a", has_sm103a_exact),
+    )
+    for flash_kda_decode_arch, enabled in flash_kda_decode_arches:
+        if enabled:
+            jit_specs.extend(
+                gen_flash_kda_decode_module(variant, flash_kda_decode_arch)
+                for variant in FLASH_KDA_DECODE_VARIANTS
+            )
 
     if add_act:
         for act_name in act_func_def_str:
@@ -983,6 +993,8 @@ def detect_sm_capabilities():
         and get_cuda_version() >= Version("12.8"),
         "sm100f": has_sm("compute_100", "12.9"),
         "sm103": has_sm("compute_103", "12.9"),
+        "sm103a_exact": (10, "3a") in compilation_context.TARGET_CUDA_ARCHS
+        and get_cuda_version() >= Version("12.9"),
         "sm107": has_sm("compute_107", "12.9"),
         "sm110": has_sm("compute_110", "13.0"),
         "sm120": has_sm("compute_120", "12.8"),

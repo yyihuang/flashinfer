@@ -11,8 +11,8 @@ sequence (``T=1``) and packed speculative decode with two or more tokens per
 sequence (``T>=2``).
 
 Pass ``backend="cake"`` to select the exported Cake backend. On exact SM100a
-devices, its D128 ``T=1..6`` family with in-kernel QK normalization exports 23
-frozen CUDA modules:
+(B200/GB200) and SM103a (B300/GB300) devices, its D128 ``T=1..6`` family with
+in-kernel QK normalization exports 23 frozen CUDA bodies:
 
 * ``T=3`` with raw gates, ``use_gate_in_kernel=True``, a negative
   ``lower_bound``, float32 ``A_log`` and ``dt_bias``, ``H=HV=16``, and
@@ -33,6 +33,12 @@ T5/T6 coefficient-Gram schedules reproduce Cake's CTA-wave policy: split 8
 for ``W<=3S/8``, split 2 for ``3S/8<W<=S/2``, split 4 for
 ``S/2<W<=3S/4``, split 2 for ``3S/4<W<=3S/2``, and split 1 above that
 range.
+
+JIT compilation selects the architecture from the input tensor's CUDA device.
+SM100a and SM103a use separate module URIs, compiler flags, cache entries,
+cubins, and AOT specifications while sharing the same checked-in frozen CUDA
+bodies. Each binding rejects execution when the current device does not exactly
+match the target architecture compiled into that module.
 
 Once ``backend="cake"`` is selected, every supported call launches exactly one
 exported Cake kernel. An unsupported architecture, shape, gate mode, layout,

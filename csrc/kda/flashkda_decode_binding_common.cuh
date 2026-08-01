@@ -62,17 +62,24 @@ inline void CheckCuda(cudaError_t status, const char* operation) {
   TVM_FFI_ICHECK(status == cudaSuccess) << operation << " failed: " << cudaGetErrorString(status);
 }
 
-inline void CheckExactSm100a(int32_t device_id) {
+#ifndef FLASHINFER_FLASH_KDA_DECODE_TARGET_MINOR
+#error "FLASHINFER_FLASH_KDA_DECODE_TARGET_MINOR must be defined by the JIT/AOT spec"
+#endif
+
+constexpr int kFlashKDADecodeTargetMinor = FLASHINFER_FLASH_KDA_DECODE_TARGET_MINOR;
+static_assert(kFlashKDADecodeTargetMinor == 0 || kFlashKDADecodeTargetMinor == 3,
+              "FlashKDA decode target must be SM100a or SM103a");
+
+inline void CheckExactFlashKDADecodeTarget(int32_t device_id) {
   int major = 0;
   int minor = 0;
   CheckCuda(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device_id),
             "cudaDeviceGetAttribute(major)");
   CheckCuda(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device_id),
             "cudaDeviceGetAttribute(minor)");
-  TVM_FFI_ICHECK(major == 10 && minor == 0)
-      << "frozen FlashKDA decode kernels require exact compute capability 10.0 "
-         "(sm_100a), got "
-      << major << "." << minor;
+  TVM_FFI_ICHECK(major == 10 && minor == kFlashKDADecodeTargetMinor)
+      << "this frozen FlashKDA decode module was compiled for exact compute capability 10."
+      << kFlashKDADecodeTargetMinor << ", got " << major << "." << minor;
 }
 
 inline void CheckCudaTensor(const TensorView& tensor, const char* name, int32_t device_id) {
@@ -186,7 +193,7 @@ LaunchContext CheckInputs(const TensorView& q, const TensorView& k, const Tensor
   TVM_FFI_ICHECK(q.device().device_type == kDLCUDA) << "q must be a CUDA tensor";
   const int32_t device_id = q.device().device_id;
   ffi::CUDADeviceGuard device_guard(device_id);
-  CheckExactSm100a(device_id);
+  CheckExactFlashKDADecodeTarget(device_id);
 
   for (const auto& named :
        {std::pair<const TensorView*, const char*>(&q, "q"),
