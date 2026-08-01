@@ -26,13 +26,19 @@ in-kernel QK normalization exports 23 frozen CUDA bodies:
   explicit ``T=1`` ``cu_seqlens`` metadata is outside the Cake contract.
 
 Let ``W=N*HV`` be the active sequence/value-head work and ``S`` the device SM
-count. The Cake dispatcher selects the direct split-16 schedule for T1 when
-``W<=2S`` and the direct split-8 schedule otherwise. It selects split 4 for
-T2, split 4 for the exact T3 lower-bound contract, and split 2 for T4. The
-T5/T6 coefficient-Gram schedules reproduce Cake's CTA-wave policy: split 8
-for ``W<=3S/8``, split 2 for ``3S/8<W<=S/2``, split 4 for
-``S/2<W<=3S/4``, split 2 for ``3S/4<W<=3S/2``, and split 1 above that
-range.
+count. SM100a retains the B200-measured policy: direct split 16 for T1 when
+``W<=2S`` and direct split 8 otherwise; split 4 for T2; split 2 for T4; and
+the T5/T6 CTA-wave policy of split 8 for ``W<=3S/8``, split 2 for
+``3S/8<W<=S/2``, split 4 for ``S/2<W<=3S/4``, split 2 for
+``3S/4<W<=3S/2``, and split 1 above that range.
+
+SM103a uses its separately measured GB300 policy. T1 selects direct split 16
+through ``W<=32S`` and direct split 8 beyond that measured-range guard. T2
+selects split 8 through ``W<=S/2`` and split 4 above it. T4 selects split 8
+through ``W<=S/2``, split 4 through ``W<=S``, and split 2 above it. T5 keeps
+the SM100a CTA-wave policy. T6 selects split 8 through ``W<=3S/8``, split 2
+through ``W<=S/2``, and split 1 above it. T3 uses its sole exact lower-bound
+split-4 specialization on both architectures.
 
 JIT compilation selects the architecture from the input tensor's CUDA device.
 SM100a and SM103a use separate module URIs, compiler flags, cache entries,

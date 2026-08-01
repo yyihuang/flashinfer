@@ -341,6 +341,33 @@ def test_cake_value_split_boundaries(num_tokens, work, sm_count, expected_split)
     )
 
 
+@pytest.mark.parametrize(
+    ("num_tokens", "work", "sm_count", "expected_split"),
+    [
+        (1, 5120, 160, 16),
+        (1, 5121, 160, 8),
+        (2, 80, 160, 8),
+        (2, 81, 160, 4),
+        (4, 80, 160, 8),
+        (4, 81, 160, 4),
+        (4, 160, 160, 4),
+        (4, 161, 160, 2),
+        (5, 256, 160, 1),
+        (6, 60, 160, 8),
+        (6, 61, 160, 2),
+        (6, 80, 160, 2),
+        (6, 81, 160, 1),
+    ],
+)
+def test_sm103a_cake_value_split_boundaries(num_tokens, work, sm_count, expected_split):
+    assert (
+        recurrent_module._select_flash_kda_decode_value_split(
+            num_tokens, work, sm_count, "sm103a"
+        )
+        == expected_split
+    )
+
+
 def test_sm103a_split_policy_has_an_independent_retuning_hook(monkeypatch):
     sentinel_calls = []
 
@@ -388,6 +415,35 @@ def test_precomputed_token_family_uses_tuned_export_dispatch(
     monkeypatch, num_tokens, num_sequences, expected_variant
 ):
     _patch_cpu_selector_environment(monkeypatch)
+    assert (
+        recurrent_module._select_flash_kda_decode_variant(
+            **_fake_precomputed_selector_kwargs(
+                num_tokens,
+                num_sequences=num_sequences,
+            )
+        )
+        == expected_variant
+    )
+
+
+@pytest.mark.parametrize(
+    ("num_tokens", "num_sequences", "expected_variant"),
+    [
+        (1, 16, _PRECOMPUTED_VARIANT_PREFIXES[1] + "16"),
+        (2, 2, _PRECOMPUTED_VARIANT_PREFIXES[2] + "8"),
+        (2, 3, _PRECOMPUTED_VARIANT_PREFIXES[2] + "4"),
+        (4, 2, _PRECOMPUTED_VARIANT_PREFIXES[4] + "8"),
+        (4, 3, _PRECOMPUTED_VARIANT_PREFIXES[4] + "4"),
+        (4, 8, _PRECOMPUTED_VARIANT_PREFIXES[4] + "2"),
+        (6, 1, _PRECOMPUTED_VARIANT_PREFIXES[6] + "8"),
+        (6, 2, _PRECOMPUTED_VARIANT_PREFIXES[6] + "2"),
+        (6, 3, _PRECOMPUTED_VARIANT_PREFIXES[6] + "1"),
+    ],
+)
+def test_sm103a_precomputed_token_family_uses_gb300_dispatch(
+    monkeypatch, num_tokens, num_sequences, expected_variant
+):
+    _patch_cpu_selector_environment(monkeypatch, sm_count=152, cc=(10, 3))
     assert (
         recurrent_module._select_flash_kda_decode_variant(
             **_fake_precomputed_selector_kwargs(

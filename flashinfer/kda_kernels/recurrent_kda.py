@@ -1188,13 +1188,39 @@ def _select_flash_kda_decode_value_split_current(
     raise ValueError(f"unsupported precomputed token count: {num_tokens}")
 
 
-# SM103a initially reuses the B200-measured policy. Keep the architecture hook
-# explicit so a GB300 split sweep can retune it without changing SM100a routes.
+def _select_flash_kda_decode_value_split_sm103a(
+    num_tokens: int, work: int, sm_count: int
+) -> int:
+    """Apply the GB300-measured public-export split policy."""
+
+    if num_tokens == 1:
+        # Direct split16 won every measured point through W/S=26.95. Keep the
+        # next natural wave boundary as a conservative extrapolation guard.
+        return 16 if work <= 32 * sm_count else 8
+    if num_tokens == 2:
+        return 8 if 2 * work <= sm_count else 4
+    if num_tokens == 4:
+        if 2 * work <= sm_count:
+            return 8
+        if work <= sm_count:
+            return 4
+        return 2
+    if num_tokens == 5:
+        return _select_flash_kda_decode_value_split_current(num_tokens, work, sm_count)
+    if num_tokens == 6:
+        if 8 * work <= 3 * sm_count:
+            return 8
+        if 2 * work <= sm_count:
+            return 2
+        return 1
+    raise ValueError(f"unsupported precomputed token count: {num_tokens}")
+
+
 _FLASH_KDA_DECODE_VALUE_SPLIT_SELECTOR_BY_ARCH: dict[
     FlashKDADecodeArch, Callable[[int, int, int], int]
 ] = {
     "sm100a": _select_flash_kda_decode_value_split_current,
-    "sm103a": _select_flash_kda_decode_value_split_current,
+    "sm103a": _select_flash_kda_decode_value_split_sm103a,
 }
 
 

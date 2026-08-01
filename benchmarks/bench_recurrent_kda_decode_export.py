@@ -33,6 +33,7 @@ import statistics
 import subprocess
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -49,10 +50,9 @@ PRECOMPUTED_SEQUENCE_COUNTS = (8, 16, 32, 64, 128)
 T3_LOWER_BOUND_SEQUENCE_COUNTS = (1, 2, 4, 8, 16)
 SUPPORTED_FLASH_KDA_DECODE_ARCHS = {(10, 0): "sm100a", (10, 3): "sm103a"}
 
-# Keep the measured public-export routes in one place. T1 uses a direct
-# register-state body with split16 at N8 and split8 at N16+; the exported split
-# sweep selects split4 for T2 and split2 for T4. T3 has one exact lower-bound
-# split4 specialization.
+# Keep the measured public-export routes in one place. T3 has one exact
+# lower-bound split4 specialization. The final 30-shape matrix uses the same
+# T2/T4/T5/T6 routes on both architectures; its T1 route is architecture-local.
 EXPECTED_VARIANTS_BY_T = {
     2: "d128_t2_precomputed_split4",
     3: "d128_t3_lower_bound_split4",
@@ -60,12 +60,18 @@ EXPECTED_VARIANTS_BY_T = {
     5: "d128_t5_precomputed_gram_split1",
     6: "d128_t6_precomputed_gram_split1",
 }
-EXPECTED_T1_VARIANTS_BY_N = {
-    8: "d128_t1_precomputed_direct_split16",
-    16: "d128_t1_precomputed_direct_split8",
-    32: "d128_t1_precomputed_direct_split8",
-    64: "d128_t1_precomputed_direct_split8",
-    128: "d128_t1_precomputed_direct_split8",
+EXPECTED_T1_VARIANTS_BY_ARCH_AND_N = {
+    "sm100a": {
+        8: "d128_t1_precomputed_direct_split16",
+        16: "d128_t1_precomputed_direct_split8",
+        32: "d128_t1_precomputed_direct_split8",
+        64: "d128_t1_precomputed_direct_split8",
+        128: "d128_t1_precomputed_direct_split8",
+    },
+    "sm103a": {
+        num_sequences: "d128_t1_precomputed_direct_split16"
+        for num_sequences in PRECOMPUTED_SEQUENCE_COUNTS
+    },
 }
 
 
@@ -289,12 +295,16 @@ def _parse_expected_variant_overrides(values: list[str]) -> dict[int, str]:
 def _expected_variant_for_spec(
     spec: dict,
     expected_variant_overrides: dict[int, str],
+    cuda_arch: Optional[str] = None,
 ) -> str:
     num_tokens = spec["T"]
     if num_tokens in expected_variant_overrides:
         return expected_variant_overrides[num_tokens]
+    if cuda_arch is None:
+        compute_capability = torch.cuda.get_device_capability()
+        cuda_arch = SUPPORTED_FLASH_KDA_DECODE_ARCHS[compute_capability]
     if num_tokens == 1:
-        return EXPECTED_T1_VARIANTS_BY_N[spec["N"]]
+        return EXPECTED_T1_VARIANTS_BY_ARCH_AND_N[cuda_arch][spec["N"]]
     return EXPECTED_VARIANTS_BY_T[num_tokens]
 
 
@@ -484,7 +494,9 @@ def main() -> None:
         case_ordinal_by_t[spec["T"]] += 1
         kwargs = _make_case(spec, device)
         selected_variant = None
-        expected_variant = _expected_variant_for_spec(spec, expected_variants)
+        expected_variant = _expected_variant_for_spec(
+            spec, expected_variants, hardware["cuda_arch"]
+        )
         if args.mode == "frozen":
             selected_variant = _assert_frozen_route(spec, kwargs, expected_variant)
         call_kwargs = dict(kwargs)
