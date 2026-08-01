@@ -159,7 +159,8 @@ def cuda_device():
 def flash_kda_device(cuda_device):
     if get_compute_capability(cuda_device) not in ((10, 0), (10, 3)):
         pytest.skip(
-            "frozen recurrent KDA prefill requires B200 (cc 10.0) or GB300 (cc 10.3)"
+            "frozen recurrent KDA prefill requires exact CC 10.0 "
+            "(SM100a; B200/GB200) or CC 10.3 (SM103a; B300/GB300)"
         )
     return cuda_device
 

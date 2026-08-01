@@ -513,8 +513,9 @@ def main() -> None:
     compute_capability = get_compute_capability(device)
     if compute_capability not in SUPPORTED_FLASH_KDA_ARCHS:
         raise RuntimeError(
-            "frozen recurrent-KDA prefill requires B200 (cc 10.0) or "
-            f"GB300 (cc 10.3), got cc {compute_capability[0]}."
+            "frozen recurrent-KDA prefill requires exact CC 10.0 "
+            "(SM100a; B200/GB200) or CC 10.3 (SM103a; B300/GB300), "
+            f"got CC {compute_capability[0]}."
             f"{compute_capability[1]}"
         )
     _require_cupti()

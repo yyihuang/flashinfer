@@ -15,13 +15,14 @@ kernels.
 
     RecurrentKDAPrefillWorkspace
 
-Optimized B200 and GB300 prefill subset
----------------------------------------
+Optimized SM100a and SM103a prefill subset
+------------------------------------------
 
 ``flashinfer.kda.recurrent_kda`` uses the frozen prefill backend only when
 every condition below holds:
 
-* the device has exact compute capability 10.0 (SM100a) or 10.3 (SM103a);
+* the device has exact compute capability 10.0 (SM100a; B200/GB200) or 10.3
+  (SM103a; B300/GB300);
 * input is ordinary multi-token prefill: fixed ``T > 1``, or packed input
   whose total token count is greater than its number of sequences;
 * Q, K, V, and G are contiguous BF16 ``[B,T,H,128]`` tensors with one shared
