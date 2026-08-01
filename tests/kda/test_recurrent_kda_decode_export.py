@@ -1245,10 +1245,14 @@ def test_public_recurrent_kda_precomputed_matrix_matches_cute_dsl(
         backend="cake",
     )
 
-    expected_split = (
-        (16 if num_sequences == 8 else 8)
-        if num_tokens == 1
-        else {2: 4, 4: 2, 5: 1, 6: 1}[num_tokens]
+    arch = recurrent_module._FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY[
+        torch.cuda.get_device_capability(flash_kda_device)
+    ]
+    expected_split = recurrent_module._select_flash_kda_decode_value_split(
+        num_tokens,
+        num_sequences * 32,
+        torch.cuda.get_device_properties(flash_kda_device).multi_processor_count,
+        arch,
     )
     expected_variant = _PRECOMPUTED_VARIANT_PREFIXES[num_tokens] + str(expected_split)
     assert frozen_calls == [expected_variant]
@@ -1616,10 +1620,14 @@ def test_public_route_supports_padded_slots_nat_and_outer_strides(
         backend="cake",
     )
 
+    arch = recurrent_module._FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY[
+        torch.cuda.get_device_capability(flash_kda_device)
+    ]
     expected_split = recurrent_module._select_flash_kda_decode_value_split(
         _T,
         len(accepted_tokens) * 32,
         torch.cuda.get_device_properties(flash_kda_device).multi_processor_count,
+        arch,
     )
     assert frozen_calls == [_VARIANT_PREFIX + str(expected_split)]
     assert actual_state_result is actual_state
