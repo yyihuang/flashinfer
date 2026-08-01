@@ -5,7 +5,8 @@ flashinfer.kda_prefill
 
 Optimized recurrent Kimi Delta Attention (KDA) prefill support. The
 :func:`flashinfer.kda.recurrent_kda` facade dispatches a strict ordinary
-multi-token prefill subset to frozen FlashKDA-compatible SM100a kernels.
+multi-token prefill subset to frozen FlashKDA-compatible SM100a and SM103a
+kernels.
 
 .. currentmodule:: flashinfer.kda_prefill
 
@@ -14,13 +15,13 @@ multi-token prefill subset to frozen FlashKDA-compatible SM100a kernels.
 
     RecurrentKDAPrefillWorkspace
 
-Optimized B200 prefill subset
------------------------------
+Optimized B200 and GB300 prefill subset
+---------------------------------------
 
 ``flashinfer.kda.recurrent_kda`` uses the frozen prefill backend only when
 every condition below holds:
 
-* the device has compute capability 10.0;
+* the device has exact compute capability 10.0 (SM100a) or 10.3 (SM103a);
 * input is ordinary multi-token prefill: fixed ``T > 1``, or packed input
   whose total token count is greater than its number of sequences;
 * Q, K, V, and G are contiguous BF16 ``[B,T,H,128]`` tensors with one shared
@@ -34,6 +35,12 @@ every condition below holds:
 
 Calls outside that subset retain the existing CuTe-DSL path. In particular,
 T=1 decode and speculative decode are not rerouted.
+
+JIT compilation selects the architecture from the input tensor's CUDA device.
+SM100a and SM103a use separate module URIs, compiler flags, cache entries, and
+cubins while sharing the same checked-in frozen M64/M128 device bodies. Each
+binding also rejects execution when the current device does not exactly match
+the target architecture compiled into that module.
 
 Fixed input omits ``cu_seqlens``. Packed input has ``B=1`` and accepts a
 contiguous CUDA int32 or int64 ``cu_seqlens``. The frozen binding consumes

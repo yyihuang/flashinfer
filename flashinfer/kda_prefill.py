@@ -20,7 +20,7 @@ Kimi Delta Attention Prefill - Backend Layer
 
 This file provides workspace management, validation, and frozen-kernel launch
 support for recurrent KDA prefill.  The stable public dispatcher remains in
-``flashinfer.kda_decode``.
+``flashinfer.kda``.
 """
 
 import math
@@ -32,11 +32,14 @@ import torch
 from .utils import get_compute_capability
 
 if TYPE_CHECKING:
-    from .jit.flash_kda import FlashKDAVariant
+    from .jit.flash_kda import FlashKDAArch, FlashKDAVariant
 
 _FLASH_KDA_HEAD_DIM = 128
 _FLASH_KDA_BETA_TMA_MIN_HEADS = 8
-_FLASH_KDA_B200_COMPUTE_CAPABILITY = (10, 0)
+_FLASH_KDA_ARCH_BY_COMPUTE_CAPABILITY: dict[tuple[int, int], "FlashKDAArch"] = {
+    (10, 0): "sm100a",
+    (10, 3): "sm103a",
+}
 _FLASH_KDA_DESCRIPTOR_STORAGE_BYTES = 6 * 128
 _flash_kda_tensor_cache: dict[tuple, torch.Tensor] = {}
 _flash_kda_tensor_cache_lock = threading.Lock()
@@ -164,9 +167,8 @@ def _flash_kda_prefill_is_eligible(
         and float(lower_bound) < 0.0
     ):
         return False
-    if (
-        not q.is_cuda
-        or get_compute_capability(q.device) != _FLASH_KDA_B200_COMPUTE_CAPABILITY
+    if not q.is_cuda or get_compute_capability(q.device) not in (
+        _FLASH_KDA_ARCH_BY_COMPUTE_CAPABILITY
     ):
         return False
     if not _is_contiguous_cuda_tensor(q, dtype=torch.bfloat16, device=q.device):
@@ -518,10 +520,10 @@ def _validate_prefill_seq_order(
     return seq_order
 
 
-def _get_flash_kda_prefill_module(variant: "FlashKDAVariant"):
+def _get_flash_kda_prefill_module(variant: "FlashKDAVariant", arch: "FlashKDAArch"):
     from .jit.flash_kda import get_flash_kda_prefill_module
 
-    return get_flash_kda_prefill_module(variant)
+    return get_flash_kda_prefill_module(variant, arch)
 
 
 def _run_flash_kda_prefill(
@@ -634,6 +636,15 @@ def _run_flash_kda_prefill(
         num_sequences=num_sequences,
         num_heads=num_heads,
     )
+    compute_capability = get_compute_capability(q.device)
+    try:
+        arch = _FLASH_KDA_ARCH_BY_COMPUTE_CAPABILITY[compute_capability]
+    except KeyError as error:
+        raise RuntimeError(
+            "frozen recurrent-KDA prefill requires exact compute capability "
+            "10.0 (SM100a) or 10.3 (SM103a); got "
+            f"{compute_capability[0]}.{compute_capability[1]}"
+        ) from error
     stream_ptr = int(torch.cuda.current_stream(q.device).cuda_stream)
     explicit_workspace = prefill_workspace is not None
     workspace: _RecurrentKDAPrefillWorkspaceBase
@@ -681,7 +692,7 @@ def _run_flash_kda_prefill(
         else:
             prepare_descriptors = int(warmed_signature != signature)
         descriptor_storage = workspace._descriptor_storages[variant]
-        module = _get_flash_kda_prefill_module(variant)
+        module = _get_flash_kda_prefill_module(variant, arch)
         try:
             module.run(
                 q,

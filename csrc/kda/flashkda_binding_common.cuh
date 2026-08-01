@@ -98,17 +98,24 @@ inline void CheckNoPartialOverlapOrExactAlias(const TensorView& lhs, const char*
       << " must either be disjoint or exactly alias the same state storage";
 }
 
-inline void CheckExactSm100a(int32_t device_id) {
+#ifndef FLASHINFER_FLASH_KDA_TARGET_MINOR
+#error "FLASHINFER_FLASH_KDA_TARGET_MINOR must be defined by the JIT/AOT spec"
+#endif
+
+constexpr int kFlashKDATargetMinor = FLASHINFER_FLASH_KDA_TARGET_MINOR;
+static_assert(kFlashKDATargetMinor == 0 || kFlashKDATargetMinor == 3,
+              "FlashKDA target must be SM100a or SM103a");
+
+inline void CheckExactFlashKDATarget(int32_t device_id) {
   int major = 0;
   int minor = 0;
   CheckCuda(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device_id),
             "cudaDeviceGetAttribute(major)");
   CheckCuda(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device_id),
             "cudaDeviceGetAttribute(minor)");
-  TVM_FFI_ICHECK(major == 10 && minor == 0)
-      << "FlashKDA frozen kernels require exact compute capability 10.0 "
-         "(sm_100a), got "
-      << major << "." << minor;
+  TVM_FFI_ICHECK(major == 10 && minor == kFlashKDATargetMinor)
+      << "this FlashKDA module was compiled for exact compute capability 10."
+      << kFlashKDATargetMinor << ", got " << major << "." << minor;
 }
 
 inline int64_t CheckCommonInputs(const TensorView& q, const TensorView& k, const TensorView& v,

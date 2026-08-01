@@ -156,9 +156,11 @@ def cuda_device():
 
 
 @pytest.fixture
-def b200(cuda_device):
-    if get_compute_capability(cuda_device) != (10, 0):
-        pytest.skip("frozen recurrent KDA prefill requires B200 (cc 10.0)")
+def flash_kda_device(cuda_device):
+    if get_compute_capability(cuda_device) not in ((10, 0), (10, 3)):
+        pytest.skip(
+            "frozen recurrent KDA prefill requires B200 (cc 10.0) or GB300 (cc 10.3)"
+        )
     return cuda_device
 
 
@@ -190,7 +192,7 @@ def test_decode_and_spec_stay_on_existing_backend(monkeypatch):
     monkeypatch.setattr(
         kda_prefill_api,
         "_get_flash_kda_prefill_module",
-        lambda variant: pytest.fail(f"unexpected frozen route {variant}"),
+        lambda variant, arch: pytest.fail(f"unexpected frozen route {variant}/{arch}"),
     )
     q = torch.empty((2, 1, 4, 128), dtype=torch.bfloat16)
     result = recurrent_kda(q, q, q, q, torch.empty((2, 1, 4)))
@@ -216,7 +218,7 @@ def test_multi_token_gqa_stays_on_existing_backend(cuda_device, monkeypatch):
     monkeypatch.setattr(
         kda_prefill_api,
         "_get_flash_kda_prefill_module",
-        lambda variant: pytest.fail(f"unexpected frozen route {variant}"),
+        lambda variant, arch: pytest.fail(f"unexpected frozen route {variant}/{arch}"),
     )
     q = torch.randn((1, 2, 2, 128), dtype=torch.bfloat16, device=cuda_device)
     v = torch.randn((1, 2, 4, 128), dtype=torch.bfloat16, device=cuda_device)
@@ -240,20 +242,30 @@ def test_multi_token_gqa_stays_on_existing_backend(cuda_device, monkeypatch):
     ("packed", "num_heads", "expected_variant"),
     [(False, 64, "m64"), (True, 64, "m128"), (True, 2, "m128")],
 )
+@pytest.mark.parametrize(
+    ("compute_capability", "expected_arch"),
+    [((10, 0), "sm100a"), ((10, 3), "sm103a")],
+)
 def test_frozen_route_and_ffi_abi(
     cuda_device,
     monkeypatch,
     packed,
     num_heads,
     expected_variant,
+    compute_capability,
+    expected_arch,
 ):
     monkeypatch.setattr(
-        kda_prefill_api, "get_compute_capability", lambda device: (10, 0)
+        kda_prefill_api,
+        "get_compute_capability",
+        lambda device: compute_capability,
     )
     monkeypatch.setattr(kda_prefill_api, "_flash_kda_stream_workspaces", {})
     modules = {}
+    routes = []
 
-    def get_module(variant):
+    def get_module(variant, arch):
+        routes.append((variant, arch))
         modules.setdefault(variant, _RecorderModule())
         return modules[variant]
 
@@ -277,6 +289,7 @@ def test_frozen_route_and_ffi_abi(
     assert actual.data_ptr() == output.data_ptr()
     assert state is None
     assert set(modules) == {expected_variant}
+    assert routes == [(expected_variant, expected_arch)]
     (args,) = modules[expected_variant].calls
     assert len(args) == 21
     assert args[0].data_ptr() == inputs["q"].data_ptr()
@@ -311,7 +324,9 @@ def test_frozen_route_passes_nondefault_stream(cuda_device, monkeypatch):
     )
     module = _RecorderModule()
     monkeypatch.setattr(
-        kda_prefill_api, "_get_flash_kda_prefill_module", lambda variant: module
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
     )
     inputs = _make_inputs(seq_lens=[2], num_heads=2, packed=False)
     stream = torch.cuda.Stream(device=cuda_device)
@@ -331,7 +346,9 @@ def test_frozen_route_rejects_output_overlap(cuda_device, monkeypatch):
     )
     module = _RecorderModule()
     monkeypatch.setattr(
-        kda_prefill_api, "_get_flash_kda_prefill_module", lambda variant: module
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
     )
     inputs = _make_inputs(seq_lens=[2], num_heads=2, packed=False)
     with pytest.raises(ValueError, match="output must not overlap q"):
@@ -348,7 +365,9 @@ def test_initial_state_is_updated_in_place(cuda_device, monkeypatch):
     )
     module = _RecorderModule(final_value=0.25)
     monkeypatch.setattr(
-        kda_prefill_api, "_get_flash_kda_prefill_module", lambda variant: module
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
     )
     inputs = _make_inputs(seq_lens=[2], num_heads=2, packed=False, initial_state=True)
     original_state = inputs["initial_state"]
@@ -379,7 +398,9 @@ def test_stream_workspace_does_not_allocate_state_scratch_for_inplace_update(
     monkeypatch.setattr(kda_prefill_api, "_flash_kda_stream_workspaces", {})
     module = _RecorderModule(final_value=0.0)
     monkeypatch.setattr(
-        kda_prefill_api, "_get_flash_kda_prefill_module", lambda variant: module
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
     )
     cases = [
         _make_inputs(
@@ -424,7 +445,7 @@ def test_packed_seq_order_validation(cuda_device, monkeypatch, dtype, size_delta
     monkeypatch.setattr(
         kda_prefill_api,
         "_get_flash_kda_prefill_module",
-        lambda variant: _RecorderModule(),
+        lambda variant, arch: _RecorderModule(),
     )
     inputs = _make_inputs(seq_lens=[1, 2], num_heads=2, packed=True)
     seq_order = torch.arange(2 + size_delta, dtype=dtype, device="cuda")
@@ -480,7 +501,9 @@ def test_explicit_workspace_descriptor_prepare_and_reuse(cuda_device, monkeypatc
     )
     module = _RecorderModule()
     monkeypatch.setattr(
-        kda_prefill_api, "_get_flash_kda_prefill_module", lambda variant: module
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
     )
     inputs = _make_inputs(seq_lens=[2], num_heads=2, packed=False)
     output = torch.empty_like(inputs["q"])
@@ -516,7 +539,9 @@ def test_captured_workspace_rejects_eager_reuse_and_capture_mismatch(
     )
     module = _RecorderModule()
     monkeypatch.setattr(
-        kda_prefill_api, "_get_flash_kda_prefill_module", lambda variant: module
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
     )
     inputs = _make_inputs(seq_lens=[2], num_heads=2, packed=False)
     output = torch.empty_like(inputs["q"])
@@ -565,7 +590,9 @@ def test_workspace_rejects_a_different_stream(cuda_device, monkeypatch):
     )
     module = _RecorderModule()
     monkeypatch.setattr(
-        kda_prefill_api, "_get_flash_kda_prefill_module", lambda variant: module
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
     )
     inputs = _make_inputs(seq_lens=[2], num_heads=2, packed=False)
     output = torch.empty_like(inputs["q"])
@@ -598,7 +625,7 @@ def test_flash_kda_jit_getter_is_importable():
 
 @pytest.mark.parametrize("packed", [False, True])
 @pytest.mark.parametrize("non_default_stream", [False, True])
-def test_frozen_prefill_matches_reference(b200, packed, non_default_stream):
+def test_frozen_prefill_matches_reference(flash_kda_device, packed, non_default_stream):
     inputs = _make_inputs(
         seq_lens=[3, 5] if packed else [4, 4],
         num_heads=2,
@@ -613,11 +640,15 @@ def test_frozen_prefill_matches_reference(b200, packed, non_default_stream):
     expected_output, expected_state = _reference(reference_inputs)
     output = torch.empty_like(inputs["q"])
     state_identity = inputs["initial_state"]
-    seq_order = torch.tensor([1, 0], dtype=torch.int32, device=b200) if packed else None
+    seq_order = (
+        torch.tensor([1, 0], dtype=torch.int32, device=flash_kda_device)
+        if packed
+        else None
+    )
 
     if non_default_stream:
-        stream = torch.cuda.Stream(device=b200)
-        stream.wait_stream(torch.cuda.current_stream(b200))
+        stream = torch.cuda.Stream(device=flash_kda_device)
+        stream.wait_stream(torch.cuda.current_stream(flash_kda_device))
         with torch.cuda.stream(stream):
             actual_output, actual_state = recurrent_kda(
                 **_strict_prefill_kwargs(inputs),
@@ -650,7 +681,7 @@ def test_frozen_prefill_matches_reference(b200, packed, non_default_stream):
     )
 
 
-def test_frozen_prefill_without_initial_or_final_state(b200):
+def test_frozen_prefill_without_initial_or_final_state(flash_kda_device):
     inputs = _make_inputs(seq_lens=[3], num_heads=2, packed=False, initial_state=False)
     expected_output, _ = _reference(inputs)
     output = torch.empty_like(inputs["q"])
@@ -669,7 +700,7 @@ def test_frozen_prefill_without_initial_or_final_state(b200):
     )
 
 
-def test_frozen_prefill_m64_matches_reference(b200):
+def test_frozen_prefill_m64_matches_reference(flash_kda_device):
     inputs = _make_inputs(
         seq_lens=[2],
         num_heads=64,
@@ -712,7 +743,7 @@ def test_frozen_prefill_m64_matches_reference(b200):
     [(False, 64, True), (True, 2, False)],
 )
 def test_frozen_prefill_cuda_graph_capture_and_replay(
-    b200,
+    flash_kda_device,
     packed,
     num_heads,
     has_initial_state,
@@ -736,10 +767,14 @@ def test_frozen_prefill_cuda_graph_capture_and_replay(
         }
     )
     output = torch.empty_like(inputs["q"])
-    seq_order = torch.tensor([1, 0], dtype=torch.int32, device=b200) if packed else None
-    workspace = RecurrentKDAPrefillWorkspace(b200)
-    capture_stream = torch.cuda.Stream(device=b200)
-    capture_stream.wait_stream(torch.cuda.current_stream(b200))
+    seq_order = (
+        torch.tensor([1, 0], dtype=torch.int32, device=flash_kda_device)
+        if packed
+        else None
+    )
+    workspace = RecurrentKDAPrefillWorkspace(flash_kda_device)
+    capture_stream = torch.cuda.Stream(device=flash_kda_device)
+    capture_stream.wait_stream(torch.cuda.current_stream(flash_kda_device))
 
     call_kwargs = {
         **_strict_prefill_kwargs(inputs),
@@ -787,9 +822,9 @@ def test_frozen_prefill_cuda_graph_capture_and_replay(
     )
 
 
-def test_frozen_prefill_cuda_graph_workspaces_are_isolated(b200):
-    capture_stream = torch.cuda.Stream(device=b200)
-    launch_stream = torch.cuda.Stream(device=b200)
+def test_frozen_prefill_cuda_graph_workspaces_are_isolated(flash_kda_device):
+    capture_stream = torch.cuda.Stream(device=flash_kda_device)
+    launch_stream = torch.cuda.Stream(device=flash_kda_device)
     bundles = []
 
     for seed in (2030, 2031):
@@ -808,14 +843,14 @@ def test_frozen_prefill_cuda_graph_workspaces_are_isolated(b200):
             }
         )
         output = torch.empty_like(inputs["q"])
-        workspace = RecurrentKDAPrefillWorkspace(b200)
+        workspace = RecurrentKDAPrefillWorkspace(flash_kda_device)
         call_kwargs = {
             **_strict_prefill_kwargs(inputs),
             "output": output,
             "output_final_state": True,
             "prefill_workspace": workspace,
         }
-        capture_stream.wait_stream(torch.cuda.current_stream(b200))
+        capture_stream.wait_stream(torch.cuda.current_stream(flash_kda_device))
         with torch.cuda.stream(capture_stream):
             recurrent_kda(**call_kwargs)
             inputs["initial_state"].copy_(state_seed)
