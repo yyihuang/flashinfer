@@ -51,8 +51,8 @@ T3_LOWER_BOUND_SEQUENCE_COUNTS = (1, 2, 4, 8, 16)
 SUPPORTED_FLASH_KDA_DECODE_ARCHS = {(10, 0): "sm100a", (10, 3): "sm103a"}
 
 # Keep the measured public-export routes in one place. T3 has one exact
-# lower-bound split4 specialization. The final 30-shape matrix uses the same
-# T2/T4/T5/T6 routes on both architectures; its T1 route is architecture-local.
+# lower-bound split4 specialization. The final 30-shape matrix has
+# architecture-local T1 routes and one measured SM103a T4/N8 route override.
 EXPECTED_VARIANTS_BY_T = {
     2: "d128_t2_precomputed_split4",
     3: "d128_t3_lower_bound_split4",
@@ -72,6 +72,9 @@ EXPECTED_T1_VARIANTS_BY_ARCH_AND_N = {
         num_sequences: "d128_t1_precomputed_direct_split16"
         for num_sequences in PRECOMPUTED_SEQUENCE_COUNTS
     },
+}
+EXPECTED_SM103A_VARIANTS_BY_T_AND_N = {
+    (4, 8): "d128_t4_precomputed_split1",
 }
 
 
@@ -305,6 +308,15 @@ def _expected_variant_for_spec(
         cuda_arch = SUPPORTED_FLASH_KDA_DECODE_ARCHS[compute_capability]
     if num_tokens == 1:
         return EXPECTED_T1_VARIANTS_BY_ARCH_AND_N[cuda_arch][spec["N"]]
+    if (
+        cuda_arch == "sm103a"
+        and (
+            num_tokens,
+            spec["N"],
+        )
+        in EXPECTED_SM103A_VARIANTS_BY_T_AND_N
+    ):
+        return EXPECTED_SM103A_VARIANTS_BY_T_AND_N[(num_tokens, spec["N"])]
     return EXPECTED_VARIANTS_BY_T[num_tokens]
 
 
@@ -494,10 +506,11 @@ def main() -> None:
         case_ordinal_by_t[spec["T"]] += 1
         kwargs = _make_case(spec, device)
         selected_variant = None
-        expected_variant = _expected_variant_for_spec(
-            spec, expected_variants, hardware["cuda_arch"]
-        )
+        expected_variant = None
         if args.mode == "frozen":
+            expected_variant = _expected_variant_for_spec(
+                spec, expected_variants, hardware["cuda_arch"]
+            )
             selected_variant = _assert_frozen_route(spec, kwargs, expected_variant)
         call_kwargs = dict(kwargs)
         if args.mode == "frozen":

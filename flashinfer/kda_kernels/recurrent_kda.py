@@ -1204,8 +1204,14 @@ def _select_flash_kda_decode_value_split_sm103a(
             return 8
         if work <= sm_count:
             return 4
+        if 2 * work <= 3 * sm_count:
+            return 2
+        if work <= 2 * sm_count:
+            return 1
         return 2
     if num_tokens == 5:
+        if 4 * work > 3 * sm_count and work <= sm_count:
+            return 1
         return _select_flash_kda_decode_value_split_current(num_tokens, work, sm_count)
     if num_tokens == 6:
         if 8 * work <= 3 * sm_count:

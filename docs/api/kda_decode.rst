@@ -33,11 +33,13 @@ the T5/T6 CTA-wave policy of split 8 for ``W<=3S/8``, split 2 for
 ``3S/4<W<=3S/2``, and split 1 above that range.
 
 SM103a uses its separately measured GB300 policy. T1 selects direct split 16
-through ``W<=32S`` and direct split 8 beyond that measured-range guard. T2
-selects split 8 through ``W<=S/2`` and split 4 above it. T4 selects split 8
-through ``W<=S/2``, split 4 through ``W<=S``, and split 2 above it. T5 keeps
-the SM100a CTA-wave policy. T6 selects split 8 through ``W<=3S/8``, split 2
-through ``W<=S/2``, and split 1 above it. T3 uses its sole exact lower-bound
+through a conservative ``W<=32S`` extrapolation guard (measured through
+``W/S=26.95``), and direct split 8 beyond it. T2 selects split 8 through
+``W<=S/2`` and split 4 above it. T4 selects split 8 through ``W<=S/2``, split
+4 through ``W<=S``, split 2 through ``W<=3S/2``, split 1 through ``W<=2S``,
+and split 2 above it. T5 keeps the SM100a CTA-wave policy except for a measured
+split-1 island at ``3S/4<W<=S``. T6 selects split 8 through ``W<=3S/8``, split
+2 through ``W<=S/2``, and split 1 above it. T3 uses its sole exact lower-bound
 split-4 specialization on both architectures.
 
 JIT compilation selects the architecture from the input tensor's CUDA device.
