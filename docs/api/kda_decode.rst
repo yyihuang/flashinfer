@@ -10,9 +10,10 @@ The public ``recurrent_kda`` API supports standard decode with one token per
 sequence (``T=1``) and packed speculative decode with two or more tokens per
 sequence (``T>=2``).
 
-Pass ``backend="cake"`` to select the exported Cake backend. On exact SM100a
-(B200/GB200) and SM103a (B300/GB300) devices, its D128 ``T=1..6`` family with
-in-kernel QK normalization exports 23 frozen CUDA bodies:
+Pass ``backend="cake"`` to select the exported Cake backend. On SM100-family
+SM100a (B200/GB200) and SM103a (B300/GB300) devices with CUDA 12.9 or newer,
+its D128 ``T=1..6`` family with in-kernel QK normalization exports 23 frozen
+CUDA bodies:
 
 * ``T=3`` with raw gates, ``use_gate_in_kernel=True``, a negative
   ``lower_bound``, float32 ``A_log`` and ``dt_bias``, ``H=HV=16``, and
@@ -42,11 +43,10 @@ split-1 island at ``3S/4<W<=S``. T6 selects split 8 through ``W<=3S/8``, split
 2 through ``W<=S/2``, and split 1 above it. T3 uses its sole exact lower-bound
 split-4 specialization on both architectures.
 
-JIT compilation selects the architecture from the input tensor's CUDA device.
-SM100a and SM103a use separate module URIs, compiler flags, cache entries,
-cubins, and AOT specifications while sharing the same checked-in frozen CUDA
-bodies. Each binding rejects execution when the current device does not exactly
-match the target architecture compiled into that module.
+JIT and AOT compile each checked-in frozen CUDA body once for the ``sm_100f``
+family target. The resulting URI, cache entry, and cubin are shared by CC 10.0
+and CC 10.3 devices; the binding rejects devices outside those two validated
+family members. Runtime split selection remains device-specific.
 
 Once ``backend="cake"`` is selected, every supported call launches exactly one
 exported Cake kernel. An unsupported architecture, shape, gate mode, layout,

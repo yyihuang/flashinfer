@@ -704,17 +704,13 @@ class _RecorderModule:
         self.calls.append(args)
 
 
-@pytest.mark.parametrize(
-    ("cc", "expected_arch"), [((10, 0), "sm100a"), ((10, 3), "sm103a")]
-)
-def test_frozen_runner_forwards_ffi_abi_and_current_stream_cpu(
-    monkeypatch, cc, expected_arch
-):
+@pytest.mark.parametrize("cc", [(10, 0), (10, 3)])
+def test_frozen_runner_forwards_ffi_abi_and_current_stream_cpu(monkeypatch, cc):
     module = _RecorderModule()
     loaded = []
 
-    def get_module(variant, arch):
-        loaded.append((variant, arch))
+    def get_module(variant):
+        loaded.append(variant)
         return module
 
     monkeypatch.setattr(recurrent_module, "get_flash_kda_decode_module", get_module)
@@ -745,7 +741,7 @@ def test_frozen_runner_forwards_ffi_abi_and_current_stream_cpu(
         lower_bound=0.0,
     )
 
-    assert loaded == [(variant, expected_arch)]
+    assert loaded == [variant]
     (args,) = module.calls
     assert len(args) == 15
     assert args[:5] == (
@@ -773,7 +769,7 @@ def test_t3_frozen_runner_forwards_real_gate_parameters_cpu(monkeypatch):
     monkeypatch.setattr(
         recurrent_module,
         "get_flash_kda_decode_module",
-        lambda variant, arch: module,
+        lambda variant: module,
     )
     monkeypatch.setattr(
         recurrent_module, "get_compute_capability", lambda device: (10, 0)

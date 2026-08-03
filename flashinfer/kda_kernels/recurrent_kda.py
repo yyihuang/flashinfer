@@ -49,14 +49,15 @@ from cutlass.utils import SmemAllocator
 import tvm_ffi  # noqa: F401 -- TVM FFI required for zero-overhead kernel dispatch
 
 from ..jit.flash_kda_decode import (
-    FlashKDADecodeArch,
     FlashKDADecodeVariant,
     get_flash_kda_decode_module,
 )
 from ..utils import get_compute_capability
 
+FlashKDADecodeDeviceArch = Literal["sm100a", "sm103a"]
+
 _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY: dict[
-    tuple[int, int], FlashKDADecodeArch
+    tuple[int, int], FlashKDADecodeDeviceArch
 ] = {
     (10, 0): "sm100a",
     (10, 3): "sm103a",
@@ -1223,7 +1224,7 @@ def _select_flash_kda_decode_value_split_sm103a(
 
 
 _FLASH_KDA_DECODE_VALUE_SPLIT_SELECTOR_BY_ARCH: dict[
-    FlashKDADecodeArch, Callable[[int, int, int], int]
+    FlashKDADecodeDeviceArch, Callable[[int, int, int], int]
 ] = {
     "sm100a": _select_flash_kda_decode_value_split_current,
     "sm103a": _select_flash_kda_decode_value_split_sm103a,
@@ -1234,7 +1235,7 @@ def _select_flash_kda_decode_value_split(
     num_tokens: int,
     work: int,
     sm_count: int,
-    arch: FlashKDADecodeArch = "sm100a",
+    arch: FlashKDADecodeDeviceArch = "sm100a",
 ) -> int:
     """Select a frozen value-row split using the target architecture policy."""
 
@@ -1475,15 +1476,13 @@ def _run_flash_kda_decode(
     """Launch one frozen decode specialization on the current CUDA stream."""
 
     compute_capability = get_compute_capability(q.device)
-    try:
-        arch = _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY[compute_capability]
-    except KeyError as error:
+    if compute_capability not in _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY:
         raise RuntimeError(
             "frozen recurrent-KDA decode requires exact compute capability "
             "10.0 (SM100a) or 10.3 (SM103a); got "
             f"{compute_capability[0]}.{compute_capability[1]}"
-        ) from error
-    module = get_flash_kda_decode_module(variant, arch)
+        )
+    module = get_flash_kda_decode_module(variant)
     module.run(
         q,
         k,
