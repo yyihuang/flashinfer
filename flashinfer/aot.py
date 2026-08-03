@@ -61,6 +61,10 @@ from .jit.fp4_quantization import (
 )
 from .jit.fp4_kv_dequantization import gen_fp4_kv_dequantization_module
 from .jit.fp4_kv_quantization import gen_fp4_kv_quantization_module
+from .jit.flash_kda import (
+    gen_flash_kda_m64_module,
+    gen_flash_kda_m128_module,
+)
 from .jit.flash_kda_decode import (
     FLASH_KDA_DECODE_VARIANTS,
     FlashKDADecodeArch,
@@ -530,6 +534,18 @@ def gen_all_modules(
     )
     if has_sm120 or has_sm121:
         jit_specs.append(gen_nvfp4_attention_sm120_module())
+    if has_sm100a_exact:
+        # Frozen FlashKDA prefill sources use the SM100a-only tcgen05/TMEM
+        # surface.
+        # Do not package them for SM100f, SM103, or later architectures until
+        # those exact cubins have been independently validated.
+        jit_specs.extend(
+            [
+                gen_flash_kda_m64_module(),
+                gen_flash_kda_m128_module(),
+            ]
+        )
+
     # Keep exact SM100a and SM103a cubins under architecture-bearing URIs.
     # The checked-in frozen bodies are shared, but every body is compiled and
     # registered independently for each validated target.

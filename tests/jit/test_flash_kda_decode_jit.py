@@ -477,6 +477,16 @@ def test_aot_registers_independent_flash_kda_decode_modules(monkeypatch):
         fake_flash_kda_decode,
     )
     monkeypatch.setattr(
+        aot,
+        "gen_flash_kda_m64_module",
+        lambda: SimpleNamespace(name="flash_kda_bf16_fused_m64_sm100a"),
+    )
+    monkeypatch.setattr(
+        aot,
+        "gen_flash_kda_m128_module",
+        lambda: SimpleNamespace(name="flash_kda_bf16_fused_m128_sm100a"),
+    )
+    monkeypatch.setattr(
         aot, "gen_spdlog_module", lambda: SimpleNamespace(name="spdlog")
     )
     monkeypatch.setattr(aot, "gen_attention", lambda *args: ())
@@ -509,6 +519,8 @@ def test_aot_registers_independent_flash_kda_decode_modules(monkeypatch):
     assert calls == expected_calls
     assert [spec.name for spec in specs] == [
         "spdlog",
+        "flash_kda_bf16_fused_m64_sm100a",
+        "flash_kda_bf16_fused_m128_sm100a",
         *(f"flash_kda_decode_{variant}_{arch}" for variant, arch in expected_calls),
         "cudnn",
     ]
