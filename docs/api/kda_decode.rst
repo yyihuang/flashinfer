@@ -10,9 +10,9 @@ The public ``recurrent_kda`` API supports standard decode with one token per
 sequence (``T=1``) and packed speculative decode with two or more tokens per
 sequence (``T>=2``).
 
-Pass ``backend="cake"`` to select the exported Cake backend. On exact SM100a
-(B200/GB200) and SM103a (B300/GB300) devices, its D128 ``T=1..6`` family with
-in-kernel QK normalization exports 23 frozen CUDA bodies:
+Pass ``backend="cake"`` to select the exported Cake backend. On SM100-family
+SM100a (B200/GB200) and SM103a (B300/GB300) devices, its D128 ``T=1..6``
+family with in-kernel QK normalization exports 23 frozen CUDA bodies:
 
 * ``T=3`` with raw gates, ``use_gate_in_kernel=True``, a negative
   ``lower_bound``, float32 ``A_log`` and ``dt_bias``, ``H=HV=16``, and
@@ -42,11 +42,20 @@ split-1 island at ``3S/4<W<=S``. T6 selects split 8 through ``W<=3S/8``, split
 2 through ``W<=S/2``, and split 1 above it. T3 uses its sole exact lower-bound
 split-4 specialization on both architectures.
 
-JIT compilation selects the architecture from the input tensor's CUDA device.
-SM100a and SM103a use separate module URIs, compiler flags, cache entries,
-cubins, and AOT specifications while sharing the same checked-in frozen CUDA
-bodies. Each binding rejects execution when the current device does not exactly
-match the target architecture compiled into that module.
+With CUDA 12.9 or newer, JIT and AOT compile all 23 checked-in bodies once for
+the ``sm_100f`` family target. The family module URI and cubin artifact can run
+on both CC 10.0 and CC 10.3; build workspaces may still materialize separate
+cache directories for their local architecture context. Runtime split
+selection remains device-specific. A cold-L2 CUPTI A/B against exact-target
+cubins measured no aggregate change on B200 (``1.0000x`` exact/family) and
+``0.9987x`` on GB300. The GB300 direct-T1 path was the repeatable exception
+(``0.9790x``), so its two public direct variants retain exact ``sm_103a``
+cubins while every other GB300 route uses ``sm_100f``.
+
+CUDA 12.8 cannot compile ``sm_100f``. On B200 it therefore retains exact
+``sm_100a`` modules for all 23 bodies. SM103a requires CUDA 12.9 or newer.
+Every binding validates its family or exact-device contract before launch, and
+the frozen generated body bytes are identical across all physical targets.
 
 Once ``backend="cake"`` is selected, every supported call launches exactly one
 exported Cake kernel. An unsupported architecture, shape, gate mode, layout,

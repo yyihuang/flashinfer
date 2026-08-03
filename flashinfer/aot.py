@@ -66,8 +66,8 @@ from .jit.flash_kda import (
     gen_flash_kda_m128_module,
 )
 from .jit.flash_kda_decode import (
+    FLASH_KDA_DECODE_DIRECT_VARIANTS,
     FLASH_KDA_DECODE_VARIANTS,
-    FlashKDADecodeArch,
     gen_flash_kda_decode_module,
 )
 from .jit.nvfp4_attention_sm120 import gen_nvfp4_attention_sm120_module
@@ -509,9 +509,15 @@ def gen_all_modules(
     has_sm90 = sm_capabilities.get("sm90", False)
     has_sm100 = sm_capabilities.get("sm100", False)
     has_sm100a_exact = sm_capabilities.get("sm100a_exact", False)
+    has_flash_kda_decode_sm100a_legacy = sm_capabilities.get(
+        "flash_kda_decode_sm100a_legacy", False
+    )
+    has_flash_kda_decode_sm100f = sm_capabilities.get("flash_kda_decode_sm100f", False)
+    has_flash_kda_decode_sm103a_direct = sm_capabilities.get(
+        "flash_kda_decode_sm103a_direct", False
+    )
     has_sm100f = sm_capabilities.get("sm100f", False)
     has_sm103 = sm_capabilities.get("sm103", False)
-    has_sm103a_exact = sm_capabilities.get("sm103a_exact", False)
     has_sm107 = sm_capabilities.get("sm107", False)
     has_sm110 = sm_capabilities.get("sm110", False)
     has_sm120 = sm_capabilities.get("sm120", False)
@@ -535,10 +541,8 @@ def gen_all_modules(
     if has_sm120 or has_sm121:
         jit_specs.append(gen_nvfp4_attention_sm120_module())
     if has_sm100a_exact:
-        # Frozen FlashKDA prefill sources use the SM100a-only tcgen05/TMEM
-        # surface.
-        # Do not package them for SM100f, SM103, or later architectures until
-        # those exact cubins have been independently validated.
+        # Frozen FlashKDA prefill sources still use their validated exact
+        # SM100a tcgen05/TMEM target.
         jit_specs.extend(
             [
                 gen_flash_kda_m64_module(),
@@ -546,19 +550,26 @@ def gen_all_modules(
             ]
         )
 
-    # Keep exact SM100a and SM103a cubins under architecture-bearing URIs.
-    # The checked-in frozen bodies are shared, but every body is compiled and
-    # registered independently for each validated target.
-    flash_kda_decode_arches: tuple[tuple[FlashKDADecodeArch, bool], ...] = (
-        ("sm100a", has_sm100a_exact),
-        ("sm103a", has_sm103a_exact),
-    )
-    for flash_kda_decode_arch, enabled in flash_kda_decode_arches:
-        if enabled:
-            jit_specs.extend(
-                gen_flash_kda_decode_module(variant, flash_kda_decode_arch)
-                for variant in FLASH_KDA_DECODE_VARIANTS
-            )
+    # CUDA 12.8 predates the SM100-family target, so B200 keeps one exact
+    # SM100a module for every frozen body. CUDA 12.9+ builds the 23-body
+    # family portfolio once for both CC 10.0 and CC 10.3. GB300 additionally
+    # retains only the two exact-SM103a direct-T1 modules whose family-target
+    # latency regressed in the measured A/B.
+    if has_flash_kda_decode_sm100a_legacy:
+        jit_specs.extend(
+            gen_flash_kda_decode_module(variant, "sm100a")
+            for variant in FLASH_KDA_DECODE_VARIANTS
+        )
+    if has_flash_kda_decode_sm100f:
+        jit_specs.extend(
+            gen_flash_kda_decode_module(variant, "sm100f")
+            for variant in FLASH_KDA_DECODE_VARIANTS
+        )
+    if has_flash_kda_decode_sm103a_direct:
+        jit_specs.extend(
+            gen_flash_kda_decode_module(variant, "sm103a")
+            for variant in FLASH_KDA_DECODE_DIRECT_VARIANTS
+        )
 
     if add_act:
         for act_name in act_func_def_str:
@@ -1001,16 +1012,36 @@ def detect_sm_capabilities():
     # `sm80` is true if any 8.x arch (sm_80/sm_86/sm_89) is in the build —
     # all support cp.async, which the SSU MTP-simple kernel requires.
     has_any_sm8x = any(major == 8 for major, _ in compilation_context.TARGET_CUDA_ARCHS)
+    flash_kda_decode_family_arches = {
+        (10, "0a"),
+        (10, "0f"),
+        (10, "3a"),
+        (10, "3f"),
+    }
+    flash_kda_decode_sm103_arches = {(10, "3a"), (10, "3f")}
+    cuda_version = get_cuda_version()
     return {
-        "sm80": has_any_sm8x and get_cuda_version() >= Version("11.0"),
+        "sm80": has_any_sm8x and cuda_version >= Version("11.0"),
         "sm90": has_sm("compute_90", "12.3"),
         "sm100": has_sm("compute_100", "12.8"),
         "sm100a_exact": (10, "0a") in compilation_context.TARGET_CUDA_ARCHS
-        and get_cuda_version() >= Version("12.8"),
+        and cuda_version >= Version("12.8"),
         "sm100f": has_sm("compute_100", "12.9"),
+        "flash_kda_decode_sm100a_legacy": (
+            (10, "0a") in compilation_context.TARGET_CUDA_ARCHS
+            and Version("12.8") <= cuda_version < Version("12.9")
+        ),
+        "flash_kda_decode_sm100f": bool(
+            flash_kda_decode_family_arches & compilation_context.TARGET_CUDA_ARCHS
+        )
+        and cuda_version >= Version("12.9"),
+        "flash_kda_decode_sm103a_direct": bool(
+            flash_kda_decode_sm103_arches & compilation_context.TARGET_CUDA_ARCHS
+        )
+        and cuda_version >= Version("12.9"),
         "sm103": has_sm("compute_103", "12.9"),
         "sm103a_exact": (10, "3a") in compilation_context.TARGET_CUDA_ARCHS
-        and get_cuda_version() >= Version("12.9"),
+        and cuda_version >= Version("12.9"),
         "sm107": has_sm("compute_107", "12.9"),
         "sm110": has_sm("compute_110", "13.0"),
         "sm120": has_sm("compute_120", "12.8"),

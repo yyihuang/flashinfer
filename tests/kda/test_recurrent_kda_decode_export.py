@@ -705,20 +705,39 @@ class _RecorderModule:
 
 
 @pytest.mark.parametrize(
-    ("cc", "expected_arch"), [((10, 0), "sm100a"), ((10, 3), "sm103a")]
+    ("cc", "modern_cuda", "variant", "expected_target"),
+    [
+        ((10, 0), False, _VARIANT_PREFIX + "4", "sm100a"),
+        (
+            (10, 0),
+            False,
+            "d128_t1_precomputed_direct_split16",
+            "sm100a",
+        ),
+        ((10, 0), True, _VARIANT_PREFIX + "4", "sm100f"),
+        ((10, 0), True, "d128_t1_precomputed_direct_split16", "sm100f"),
+        ((10, 3), True, _VARIANT_PREFIX + "4", "sm100f"),
+        ((10, 3), True, "d128_t1_precomputed_direct_split16", "sm103a"),
+        ((10, 3), True, "d128_t1_precomputed_direct_split8", "sm103a"),
+    ],
 )
-def test_frozen_runner_forwards_ffi_abi_and_current_stream_cpu(
-    monkeypatch, cc, expected_arch
+def test_frozen_runner_selects_physical_target_and_forwards_ffi_abi_cpu(
+    monkeypatch, cc, modern_cuda, variant, expected_target
 ):
     module = _RecorderModule()
     loaded = []
 
-    def get_module(variant, arch):
-        loaded.append((variant, arch))
+    def get_module(variant, target):
+        loaded.append((variant, target))
         return module
 
     monkeypatch.setattr(recurrent_module, "get_flash_kda_decode_module", get_module)
     monkeypatch.setattr(recurrent_module, "get_compute_capability", lambda device: cc)
+    monkeypatch.setattr(
+        recurrent_module,
+        "is_cuda_version_at_least",
+        lambda version: modern_cuda,
+    )
     monkeypatch.setattr(
         torch.cuda,
         "current_stream",
@@ -726,7 +745,6 @@ def test_frozen_runner_forwards_ffi_abi_and_current_stream_cpu(
     )
     tensors = _fake_selector_kwargs()
     dummy_f32 = _fake_tensor((1,), torch.float32, 0x300000000000)
-    variant = _VARIANT_PREFIX + "4"
     recurrent_module._run_flash_kda_decode(
         variant,
         q=tensors["q"],
@@ -745,7 +763,7 @@ def test_frozen_runner_forwards_ffi_abi_and_current_stream_cpu(
         lower_bound=0.0,
     )
 
-    assert loaded == [(variant, expected_arch)]
+    assert loaded == [(variant, expected_target)]
     (args,) = module.calls
     assert len(args) == 15
     assert args[:5] == (
@@ -768,15 +786,48 @@ def test_frozen_runner_forwards_ffi_abi_and_current_stream_cpu(
     assert args[14] == 0xCAFE
 
 
+def test_frozen_runner_rejects_sm103a_before_cuda_12_9_cpu(monkeypatch):
+    monkeypatch.setattr(
+        recurrent_module, "get_compute_capability", lambda device: (10, 3)
+    )
+    monkeypatch.setattr(
+        recurrent_module, "is_cuda_version_at_least", lambda version: False
+    )
+    tensors = _fake_selector_kwargs()
+    dummy_f32 = _fake_tensor((1,), torch.float32, 0x300000000000)
+
+    with pytest.raises(RuntimeError, match="requires CUDA 12.9 or newer"):
+        recurrent_module._run_flash_kda_decode(
+            _VARIANT_PREFIX + "4",
+            q=tensors["q"],
+            k=tensors["k"],
+            v=tensors["v"],
+            g=tensors["g"],
+            beta=tensors["beta"],
+            state=tensors["state"],
+            out=tensors["out"],
+            cu_seqlens=tensors["cu_seqlens"],
+            ssm_state_indices=tensors["ssm_state_indices"],
+            num_accepted_tokens=tensors["num_accepted_tokens"],
+            scale=tensors["scale"],
+            A_log=dummy_f32,
+            dt_bias=dummy_f32,
+            lower_bound=0.0,
+        )
+
+
 def test_t3_frozen_runner_forwards_real_gate_parameters_cpu(monkeypatch):
     module = _RecorderModule()
     monkeypatch.setattr(
         recurrent_module,
         "get_flash_kda_decode_module",
-        lambda variant, arch: module,
+        lambda variant, target: module,
     )
     monkeypatch.setattr(
         recurrent_module, "get_compute_capability", lambda device: (10, 0)
+    )
+    monkeypatch.setattr(
+        recurrent_module, "is_cuda_version_at_least", lambda version: True
     )
     monkeypatch.setattr(
         torch.cuda,

@@ -49,14 +49,18 @@ from cutlass.utils import SmemAllocator
 import tvm_ffi  # noqa: F401 -- TVM FFI required for zero-overhead kernel dispatch
 
 from ..jit.flash_kda_decode import (
-    FlashKDADecodeArch,
+    FLASH_KDA_DECODE_DIRECT_VARIANTS,
+    FlashKDADecodeTarget,
     FlashKDADecodeVariant,
     get_flash_kda_decode_module,
 )
+from ..jit.cpp_ext import is_cuda_version_at_least
 from ..utils import get_compute_capability
 
+FlashKDADecodeDeviceArch = Literal["sm100a", "sm103a"]
+
 _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY: dict[
-    tuple[int, int], FlashKDADecodeArch
+    tuple[int, int], FlashKDADecodeDeviceArch
 ] = {
     (10, 0): "sm100a",
     (10, 3): "sm103a",
@@ -1223,7 +1227,7 @@ def _select_flash_kda_decode_value_split_sm103a(
 
 
 _FLASH_KDA_DECODE_VALUE_SPLIT_SELECTOR_BY_ARCH: dict[
-    FlashKDADecodeArch, Callable[[int, int, int], int]
+    FlashKDADecodeDeviceArch, Callable[[int, int, int], int]
 ] = {
     "sm100a": _select_flash_kda_decode_value_split_current,
     "sm103a": _select_flash_kda_decode_value_split_sm103a,
@@ -1234,7 +1238,7 @@ def _select_flash_kda_decode_value_split(
     num_tokens: int,
     work: int,
     sm_count: int,
-    arch: FlashKDADecodeArch = "sm100a",
+    arch: FlashKDADecodeDeviceArch = "sm100a",
 ) -> int:
     """Select a frozen value-row split using the target architecture policy."""
 
@@ -1268,7 +1272,7 @@ def _select_flash_kda_decode_variant(
     initial_state_source: Optional[torch.Tensor],
     beta_is_logit: bool,
 ) -> Optional[FlashKDADecodeVariant]:
-    """Select a frozen SM100a/SM103a schedule for the strict Cake contract.
+    """Select a frozen SM100-family schedule for the strict Cake contract.
 
     The exported family covers D128/T=1..6. T=3 preserves its measured
     lower-bound contract; T=1/2/4/5/6 use precomputed gates, with T1 routed to
@@ -1475,15 +1479,24 @@ def _run_flash_kda_decode(
     """Launch one frozen decode specialization on the current CUDA stream."""
 
     compute_capability = get_compute_capability(q.device)
-    try:
-        arch = _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY[compute_capability]
-    except KeyError as error:
+    if compute_capability not in _FLASH_KDA_DECODE_ARCH_BY_COMPUTE_CAPABILITY:
         raise RuntimeError(
             "frozen recurrent-KDA decode requires exact compute capability "
             "10.0 (SM100a) or 10.3 (SM103a); got "
             f"{compute_capability[0]}.{compute_capability[1]}"
-        ) from error
-    module = get_flash_kda_decode_module(variant, arch)
+        )
+    if compute_capability == (10, 0):
+        target: FlashKDADecodeTarget = (
+            "sm100f" if is_cuda_version_at_least("12.9") else "sm100a"
+        )
+    else:
+        if not is_cuda_version_at_least("12.9"):
+            raise RuntimeError(
+                "frozen recurrent-KDA decode on compute capability 10.3 "
+                "requires CUDA 12.9 or newer"
+            )
+        target = "sm103a" if variant in FLASH_KDA_DECODE_DIRECT_VARIANTS else "sm100f"
+    module = get_flash_kda_decode_module(variant, target)
     module.run(
         q,
         k,
