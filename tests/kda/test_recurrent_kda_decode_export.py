@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 import torch.nn.functional as F
+from packaging.version import Version
 
 from flashinfer.kda_decode import recurrent_kda
 
@@ -705,24 +706,24 @@ class _RecorderModule:
 
 
 @pytest.mark.parametrize(
-    ("cc", "modern_cuda", "variant", "expected_target"),
+    ("cc", "cuda_version", "variant", "expected_target"),
     [
-        ((10, 0), False, _VARIANT_PREFIX + "4", "sm100a"),
+        ((10, 0), "12.8", _VARIANT_PREFIX + "4", "sm100a"),
         (
             (10, 0),
-            False,
+            "12.8",
             "d128_t1_precomputed_direct_split16",
             "sm100a",
         ),
-        ((10, 0), True, _VARIANT_PREFIX + "4", "sm100f"),
-        ((10, 0), True, "d128_t1_precomputed_direct_split16", "sm100f"),
-        ((10, 3), True, _VARIANT_PREFIX + "4", "sm100f"),
-        ((10, 3), True, "d128_t1_precomputed_direct_split16", "sm103a"),
-        ((10, 3), True, "d128_t1_precomputed_direct_split8", "sm103a"),
+        ((10, 0), "12.9", _VARIANT_PREFIX + "4", "sm100f"),
+        ((10, 0), "13.0", "d128_t1_precomputed_direct_split16", "sm100f"),
+        ((10, 3), "12.9", _VARIANT_PREFIX + "4", "sm100f"),
+        ((10, 3), "12.9", "d128_t1_precomputed_direct_split16", "sm103a"),
+        ((10, 3), "13.0", "d128_t1_precomputed_direct_split8", "sm103a"),
     ],
 )
 def test_frozen_runner_selects_physical_target_and_forwards_ffi_abi_cpu(
-    monkeypatch, cc, modern_cuda, variant, expected_target
+    monkeypatch, cc, cuda_version, variant, expected_target
 ):
     module = _RecorderModule()
     loaded = []
@@ -736,7 +737,7 @@ def test_frozen_runner_selects_physical_target_and_forwards_ffi_abi_cpu(
     monkeypatch.setattr(
         recurrent_module,
         "is_cuda_version_at_least",
-        lambda version: modern_cuda,
+        lambda version: Version(cuda_version) >= Version(version),
     )
     monkeypatch.setattr(
         torch.cuda,
@@ -797,6 +798,38 @@ def test_frozen_runner_rejects_sm103a_before_cuda_12_9_cpu(monkeypatch):
     dummy_f32 = _fake_tensor((1,), torch.float32, 0x300000000000)
 
     with pytest.raises(RuntimeError, match="requires CUDA 12.9 or newer"):
+        recurrent_module._run_flash_kda_decode(
+            _VARIANT_PREFIX + "4",
+            q=tensors["q"],
+            k=tensors["k"],
+            v=tensors["v"],
+            g=tensors["g"],
+            beta=tensors["beta"],
+            state=tensors["state"],
+            out=tensors["out"],
+            cu_seqlens=tensors["cu_seqlens"],
+            ssm_state_indices=tensors["ssm_state_indices"],
+            num_accepted_tokens=tensors["num_accepted_tokens"],
+            scale=tensors["scale"],
+            A_log=dummy_f32,
+            dt_bias=dummy_f32,
+            lower_bound=0.0,
+        )
+
+
+def test_frozen_runner_rejects_sm100a_before_cuda_12_8_cpu(monkeypatch):
+    monkeypatch.setattr(
+        recurrent_module, "get_compute_capability", lambda device: (10, 0)
+    )
+    monkeypatch.setattr(
+        recurrent_module,
+        "is_cuda_version_at_least",
+        lambda version: Version("12.7") >= Version(version),
+    )
+    tensors = _fake_selector_kwargs()
+    dummy_f32 = _fake_tensor((1,), torch.float32, 0x300000000000)
+
+    with pytest.raises(RuntimeError, match="requires CUDA 12.8 or newer"):
         recurrent_module._run_flash_kda_decode(
             _VARIANT_PREFIX + "4",
             q=tensors["q"],

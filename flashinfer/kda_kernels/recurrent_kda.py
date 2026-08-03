@@ -1486,9 +1486,15 @@ def _run_flash_kda_decode(
             f"{compute_capability[0]}.{compute_capability[1]}"
         )
     if compute_capability == (10, 0):
-        target: FlashKDADecodeTarget = (
-            "sm100f" if is_cuda_version_at_least("12.9") else "sm100a"
-        )
+        if is_cuda_version_at_least("12.9"):
+            target: FlashKDADecodeTarget = "sm100f"
+        elif is_cuda_version_at_least("12.8"):
+            target = "sm100a"
+        else:
+            raise RuntimeError(
+                "frozen recurrent-KDA decode on compute capability 10.0 "
+                "requires CUDA 12.8 or newer"
+            )
     else:
         if not is_cuda_version_at_least("12.9"):
             raise RuntimeError(
