@@ -62,7 +62,7 @@ from .jit.fp4_quantization import (
 from .jit.fp4_kv_dequantization import gen_fp4_kv_dequantization_module
 from .jit.fp4_kv_quantization import gen_fp4_kv_quantization_module
 from .jit.flash_kda import (
-    FlashKDAArch,
+    FlashKDATarget,
     gen_flash_kda_m64_module,
     gen_flash_kda_m128_module,
 )
@@ -504,10 +504,14 @@ def gen_all_modules(
     has_sm80 = sm_capabilities.get("sm80", False)
     has_sm90 = sm_capabilities.get("sm90", False)
     has_sm100 = sm_capabilities.get("sm100", False)
-    has_sm100a_exact = sm_capabilities.get("sm100a_exact", False)
+    has_flash_kda_prefill_sm100a = sm_capabilities.get(
+        "flash_kda_prefill_sm100a", False
+    )
+    has_flash_kda_prefill_sm100f = sm_capabilities.get(
+        "flash_kda_prefill_sm100f", False
+    )
     has_sm100f = sm_capabilities.get("sm100f", False)
     has_sm103 = sm_capabilities.get("sm103", False)
-    has_sm103a_exact = sm_capabilities.get("sm103a_exact", False)
     has_sm107 = sm_capabilities.get("sm107", False)
     has_sm110 = sm_capabilities.get("sm110", False)
     has_sm120 = sm_capabilities.get("sm120", False)
@@ -530,19 +534,19 @@ def gen_all_modules(
     )
     if has_sm120 or has_sm121:
         jit_specs.append(gen_nvfp4_attention_sm120_module())
-    # Frozen FlashKDA sources use the architecture-specific tcgen05/TMEM
-    # surface. Package independently validated SM100a and SM103a cubins under
-    # distinct URIs; do not emit a feature-family or forward-compatible cubin.
-    flash_kda_arches: tuple[tuple[FlashKDAArch, bool], ...] = (
-        ("sm100a", has_sm100a_exact),
-        ("sm103a", has_sm103a_exact),
+    # CUDA 12.8 predates the sm_100f target and therefore retains one exact
+    # B200 cubin per variant. CUDA 12.9+ registers only one family cubin per
+    # variant even when both CC 10.0 and CC 10.3 are requested.
+    flash_kda_targets: tuple[tuple[FlashKDATarget, bool], ...] = (
+        ("sm100a", has_flash_kda_prefill_sm100a),
+        ("sm100f", has_flash_kda_prefill_sm100f),
     )
-    for flash_kda_arch, enabled in flash_kda_arches:
+    for flash_kda_target, enabled in flash_kda_targets:
         if enabled:
             jit_specs.extend(
                 [
-                    gen_flash_kda_m64_module(flash_kda_arch),
-                    gen_flash_kda_m128_module(flash_kda_arch),
+                    gen_flash_kda_m64_module(flash_kda_target),
+                    gen_flash_kda_m128_module(flash_kda_target),
                 ]
             )
 
@@ -987,16 +991,29 @@ def detect_sm_capabilities():
     # `sm80` is true if any 8.x arch (sm_80/sm_86/sm_89) is in the build —
     # all support cp.async, which the SSU MTP-simple kernel requires.
     has_any_sm8x = any(major == 8 for major, _ in compilation_context.TARGET_CUDA_ARCHS)
+    cuda_version = get_cuda_version()
+    flash_kda_prefill_family_arches = {
+        (10, "0a"),
+        (10, "0f"),
+        (10, "3a"),
+        (10, "3f"),
+    }
     return {
-        "sm80": has_any_sm8x and get_cuda_version() >= Version("11.0"),
+        "sm80": has_any_sm8x and cuda_version >= Version("11.0"),
         "sm90": has_sm("compute_90", "12.3"),
         "sm100": has_sm("compute_100", "12.8"),
-        "sm100a_exact": (10, "0a") in compilation_context.TARGET_CUDA_ARCHS
-        and get_cuda_version() >= Version("12.8"),
+        "flash_kda_prefill_sm100a": (
+            (10, "0a") in compilation_context.TARGET_CUDA_ARCHS
+            and Version("12.8") <= cuda_version < Version("12.9")
+        ),
+        "flash_kda_prefill_sm100f": (
+            bool(
+                flash_kda_prefill_family_arches & compilation_context.TARGET_CUDA_ARCHS
+            )
+            and cuda_version >= Version("12.9")
+        ),
         "sm100f": has_sm("compute_100", "12.9"),
         "sm103": has_sm("compute_103", "12.9"),
-        "sm103a_exact": (10, "3a") in compilation_context.TARGET_CUDA_ARCHS
-        and get_cuda_version() >= Version("12.9"),
         "sm107": has_sm("compute_107", "12.9"),
         "sm110": has_sm("compute_110", "13.0"),
         "sm120": has_sm("compute_120", "12.8"),

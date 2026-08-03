@@ -5,8 +5,7 @@ flashinfer.kda_prefill
 
 Optimized recurrent Kimi Delta Attention (KDA) prefill support. The
 :func:`flashinfer.kda.recurrent_kda` facade dispatches a strict ordinary
-multi-token prefill subset to frozen FlashKDA-compatible SM100a and SM103a
-kernels.
+multi-token prefill subset to frozen FlashKDA-compatible SM100-family kernels.
 
 .. currentmodule:: flashinfer.kda_prefill
 
@@ -15,13 +14,13 @@ kernels.
 
     RecurrentKDAPrefillWorkspace
 
-Optimized SM100a and SM103a prefill subset
-------------------------------------------
+Optimized SM100-family prefill subset
+-------------------------------------
 
 ``flashinfer.kda.recurrent_kda`` uses the frozen prefill backend only when
 every condition below holds:
 
-* the device has exact compute capability 10.0 (SM100a; B200/GB200) or 10.3
+* the device has compute capability 10.0 (SM100a; B200/GB200) or 10.3
   (SM103a; B300/GB300);
 * input is ordinary multi-token prefill: fixed ``T > 1``, or packed input
   whose total token count is greater than its number of sequences;
@@ -37,11 +36,13 @@ every condition below holds:
 Calls outside that subset retain the existing CuTe-DSL path. In particular,
 T=1 decode and speculative decode are not rerouted.
 
-JIT compilation selects the architecture from the input tensor's CUDA device.
-SM100a and SM103a use separate module URIs, compiler flags, cache entries, and
-cubins while sharing the same checked-in frozen M64/M128 device bodies. Each
-binding also rejects execution when the current device does not exactly match
-the target architecture compiled into that module.
+With CUDA 12.9 or newer, JIT and AOT use one ``sm_100f`` URI, JIT
+specification, and cubin target per M64/M128 variant for both CC 10.0 and CC
+10.3. FlashInfer can still place a built copy in a compilation-context-specific
+workspace; the shared logical target does not promise one physical cache path
+across device contexts. The binding accepts only the two validated family
+members. CUDA 12.8 predates ``sm_100f``, so B200 retains one exact ``sm_100a``
+module per variant. CC 10.3 requires CUDA 12.9 or newer.
 
 Fixed input omits ``cu_seqlens``. Packed input has ``B=1`` and accepts a
 contiguous CUDA int32 or int64 ``cu_seqlens``. The frozen binding consumes

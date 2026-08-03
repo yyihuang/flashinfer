@@ -18,6 +18,7 @@ import math
 import pytest
 import torch
 import torch.nn.functional as F
+from packaging.version import Version
 
 import flashinfer
 from flashinfer.kda import recurrent_kda
@@ -159,10 +160,48 @@ def cuda_device():
 def flash_kda_device(cuda_device):
     if get_compute_capability(cuda_device) not in ((10, 0), (10, 3)):
         pytest.skip(
-            "frozen recurrent KDA prefill requires exact CC 10.0 "
+            "frozen recurrent KDA prefill requires CC 10.0 "
             "(SM100a; B200/GB200) or CC 10.3 (SM103a; B300/GB300)"
         )
     return cuda_device
+
+
+@pytest.mark.parametrize(
+    ("compute_capability", "cuda_version", "expected_target", "error_match"),
+    [
+        ((10, 0), "12.8", "sm100a", None),
+        ((10, 0), "12.9", "sm100f", None),
+        ((10, 3), "12.8", None, "10.3 requires CUDA 12.9"),
+        ((10, 3), "12.9", "sm100f", None),
+        ((12, 0), "13.0", None, "requires compute capability 10.0"),
+        ((10, 0), "12.7", None, "10.0 requires CUDA 12.8"),
+    ],
+)
+def test_flash_kda_target_resolution(
+    monkeypatch,
+    compute_capability,
+    cuda_version,
+    expected_target,
+    error_match,
+):
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "get_compute_capability",
+        lambda device: compute_capability,
+    )
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_is_cuda_version_at_least",
+        lambda required: Version(cuda_version) >= Version(required),
+    )
+    device = torch.device("cuda")
+    if error_match is not None:
+        with pytest.raises(RuntimeError, match=error_match):
+            kda_prefill_api._select_flash_kda_prefill_target(device)
+    else:
+        assert (
+            kda_prefill_api._select_flash_kda_prefill_target(device) == expected_target
+        )
 
 
 class _RecorderModule:
@@ -244,8 +283,8 @@ def test_multi_token_gqa_stays_on_existing_backend(cuda_device, monkeypatch):
     [(False, 64, "m64"), (True, 64, "m128"), (True, 2, "m128")],
 )
 @pytest.mark.parametrize(
-    ("compute_capability", "expected_arch"),
-    [((10, 0), "sm100a"), ((10, 3), "sm103a")],
+    ("compute_capability", "expected_target"),
+    [((10, 0), "sm100f"), ((10, 3), "sm100f")],
 )
 def test_frozen_route_and_ffi_abi(
     cuda_device,
@@ -254,19 +293,22 @@ def test_frozen_route_and_ffi_abi(
     num_heads,
     expected_variant,
     compute_capability,
-    expected_arch,
+    expected_target,
 ):
     monkeypatch.setattr(
         kda_prefill_api,
         "get_compute_capability",
         lambda device: compute_capability,
     )
+    monkeypatch.setattr(
+        kda_prefill_api, "_is_cuda_version_at_least", lambda version: True
+    )
     monkeypatch.setattr(kda_prefill_api, "_flash_kda_stream_workspaces", {})
     modules = {}
     routes = []
 
-    def get_module(variant, arch):
-        routes.append((variant, arch))
+    def get_module(variant, target):
+        routes.append((variant, target))
         modules.setdefault(variant, _RecorderModule())
         return modules[variant]
 
@@ -290,7 +332,7 @@ def test_frozen_route_and_ffi_abi(
     assert actual.data_ptr() == output.data_ptr()
     assert state is None
     assert set(modules) == {expected_variant}
-    assert routes == [(expected_variant, expected_arch)]
+    assert routes == [(expected_variant, expected_target)]
     (args,) = modules[expected_variant].calls
     assert len(args) == 21
     assert args[0].data_ptr() == inputs["q"].data_ptr()

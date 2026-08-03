@@ -32,14 +32,11 @@ import torch
 from .utils import get_compute_capability
 
 if TYPE_CHECKING:
-    from .jit.flash_kda import FlashKDAArch, FlashKDAVariant
+    from .jit.flash_kda import FlashKDATarget, FlashKDAVariant
 
 _FLASH_KDA_HEAD_DIM = 128
 _FLASH_KDA_BETA_TMA_MIN_HEADS = 8
-_FLASH_KDA_ARCH_BY_COMPUTE_CAPABILITY: dict[tuple[int, int], "FlashKDAArch"] = {
-    (10, 0): "sm100a",
-    (10, 3): "sm103a",
-}
+_FLASH_KDA_SUPPORTED_COMPUTE_CAPABILITIES = {(10, 0), (10, 3)}
 _FLASH_KDA_DESCRIPTOR_STORAGE_BYTES = 6 * 128
 _flash_kda_tensor_cache: dict[tuple, torch.Tensor] = {}
 _flash_kda_tensor_cache_lock = threading.Lock()
@@ -167,8 +164,10 @@ def _flash_kda_prefill_is_eligible(
         and float(lower_bound) < 0.0
     ):
         return False
-    if not q.is_cuda or get_compute_capability(q.device) not in (
-        _FLASH_KDA_ARCH_BY_COMPUTE_CAPABILITY
+    if (
+        not q.is_cuda
+        or get_compute_capability(q.device)
+        not in _FLASH_KDA_SUPPORTED_COMPUTE_CAPABILITIES
     ):
         return False
     if not _is_contiguous_cuda_tensor(q, dtype=torch.bfloat16, device=q.device):
@@ -520,10 +519,41 @@ def _validate_prefill_seq_order(
     return seq_order
 
 
-def _get_flash_kda_prefill_module(variant: "FlashKDAVariant", arch: "FlashKDAArch"):
+def _is_cuda_version_at_least(version: str) -> bool:
+    # Keep JIT imports lazy so importing the public KDA facade does not
+    # initialize the extension toolchain.
+    from .jit.cpp_ext import is_cuda_version_at_least
+
+    return is_cuda_version_at_least(version)
+
+
+def _select_flash_kda_prefill_target(device: torch.device) -> "FlashKDATarget":
+    compute_capability = get_compute_capability(device)
+    if compute_capability not in _FLASH_KDA_SUPPORTED_COMPUTE_CAPABILITIES:
+        raise RuntimeError(
+            "frozen recurrent-KDA prefill requires compute capability 10.0 "
+            "(SM100a; B200/GB200) or 10.3 (SM103a; B300/GB300); got "
+            f"{compute_capability[0]}.{compute_capability[1]}"
+        )
+    if _is_cuda_version_at_least("12.9"):
+        return "sm100f"
+    if compute_capability == (10, 0) and _is_cuda_version_at_least("12.8"):
+        return "sm100a"
+    if compute_capability == (10, 3):
+        raise RuntimeError(
+            "frozen recurrent-KDA prefill on compute capability 10.3 requires "
+            "CUDA 12.9 or newer for the sm_100f family target"
+        )
+    raise RuntimeError(
+        "frozen recurrent-KDA prefill on compute capability 10.0 requires "
+        "CUDA 12.8 or newer"
+    )
+
+
+def _get_flash_kda_prefill_module(variant: "FlashKDAVariant", target: "FlashKDATarget"):
     from .jit.flash_kda import get_flash_kda_prefill_module
 
-    return get_flash_kda_prefill_module(variant, arch)
+    return get_flash_kda_prefill_module(variant, target)
 
 
 def _run_flash_kda_prefill(
@@ -636,15 +666,7 @@ def _run_flash_kda_prefill(
         num_sequences=num_sequences,
         num_heads=num_heads,
     )
-    compute_capability = get_compute_capability(q.device)
-    try:
-        arch = _FLASH_KDA_ARCH_BY_COMPUTE_CAPABILITY[compute_capability]
-    except KeyError as error:
-        raise RuntimeError(
-            "frozen recurrent-KDA prefill requires exact compute capability "
-            "10.0 (SM100a) or 10.3 (SM103a); got "
-            f"{compute_capability[0]}.{compute_capability[1]}"
-        ) from error
+    target = _select_flash_kda_prefill_target(q.device)
     stream_ptr = int(torch.cuda.current_stream(q.device).cuda_stream)
     explicit_workspace = prefill_workspace is not None
     workspace: _RecurrentKDAPrefillWorkspaceBase
@@ -692,7 +714,7 @@ def _run_flash_kda_prefill(
         else:
             prepare_descriptors = int(warmed_signature != signature)
         descriptor_storage = workspace._descriptor_storages[variant]
-        module = _get_flash_kda_prefill_module(variant, arch)
+        module = _get_flash_kda_prefill_module(variant, target)
         try:
             module.run(
                 q,

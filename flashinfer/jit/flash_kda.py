@@ -24,17 +24,20 @@ from .core import (
     gen_jit_spec,
     logger,
     sm100a_nvcc_flags,
-    sm103a_nvcc_flags,
+    sm100f_nvcc_flags,
 )
 
 FlashKDAVariant = Literal["m64", "m128"]
-FlashKDAArch = Literal["sm100a", "sm103a"]
+FlashKDATarget = Literal["sm100a", "sm100f"]
 
 _FLASH_KDA_NVCC_FLAGS = {
     "sm100a": sm100a_nvcc_flags,
-    "sm103a": sm103a_nvcc_flags,
+    "sm100f": sm100f_nvcc_flags,
 }
-_FLASH_KDA_TARGET_MINOR = {"sm100a": 0, "sm103a": 3}
+_FLASH_KDA_TARGET_DEFINE = {
+    "sm100a": "-DFLASHINFER_FLASH_KDA_TARGET_MINOR=0",
+    "sm100f": "-DFLASHINFER_FLASH_KDA_TARGET_FAMILY=100",
+}
 
 
 def _get_flash_kda_csrc_dir() -> Path:
@@ -70,33 +73,30 @@ def _get_flash_kda_include_dir() -> Path:
     )
 
 
-def get_flash_kda_uri(variant: FlashKDAVariant, arch: FlashKDAArch = "sm100a") -> str:
-    """Return the architecture-specific JIT/AOT key for one schedule."""
+def get_flash_kda_uri(variant: FlashKDAVariant, target: FlashKDATarget) -> str:
+    """Return the target-specific JIT/AOT key for one schedule."""
 
     if variant not in ("m64", "m128"):
         raise ValueError(f"unsupported FlashKDA variant: {variant}")
-    if arch not in _FLASH_KDA_NVCC_FLAGS:
-        raise ValueError(f"unsupported FlashKDA architecture: {arch}")
-    return f"flash_kda_bf16_fused_{variant}_{arch}"
+    if target not in _FLASH_KDA_NVCC_FLAGS:
+        raise ValueError(f"unsupported FlashKDA target: {target}")
+    return f"flash_kda_bf16_fused_{variant}_{target}"
 
 
 @functools.cache
-def gen_flash_kda_module(
-    variant: FlashKDAVariant, arch: FlashKDAArch = "sm100a"
-) -> JitSpec:
-    """Generate one exact-SM100a or exact-SM103a FlashKDA JIT module.
+def gen_flash_kda_module(variant: FlashKDAVariant, target: FlashKDATarget) -> JitSpec:
+    """Generate one legacy exact-SM100a or SM100-family JIT module.
 
     Each physical schedule is compiled in its own translation unit because the
     checked-in frozen sources intentionally retain generated helper names and
     macros. ``gen_jit_spec`` supplies FlashInfer's standard ``-use_fast_math``
-    flag. The explicit architecture flags emit one cubin for the selected
-    architecture, and the architecture-bearing URI keeps those cubins in
-    separate cache entries.
+    flag. CUDA 12.8 uses the exact ``sm_100a`` target on B200. CUDA 12.9 and
+    newer use one ``sm_100f`` target validated on both CC 10.0 and CC 10.3.
     """
 
     csrc_dir = _get_flash_kda_csrc_dir()
     include_dir = _get_flash_kda_include_dir()
-    uri = get_flash_kda_uri(variant, arch)
+    uri = get_flash_kda_uri(variant, target)
     binding = csrc_dir / f"flashkda_bf16_fused_{variant}_binding.cu"
     if not binding.exists():
         raise FileNotFoundError(f"FlashKDA binding source not found: {binding}")
@@ -105,8 +105,8 @@ def gen_flash_kda_module(
         name=uri,
         sources=[binding],
         extra_cuda_cflags=[
-            *_FLASH_KDA_NVCC_FLAGS[arch],
-            f"-DFLASHINFER_FLASH_KDA_TARGET_MINOR={_FLASH_KDA_TARGET_MINOR[arch]}",
+            *_FLASH_KDA_NVCC_FLAGS[target],
+            _FLASH_KDA_TARGET_DEFINE[target],
         ],
         extra_include_paths=[
             csrc_dir,
@@ -114,53 +114,51 @@ def gen_flash_kda_module(
             include_dir,
         ],
     )
-    logger.info(f"Generated FlashKDA {variant} {arch} JIT spec: {spec.name}")
+    logger.info(f"Generated FlashKDA {variant} {target} JIT spec: {spec.name}")
     return spec
 
 
-def gen_flash_kda_m64_module(arch: FlashKDAArch = "sm100a") -> JitSpec:
+def gen_flash_kda_m64_module(target: FlashKDATarget) -> JitSpec:
     """Generate the fixed N=1, H=64 two-CTA M64 module."""
 
-    return gen_flash_kda_module("m64", arch)
+    return gen_flash_kda_module("m64", target)
 
 
-def gen_flash_kda_m128_module(arch: FlashKDAArch = "sm100a") -> JitSpec:
+def gen_flash_kda_m128_module(target: FlashKDATarget) -> JitSpec:
     """Generate the general packed/fixed M128 module."""
 
-    return gen_flash_kda_module("m128", arch)
+    return gen_flash_kda_module("m128", target)
 
 
 @functools.cache
-def load_flash_kda_module(variant: FlashKDAVariant, arch: FlashKDAArch = "sm100a"):
-    """Build or load one physical, architecture-specific FlashKDA module."""
+def load_flash_kda_module(variant: FlashKDAVariant, target: FlashKDATarget):
+    """Build or load one physical, target-specific FlashKDA module."""
 
-    module = gen_flash_kda_module(variant, arch).build_and_load()
-    logger.info(f"Loaded FlashKDA {variant} {arch} module")
+    module = gen_flash_kda_module(variant, target).build_and_load()
+    logger.info(f"Loaded FlashKDA {variant} {target} module")
     return module
 
 
-def load_flash_kda_m64_module(arch: FlashKDAArch = "sm100a"):
+def load_flash_kda_m64_module(target: FlashKDATarget):
     """Load the fixed N=1, H=64 two-CTA M64 module."""
 
-    return load_flash_kda_module("m64", arch)
+    return load_flash_kda_module("m64", target)
 
 
-def load_flash_kda_m128_module(arch: FlashKDAArch = "sm100a"):
+def load_flash_kda_m128_module(target: FlashKDATarget):
     """Load the general packed/fixed M128 module."""
 
-    return load_flash_kda_module("m128", arch)
+    return load_flash_kda_module("m128", target)
 
 
-def get_flash_kda_prefill_module(
-    variant: FlashKDAVariant, arch: FlashKDAArch = "sm100a"
-):
+def get_flash_kda_prefill_module(variant: FlashKDAVariant, target: FlashKDATarget):
     """Return the loaded module used by the recurrent-KDA prefill dispatcher."""
 
-    return load_flash_kda_module(variant, arch)
+    return load_flash_kda_module(variant, target)
 
 
 __all__ = [
-    "FlashKDAArch",
+    "FlashKDATarget",
     "FlashKDAVariant",
     "gen_flash_kda_m64_module",
     "gen_flash_kda_m128_module",
