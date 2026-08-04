@@ -74,6 +74,7 @@ from .jit.flash_kda_decode import (
 from .jit.nvfp4_attention_sm120 import gen_nvfp4_attention_sm120_module
 from .jit.fp8_quantization import gen_mxfp8_quantization_sm100_module
 from .jit.fused_moe import (
+    gen_alphamoe_fused_router_module,
     gen_cutlass_fused_moe_sm90_module,
     gen_cutlass_fused_moe_sm100_module,
     gen_cutlass_fused_moe_sm103_module,
@@ -524,6 +525,7 @@ def gen_all_modules(
     )
     has_sm100f = sm_capabilities.get("sm100f", False)
     has_sm103 = sm_capabilities.get("sm103", False)
+    has_sm103a_exact = sm_capabilities.get("sm103a_exact", False)
     has_sm107 = sm_capabilities.get("sm107", False)
     has_sm110 = sm_capabilities.get("sm110", False)
     has_sm120 = sm_capabilities.get("sm120", False)
@@ -629,6 +631,8 @@ def gen_all_modules(
             )
             jit_specs.append(gen_tgv_gemm_sm10x_module(torch.float16, use_sm_100f=True))
             jit_specs.append(gen_moe_utils_module())
+        if has_sm100a_exact or has_sm103a_exact:
+            jit_specs.append(gen_alphamoe_fused_router_module())
         if has_sm100 or has_sm103:
             jit_specs.append(gen_mm_bf16_cublaslt_module())
         if has_sm103:
