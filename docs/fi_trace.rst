@@ -197,6 +197,9 @@ files when ``FLASHINFER_TRACE_DUMP=1``:
    * - ``flashinfer.fused_moe``
      - ``alphamoe_fused_router``
      - ``moe_routing``
+   * - ``flashinfer.fused_moe``
+     - ``alphamoe_nvfp4_aligned_moe``
+     - ``moe``
 
 MoE Routing Types
 -----------------
