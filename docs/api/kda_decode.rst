@@ -22,8 +22,12 @@ family with in-kernel QK normalization exports 23 frozen CUDA bodies:
   ``dt_bias``, or ``lower_bound``;
 * two additional one-warp direct-state ``T=1`` schedules with value-row
   splits 16 and 8. ``T=1`` keeps the standard decode API and is normalized
-  to the packed frozen ABI with zero-copy views and cached identity metadata;
-  explicit ``T=1`` ``cu_seqlens`` metadata is outside the Cake contract.
+  to the packed frozen ABI with zero-copy views. Calls without
+  ``ssm_state_indices`` use cached identity metadata; calls with a contiguous
+  int32 ``[N]`` index tensor update the caller's BF16 state pool directly,
+  without a dense gather/scatter temporary. ``-1`` marks an inactive padded
+  row; active indices must be unique and in bounds. Explicit ``T=1``
+  ``cu_seqlens`` metadata is outside the Cake contract.
 
 Let ``W=N*HV`` be the active sequence/value-head work and ``S`` the device SM
 count. SM100a retains the B200-measured policy: direct split 16 for T1 when
