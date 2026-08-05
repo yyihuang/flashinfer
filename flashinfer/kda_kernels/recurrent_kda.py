@@ -1587,7 +1587,9 @@ def run_recurrent_kda(
             directly as an indexed state pool; it is not gathered into a dense
             temporary.
         output_final_state (bool):
-            Whether to return the final state. Default: ``False``.
+            Whether to return the final state. Standard indexed decode returns
+            one compact row per batch item; Cake returns zeros for ``-1``
+            padded rows. Default: ``False``.
         use_qk_l2norm_in_kernel (bool):
             Whether to apply L2 normalization to Q and K. Default: ``True``.
         use_gate_in_kernel (bool):
@@ -1601,7 +1603,7 @@ def run_recurrent_kda(
             The Cake backend's ``T=1`` specialization uses standard dense
             decode and does not accept explicit ``cu_seqlens`` metadata.
         ssm_state_indices (Optional[torch.Tensor]):
-            State cache indices. Shape ``[N]`` int32 for standard decode, or
+            State cache indices. Shape ``[B]`` int32 for standard decode, or
             ``[N, 1+S]`` int32 for spec decode (``num_spec_tokens`` must also be
             set). The wrapper flattens 2D indices to ``[N*(1+S)]`` before
             passing to the kernel. For standard T=1 Cake decode, this must be a
@@ -1654,9 +1656,9 @@ def run_recurrent_kda(
             - state: Updated state of shape ``[N, HV, V, K]`` if
               ``output_final_state=True``, else ``None``. For batched spec
               decode without ``cu_seqlens``, this is the packed checkpoint
-              state pool used by the shim. Standard T=1 Cake indexed-state
-              decode returns the same full pool object passed as
-              ``initial_state``.
+              state pool used by the shim. Standard indexed decode returns a
+              compact ``[B, HV, V, K]`` tensor; Cake defines ``-1`` padded rows
+              as zero.
 
     Note:
         - Requires SM100 (Blackwell) architecture
@@ -2084,7 +2086,19 @@ def run_recurrent_kda(
         )
         if _batched_spec_B is not None:
             out_buf = out_buf.reshape(_batched_spec_B, 1 + num_spec_tokens, HV, V)
-        return (out_buf, state if output_final_state else None)
+        final_state = state if output_final_state else None
+        if output_final_state and direct_cake_indexed_state:
+            compact_final_state = torch.index_select(
+                state,
+                0,
+                ssm_state_indices.clamp_min(0),
+            )
+            compact_final_state.masked_fill_(
+                (ssm_state_indices < 0).reshape(B, 1, 1, 1),
+                0,
+            )
+            final_state = compact_final_state
+        return (out_buf, final_state)
 
     if use_one_warp:
         USE_GATE = 1 if use_gate_in_kernel else 0
