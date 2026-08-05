@@ -1583,6 +1583,9 @@ def run_recurrent_kda(
             If None, zero-initialized. Updated in-place. For batched spec decode
             without ``cu_seqlens``, ``N`` is the packed checkpoint-slot count
             ``B * (1 + num_spec_tokens)`` when ``ssm_state_indices`` is omitted.
+            Standard T=1 Cake decode with ``ssm_state_indices`` uses this tensor
+            directly as an indexed state pool; it is not gathered into a dense
+            temporary.
         output_final_state (bool):
             Whether to return the final state. Default: ``False``.
         use_qk_l2norm_in_kernel (bool):
@@ -1601,7 +1604,10 @@ def run_recurrent_kda(
             State cache indices. Shape ``[N]`` int32 for standard decode, or
             ``[N, 1+S]`` int32 for spec decode (``num_spec_tokens`` must also be
             set). The wrapper flattens 2D indices to ``[N*(1+S)]`` before
-            passing to the kernel.
+            passing to the kernel. For standard T=1 Cake decode, this must be a
+            contiguous CUDA int32 tensor with one entry per batch row. The
+            frozen kernel updates ``initial_state`` at those indices directly;
+            ``-1`` marks an inactive padded row.
         num_spec_tokens (Optional[int]):
             Number of speculative tokens (S). When set, processes 1+S tokens in a single
             fused kernel launch. If ``cu_seqlens`` is provided, requires 2D
@@ -1648,7 +1654,9 @@ def run_recurrent_kda(
             - state: Updated state of shape ``[N, HV, V, K]`` if
               ``output_final_state=True``, else ``None``. For batched spec
               decode without ``cu_seqlens``, this is the packed checkpoint
-              state pool used by the shim.
+              state pool used by the shim. Standard T=1 Cake indexed-state
+              decode returns the same full pool object passed as
+              ``initial_state``.
 
     Note:
         - Requires SM100 (Blackwell) architecture
@@ -1659,6 +1667,10 @@ def run_recurrent_kda(
           ``1+S`` for every row, including padded sequences (which signal via
           ``ssm_state_indices == -1``). This caller contract is not validated
           at runtime to preserve CUDA graph compatibility.
+        - Standard T=1 Cake indexed-state decode requires every index to be
+          ``-1`` or in bounds for ``initial_state`` and all active indices to
+          be unique. These value constraints are not host-validated to avoid a
+          device synchronization during CUDA graph capture or replay.
     """
     if backend not in ("cute-dsl", "cake"):
         raise ValueError(f"backend must be 'cute-dsl' or 'cake', got {backend!r}")
@@ -1727,6 +1739,7 @@ def run_recurrent_kda(
 
     # Batched spec-decode shim: auto-converts [B,T,...] to packed [1,B*T,...] format.
     _batched_spec_B = None
+    direct_cake_indexed_state = False
     if num_spec_tokens is not None and cu_seqlens is None:
         T_spec = 1 + num_spec_tokens
         if T_spec != T:
@@ -1852,7 +1865,36 @@ def run_recurrent_kda(
                 f"Decode only supports T=1 without cu_seqlens, got T={T}. "
                 f"For multi-token decode, use cu_seqlens or num_spec_tokens."
             )
-        if initial_state is not None and not initial_state.is_contiguous():
+        direct_cake_indexed_state = backend == "cake" and ssm_state_indices is not None
+        if direct_cake_indexed_state:
+            if initial_state is None:
+                raise ValueError(
+                    "standard T=1 Cake indexed-state decode requires initial_state"
+                )
+            if ssm_state_indices.ndim != 1 or ssm_state_indices.numel() != B:
+                raise ValueError(
+                    "standard T=1 Cake ssm_state_indices must have shape "
+                    f"[B={B}], got {list(ssm_state_indices.shape)}"
+                )
+            if ssm_state_indices.dtype != torch.int32:
+                raise TypeError(
+                    "standard T=1 Cake ssm_state_indices must be int32, "
+                    f"got {ssm_state_indices.dtype}"
+                )
+            if ssm_state_indices.device != device:
+                raise ValueError(
+                    "standard T=1 Cake ssm_state_indices must be on the same "
+                    f"device as q, got {ssm_state_indices.device} and {device}"
+                )
+            if not ssm_state_indices.is_contiguous():
+                raise ValueError(
+                    "standard T=1 Cake ssm_state_indices must be contiguous"
+                )
+        if (
+            initial_state is not None
+            and not initial_state.is_contiguous()
+            and not direct_cake_indexed_state
+        ):
             raise ValueError(
                 "non-contiguous initial_state requires cu_seqlens: without cu_seqlens "
                 "the wrapper calls .contiguous() which copies the state, so in-place "
@@ -1871,6 +1913,8 @@ def run_recurrent_kda(
             )
         if initial_state is None:
             state = torch.zeros(B, HV, V, K, device=device, dtype=torch.bfloat16)
+        elif direct_cake_indexed_state:
+            state = initial_state
         elif ssm_state_indices is not None:
             state = initial_state[ssm_state_indices].contiguous()
             copy_back_indices = ssm_state_indices
@@ -1970,7 +2014,7 @@ def run_recurrent_kda(
                     device=device,
                 )
             ssi_key = f"flashkda_t1_state_indices_{grid_seqs}"
-            if ssi_key not in dc:
+            if not direct_cake_indexed_state and ssi_key not in dc:
                 dc[ssi_key] = torch.arange(
                     grid_seqs,
                     dtype=torch.int32,
@@ -1984,7 +2028,9 @@ def run_recurrent_kda(
                     device=device,
                 )
             frozen_cu_seqlens = dc[cu_key]
-            frozen_ssi = dc[ssi_key].view(-1)
+            frozen_ssi = (
+                ssm_state_indices if direct_cake_indexed_state else dc[ssi_key].view(-1)
+            )
             frozen_num_accepted_tokens = dc[nat_key]
 
     effective_scale = scale if scale is not None else 1.0 / math.sqrt(K)

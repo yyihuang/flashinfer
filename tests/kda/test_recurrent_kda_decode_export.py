@@ -267,6 +267,70 @@ def test_public_backend_option_rejects_unknown_value_cpu(monkeypatch):
         recurrent_kda(*tensors, backend="unknown")
 
 
+def test_cake_t1_indexed_state_forwards_pool_without_gather_cpu(monkeypatch):
+    batch_size = 3
+    num_heads = 1
+    slot_count = 7
+    slot_elements = num_heads * _D * _D
+    slot_stride = slot_elements + 8
+    state_storage = torch.zeros(
+        slot_count * slot_stride,
+        dtype=torch.bfloat16,
+    )
+    state_pool = torch.as_strided(
+        state_storage,
+        (slot_count, num_heads, _D, _D),
+        (slot_stride, _D * _D, _D, 1),
+    )
+    state_indices = torch.tensor([5, 2, -1], dtype=torch.int32)
+    q = torch.randn(batch_size, 1, num_heads, _D, dtype=torch.bfloat16)
+    k = torch.randn_like(q)
+    v = torch.randn_like(q)
+    g = F.logsigmoid(torch.randn_like(q, dtype=torch.float32)).to(torch.bfloat16)
+    beta = torch.rand(batch_size, 1, num_heads, dtype=torch.bfloat16)
+    output = torch.empty_like(v)
+
+    frozen_calls = []
+    monkeypatch.setattr(
+        recurrent_module,
+        "_select_flash_kda_decode_variant",
+        lambda **kwargs: "d128_t1_precomputed_direct_split16",
+    )
+
+    def capture_frozen_call(variant, **kwargs):
+        frozen_calls.append((variant, kwargs))
+
+    monkeypatch.setattr(
+        recurrent_module,
+        "_run_flash_kda_decode",
+        capture_frozen_call,
+    )
+
+    actual_output, actual_state = recurrent_module.run_recurrent_kda(
+        q,
+        k,
+        v,
+        g,
+        beta,
+        initial_state=state_pool,
+        ssm_state_indices=state_indices,
+        output=output,
+        output_final_state=True,
+        backend="cake",
+    )
+
+    assert actual_output is output
+    assert actual_state is state_pool
+    assert len(frozen_calls) == 1
+    variant, frozen_kwargs = frozen_calls[0]
+    assert variant == "d128_t1_precomputed_direct_split16"
+    assert frozen_kwargs["state"].data_ptr() == state_pool.data_ptr()
+    assert frozen_kwargs["state"].stride() == state_pool.stride()
+    assert frozen_kwargs["ssm_state_indices"].data_ptr() == state_indices.data_ptr()
+    assert frozen_kwargs["ssm_state_indices"].tolist() == [5, 2, -1]
+    assert frozen_kwargs["cu_seqlens"].tolist() == [0, 1, 2, 3]
+
+
 def test_cake_backend_rejects_empty_packed_decode_instead_of_noop_cpu():
     num_sequences = 2
     q = torch.empty(1, 0, 1, _D, dtype=torch.bfloat16)
@@ -1398,6 +1462,240 @@ def test_public_recurrent_kda_precomputed_matrix_matches_cute_dsl(
         torch.testing.assert_close(
             actual_state[padded_slot_start:],
             initial[padded_slot_start:],
+            atol=0,
+            rtol=0,
+        )
+
+
+@pytest.mark.parametrize("num_sequences", [1, 8, 64, 128])
+def test_public_recurrent_kda_t1_indexed_pool_matches_cute_dsl(
+    flash_kda_device, monkeypatch, num_sequences
+):
+    num_heads = 12
+    pool_slots = num_sequences + 5
+    case = _make_case(
+        flash_kda_device,
+        num_sequences=num_sequences,
+        num_heads=num_heads,
+        num_value_heads=num_heads,
+        num_tokens=1,
+        seed=2250 + num_sequences,
+    )
+    initial_pool, _ = _padded_slot_state(
+        pool_slots,
+        num_heads,
+        flash_kda_device,
+        seed=3250 + num_sequences,
+    )
+    index_generator = torch.Generator(device=flash_kda_device).manual_seed(
+        4250 + num_sequences
+    )
+    state_indices = torch.randperm(
+        pool_slots,
+        dtype=torch.int32,
+        device=flash_kda_device,
+        generator=index_generator,
+    )[:num_sequences].contiguous()
+    if num_sequences >= 8:
+        state_indices[1] = -1
+        state_indices[-2] = -1
+    active_rows = state_indices >= 0
+    active_indices = state_indices[active_rows].to(torch.int64)
+
+    # CuTe-DSL oracle over only active rows. Its dense path receives the exact
+    # selected initial states that the direct Cake kernel reads from the pool.
+    baseline_state = initial_pool.index_select(0, active_indices).contiguous()
+    baseline_output, baseline_final_state = recurrent_kda(
+        case["q"][active_rows].contiguous(),
+        case["k"][active_rows].contiguous(),
+        case["v"][active_rows].contiguous(),
+        case["g"][active_rows].contiguous(),
+        case["beta"][active_rows].contiguous(),
+        scale=case["scale"],
+        initial_state=baseline_state,
+        output_final_state=True,
+        use_qk_l2norm_in_kernel=True,
+        use_gate_in_kernel=False,
+        output=torch.empty_like(case["v"][active_rows]),
+        backend="cute-dsl",
+    )
+
+    actual_pool = _clone_state_with_layout(initial_pool)
+    pool_before = _clone_state_with_layout(actual_pool)
+    actual_output_buffer = torch.empty_like(case["output"])
+    frozen_calls = []
+    run_frozen = recurrent_module._run_flash_kda_decode
+
+    def track_frozen_call(variant, **kwargs):
+        frozen_calls.append((variant, kwargs))
+        return run_frozen(variant, **kwargs)
+
+    monkeypatch.setattr(recurrent_module, "_run_flash_kda_decode", track_frozen_call)
+    actual_kwargs = _call_kwargs(
+        case,
+        state=actual_pool,
+        output=actual_output_buffer,
+    )
+    actual_kwargs["ssm_state_indices"] = state_indices
+    actual_output, actual_final_state = recurrent_kda(
+        **actual_kwargs,
+        backend="cake",
+    )
+
+    assert len(frozen_calls) == 1
+    _, frozen_kwargs = frozen_calls[0]
+    assert frozen_kwargs["state"].data_ptr() == actual_pool.data_ptr()
+    assert frozen_kwargs["state"].stride() == actual_pool.stride()
+    assert frozen_kwargs["ssm_state_indices"].data_ptr() == state_indices.data_ptr()
+    assert actual_output.data_ptr() == actual_output_buffer.data_ptr()
+    assert actual_final_state is actual_pool
+    torch.testing.assert_close(
+        actual_output[active_rows].float(),
+        baseline_output.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        actual_pool.index_select(0, active_indices).float(),
+        baseline_final_state.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        actual_output[~active_rows],
+        torch.zeros_like(actual_output[~active_rows]),
+        atol=0,
+        rtol=0,
+    )
+    active_slot_set = set(active_indices.tolist())
+    inactive_slots = torch.tensor(
+        [slot for slot in range(pool_slots) if slot not in active_slot_set],
+        dtype=torch.int64,
+        device=flash_kda_device,
+    )
+    torch.testing.assert_close(
+        actual_pool.index_select(0, inactive_slots),
+        pool_before.index_select(0, inactive_slots),
+        atol=0,
+        rtol=0,
+    )
+
+
+def test_public_recurrent_kda_t1_indexed_pool_cuda_graph_replay(
+    flash_kda_device,
+):
+    num_sequences = 8
+    num_heads = 12
+    pool_slots = 13
+    case = _make_case(
+        flash_kda_device,
+        num_sequences=num_sequences,
+        num_heads=num_heads,
+        num_value_heads=num_heads,
+        num_tokens=1,
+        seed=5250,
+    )
+    initial_pool, _ = _padded_slot_state(
+        pool_slots,
+        num_heads,
+        flash_kda_device,
+        seed=5251,
+    )
+    graph_pool = _clone_state_with_layout(initial_pool)
+    graph_output = torch.empty_like(case["output"])
+    state_indices = torch.tensor(
+        [11, 3, 6, 1, 12, 5, 9, 2],
+        dtype=torch.int32,
+        device=flash_kda_device,
+    )
+    graph_kwargs = _call_kwargs(case, state=graph_pool, output=graph_output)
+    graph_kwargs["ssm_state_indices"] = state_indices
+    graph_kwargs["output_final_state"] = False
+
+    capture_stream = torch.cuda.Stream(device=flash_kda_device)
+    capture_stream.wait_stream(torch.cuda.current_stream(flash_kda_device))
+    with torch.cuda.stream(capture_stream):
+        recurrent_kda(**graph_kwargs, backend="cake")
+        graph_pool.copy_(initial_pool)
+        graph_output.zero_()
+    capture_stream.synchronize()
+
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph, stream=capture_stream):
+        captured_output, captured_state = recurrent_kda(
+            **graph_kwargs,
+            backend="cake",
+        )
+    assert captured_output.data_ptr() == graph_output.data_ptr()
+    assert captured_state is None
+
+    replay_indices = (
+        torch.tensor(
+            [4, 10, 7, 0, 8, 12, 3, 6],
+            dtype=torch.int32,
+            device=flash_kda_device,
+        ),
+        torch.tensor(
+            [2, -1, 11, 5, -1, 1, 9, 4],
+            dtype=torch.int32,
+            device=flash_kda_device,
+        ),
+    )
+    for indices in replay_indices:
+        active_rows = indices >= 0
+        active_indices = indices[active_rows].to(torch.int64)
+        baseline_state = initial_pool.index_select(0, active_indices).contiguous()
+        baseline_output, baseline_final_state = recurrent_kda(
+            case["q"][active_rows].contiguous(),
+            case["k"][active_rows].contiguous(),
+            case["v"][active_rows].contiguous(),
+            case["g"][active_rows].contiguous(),
+            case["beta"][active_rows].contiguous(),
+            scale=case["scale"],
+            initial_state=baseline_state,
+            output_final_state=True,
+            use_qk_l2norm_in_kernel=True,
+            use_gate_in_kernel=False,
+            output=torch.empty_like(case["v"][active_rows]),
+            backend="cute-dsl",
+        )
+
+        with torch.cuda.stream(capture_stream):
+            graph_pool.copy_(initial_pool)
+            state_indices.copy_(indices)
+            graph_output.fill_(float("nan"))
+        capture_stream.synchronize()
+        with torch.cuda.stream(capture_stream):
+            graph.replay()
+        capture_stream.synchronize()
+
+        torch.testing.assert_close(
+            graph_output[active_rows].float(),
+            baseline_output.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+        torch.testing.assert_close(
+            graph_pool.index_select(0, active_indices).float(),
+            baseline_final_state.float(),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+        torch.testing.assert_close(
+            graph_output[~active_rows],
+            torch.zeros_like(graph_output[~active_rows]),
+            atol=0,
+            rtol=0,
+        )
+        active_slot_set = set(active_indices.tolist())
+        inactive_slots = torch.tensor(
+            [slot for slot in range(pool_slots) if slot not in active_slot_set],
+            dtype=torch.int64,
+            device=flash_kda_device,
+        )
+        torch.testing.assert_close(
+            graph_pool.index_select(0, inactive_slots),
+            initial_pool.index_select(0, inactive_slots),
             atol=0,
             rtol=0,
         )

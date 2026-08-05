@@ -98,7 +98,8 @@ def recurrent_kda(
             If ``None``, zero-initialized. Updated in-place. For batched spec
             decode without ``cu_seqlens``, ``N`` is the packed checkpoint-slot
             count ``B * (1 + num_spec_tokens)`` when ``ssm_state_indices`` is
-            omitted.
+            omitted. Standard T=1 Cake decode can use this tensor directly as
+            an indexed state pool without a gather/scatter temporary.
         output_final_state (bool):
             Whether to return the final state. Default: ``False``.
         use_qk_l2norm_in_kernel (bool):
@@ -114,7 +115,10 @@ def recurrent_kda(
         ssm_state_indices (Optional[torch.Tensor]):
             State cache indices. Shape ``[N]`` int32 for standard decode, or
             ``[N, 1+S]`` int32 for spec decode (``num_spec_tokens`` must also
-            be set).
+            be set). For standard T=1 Cake decode, indices address
+            ``initial_state`` directly and ``-1`` marks an inactive padded row.
+            Active indices must be unique and in bounds; the value contract is
+            not host-validated so the call remains CUDA-graph compatible.
         num_spec_tokens (Optional[int]):
             Number of speculative tokens (S). When set, processes 1+S tokens in
             a single fused kernel launch. Must be >= 1.
