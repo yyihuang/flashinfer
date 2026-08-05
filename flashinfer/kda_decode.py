@@ -111,7 +111,9 @@ def recurrent_kda(
             omitted. Standard T=1 Cake decode can use this tensor directly as
             an indexed state pool without a gather/scatter temporary.
         output_final_state (bool):
-            Whether to return the final state. Default: ``False``.
+            Whether to return the final state. Standard indexed decode returns
+            one compact row per batch item; Cake returns zeros for ``-1``
+            padded rows. Default: ``False``.
         use_qk_l2norm_in_kernel (bool):
             Whether to apply L2 normalization to Q and K. Default: ``True``.
         use_gate_in_kernel (bool):
@@ -123,7 +125,7 @@ def recurrent_kda(
         cu_seqlens (Optional[torch.Tensor]):
             Cumulative sequence lengths of shape ``[N+1]``. Must be int32.
         ssm_state_indices (Optional[torch.Tensor]):
-            State cache indices. Shape ``[N]`` int32 for standard decode, or
+            State cache indices. Shape ``[B]`` int32 for standard decode, or
             ``[N, 1+S]`` int32 for spec decode (``num_spec_tokens`` must also
             be set). For standard T=1 Cake decode, indices address
             ``initial_state`` directly and ``-1`` marks an inactive padded row.

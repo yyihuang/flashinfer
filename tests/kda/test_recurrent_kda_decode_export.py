@@ -282,6 +282,8 @@ def test_cake_t1_indexed_state_forwards_pool_without_gather_cpu(monkeypatch):
         (slot_count, num_heads, _D, _D),
         (slot_stride, _D * _D, _D, 1),
     )
+    for slot in range(slot_count):
+        state_pool[slot].fill_(slot)
     state_indices = torch.tensor([5, 2, -1], dtype=torch.int32)
     q = torch.randn(batch_size, 1, num_heads, _D, dtype=torch.bfloat16)
     k = torch.randn_like(q)
@@ -320,7 +322,12 @@ def test_cake_t1_indexed_state_forwards_pool_without_gather_cpu(monkeypatch):
     )
 
     assert actual_output is output
-    assert actual_state is state_pool
+    assert actual_state.shape == (batch_size, num_heads, _D, _D)
+    torch.testing.assert_close(actual_state[0], state_pool[5], atol=0, rtol=0)
+    torch.testing.assert_close(actual_state[1], state_pool[2], atol=0, rtol=0)
+    torch.testing.assert_close(
+        actual_state[2], torch.zeros_like(actual_state[2]), atol=0, rtol=0
+    )
     assert len(frozen_calls) == 1
     variant, frozen_kwargs = frozen_calls[0]
     assert variant == "d128_t1_precomputed_direct_split16"
@@ -1548,7 +1555,12 @@ def test_public_recurrent_kda_t1_indexed_pool_matches_cute_dsl(
     assert frozen_kwargs["state"].stride() == actual_pool.stride()
     assert frozen_kwargs["ssm_state_indices"].data_ptr() == state_indices.data_ptr()
     assert actual_output.data_ptr() == actual_output_buffer.data_ptr()
-    assert actual_final_state is actual_pool
+    assert actual_final_state.shape == (
+        num_sequences,
+        num_heads,
+        _D,
+        _D,
+    )
     torch.testing.assert_close(
         actual_output[active_rows].float(),
         baseline_output.float(),
@@ -1560,6 +1572,18 @@ def test_public_recurrent_kda_t1_indexed_pool_matches_cute_dsl(
         baseline_final_state.float(),
         atol=1e-2,
         rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        actual_final_state[active_rows].float(),
+        baseline_final_state.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        actual_final_state[~active_rows],
+        torch.zeros_like(actual_final_state[~active_rows]),
+        atol=0,
+        rtol=0,
     )
     torch.testing.assert_close(
         actual_output[~active_rows],
