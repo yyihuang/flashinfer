@@ -23,17 +23,17 @@ from flashinfer.jit import flash_kda
 
 
 @pytest.mark.parametrize(
-    ("variant", "smem_bytes", "generated_sha256"),
+    ("variant", "smem_bytes", "raw_generated_sha256"),
     [
         (
             "m64",
             219136,
-            "c28aacd475983c72ffe84acac7321a0b2e1c495d7c6e9cdc4a80ada112d76515",
+            "29ae7194a13203b42edb3fddf067fb2c5893f33c7124b1389f4a991a20c4fb60",
         ),
         (
             "m128",
             227328,
-            "e6ea814f0f2e0e0cb33c1562458de9e47272760562dbcb2364855c5b48f0b6ce",
+            "27dfd105a397a11f7f5ad8335bde3b57858eb2228504e2e9fd8e8c44a0fea2d3",
         ),
     ],
 )
@@ -66,7 +66,7 @@ def test_flash_kda_uri_and_jit_spec(
     monkeypatch,
     variant,
     smem_bytes,
-    generated_sha256,
+    raw_generated_sha256,
     target,
     target_arch,
     expected_flag,
@@ -110,32 +110,12 @@ def test_flash_kda_uri_and_jit_spec(
     assert f"#define SMEM_TOTAL {smem_bytes}" in frozen_text
     assert frozen_text.count("// clang-format off") == 1
     assert frozen_text.rstrip().endswith("// clang-format on")
-    generated_body = frozen_text.partition("// clang-format off\n")[2].rpartition(
-        "// clang-format on"
-    )[0]
-    integration_begin = (
-        "    // FLASHINFER INTEGRATION BEGIN: acquire global tensor maps\n"
-    )
-    integration_end = "    // FLASHINFER INTEGRATION END: acquire global tensor maps\n"
-    generated_prefix, begin_marker, integration_tail = generated_body.partition(
-        integration_begin
-    )
-    integration_prologue, end_marker, generated_suffix = integration_tail.partition(
-        integration_end
-    )
-    assert begin_marker == integration_begin
-    assert end_marker == integration_end
-    assert integration_prologue.count("fence.proxy.tensormap::generic.acquire.gpu") == 6
-    assert integration_prologue.count("], 128;") == 6
-    assert integration_prologue.count("__syncthreads();") == 1
-    for tensor_map in ("q_tma", "k_tma", "v_tma", "g_tma", "beta_tma", "out_tma"):
-        assert f'"l"({tensor_map})' in integration_prologue
-    generated_body_without_tma_integration = generated_prefix + generated_suffix
+    generated_body = frozen_text.partition("// BEGIN FROZEN GENERATED BODY\n")[
+        2
+    ].partition("// END FROZEN GENERATED BODY\n")[0]
     alias_begin = "// FLASHINFER INTEGRATION BEGIN: allow exact state alias\n"
     alias_end = "// FLASHINFER INTEGRATION END: allow exact state alias\n"
-    alias_prefix, begin_marker, alias_tail = (
-        generated_body_without_tma_integration.partition(alias_begin)
-    )
+    alias_prefix, begin_marker, alias_tail = generated_body.partition(alias_begin)
     alias_signature, end_marker, alias_suffix = alias_tail.partition(alias_end)
     assert begin_marker == alias_begin
     assert end_marker == alias_end
@@ -148,13 +128,22 @@ def test_flash_kda_uri_and_jit_spec(
         "__nv_bfloat16* final_state",
         "__nv_bfloat16* __restrict__ final_state",
     )
-    # Keep the exporter output immutable outside the two narrowly marked
-    # FlashInfer integration patches.
+    # Keep the exporter output immutable outside the one narrowly marked
+    # FlashInfer integration patch. The restored text hashes to the exact raw
+    # source generated from the pinned Cake commit on both sm_100a and sm_103a.
     normalized_generated_body = alias_prefix + restricted_alias_signature + alias_suffix
     assert (
         hashlib.sha256(normalized_generated_body.encode()).hexdigest()
-        == generated_sha256
+        == raw_generated_sha256
     )
+    assert generated_body.count("fence.proxy.tensormap::generic.acquire.sys") == 6
+    assert (
+        generated_body.count(
+            "struct __align__(128) LoomTensorMap { uint64_t opaque[16]; };"
+        )
+        == 1
+    )
+    assert "LoomTensorMap const* q_tma" in generated_body
     assert [
         line for line in frozen_text.splitlines() if line.startswith("#include")
     ] == [
@@ -164,6 +153,9 @@ def test_flash_kda_uri_and_jit_spec(
 
     binding_text = spec.sources[0].read_text()
     assert "#define uint64_t flashkda_generated_uint64_t" in binding_text
+    assert "#define LoomTensorMap flashkda_generated_LoomTensorMap" in binding_text
+    assert "#define CUtensorMap flashkda_generated_CUtensorMap" in binding_text
+    assert "reinterpret_cast<const flashkda_generated_LoomTensorMap*>" in binding_text
     assert "TensorView descriptor_storage, int64_t prepare_descriptors" in binding_text
     assert "CheckFlashKDATarget(device_id)" in binding_text
 
