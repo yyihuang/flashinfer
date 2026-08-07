@@ -819,6 +819,57 @@ def test_frozen_prefill_h12_tma_chunks_match_reference(flash_kda_device, seq_len
     )
 
 
+@pytest.mark.parametrize("has_initial_state", [False, True])
+@pytest.mark.parametrize("seq_len", [17, 161])
+@pytest.mark.parametrize("num_heads", [12, 64])
+def test_frozen_prefill_sparse_kr_stage_wrap_matches_reference(
+    flash_kda_device,
+    num_heads,
+    seq_len,
+    has_initial_state,
+):
+    inputs = _make_inputs(
+        seq_lens=[seq_len],
+        num_heads=num_heads,
+        packed=False,
+        initial_state=has_initial_state,
+        seed=2100 + num_heads * 10 + seq_len + int(has_initial_state),
+    )
+    initial_state = inputs["initial_state"]
+    expected_output, expected_state = _reference(
+        {
+            **inputs,
+            "initial_state": (
+                initial_state.clone() if initial_state is not None else None
+            ),
+        }
+    )
+    output = torch.empty_like(inputs["q"])
+
+    actual_output, actual_state = recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=output,
+        output_final_state=True,
+    )
+
+    assert actual_output.data_ptr() == output.data_ptr()
+    assert actual_state is not None
+    if initial_state is not None:
+        assert actual_state is initial_state
+    torch.testing.assert_close(
+        actual_output.float(),
+        expected_output.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        actual_state.float(),
+        expected_state.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+
+
 def test_frozen_prefill_h12_packed_matches_reference(flash_kda_device):
     inputs = _make_inputs(
         seq_lens=[32, 3],
