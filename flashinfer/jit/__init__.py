@@ -93,6 +93,7 @@ from .dsv3_optimizations import (
     gen_dsv3_fused_routing_module as gen_dsv3_fused_routing_module,
 )
 from .tinygemm2 import gen_tinygemm2_module as gen_tinygemm2_module
+from .tinygemm2 import gen_tinygemm2_sm100_module as gen_tinygemm2_sm100_module
 from .moe_utils import gen_moe_utils_module as gen_moe_utils_module
 from .hash_topk import gen_hash_topk_module as gen_hash_topk_module
 from .fp4_kv_dequantization import (
@@ -101,6 +102,26 @@ from .fp4_kv_dequantization import (
 from .fp4_kv_quantization import (
     gen_fp4_kv_quantization_module as gen_fp4_kv_quantization_module,
 )
+from .flash_kda import (
+    gen_flash_kda_m64_module as gen_flash_kda_m64_module,
+)
+from .flash_kda import (
+    gen_flash_kda_m128_module as gen_flash_kda_m128_module,
+)
+from .flash_kda import (
+    get_flash_kda_prefill_module as get_flash_kda_prefill_module,
+)
+from .flash_kda import (
+    load_flash_kda_m64_module as load_flash_kda_m64_module,
+)
+from .flash_kda import (
+    load_flash_kda_m128_module as load_flash_kda_m128_module,
+)
+from .cake_msa import CAKE_MSA_VARIANTS as CAKE_MSA_VARIANTS
+from .cake_msa import gen_cake_msa_module as gen_cake_msa_module
+from .cake_msa import get_cake_msa_module as get_cake_msa_module
+from .cake_msa import get_cake_msa_uri as get_cake_msa_uri
+from .cake_msa import load_cake_msa_module as load_cake_msa_module
 from .nvfp4_attention_sm120 import (
     gen_nvfp4_attention_sm120_module as gen_nvfp4_attention_sm120_module,
 )
