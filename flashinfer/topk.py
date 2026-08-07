@@ -259,7 +259,6 @@ def get_topk_module():
         tie_break: int,
         dsa_graph_safe: bool = False,
         row_starts: Optional[torch.Tensor] = None,
-        page_table_row_starts: Optional[torch.Tensor] = None,
     ) -> None:
         assert input.dtype in [torch.float32, torch.float16, torch.bfloat16], (
             f"Unsupported dtype {input.dtype}, expected float32, float16, or bfloat16"
@@ -276,7 +275,6 @@ def get_topk_module():
             tie_break,
             dsa_graph_safe,
             row_starts,
-            page_table_row_starts,
         )
 
     @register_fake_op("flashinfer::radix_topk_page_table_transform")
@@ -292,7 +290,6 @@ def get_topk_module():
         tie_break: int,
         dsa_graph_safe: bool = False,
         row_starts: Optional[torch.Tensor] = None,
-        page_table_row_starts: Optional[torch.Tensor] = None,
     ) -> None:
         pass
 
@@ -673,7 +670,6 @@ def top_k_page_table_transform(
     tie_break: int = TopKTieBreak.NONE,
     dsa_graph_safe: bool = False,
     row_starts: Optional[torch.Tensor] = None,
-    page_table_row_starts: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     r"""Fused Top-K selection + Page Table Transform for sparse attention.
 
@@ -683,12 +679,9 @@ def top_k_page_table_transform(
     need to be mapped through page tables.
 
     For each row i:
-        output_page_table[i, j] = src_page_table[
-            batch_idx, page_table_row_start[i] + topk_indices[j]
-        ]
+        output_page_table[i, j] = src_page_table[batch_idx, topk_indices[j]]
 
-    where ``batch_idx`` is determined by ``row_to_batch[i]`` if provided,
-    otherwise ``i``. ``topk_indices`` are relative to ``row_starts[i]``.
+    where batch_idx is determined by row_to_batch[i] if provided, otherwise i.
 
     Parameters
     ----------
@@ -724,10 +717,7 @@ def top_k_page_table_transform(
         Per-row start indices of shape ``(num_rows,)`` with dtype ``int32``.
         Top-k is computed over ``[row_starts[i], row_starts[i] + lengths[i])`` for row ``i``.
         Default is None (equivalent to all zeros).
-    page_table_row_starts : Optional[torch.Tensor], optional
-        Per-row page-table start indices of shape ``(num_rows,)`` with dtype
-        ``int32``. If None, defaults to ``row_starts`` to preserve the legacy
-        behavior where score and page-table windows share the same start.
+
 
     Returns
     -------
@@ -740,7 +730,8 @@ def top_k_page_table_transform(
     ----
     - This is specifically designed for sparse attention's second stage.
     - If lengths[i] <= k, the output simply contains
-      ``src_page_table[batch_idx, page_table_row_start[i]:page_table_row_start[i] + lengths[i]]``
+      ``src_page_table[batch_idx, row_starts[i]:row_starts[i] + lengths[i]]`` (or start 0 when
+      ``row_starts`` is None)
       with remaining positions set to -1.
 
     Examples
@@ -768,7 +759,6 @@ def top_k_page_table_transform(
         can_use_clusters_topk(input.device, deterministic, dsa_graph_safe)
         and row_to_batch is None
         and row_starts is None
-        and page_table_row_starts is None
     ):
         return topk_clusters_page_table_transform(input, lengths, src_page_table, k)
 
@@ -795,7 +785,6 @@ def top_k_page_table_transform(
         tie_break,
         dsa_graph_safe,
         row_starts=row_starts,
-        page_table_row_starts=page_table_row_starts,
     )
 
     return output_page_table

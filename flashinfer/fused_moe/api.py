@@ -223,17 +223,6 @@ class ExecutionConfig:
 # Backend configs — each declares hardware preconditions
 # ---------------------------------------------------------------------------
 
-# Architectures the TRT-LLM routed-MoE cubin manifest ships kernels for.  The
-# manifest is a downloaded artifact, so this cannot be derived at import time and
-# has to be kept in sync with the cubin-arch compatibility rules in
-# csrc/trtllm_batched_gemm_runner.cu.  SM110/120/121 need upstream cubins first;
-# claiming them here makes the batched-GEMM runner abort at dispatch (#4107).
-_TRTLLM_ROUTED_ARCHS = (100, 103, 107)
-
-# The FP8 kernels are validated on the SM100 family only — the outer JIT module
-# compiles for major 12 as well, but those cubins fail at runtime on SM120/121.
-_TRTLLM_ROUTED_FP8_ARCHS = (100, 103)
-
 
 @dataclass(frozen=True)
 class TrtllmFp4Config:
@@ -241,7 +230,9 @@ class TrtllmFp4Config:
 
     @classmethod
     def supported(cls, arch: int) -> bool:
-        return arch in _TRTLLM_ROUTED_ARCHS
+        # Current TRTLLM FP4 cubins are supported only on SM100/SM103.
+        # SM107 support from #4122 was reverted by #4171.
+        return arch in (100, 103)
 
     @staticmethod
     def prepare_weights(
@@ -302,7 +293,10 @@ class TrtllmFp8BlockConfig:
 
     @classmethod
     def supported(cls, arch: int) -> bool:
-        return arch in _TRTLLM_ROUTED_FP8_ARCHS
+        # SM107 support from #4122 was reverted by #4171. The outer JIT can
+        # compile for major 12, but its FP8 kernels currently fail at runtime
+        # on SM120/121.
+        return arch in (100, 103)
 
     @staticmethod
     def prepare_weights(
@@ -352,7 +346,7 @@ class TrtllmFp8PerTensorConfig:
 
     @classmethod
     def supported(cls, arch: int) -> bool:
-        return arch in _TRTLLM_ROUTED_FP8_ARCHS
+        return arch in (100, 103)
 
     @staticmethod
     def prepare_weights(
@@ -400,7 +394,7 @@ class TrtllmBf16Config:
 
     @classmethod
     def supported(cls, arch: int) -> bool:
-        return arch in _TRTLLM_ROUTED_ARCHS
+        return arch in (100, 103)
 
     @staticmethod
     def prepare_weights(
@@ -440,11 +434,7 @@ class TrtllmMxInt4Config:
 
     @classmethod
     def supported(cls, arch: int) -> bool:
-        # Same trtllm-gen routed batched-GEMM path as the FP4/BF16 backends, so it
-        # inherits the same manifest coverage.  Whether sm107a MxE2m1 cubins exist
-        # is not verifiable from this repo; this only narrows the previous
-        # ``arch >= 100``, leaving SM100/103/107 behaviour unchanged.
-        return arch in _TRTLLM_ROUTED_ARCHS
+        return arch >= 100
 
     def __repr__(self) -> str:
         return "TrtllmMxInt4Config()"
