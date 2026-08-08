@@ -1073,6 +1073,49 @@ def test_frozen_prefill_global_kr_stage_wrap_matches_reference(
     )
 
 
+@pytest.mark.parametrize("invalid_workspace", ["undersized", "aliases_q"])
+def test_frozen_prefill_ffi_rejects_invalid_kr_workspace(
+    flash_kda_device, monkeypatch, invalid_workspace
+):
+    from flashinfer.jit.flash_kda import get_flash_kda_prefill_module
+
+    inputs = _make_inputs(
+        seq_lens=[161],
+        num_heads=12,
+        packed=False,
+        initial_state=True,
+        seed=2312,
+    )
+    output = torch.empty_like(inputs["q"])
+    recorder = _RecorderModule()
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, target: recorder,
+    )
+    recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=output,
+        output_final_state=True,
+    )
+    (recorded_args,) = recorder.calls
+    args = list(recorded_args)
+    required_numel = args[13].numel()
+    if invalid_workspace == "undersized":
+        args[13] = args[13][:-1]
+        error_match = "must contain at least"
+    else:
+        q_flat = inputs["q"].flatten()
+        assert q_flat.numel() >= required_numel
+        args[13] = q_flat[:required_numel]
+        error_match = "kr_workspace must not overlap q"
+
+    target = kda_prefill_api._select_flash_kda_prefill_target(flash_kda_device)
+    module = get_flash_kda_prefill_module("m128", target)
+    with pytest.raises(RuntimeError, match=error_match):
+        module.run(*args)
+
+
 def test_frozen_prefill_h12_packed_matches_reference(flash_kda_device):
     inputs = _make_inputs(
         seq_lens=[32, 3],
