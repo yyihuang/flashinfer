@@ -175,6 +175,15 @@ def _make_case(
         "w1_scale": w1_scale,
         "w2": w2,
         "w2_scale": w2_scale,
+        "output1_scale_gate_scalar": torch.ones(
+            num_experts, dtype=torch.float32, device="cuda"
+        ),
+        "output1_scale_scalar": torch.ones(
+            num_experts, dtype=torch.float32, device="cuda"
+        ),
+        "output2_scale_scalar": torch.ones(
+            num_experts, dtype=torch.float32, device="cuda"
+        ),
         "sorted_token_ids": sorted_token_ids,
         "expert_ids": expert_ids,
         "num_tokens_post_padded": num_tokens_post_padded,
@@ -340,6 +349,9 @@ def _launch(
         case["w1_scale"],
         case["w2"],
         case["w2_scale"],
+        case["output1_scale_gate_scalar"],
+        case["output1_scale_scalar"],
+        case["output2_scale_scalar"],
         case["sorted_token_ids"],
         case["expert_ids"],
         (
@@ -466,6 +478,9 @@ def test_alphamoe_nvfp4_rejects_invalid_host_contracts():
         case["w1_scale"],
         case["w2"],
         case["w2_scale"],
+        case["output1_scale_gate_scalar"],
+        case["output1_scale_scalar"],
+        case["output2_scale_scalar"],
         case["sorted_token_ids"],
         case["expert_ids"],
         case["num_tokens_post_padded"],
@@ -482,7 +497,7 @@ def test_alphamoe_nvfp4_rejects_invalid_host_contracts():
         alphamoe_nvfp4_aligned_moe(*wrong_scale_dtype)
 
     too_short_plan = list(args)
-    too_short_plan[6] = case["sorted_token_ids"][:-1]
+    too_short_plan[9] = case["sorted_token_ids"][:-1]
     with pytest.raises(ValueError, match="capacity must be at least"):
         alphamoe_nvfp4_aligned_moe(*too_short_plan)
 
@@ -505,7 +520,7 @@ def test_alphamoe_nvfp4_rejects_invalid_host_contracts():
     assert misaligned_out.is_contiguous()
     assert misaligned_out.data_ptr() % 16 != 0
     misaligned_args = list(args)
-    misaligned_args[10] = misaligned_out
+    misaligned_args[13] = misaligned_out
     with pytest.raises(ValueError, match="16-byte aligned"):
         alphamoe_nvfp4_aligned_moe(*misaligned_args)
 
@@ -529,7 +544,7 @@ def test_alphamoe_nvfp4_rejects_invalid_host_contracts():
     aliased_out = aliased_storage.view(torch.bfloat16).view(case["M"], case["K"])
     alias_args = list(args)
     alias_args[0] = aliased_x
-    alias_args[10] = aliased_out
+    alias_args[13] = aliased_out
     with pytest.raises(RuntimeError, match="out must not overlap hidden_states"):
         alphamoe_nvfp4_aligned_moe(*alias_args)
 

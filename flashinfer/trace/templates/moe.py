@@ -3528,6 +3528,26 @@ alphamoe_nvfp4_aligned_moe_trace = TraceTemplate(
             dtype="float8_e4m3fn",
             description="Linear per-16 E4M3 down-projection weight scales.",
         ),
+        "output1_scale_gate_scalar": Tensor(
+            ["num_experts"],
+            dtype="float32",
+            description="Per-expert gate scale applied before SiLU.",
+        ),
+        "output1_scale_scalar": Tensor(
+            ["num_experts"],
+            dtype="float32",
+            description=(
+                "Per-expert up-projection scale; static ModelOpt uses the "
+                "up global scale divided by the second-activation scale."
+            ),
+        ),
+        "output2_scale_scalar": Tensor(
+            ["num_experts"],
+            dtype="float32",
+            description=(
+                "Per-expert down-projection scale applied before route weighting."
+            ),
+        ),
         "sorted_token_ids": Tensor(
             ["sorted_token_capacity"],
             dtype="int32",

@@ -434,6 +434,9 @@ def test_fi_trace_complete_alphamoe_nvfp4_aligned_moe():
         "gemm1_weights_scale": torch.ones(4, 256, 16, dtype=torch.float8_e4m3fn),
         "gemm2_weights": torch.zeros(4, 256, 64, dtype=torch.uint8),
         "gemm2_weights_scale": torch.ones(4, 256, 8, dtype=torch.float8_e4m3fn),
+        "output1_scale_gate_scalar": torch.ones(4, dtype=torch.float32),
+        "output1_scale_scalar": torch.ones(4, dtype=torch.float32),
+        "output2_scale_scalar": torch.ones(4, dtype=torch.float32),
         "sorted_token_ids": torch.zeros(48, dtype=torch.int32),
         "expert_ids": torch.zeros(6, dtype=torch.int32),
         "num_tokens_post_padded": torch.zeros(1, dtype=torch.int32),
@@ -454,6 +457,9 @@ def test_fi_trace_complete_alphamoe_nvfp4_aligned_moe():
     assert defn["axes"]["one"]["value"] == 1
     assert defn["inputs"]["hidden_states"]["dtype"] == "uint8"
     assert defn["inputs"]["hidden_states_scale"]["dtype"] == "float8_e4m3fn"
+    assert defn["inputs"]["output1_scale_gate_scalar"]["shape"] == ["num_experts"]
+    assert defn["inputs"]["output1_scale_scalar"]["dtype"] == "float32"
+    assert defn["inputs"]["output2_scale_scalar"]["dtype"] == "float32"
     assert defn["inputs"]["topk_weights"]["dtype"] == "float32"
     assert defn["inputs"]["out"]["dtype"] == "bfloat16"
     assert "optional" not in defn["inputs"]["out"]

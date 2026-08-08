@@ -115,6 +115,15 @@ def main() -> None:
         min_scale_exp=-5.0,
         max_scale_exp=-4.0,
     )
+    output1_scale_gate_scalar = torch.ones(
+        args.num_experts, dtype=torch.float32, device="cuda"
+    )
+    output1_scale_scalar = torch.ones(
+        args.num_experts, dtype=torch.float32, device="cuda"
+    )
+    output2_scale_scalar = torch.ones(
+        args.num_experts, dtype=torch.float32, device="cuda"
+    )
     logits = torch.randn(
         args.num_tokens,
         args.num_experts,
@@ -146,6 +155,9 @@ def main() -> None:
         gemm1_weights_scale,
         gemm2_weights,
         gemm2_weights_scale,
+        output1_scale_gate_scalar,
+        output1_scale_scalar,
+        output2_scale_scalar,
         sorted_token_ids,
         expert_ids,
         num_tokens_post_padded,

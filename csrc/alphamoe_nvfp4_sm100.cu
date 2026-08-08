@@ -26,12 +26,15 @@
 //   raw generated CUDA SHA-256:
 //     c452e6d169cd03574e30f78f1c8dbf75ea154ecbdf510f930b0e6f1b6713cfb0
 //
-// The generated source is integrated by one mechanical prelude transform:
+// The generated source was integrated by a mechanical prelude transform:
 // its fixed-width aliases, opaque CUtensorMap alias, and Loom tensor-map
-// declarations (raw lines 1-12) are replaced by the host headers and the
-// layout-identical declarations below. From the generated cuda_bf16 include
-// through the closing extern-C brace, the source is byte-identical. The
-// TVM-FFI validation, TMA encoding, and launch binding follow that frozen body.
+// declarations (raw lines 1-12) were replaced by the host headers and the
+// layout-identical declarations below. FlashInfer then applies the explicit
+// static-ModelOpt scale ABI patch tracked in this file: three FP32 [E] launch
+// arguments, gate/up scaling before SwiGLU and down scaling before routing.
+// Therefore the body below is intentionally not byte-identical to the raw
+// generated CUDA named above; a future Loom re-export must port this patch.
+// The TVM-FFI validation, TMA encoding, and launch binding follow that body.
 
 #include <cuda.h>
 #include <cuda_bf16.h>
@@ -411,7 +414,7 @@ __device__ __forceinline__ uint32_t make_warp_uniform(uint32_t val) {
 extern "C" {
 
 __global__ __launch_bounds__(192, 1) void
-kernel_alpha_moe_nvfp4_up_down(uint8_t* __restrict__ x_scale, uint8_t* __restrict__ w1_scale, uint8_t* __restrict__ w2_scale, int* __restrict__ sorted_token_ids, int* __restrict__ expert_ids, int* __restrict__ num_tokens_post_padded, float* __restrict__ topk_weights, __nv_bfloat16* __restrict__ out, int M, int K, int top_k, int route_block_m, float scaling_factor, __grid_constant__ LoomTensorMapPack<3> const _loom_tma_params)
+kernel_alpha_moe_nvfp4_up_down(uint8_t* __restrict__ x_scale, uint8_t* __restrict__ w1_scale, uint8_t* __restrict__ w2_scale, float* __restrict__ output1_scale_gate_scalar, float* __restrict__ output1_scale_scalar, float* __restrict__ output2_scale_scalar, int* __restrict__ sorted_token_ids, int* __restrict__ expert_ids, int* __restrict__ num_tokens_post_padded, float* __restrict__ topk_weights, __nv_bfloat16* __restrict__ out, int M, int K, int top_k, int route_block_m, float scaling_factor, __grid_constant__ LoomTensorMapPack<3> const _loom_tma_params)
 {
     uint64_t _loom_tma_param_base;
     asm volatile("mov.b64 %0, %1;" : "=l"(_loom_tma_param_base) : "l"((uint64_t)(&_loom_tma_params)));
@@ -1349,6 +1352,12 @@ kernel_alpha_moe_nvfp4_up_down(uint8_t* __restrict__ x_scale, uint8_t* __restric
             int route_subtile_c = route_work_c % subtiles_per_route_block_c;
             int route_base_c = route_block_c * route_block_m + route_subtile_c * 8;
             bool route_active_c = route_base_c < num_tokens_post_padded[0];
+            int expert_c = 0;
+            if (route_active_c) {
+                expert_c = expert_ids[route_block_c];
+            }
+            float gate_scale_scalar_c = output1_scale_gate_scalar[expert_c];
+            float up_scale_scalar_c = output1_scale_scalar[expert_c];
             const int consumer_warp = warp % 4;
             const int physical_feature = consumer_warp * 32 + lane;
             int lane_pair = M * top_k;
@@ -1383,8 +1392,8 @@ kernel_alpha_moe_nvfp4_up_down(uint8_t* __restrict__ x_scale, uint8_t* __restric
             float act[8];
             #pragma unroll
             for (int token_slot_act = 0; token_slot_act < 8; token_slot_act++) {
-                float gate = _tmem_load_0[token_slot_act];
-                float up = _tmem_load_1[token_slot_act];
+                float gate = _tmem_load_0[token_slot_act] * gate_scale_scalar_c;
+                float up = _tmem_load_1[token_slot_act] * up_scale_scalar_c;
                 float _expf_0 = __expf(-gate);
                 act[token_slot_act] = gate * (1.0f / (1.0f + _expf_0)) * up;
                 float _fabs_0 = fabsf(act[token_slot_act]);
@@ -1546,6 +1555,7 @@ kernel_alpha_moe_nvfp4_up_down(uint8_t* __restrict__ x_scale, uint8_t* __restric
             asm volatile("barrier.sync 14, 192;" ::: "memory");
             unsigned int down_stage_c = 0;
             unsigned int _phase_down_ready = 0;
+            float down_scale_scalar_c = output2_scale_scalar[expert_c];
             #pragma unroll 1
             for (int ob_c = 0; ob_c < K / 128; ob_c++) {
                 mbarrier_wait(down_ready_addr + (down_stage_c) * 8, _phase_down_ready);
@@ -1561,7 +1571,8 @@ kernel_alpha_moe_nvfp4_up_down(uint8_t* __restrict__ x_scale, uint8_t* __restric
                     if (pair_out < M * top_k) {
                         route_weight = route_weights[token_slot_out];
                     }
-                    smem_out[token_slot_out * 128 + physical_feature] = _tmem_load_2[token_slot_out] * route_weight * scaling_factor;
+                    float down = _tmem_load_2[token_slot_out] * down_scale_scalar_c;
+                    smem_out[token_slot_out * 128 + physical_feature] = down * route_weight * scaling_factor;
                 }
                 asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                 asm volatile("barrier.sync 15, 128;" ::: "memory");
@@ -1729,6 +1740,11 @@ inline void CheckSameDevice(const TensorView& tensor, int device_id, const char*
       << name << " must be on CUDA device " << device_id;
 }
 
+inline void CheckShape1(const TensorView& tensor, int64_t d0, const char* name) {
+  TVM_FFI_ICHECK(tensor.size(0) == d0)
+      << name << " must have shape (" << d0 << ",), got (" << tensor.size(0) << ",)";
+}
+
 inline void CheckShape2(const TensorView& tensor, int64_t d0, int64_t d1, const char* name) {
   TVM_FFI_ICHECK(tensor.size(0) == d0 && tensor.size(1) == d1)
       << name << " must have shape (" << d0 << ", " << d1 << "), got (" << tensor.size(0) << ", "
@@ -1796,9 +1812,11 @@ inline ProblemDims CheckInputs(
     const TensorView& hidden_states, const TensorView& hidden_states_scale,
     const TensorView& gemm1_weights, const TensorView& gemm1_weights_scale,
     const TensorView& gemm2_weights, const TensorView& gemm2_weights_scale,
-    const TensorView& sorted_token_ids, const TensorView& expert_ids,
-    const TensorView& num_tokens_post_padded, const TensorView& topk_weights, const TensorView& out,
-    int64_t top_k, int64_t block_m, double routed_scaling_factor) {
+    const TensorView& output1_scale_gate_scalar, const TensorView& output1_scale_scalar,
+    const TensorView& output2_scale_scalar, const TensorView& sorted_token_ids,
+    const TensorView& expert_ids, const TensorView& num_tokens_post_padded,
+    const TensorView& topk_weights, const TensorView& out, int64_t top_k, int64_t block_m,
+    double routed_scaling_factor) {
   CheckTensor(hidden_states, dl_uint8, 2, false, "hidden_states", "uint8");
   CheckTensor(hidden_states_scale, dl_float8_e4m3fn, 2, true, "hidden_states_scale",
               "float8_e4m3fn");
@@ -1808,6 +1826,10 @@ inline ProblemDims CheckInputs(
   CheckTensor(gemm2_weights, dl_uint8, 3, true, "gemm2_weights", "uint8");
   CheckTensor(gemm2_weights_scale, dl_float8_e4m3fn, 3, true, "gemm2_weights_scale",
               "float8_e4m3fn");
+  CheckTensor(output1_scale_gate_scalar, dl_float32, 1, true, "output1_scale_gate_scalar",
+              "float32");
+  CheckTensor(output1_scale_scalar, dl_float32, 1, true, "output1_scale_scalar", "float32");
+  CheckTensor(output2_scale_scalar, dl_float32, 1, true, "output2_scale_scalar", "float32");
   CheckTensor(sorted_token_ids, dl_int32, 1, true, "sorted_token_ids", "int32");
   CheckTensor(expert_ids, dl_int32, 1, true, "expert_ids", "int32");
   CheckTensor(num_tokens_post_padded, dl_int32, 1, true, "num_tokens_post_padded", "int32");
@@ -1820,6 +1842,9 @@ inline ProblemDims CheckInputs(
   CheckSameDevice(gemm1_weights_scale, device_id, "gemm1_weights_scale");
   CheckSameDevice(gemm2_weights, device_id, "gemm2_weights");
   CheckSameDevice(gemm2_weights_scale, device_id, "gemm2_weights_scale");
+  CheckSameDevice(output1_scale_gate_scalar, device_id, "output1_scale_gate_scalar");
+  CheckSameDevice(output1_scale_scalar, device_id, "output1_scale_scalar");
+  CheckSameDevice(output2_scale_scalar, device_id, "output2_scale_scalar");
   CheckSameDevice(sorted_token_ids, device_id, "sorted_token_ids");
   CheckSameDevice(expert_ids, device_id, "expert_ids");
   CheckSameDevice(num_tokens_post_padded, device_id, "num_tokens_post_padded");
@@ -1874,6 +1899,9 @@ inline ProblemDims CheckInputs(
   CheckShape3(gemm1_weights_scale, num_experts, n, k / 16, "gemm1_weights_scale");
   CheckShape3(gemm2_weights, num_experts, k, intermediate / 2, "gemm2_weights");
   CheckShape3(gemm2_weights_scale, num_experts, k, intermediate / 16, "gemm2_weights_scale");
+  CheckShape1(output1_scale_gate_scalar, num_experts, "output1_scale_gate_scalar");
+  CheckShape1(output1_scale_scalar, num_experts, "output1_scale_scalar");
+  CheckShape1(output2_scale_scalar, num_experts, "output2_scale_scalar");
   CheckShape2(topk_weights, m, top_k, "topk_weights");
   CheckShape2(out, m, k, "out");
   TVM_FFI_ICHECK(reinterpret_cast<uintptr_t>(out.data_ptr()) % 16 == 0)
@@ -1885,6 +1913,9 @@ inline ProblemDims CheckInputs(
   CheckNoOverlap(out, gemm1_weights_scale, "gemm1_weights_scale");
   CheckNoOverlap(out, gemm2_weights, "gemm2_weights");
   CheckNoOverlap(out, gemm2_weights_scale, "gemm2_weights_scale");
+  CheckNoOverlap(out, output1_scale_gate_scalar, "output1_scale_gate_scalar");
+  CheckNoOverlap(out, output1_scale_scalar, "output1_scale_scalar");
+  CheckNoOverlap(out, output2_scale_scalar, "output2_scale_scalar");
   CheckNoOverlap(out, sorted_token_ids, "sorted_token_ids");
   CheckNoOverlap(out, expert_ids, "expert_ids");
   CheckNoOverlap(out, num_tokens_post_padded, "num_tokens_post_padded");
@@ -1990,6 +2021,8 @@ inline LoomTensorMapPack<3> MakeTensorMapPack(const CUtensorMap& hidden_states_m
 inline void Launch(const TensorView& hidden_states, const TensorView& hidden_states_scale,
                    const TensorView& gemm1_weights, const TensorView& gemm1_weights_scale,
                    const TensorView& gemm2_weights, const TensorView& gemm2_weights_scale,
+                   const TensorView& output1_scale_gate_scalar,
+                   const TensorView& output1_scale_scalar, const TensorView& output2_scale_scalar,
                    const TensorView& sorted_token_ids, const TensorView& expert_ids,
                    const TensorView& num_tokens_post_padded, const TensorView& topk_weights,
                    const TensorView& out, const ProblemDims& dims, float routed_scaling_factor,
@@ -2011,6 +2044,9 @@ inline void Launch(const TensorView& hidden_states, const TensorView& hidden_sta
       static_cast<uint8_t*>(hidden_states_scale.data_ptr()),
       static_cast<uint8_t*>(gemm1_weights_scale.data_ptr()),
       static_cast<uint8_t*>(gemm2_weights_scale.data_ptr()),
+      static_cast<float*>(output1_scale_gate_scalar.data_ptr()),
+      static_cast<float*>(output1_scale_scalar.data_ptr()),
+      static_cast<float*>(output2_scale_scalar.data_ptr()),
       static_cast<int*>(sorted_token_ids.data_ptr()), static_cast<int*>(expert_ids.data_ptr()),
       static_cast<int*>(num_tokens_post_padded.data_ptr()),
       static_cast<float*>(topk_weights.data_ptr()),
@@ -2021,9 +2057,10 @@ inline void Launch(const TensorView& hidden_states, const TensorView& hidden_sta
 
 void Run(TensorView hidden_states, TensorView hidden_states_scale, TensorView gemm1_weights,
          TensorView gemm1_weights_scale, TensorView gemm2_weights, TensorView gemm2_weights_scale,
-         TensorView sorted_token_ids, TensorView expert_ids, TensorView num_tokens_post_padded,
-         TensorView topk_weights, TensorView out, int64_t top_k, int64_t block_m,
-         double routed_scaling_factor) {
+         TensorView output1_scale_gate_scalar, TensorView output1_scale_scalar,
+         TensorView output2_scale_scalar, TensorView sorted_token_ids, TensorView expert_ids,
+         TensorView num_tokens_post_padded, TensorView topk_weights, TensorView out, int64_t top_k,
+         int64_t block_m, double routed_scaling_factor) {
   // Establish the active CUDA device before capability queries, TMA encoding,
   // function-attribute updates, stream lookup, or kernel launch.
   TVM_FFI_ICHECK(hidden_states.device().device_type == kDLCUDA)
@@ -2032,12 +2069,14 @@ void Run(TensorView hidden_states, TensorView hidden_states_scale, TensorView ge
 
   const ProblemDims dims =
       CheckInputs(hidden_states, hidden_states_scale, gemm1_weights, gemm1_weights_scale,
-                  gemm2_weights, gemm2_weights_scale, sorted_token_ids, expert_ids,
+                  gemm2_weights, gemm2_weights_scale, output1_scale_gate_scalar,
+                  output1_scale_scalar, output2_scale_scalar, sorted_token_ids, expert_ids,
                   num_tokens_post_padded, topk_weights, out, top_k, block_m, routed_scaling_factor);
   const cudaStream_t stream = get_stream(hidden_states.device());
   Launch(hidden_states, hidden_states_scale, gemm1_weights, gemm1_weights_scale, gemm2_weights,
-         gemm2_weights_scale, sorted_token_ids, expert_ids, num_tokens_post_padded, topk_weights,
-         out, dims, static_cast<float>(routed_scaling_factor), stream);
+         gemm2_weights_scale, output1_scale_gate_scalar, output1_scale_scalar, output2_scale_scalar,
+         sorted_token_ids, expert_ids, num_tokens_post_padded, topk_weights, out, dims,
+         static_cast<float>(routed_scaling_factor), stream);
 }
 
 }  // namespace alphamoe_nvfp4_sm100

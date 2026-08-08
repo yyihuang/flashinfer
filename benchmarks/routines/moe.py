@@ -1549,6 +1549,15 @@ def _make_alphamoe_nvfp4_data(
         "w1_scale": w1_scale,
         "w2": w2,
         "w2_scale": w2_scale,
+        "output1_scale_gate_scalar": torch.ones(
+            num_experts, dtype=torch.float32, device=device
+        ),
+        "output1_scale_scalar": torch.ones(
+            num_experts, dtype=torch.float32, device=device
+        ),
+        "output2_scale_scalar": torch.ones(
+            num_experts, dtype=torch.float32, device=device
+        ),
         "sorted_token_ids": sorted_token_ids,
         "expert_ids": expert_ids,
         "num_tokens_post_padded": num_tokens_post_padded,
@@ -1720,6 +1729,9 @@ def testAlphaMoeNvfp4AlignedMoe(args):
         data["w1_scale"],
         data["w2"],
         data["w2_scale"],
+        data["output1_scale_gate_scalar"],
+        data["output1_scale_scalar"],
+        data["output2_scale_scalar"],
         data["sorted_token_ids"],
         data["expert_ids"],
         data["num_tokens_post_padded"],

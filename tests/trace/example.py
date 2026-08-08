@@ -729,6 +729,9 @@ with contextlib.suppress(Exception):
     )
     _am_sorted = torch.zeros(48, dtype=torch.int32, device=device)
     _am_experts = torch.zeros(6, dtype=torch.int32, device=device)
+    _am_gate_scale = torch.ones(_am_E, dtype=torch.float32, device=device)
+    _am_up_scale = torch.ones(_am_E, dtype=torch.float32, device=device)
+    _am_down_scale = torch.ones(_am_E, dtype=torch.float32, device=device)
     _am_extent = torch.zeros(1, dtype=torch.int32, device=device)
     _am_weights = torch.zeros(_am_M, _am_topk, dtype=torch.float32, device=device)
     _am_out = torch.zeros(_am_M, _am_K, dtype=torch.bfloat16, device=device)
@@ -739,6 +742,9 @@ with contextlib.suppress(Exception):
         _am_w1_sf,
         _am_w2,
         _am_w2_sf,
+        _am_gate_scale,
+        _am_up_scale,
+        _am_down_scale,
         _am_sorted,
         _am_experts,
         _am_extent,

@@ -62,6 +62,9 @@ def _check_alphamoe_nvfp4_supported(
     gemm1_weights_scale: torch.Tensor,
     gemm2_weights: torch.Tensor,
     gemm2_weights_scale: torch.Tensor,
+    output1_scale_gate_scalar: torch.Tensor,
+    output1_scale_scalar: torch.Tensor,
+    output2_scale_scalar: torch.Tensor,
     sorted_token_ids: torch.Tensor,
     expert_ids: torch.Tensor,
     num_tokens_post_padded: torch.Tensor,
@@ -101,6 +104,24 @@ def _check_alphamoe_nvfp4_supported(
         ndim=3,
     )
     _require_cuda_tensor(
+        "output1_scale_gate_scalar",
+        output1_scale_gate_scalar,
+        dtype=torch.float32,
+        ndim=1,
+    )
+    _require_cuda_tensor(
+        "output1_scale_scalar",
+        output1_scale_scalar,
+        dtype=torch.float32,
+        ndim=1,
+    )
+    _require_cuda_tensor(
+        "output2_scale_scalar",
+        output2_scale_scalar,
+        dtype=torch.float32,
+        ndim=1,
+    )
+    _require_cuda_tensor(
         "sorted_token_ids", sorted_token_ids, dtype=torch.int32, ndim=1
     )
     _require_cuda_tensor("expert_ids", expert_ids, dtype=torch.int32, ndim=1)
@@ -120,6 +141,9 @@ def _check_alphamoe_nvfp4_supported(
         ("gemm1_weights_scale", gemm1_weights_scale),
         ("gemm2_weights", gemm2_weights),
         ("gemm2_weights_scale", gemm2_weights_scale),
+        ("output1_scale_gate_scalar", output1_scale_gate_scalar),
+        ("output1_scale_scalar", output1_scale_scalar),
+        ("output2_scale_scalar", output2_scale_scalar),
         ("sorted_token_ids", sorted_token_ids),
         ("expert_ids", expert_ids),
         ("num_tokens_post_padded", num_tokens_post_padded),
@@ -198,6 +222,9 @@ def _check_alphamoe_nvfp4_supported(
         "gemm1_weights_scale": (num_experts, n, k // 16),
         "gemm2_weights": (num_experts, k, intermediate // 2),
         "gemm2_weights_scale": (num_experts, k, intermediate // 16),
+        "output1_scale_gate_scalar": (num_experts,),
+        "output1_scale_scalar": (num_experts,),
+        "output2_scale_scalar": (num_experts,),
         "topk_weights": (m, top_k),
         "out": (m, k),
     }
@@ -206,6 +233,9 @@ def _check_alphamoe_nvfp4_supported(
         "gemm1_weights_scale": gemm1_weights_scale,
         "gemm2_weights": gemm2_weights,
         "gemm2_weights_scale": gemm2_weights_scale,
+        "output1_scale_gate_scalar": output1_scale_gate_scalar,
+        "output1_scale_scalar": output1_scale_scalar,
+        "output2_scale_scalar": output2_scale_scalar,
         "topk_weights": topk_weights,
         "out": out,
     }
@@ -265,6 +295,9 @@ def _alphamoe_nvfp4_aligned_moe_impl(
     gemm1_weights_scale: torch.Tensor,
     gemm2_weights: torch.Tensor,
     gemm2_weights_scale: torch.Tensor,
+    output1_scale_gate_scalar: torch.Tensor,
+    output1_scale_scalar: torch.Tensor,
+    output2_scale_scalar: torch.Tensor,
     sorted_token_ids: torch.Tensor,
     expert_ids: torch.Tensor,
     num_tokens_post_padded: torch.Tensor,
@@ -281,6 +314,9 @@ def _alphamoe_nvfp4_aligned_moe_impl(
         gemm1_weights_scale,
         gemm2_weights,
         gemm2_weights_scale,
+        output1_scale_gate_scalar,
+        output1_scale_scalar,
+        output2_scale_scalar,
         sorted_token_ids,
         expert_ids,
         num_tokens_post_padded,
@@ -300,6 +336,9 @@ def _alphamoe_nvfp4_aligned_moe_fake(
     gemm1_weights_scale: torch.Tensor,
     gemm2_weights: torch.Tensor,
     gemm2_weights_scale: torch.Tensor,
+    output1_scale_gate_scalar: torch.Tensor,
+    output1_scale_scalar: torch.Tensor,
+    output2_scale_scalar: torch.Tensor,
     sorted_token_ids: torch.Tensor,
     expert_ids: torch.Tensor,
     num_tokens_post_padded: torch.Tensor,
@@ -321,6 +360,9 @@ def alphamoe_nvfp4_aligned_moe(
     gemm1_weights_scale: torch.Tensor,
     gemm2_weights: torch.Tensor,
     gemm2_weights_scale: torch.Tensor,
+    output1_scale_gate_scalar: torch.Tensor,
+    output1_scale_scalar: torch.Tensor,
+    output2_scale_scalar: torch.Tensor,
     sorted_token_ids: torch.Tensor,
     expert_ids: torch.Tensor,
     num_tokens_post_padded: torch.Tensor,
@@ -371,6 +413,18 @@ def alphamoe_nvfp4_aligned_moe(
         Packed down weights ``[E, K, N / 4]``.
     gemm2_weights_scale : torch.Tensor
         Linear E4M3 scales ``[E, K, N / 32]``.
+    output1_scale_gate_scalar : torch.Tensor
+        Contiguous FP32 per-expert gate dequantization scales ``[E]``. Each
+        gate accumulator is multiplied by its routed expert's value before
+        applying SiLU.
+    output1_scale_scalar : torch.Tensor
+        Contiguous FP32 per-expert up-projection scales ``[E]``. For static
+        ModelOpt FP4 this is the up-projection global scale divided by the
+        second-activation quantization scale.
+    output2_scale_scalar : torch.Tensor
+        Contiguous FP32 per-expert down-projection scales ``[E]``. Each down
+        accumulator is multiplied by its routed expert's value before route
+        weighting and ``routed_scaling_factor``.
     sorted_token_ids : torch.Tensor
         Contiguous int32 aligned-plan entries.
     expert_ids : torch.Tensor
@@ -405,6 +459,9 @@ def alphamoe_nvfp4_aligned_moe(
         gemm1_weights_scale,
         gemm2_weights,
         gemm2_weights_scale,
+        output1_scale_gate_scalar,
+        output1_scale_scalar,
+        output2_scale_scalar,
         sorted_token_ids,
         expert_ids,
         num_tokens_post_padded,
