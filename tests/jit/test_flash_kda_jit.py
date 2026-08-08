@@ -83,7 +83,7 @@ def test_flash_kda_uri_and_jit_spec(
     uri = flash_kda.get_flash_kda_uri(variant, target)
     spec = flash_kda.gen_flash_kda_module(variant, target)
 
-    assert uri == f"flash_kda_bf16_fused_{variant}_{target}"
+    assert uri == f"flash_kda_bf16_fused_{variant}_kr_workspace_{target}"
     assert spec.name == uri
     assert len(spec.sources) == 1
     assert spec.sources[0].name == f"flashkda_bf16_fused_{variant}_binding.cu"
@@ -242,9 +242,45 @@ def test_flash_kda_legacy_and_family_targets_have_independent_cache_keys(monkeyp
     sm100f_cached = flash_kda.gen_flash_kda_module("m128", "sm100f")
 
     assert sm100a is not sm100f
-    assert sm100a.name == "flash_kda_bf16_fused_m128_sm100a"
-    assert sm100f.name == "flash_kda_bf16_fused_m128_sm100f"
+    assert sm100a.name == "flash_kda_bf16_fused_m128_kr_workspace_sm100a"
+    assert sm100f.name == "flash_kda_bf16_fused_m128_kr_workspace_sm100f"
+    assert sm100a.name != "flash_kda_bf16_fused_m128_sm100a"
+    assert sm100f.name != "flash_kda_bf16_fused_m128_sm100f"
     assert sm100f is sm100f_cached
+
+
+def test_flash_kda_global_kr_abi_does_not_reuse_legacy_aot_or_jit(
+    monkeypatch, tmp_path
+):
+    aot_dir = tmp_path / "aot"
+    jit_dir = tmp_path / "jit"
+    monkeypatch.setattr(flash_kda.jit_env, "FLASHINFER_AOT_DIR", aot_dir)
+    monkeypatch.setattr(flash_kda.jit_env, "FLASHINFER_JIT_DIR", jit_dir)
+    monkeypatch.setattr(
+        jit_core.current_compilation_context,
+        "TARGET_CUDA_ARCHS",
+        {(10, "0f")},
+    )
+    flash_kda.gen_flash_kda_module.cache_clear()
+
+    legacy_name = "flash_kda_bf16_fused_m128_sm100f"
+    legacy_aot = aot_dir / legacy_name / f"{legacy_name}.so"
+    legacy_jit = jit_dir / legacy_name / f"{legacy_name}.so"
+    legacy_aot.parent.mkdir(parents=True)
+    legacy_jit.parent.mkdir(parents=True)
+    legacy_aot.touch()
+    legacy_jit.touch()
+
+    spec = flash_kda.gen_flash_kda_module("m128", "sm100f")
+    assert spec.aot_path != legacy_aot
+    assert spec.jit_library_path != legacy_jit
+    assert not spec.is_aot
+    assert not spec.is_compiled
+
+    spec.aot_path.parent.mkdir(parents=True)
+    spec.aot_path.touch()
+    assert spec.is_aot
+    assert spec.is_compiled
 
 
 @pytest.mark.parametrize(

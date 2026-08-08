@@ -74,13 +74,18 @@ def _get_flash_kda_include_dir() -> Path:
 
 
 def get_flash_kda_uri(variant: FlashKDAVariant, target: FlashKDATarget) -> str:
-    """Return the target-specific JIT/AOT key for one schedule."""
+    """Return the target- and ABI-specific JIT/AOT key for one schedule.
+
+    ``kr_workspace`` is part of the key because the exported global-Kr kernels
+    add a required workspace argument to the FFI ABI.  Reusing the pre-workspace
+    key could load an older AOT module with an incompatible argument list.
+    """
 
     if variant not in ("m64", "m128"):
         raise ValueError(f"unsupported FlashKDA variant: {variant}")
     if target not in _FLASH_KDA_NVCC_FLAGS:
         raise ValueError(f"unsupported FlashKDA target: {target}")
-    return f"flash_kda_bf16_fused_{variant}_{target}"
+    return f"flash_kda_bf16_fused_{variant}_kr_workspace_{target}"
 
 
 @functools.cache
