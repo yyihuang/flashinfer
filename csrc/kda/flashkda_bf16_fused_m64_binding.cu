@@ -50,19 +50,19 @@ static_assert(sizeof(flashkda_generated_LoomTensorMap) == sizeof(CUtensorMap));
 void RunM64(TensorView q, TensorView k, TensorView v, TensorView g, TensorView beta,
             TensorView beta_tma, TensorView A_log, TensorView dt_bias, TensorView cu_seqlens,
             TensorView seq_order, TensorView initial_state, TensorView out, TensorView final_state,
-            TensorView descriptor_storage, int64_t prepare_descriptors, int64_t num_heads,
-            int64_t use_initial_state, int64_t store_final_state, double scale, double lower_bound,
-            int64_t cuda_stream) {
+            TensorView kr_workspace, TensorView descriptor_storage, int64_t prepare_descriptors,
+            int64_t num_heads, int64_t use_initial_state, int64_t store_final_state, double scale,
+            double lower_bound, int64_t cuda_stream) {
   TVM_FFI_ICHECK(cuda_stream >= 0) << "cuda_stream must be a non-negative stream handle";
   TVM_FFI_ICHECK(q.device().device_type == kDLCUDA) << "q must be a CUDA tensor";
   const int32_t device_id = q.device().device_id;
   ffi::CUDADeviceGuard device_guard(device_id);
   CheckFlashKDATarget(device_id);
 
-  const int64_t num_seqs =
-      CheckCommonInputs(q, k, v, g, beta, beta_tma, A_log, dt_bias, cu_seqlens, seq_order,
-                        initial_state, out, final_state, descriptor_storage, prepare_descriptors,
-                        num_heads, use_initial_state, store_final_state, scale, lower_bound);
+  const int64_t num_seqs = CheckCommonInputs(
+      q, k, v, g, beta, beta_tma, A_log, dt_bias, cu_seqlens, seq_order, initial_state, out,
+      final_state, kr_workspace, descriptor_storage, prepare_descriptors, num_heads,
+      use_initial_state, store_final_state, scale, lower_bound);
   TVM_FFI_ICHECK(num_seqs == 1 && num_heads == 64)
       << "the M64 FlashKDA variant is specialized for fixed N=1, H=64; got "
          "N="
@@ -75,9 +75,7 @@ void RunM64(TensorView q, TensorView k, TensorView v, TensorView g, TensorView b
                                  cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemBytes),
             "cudaFuncSetAttribute(kernel_flashkda_bf16_fused_m64)");
 
-  const int64_t grid_x_i64 = 2 * num_seqs * num_heads;
-  TVM_FFI_ICHECK(grid_x_i64 > 0 && grid_x_i64 <= std::numeric_limits<uint32_t>::max())
-      << "M64 FlashKDA grid.x is out of range: " << grid_x_i64;
+  const int64_t grid_x_i64 = CheckKrWorkspaceAndGrid(kr_workspace, num_seqs, num_heads, 2, "M64");
   const dim3 grid(static_cast<uint32_t>(grid_x_i64), 1, 1);
   const dim3 block(THREADS, 1, 1);
   const cudaStream_t stream = reinterpret_cast<cudaStream_t>(static_cast<uintptr_t>(cuda_stream));
@@ -101,7 +99,8 @@ void RunM64(TensorView q, TensorView k, TensorView v, TensorView g, TensorView b
       reinterpret_cast<__nv_bfloat16*>(initial_state.data_ptr()),
       reinterpret_cast<__nv_bfloat16*>(out.data_ptr()),
       reinterpret_cast<const flashkda_generated_LoomTensorMap*>(tma.out),
-      reinterpret_cast<__nv_bfloat16*>(final_state.data_ptr()), static_cast<int32_t>(num_heads),
+      reinterpret_cast<__nv_bfloat16*>(final_state.data_ptr()),
+      reinterpret_cast<__nv_bfloat16*>(kr_workspace.data_ptr()), static_cast<int32_t>(num_heads),
       static_cast<int32_t>(use_initial_state), static_cast<int32_t>(store_final_state),
       static_cast<float>(scale), static_cast<float>(lower_bound));
   CheckCuda(cudaGetLastError(), "kernel_flashkda_bf16_fused_m64 launch");

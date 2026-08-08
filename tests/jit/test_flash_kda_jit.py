@@ -28,12 +28,12 @@ from flashinfer.jit import flash_kda
         (
             "m64",
             219136,
-            "29ae7194a13203b42edb3fddf067fb2c5893f33c7124b1389f4a991a20c4fb60",
+            "e6e5a68c5de315faf9cddec2dd00e86636843625a9062d691703b8744f49caa9",
         ),
         (
             "m128",
             227328,
-            "27dfd105a397a11f7f5ad8335bde3b57858eb2228504e2e9fd8e8c44a0fea2d3",
+            "598a4cc5afb716311ffcb4a43b60307bc5466b621d3352111c3d31e61b8df683",
         ),
     ],
 )
@@ -144,6 +144,7 @@ def test_flash_kda_uri_and_jit_spec(
         == 1
     )
     assert "LoomTensorMap const* q_tma" in generated_body
+    assert "__nv_bfloat16* __restrict__ kr_workspace" in generated_body
     assert [
         line for line in frozen_text.splitlines() if line.startswith("#include")
     ] == [
@@ -157,6 +158,9 @@ def test_flash_kda_uri_and_jit_spec(
     assert "#define CUtensorMap flashkda_generated_CUtensorMap" in binding_text
     assert "reinterpret_cast<const flashkda_generated_LoomTensorMap*>" in binding_text
     assert "TensorView descriptor_storage, int64_t prepare_descriptors" in binding_text
+    assert "TensorView kr_workspace, TensorView descriptor_storage" in binding_text
+    assert "reinterpret_cast<__nv_bfloat16*>(kr_workspace.data_ptr())" in binding_text
+    assert "CheckKrWorkspaceAndGrid(kr_workspace" in binding_text
     assert "CheckFlashKDATarget(device_id)" in binding_text
 
 
@@ -183,6 +187,13 @@ def test_flash_kda_descriptor_workspace_contract():
     assert "CheckFlashKDATarget" in common_text
     assert "PackBetaForTmaKernel" in common_text
     assert "RoundUpBetaTmaHeads(num_heads)" in common_text
+    assert "kKrWorkspaceElementsPerTask = 5 * 32 * kHeadDim" in common_text
+    assert 'CheckCudaTensor(kr_workspace, "kr_workspace", device_id)' in common_text
+    assert 'CheckDtype(kr_workspace, "kr_workspace", dl_bfloat16)' in common_text
+    assert "std::numeric_limits<int32_t>::max() / kKrWorkspaceElementsPerTask" in (
+        common_text
+    )
+    assert 'CheckNoOverlap(kr_workspace, "kr_workspace"' in common_text
     assert "padded_num_heads == num_heads" in common_text
     assert "linear_index / padded_num_heads" in common_text
     assert "linear_index % padded_num_heads" in common_text

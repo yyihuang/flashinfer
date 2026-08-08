@@ -211,7 +211,7 @@ class _RecorderModule:
 
     def run(self, *args):
         self.calls.append(args)
-        if self.final_value is not None and bool(args[17]):
+        if self.final_value is not None and bool(args[18]):
             args[12].fill_(self.final_value)
 
 
@@ -339,7 +339,7 @@ def test_frozen_route_and_ffi_abi(
     assert set(modules) == {expected_variant}
     assert routes == [(expected_variant, expected_target)]
     (args,) = modules[expected_variant].calls
-    assert len(args) == 21
+    assert len(args) == 22
     assert args[0].data_ptr() == inputs["q"].data_ptr()
     assert args[4].data_ptr() == inputs["beta"].data_ptr()
     assert args[5].shape == (
@@ -349,17 +349,90 @@ def test_frozen_route_and_ffi_abi(
     assert args[8].dtype == torch.int64
     assert args[9].dtype == torch.int32
     assert args[10].data_ptr() == args[12].data_ptr()
-    assert args[13].dtype == torch.uint8
-    assert args[13].shape == (768,)
-    assert args[14] == 1
-    assert args[15] == num_heads
-    assert args[16] == 0
+    assert args[13].dtype == torch.bfloat16
+    assert args[13].is_contiguous()
+    num_sequences = 2 if packed else 1
+    tasks_per_seq_head = 2 if expected_variant == "m64" else 1
+    assert args[13].numel() == (
+        tasks_per_seq_head * num_sequences * num_heads * 5 * 32 * 128
+    )
+    assert args[13].data_ptr() not in {
+        inputs["q"].data_ptr(),
+        output.data_ptr(),
+        args[10].data_ptr(),
+        args[12].data_ptr(),
+    }
+    assert args[14].dtype == torch.uint8
+    assert args[14].shape == (768,)
+    assert args[15] == 1
+    assert args[16] == num_heads
     assert args[17] == 0
-    assert math.isclose(args[18], 128**-0.5)
-    assert args[19] == -5.0
-    assert args[20] == int(torch.cuda.current_stream(cuda_device).cuda_stream)
+    assert args[18] == 0
+    assert math.isclose(args[19], 128**-0.5)
+    assert args[20] == -5.0
+    assert args[21] == int(torch.cuda.current_stream(cuda_device).cuda_stream)
     if num_heads % 8 != 0:
         assert args[5].data_ptr() != inputs["beta"].data_ptr()
+
+
+@pytest.mark.parametrize(
+    ("variant", "num_sequences", "num_heads", "expected_numel"),
+    [
+        ("m128", 3, 12, 3 * 12 * 5 * 32 * 128),
+        ("m64", 1, 64, 2 * 64 * 5 * 32 * 128),
+    ],
+)
+def test_kr_workspace_numel_contract(variant, num_sequences, num_heads, expected_numel):
+    assert (
+        kda_prefill_api._kr_workspace_numel(
+            variant=variant,
+            num_sequences=num_sequences,
+            num_heads=num_heads,
+        )
+        == expected_numel
+    )
+
+
+def test_kr_workspace_numel_rejects_int32_index_overflow():
+    elements_per_task = 5 * 32 * 128
+    first_invalid_grid = (2**31 - 1) // elements_per_task + 1
+    with pytest.raises(ValueError, match="int32 contract"):
+        kda_prefill_api._kr_workspace_numel(
+            variant="m128",
+            num_sequences=first_invalid_grid,
+            num_heads=1,
+        )
+
+
+def test_h64_workspace_route_uses_m64_for_fixed_and_m128_for_packed():
+    fixed_variant = kda_prefill_api._select_flash_kda_prefill_variant(
+        fixed_layout=True,
+        num_sequences=1,
+        num_heads=64,
+    )
+    packed_variant = kda_prefill_api._select_flash_kda_prefill_variant(
+        fixed_layout=False,
+        num_sequences=2,
+        num_heads=64,
+    )
+    assert fixed_variant == "m64"
+    assert packed_variant == "m128"
+    assert (
+        kda_prefill_api._kr_workspace_numel(
+            variant=fixed_variant,
+            num_sequences=1,
+            num_heads=64,
+        )
+        == 2 * 1 * 64 * 5 * 32 * 128
+    )
+    assert (
+        kda_prefill_api._kr_workspace_numel(
+            variant=packed_variant,
+            num_sequences=2,
+            num_heads=64,
+        )
+        == 1 * 2 * 64 * 5 * 32 * 128
+    )
 
 
 def test_frozen_route_passes_nondefault_stream(cuda_device, monkeypatch):
@@ -381,7 +454,7 @@ def test_frozen_route_passes_nondefault_stream(cuda_device, monkeypatch):
             output=torch.empty_like(inputs["q"]),
         )
     (args,) = module.calls
-    assert args[20] == int(stream.cuda_stream)
+    assert args[21] == int(stream.cuda_stream)
 
 
 def test_frozen_route_rejects_output_overlap(cuda_device, monkeypatch):
@@ -425,8 +498,8 @@ def test_initial_state_is_updated_in_place(cuda_device, monkeypatch):
     (args,) = module.calls
     assert args[10].data_ptr() == original_state.data_ptr()
     assert args[12].data_ptr() == original_state.data_ptr()
-    assert args[16] == 1
     assert args[17] == 1
+    assert args[18] == 1
     torch.testing.assert_close(
         original_state,
         torch.full_like(original_state, 0.25),
@@ -476,6 +549,7 @@ def test_stream_workspace_does_not_allocate_state_scratch_for_inplace_update(
     (workspace,) = kda_prefill_api._flash_kda_stream_workspaces.values()
     assert workspace._state_scratch is None
     assert workspace._beta_padding.numel() == 32 * 8
+    assert workspace._kr_scratch.numel() == 3 * 2 * 5 * 32 * 128
 
 
 @pytest.mark.parametrize(
@@ -559,11 +633,16 @@ def test_explicit_workspace_descriptor_prepare_and_reuse(cuda_device, monkeypatc
             output=output,
             prefill_workspace=workspace,
         )
-    assert [args[14] for args in module.calls] == [1, 0]
+    assert [args[15] for args in module.calls] == [1, 0]
+    assert (
+        module.calls[0][14].data_ptr()
+        == module.calls[1][14].data_ptr()
+        == workspace._descriptor_storages["m128"].data_ptr()
+    )
     assert (
         module.calls[0][13].data_ptr()
         == module.calls[1][13].data_ptr()
-        == workspace._descriptor_storages["m128"].data_ptr()
+        == workspace._kr_scratch.data_ptr()
     )
 
     changed_output = torch.empty_like(output)
@@ -572,7 +651,130 @@ def test_explicit_workspace_descriptor_prepare_and_reuse(cuda_device, monkeypatc
         output=changed_output,
         prefill_workspace=workspace,
     )
-    assert module.calls[-1][14] == 1
+    assert module.calls[-1][15] == 1
+
+
+def test_explicit_workspace_kr_scratch_high_water_grow_and_reuse(
+    cuda_device, monkeypatch
+):
+    monkeypatch.setattr(
+        kda_prefill_api, "get_compute_capability", lambda device: (10, 0)
+    )
+    module = _RecorderModule()
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
+    )
+    workspace = RecurrentKDAPrefillWorkspace(cuda_device)
+    small = _make_inputs(seq_lens=[2], num_heads=2, packed=False)
+    large = _make_inputs(seq_lens=[2, 2, 2], num_heads=2, packed=False)
+
+    for inputs in (small, large, small):
+        recurrent_kda(
+            **_strict_prefill_kwargs(inputs),
+            output=torch.empty_like(inputs["q"]),
+            prefill_workspace=workspace,
+        )
+
+    small_numel = 1 * 2 * 5 * 32 * 128
+    large_numel = 3 * 2 * 5 * 32 * 128
+    assert [args[13].numel() for args in module.calls] == [
+        small_numel,
+        large_numel,
+        small_numel,
+    ]
+    first_ptr, grown_ptr, reused_ptr = [args[13].data_ptr() for args in module.calls]
+    assert first_ptr != grown_ptr
+    assert reused_ptr == grown_ptr == workspace._kr_scratch.data_ptr()
+    assert workspace._kr_scratch.numel() == large_numel
+
+
+def test_graph_capture_rejects_insufficient_kr_workspace_capacity(
+    cuda_device, monkeypatch
+):
+    monkeypatch.setattr(
+        kda_prefill_api, "get_compute_capability", lambda device: (10, 0)
+    )
+    module = _RecorderModule()
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
+    )
+    workspace = RecurrentKDAPrefillWorkspace(cuda_device)
+    small = _make_inputs(seq_lens=[2], num_heads=2, packed=True)
+    recurrent_kda(
+        **_strict_prefill_kwargs(small),
+        output=torch.empty_like(small["q"]),
+        prefill_workspace=workspace,
+    )
+    small_ptr = workspace._kr_scratch.data_ptr()
+    small_numel = workspace._kr_scratch.numel()
+
+    large = _make_inputs(seq_lens=[1, 1, 2], num_heads=2, packed=True)
+    seq_order = torch.arange(3, dtype=torch.int32, device=cuda_device)
+    monkeypatch.setattr(torch.cuda, "is_current_stream_capturing", lambda: True)
+    with pytest.raises(RuntimeError, match="Kr workspace is not large enough"):
+        recurrent_kda(
+            **_strict_prefill_kwargs(large),
+            output=torch.empty_like(large["q"]),
+            seq_order=seq_order,
+            prefill_workspace=workspace,
+        )
+    assert workspace._kr_scratch.data_ptr() == small_ptr
+    assert workspace._kr_scratch.numel() == small_numel
+    assert not workspace._captured
+    assert len(module.calls) == 1
+
+
+def test_explicit_graph_workspaces_have_independent_kr_scratch(
+    cuda_device, monkeypatch
+):
+    monkeypatch.setattr(
+        kda_prefill_api, "get_compute_capability", lambda device: (10, 0)
+    )
+    module = _RecorderModule()
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_get_flash_kda_prefill_module",
+        lambda variant, arch: module,
+    )
+    inputs = _make_inputs(seq_lens=[2], num_heads=2, packed=False)
+    output_a = torch.empty_like(inputs["q"])
+    output_b = torch.empty_like(inputs["q"])
+    workspace_a = RecurrentKDAPrefillWorkspace(cuda_device)
+    workspace_b = RecurrentKDAPrefillWorkspace(cuda_device)
+
+    recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=output_a,
+        prefill_workspace=workspace_a,
+    )
+    recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=output_b,
+        prefill_workspace=workspace_b,
+    )
+    scratch_a = workspace_a._kr_scratch.data_ptr()
+    scratch_b = workspace_b._kr_scratch.data_ptr()
+    assert scratch_a != scratch_b
+
+    monkeypatch.setattr(torch.cuda, "is_current_stream_capturing", lambda: True)
+    recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=output_a,
+        prefill_workspace=workspace_a,
+    )
+    recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=output_b,
+        prefill_workspace=workspace_b,
+    )
+    assert module.calls[-2][13].data_ptr() == scratch_a
+    assert module.calls[-1][13].data_ptr() == scratch_b
+    assert workspace_a._captured
+    assert workspace_b._captured
 
 
 def test_captured_workspace_rejects_eager_reuse_and_capture_mismatch(
@@ -609,7 +811,8 @@ def test_captured_workspace_rejects_eager_reuse_and_capture_mismatch(
         output=output,
         prefill_workspace=workspace,
     )
-    assert module.calls[-1][14] == 0
+    assert module.calls[-1][15] == 0
+    assert module.calls[-1][13].data_ptr() == workspace._kr_scratch.data_ptr()
     assert workspace._captured
 
     with pytest.raises(RuntimeError, match="captured by another CUDA graph"):
@@ -822,7 +1025,7 @@ def test_frozen_prefill_h12_tma_chunks_match_reference(flash_kda_device, seq_len
 @pytest.mark.parametrize("has_initial_state", [False, True])
 @pytest.mark.parametrize("seq_len", [17, 161])
 @pytest.mark.parametrize("num_heads", [12, 64])
-def test_frozen_prefill_sparse_kr_stage_wrap_matches_reference(
+def test_frozen_prefill_global_kr_stage_wrap_matches_reference(
     flash_kda_device,
     num_heads,
     seq_len,

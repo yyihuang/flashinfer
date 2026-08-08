@@ -38,6 +38,8 @@ _FLASH_KDA_HEAD_DIM = 128
 _FLASH_KDA_BETA_TMA_HEADS_PER_BOX = 8
 _FLASH_KDA_SUPPORTED_COMPUTE_CAPABILITIES = {(10, 0), (10, 3)}
 _FLASH_KDA_DESCRIPTOR_STORAGE_BYTES = 6 * 128
+_FLASH_KDA_KR_ELEMENTS_PER_TASK = 5 * 32 * _FLASH_KDA_HEAD_DIM
+_FLASH_KDA_INT32_MAX = 2**31 - 1
 _flash_kda_tensor_cache: dict[tuple, torch.Tensor] = {}
 _flash_kda_tensor_cache_lock = threading.Lock()
 
@@ -53,6 +55,7 @@ class _RecurrentKDAPrefillWorkspaceBase:
         self._lock = threading.Lock()
         self._state_scratch: Optional[torch.Tensor] = None
         self._beta_padding: Optional[torch.Tensor] = None
+        self._kr_scratch: Optional[torch.Tensor] = None
         self._descriptor_storages = {
             variant: torch.empty(
                 _FLASH_KDA_DESCRIPTOR_STORAGE_BYTES,
@@ -74,8 +77,8 @@ class RecurrentKDAPrefillWorkspace(_RecurrentKDAPrefillWorkspaceBase):
     device. Warm it by invoking that function eagerly with the exact tensors
     and capture stream, then synchronize that stream before capture. The
     workspace owns optional final-state scratch for calls without an initial
-    state, beta padding, and M64/M128 TMA descriptor storage for the lifetime
-    of the graph.
+    state, beta padding, per-task Kr scratch, and M64/M128 TMA descriptor
+    storage for the lifetime of the graph.
 
     A workspace binds to its first stream. Once it participates in capture it
     cannot be passed to Python again, either eagerly or in another capture.
@@ -371,6 +374,49 @@ def _state_scratch(
             "before capture"
         ),
     ).view(shape)
+
+
+def _kr_workspace_numel(
+    *,
+    variant: "FlashKDAVariant",
+    num_sequences: int,
+    num_heads: int,
+) -> int:
+    tasks_per_seq_head = 2 if variant == "m64" else 1
+    grid_tasks = tasks_per_seq_head * num_sequences * num_heads
+    max_grid_tasks = _FLASH_KDA_INT32_MAX // _FLASH_KDA_KR_ELEMENTS_PER_TASK
+    if grid_tasks <= 0 or grid_tasks > max_grid_tasks:
+        raise ValueError(
+            "recurrent_kda prefill Kr workspace indexing exceeds the frozen "
+            f"int32 contract: grid tasks={grid_tasks}, maximum={max_grid_tasks}"
+        )
+    return grid_tasks * _FLASH_KDA_KR_ELEMENTS_PER_TASK
+
+
+def _kr_scratch(
+    *,
+    workspace: _RecurrentKDAPrefillWorkspaceBase,
+    device: torch.device,
+    variant: "FlashKDAVariant",
+    num_sequences: int,
+    num_heads: int,
+) -> torch.Tensor:
+    numel = _kr_workspace_numel(
+        variant=variant,
+        num_sequences=num_sequences,
+        num_heads=num_heads,
+    )
+    return _workspace_buffer(
+        workspace=workspace,
+        attribute="_kr_scratch",
+        device=device,
+        numel=numel,
+        capture_error=(
+            "recurrent_kda prefill Kr workspace is not large enough for "
+            "CUDA graph capture; warm the largest shape on this stream "
+            "before capture"
+        ),
+    )
 
 
 def _beta_tma_source(
@@ -690,6 +736,13 @@ def _run_flash_kda_prefill(
             explicit=explicit_workspace,
         )
         beta_tma = _beta_tma_source(beta, workspace)
+        kr_workspace = _kr_scratch(
+            workspace=workspace,
+            device=q.device,
+            variant=variant,
+            num_sequences=num_sequences,
+            num_heads=num_heads,
+        )
         if initial_state is None and output_final_state and explicit_workspace:
             final_state_arg = _state_scratch(
                 workspace=workspace,
@@ -734,6 +787,7 @@ def _run_flash_kda_prefill(
                 initial_state_arg,
                 out_buf,
                 final_state_arg,
+                kr_workspace,
                 descriptor_storage,
                 prepare_descriptors,
                 num_heads,

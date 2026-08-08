@@ -41,6 +41,7 @@ constexpr size_t kTensorMapAlignment = 64;
 static_assert(sizeof(CUtensorMap) == 128);
 constexpr size_t kDescriptorStorageBytes = kTensorMapCount * sizeof(CUtensorMap);
 constexpr int64_t kBetaTmaHeadsPerBox = 8;
+constexpr int64_t kKrWorkspaceElementsPerTask = 5 * 32 * kHeadDim;
 
 inline int64_t RoundUpBetaTmaHeads(int64_t num_heads) {
   return (num_heads / kBetaTmaHeadsPerBox +
@@ -158,6 +159,7 @@ inline int64_t CheckCommonInputs(const TensorView& q, const TensorView& k, const
                                  const TensorView& dt_bias, const TensorView& cu_seqlens,
                                  const TensorView& seq_order, const TensorView& initial_state,
                                  const TensorView& out, const TensorView& final_state,
+                                 const TensorView& kr_workspace,
                                  const TensorView& descriptor_storage, int64_t prepare_descriptors,
                                  int64_t num_heads, int64_t use_initial_state,
                                  int64_t store_final_state, double scale, double lower_bound) {
@@ -191,6 +193,7 @@ inline int64_t CheckCommonInputs(const TensorView& q, const TensorView& k, const
   CheckCudaTensor(initial_state, "initial_state", device_id);
   CheckCudaTensor(out, "out", device_id);
   CheckCudaTensor(final_state, "final_state", device_id);
+  CheckCudaTensor(kr_workspace, "kr_workspace", device_id);
   CheckCudaTensor(descriptor_storage, "descriptor_storage", device_id);
 
   CheckDtype(q, "q", dl_bfloat16);
@@ -206,6 +209,7 @@ inline int64_t CheckCommonInputs(const TensorView& q, const TensorView& k, const
   CheckDtype(initial_state, "initial_state", dl_bfloat16);
   CheckDtype(out, "out", dl_bfloat16);
   CheckDtype(final_state, "final_state", dl_bfloat16);
+  CheckDtype(kr_workspace, "kr_workspace", dl_bfloat16);
   CheckDtype(descriptor_storage, "descriptor_storage", dl_uint8);
 
   TVM_FFI_ICHECK(descriptor_storage.numel() >= static_cast<int64_t>(kDescriptorStorageBytes))
@@ -293,6 +297,24 @@ inline int64_t CheckCommonInputs(const TensorView& q, const TensorView& k, const
   CheckNoOverlap(descriptor_storage, "descriptor_storage", cu_seqlens, "cu_seqlens");
   CheckNoOverlap(descriptor_storage, "descriptor_storage", seq_order, "seq_order");
   CheckNoOverlap(descriptor_storage, "descriptor_storage", out, "out");
+  for (const auto& named : {
+           std::pair<const TensorView*, const char*>(&q, "q"),
+           std::pair<const TensorView*, const char*>(&k, "k"),
+           std::pair<const TensorView*, const char*>(&v, "v"),
+           std::pair<const TensorView*, const char*>(&g, "g"),
+           std::pair<const TensorView*, const char*>(&beta, "beta"),
+           std::pair<const TensorView*, const char*>(&beta_tma, "beta_tma"),
+           std::pair<const TensorView*, const char*>(&A_log, "A_log"),
+           std::pair<const TensorView*, const char*>(&dt_bias, "dt_bias"),
+           std::pair<const TensorView*, const char*>(&cu_seqlens, "cu_seqlens"),
+           std::pair<const TensorView*, const char*>(&seq_order, "seq_order"),
+           std::pair<const TensorView*, const char*>(&initial_state, "initial_state"),
+           std::pair<const TensorView*, const char*>(&out, "out"),
+           std::pair<const TensorView*, const char*>(&final_state, "final_state"),
+           std::pair<const TensorView*, const char*>(&descriptor_storage, "descriptor_storage"),
+       }) {
+    CheckNoOverlap(kr_workspace, "kr_workspace", *named.first, named.second);
+  }
   if (use_initial_state != 0) {
     CheckNoOverlap(out, "out", initial_state, "initial_state");
     CheckNoOverlap(descriptor_storage, "descriptor_storage", initial_state, "initial_state");
@@ -315,6 +337,25 @@ inline int64_t CheckCommonInputs(const TensorView& q, const TensorView& k, const
     }
   }
   return num_seqs;
+}
+
+inline int64_t CheckKrWorkspaceAndGrid(const TensorView& kr_workspace, int64_t num_seqs,
+                                       int64_t num_heads, int64_t tasks_per_seq_head,
+                                       const char* variant) {
+  TVM_FFI_ICHECK(num_seqs > 0 && num_heads > 0 && tasks_per_seq_head > 0)
+      << variant << " FlashKDA requires a positive workspace grid";
+  TVM_FFI_ICHECK(num_seqs <= std::numeric_limits<int64_t>::max() / num_heads / tasks_per_seq_head)
+      << variant << " FlashKDA grid size overflows int64";
+  const int64_t grid_x = num_seqs * num_heads * tasks_per_seq_head;
+  TVM_FFI_ICHECK(grid_x <= std::numeric_limits<uint32_t>::max())
+      << variant << " FlashKDA grid.x is out of range: " << grid_x;
+  TVM_FFI_ICHECK(grid_x <= std::numeric_limits<int32_t>::max() / kKrWorkspaceElementsPerTask)
+      << variant << " FlashKDA Kr workspace indexing would overflow int32: grid.x=" << grid_x;
+  const int64_t required_elements = grid_x * kKrWorkspaceElementsPerTask;
+  TVM_FFI_ICHECK(kr_workspace.numel() >= required_elements)
+      << variant << " FlashKDA kr_workspace must contain at least " << required_elements
+      << " BF16 elements, got " << kr_workspace.numel();
+  return grid_x;
 }
 
 inline void PackBetaForTmaIfNeeded(const TensorView& beta, const TensorView& beta_tma,
