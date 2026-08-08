@@ -1352,6 +1352,9 @@ def test_frozen_prefill_cuda_graph_workspaces_are_isolated(flash_kda_device):
         bundles[0][1]._descriptor_storages["m128"].data_ptr()
         != bundles[1][1]._descriptor_storages["m128"].data_ptr()
     )
+    assert bundles[0][1]._kr_scratch is not None
+    assert bundles[1][1]._kr_scratch is not None
+    assert bundles[0][1]._kr_scratch.data_ptr() != bundles[1][1]._kr_scratch.data_ptr()
 
     for bundle_index in (0, 1, 0, 1):
         (
