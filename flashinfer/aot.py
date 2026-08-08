@@ -511,6 +511,7 @@ def gen_all_modules(
     has_sm80 = sm_capabilities.get("sm80", False)
     has_sm90 = sm_capabilities.get("sm90", False)
     has_sm100 = sm_capabilities.get("sm100", False)
+    has_sm100a_exact = sm_capabilities.get("sm100a_exact", False)
     has_flash_kda_prefill_sm100a = sm_capabilities.get(
         "flash_kda_prefill_sm100a", False
     )
