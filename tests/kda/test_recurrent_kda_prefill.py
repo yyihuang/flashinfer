@@ -1025,18 +1025,27 @@ def test_frozen_prefill_h12_tma_chunks_match_reference(flash_kda_device, seq_len
 @pytest.mark.parametrize("has_initial_state", [False, True])
 @pytest.mark.parametrize("seq_len", [17, 161])
 @pytest.mark.parametrize("num_heads", [12, 64])
+@pytest.mark.parametrize("packed", [False, True])
 def test_frozen_prefill_global_kr_stage_wrap_matches_reference(
     flash_kda_device,
+    packed,
     num_heads,
     seq_len,
     has_initial_state,
 ):
+    seq_lens = [1, seq_len - 1] if packed else [seq_len]
     inputs = _make_inputs(
-        seq_lens=[seq_len],
+        seq_lens=seq_lens,
         num_heads=num_heads,
-        packed=False,
+        packed=packed,
         initial_state=has_initial_state,
-        seed=2100 + num_heads * 10 + seq_len + int(has_initial_state),
+        seed=(
+            2100
+            + num_heads * 10
+            + seq_len
+            + int(has_initial_state)
+            + 10000 * int(packed)
+        ),
     )
     initial_state = inputs["initial_state"]
     expected_output, expected_state = _reference(
@@ -1053,6 +1062,11 @@ def test_frozen_prefill_global_kr_stage_wrap_matches_reference(
         **_strict_prefill_kwargs(inputs),
         output=output,
         output_final_state=True,
+        seq_order=(
+            torch.tensor([1, 0], dtype=torch.int32, device=flash_kda_device)
+            if packed
+            else None
+        ),
     )
 
     assert actual_output.data_ptr() == output.data_ptr()
