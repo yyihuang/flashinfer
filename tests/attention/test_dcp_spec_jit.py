@@ -18,6 +18,10 @@ from flashinfer.dcp import (
 )
 from flashinfer.decode import trtllm_batch_decode_with_kv_cache
 from flashinfer.jit.dcp import get_dcp_spec_fp8_uri, get_dcp_spec_uri
+from flashinfer.jit.cake_fmha import (
+    CAKE_FMHA_FLASHINFER_BINDINGS_SHA256,
+    CAKE_FMHA_MANIFEST_SHA256,
+)
 from flashinfer.trace.templates.attention import (
     trtllm_batch_decode_dcp_spec_split_kv_trace,
     trtllm_batch_decode_dcp_spec_trace,
@@ -26,22 +30,30 @@ from flashinfer.trace.templates.attention import (
 
 
 def test_dcp_spec_uri_covers_full_parameterized_domain() -> None:
-    v1_uri = get_dcp_spec_uri("v1", "sm100f", 64, 5, 32, 4, 8, 1)
+    v1_uri = get_dcp_spec_uri("v1", "sm103a", 64, 5, 32, 4, 8, 1)
     assert v1_uri.startswith("cake_fmha_dcp_spec_bf16_v1_")
-    assert v1_uri.endswith("_b64_q5_hq32_hkv4_cp8_retain1")
+    assert v1_uri.endswith(
+        f"_b64_q5_hq32_hkv4_cp8_retain1_{CAKE_FMHA_MANIFEST_SHA256[:12]}_"
+        f"{CAKE_FMHA_FLASHINFER_BINDINGS_SHA256[:12]}"
+    )
     v4_uri = get_dcp_spec_uri("v4", "sm100a", 1, 8, 64, 8, 4, 16)
     assert v4_uri.startswith("cake_fmha_dcp_spec_bf16_v4_")
-    assert v4_uri.endswith("_b1_q8_hq64_hkv8_cp4_split16")
+    assert v4_uri.endswith(
+        f"_b1_q8_hq64_hkv8_cp4_split16_{CAKE_FMHA_MANIFEST_SHA256[:12]}_"
+        f"{CAKE_FMHA_FLASHINFER_BINDINGS_SHA256[:12]}"
+    )
     fp8_uri = get_dcp_spec_fp8_uri("sm100a", 256, 3, 64, 8, 4, 3, 1)
     assert fp8_uri == (
-        "cake_fmha_dcp_spec_bf16_fp8_sm100a_b256_q3_hq64_hkv8_cp4_split3_retain1"
+        "cake_fmha_dcp_spec_bf16_fp8_sm100a_b256_q3_hq64_hkv8_cp4_split3_retain1_"
+        f"{CAKE_FMHA_MANIFEST_SHA256[:12]}_"
+        f"{CAKE_FMHA_FLASHINFER_BINDINGS_SHA256[:12]}"
     )
 
 
 def test_dcp_jit_selects_the_route_specialized_source_family(monkeypatch) -> None:
     jit_dcp = importlib.import_module("flashinfer.jit.dcp")
-    source_dir = Path(__file__).resolve().parents[2] / "csrc" / "dcp"
-    monkeypatch.setattr(jit_dcp, "_get_csrc_dir", lambda: source_dir)
+    source_dir = Path(__file__).resolve().parents[2] / "csrc" / "cake_fmha"
+    monkeypatch.setattr(jit_dcp, "get_cake_fmha_csrc_dir", lambda: source_dir)
     monkeypatch.setattr(
         jit_dcp,
         "gen_jit_spec",
@@ -53,14 +65,14 @@ def test_dcp_jit_selects_the_route_specialized_source_family(monkeypatch) -> Non
     try:
         v1 = jit_dcp.gen_dcp_spec_module("v1", "sm100a", 1, 1, 64, 8, 1, 1)
         v4 = jit_dcp.gen_dcp_spec_module("v4", "sm100a", 1, 1, 64, 8, 1, 16)
-        fp8 = jit_dcp.gen_dcp_spec_fp8_module("sm100f", 64, 3, 64, 8, 4, 3, 1)
+        fp8 = jit_dcp.gen_dcp_spec_fp8_module("sm103a", 64, 3, 64, 8, 4, 3, 1)
 
-        assert Path(v1.sources[0]).name == "cake_fmha_dcp_spec_bf16_v1_retain1.cu"
-        assert Path(v4.sources[0]).name == "cake_fmha_dcp_spec_bf16_v4_split16.cu"
-        assert Path(fp8.sources[0]).name == (
-            "cake_fmha_dcp_spec_bf16_fp8_split3_retain1.cu"
+        assert Path(v1.sources[0]).name == "retain_kv_l21.cu"
+        assert Path(v4.sources[0]).name == "num_split16.cu"
+        assert Path(fp8.sources[0]).name == "num_split3_retain_kv_l21.cu"
+        assert Path(fp8.sources[1]).name == (
+            "cake_fmha_dcp_spec_bf16_fp8_jit_binding.cu"
         )
-        assert Path(fp8.sources[1]).name == "cake_fmha_dcp_spec_bf16_fp8_binding.cu"
         assert "-DRETAIN_KV_L2=1" not in v1.extra_cuda_cflags
         assert "-DNUM_SPLIT=16" not in v4.extra_cuda_cflags
         assert "-DQ_LEN=3" in fp8.extra_cuda_cflags
@@ -74,10 +86,10 @@ def test_dcp_jit_selects_the_route_specialized_source_family(monkeypatch) -> Non
 @pytest.mark.parametrize(
     ("args", "message"),
     [
-        (("v1", "sm100f", 1, 3, 32, 4, 4, 0), "q_len"),
-        (("v1", "sm100f", 1, 4, 32, 4, 3, 0), "cp_world"),
-        (("v1", "sm100f", 1, 4, 64, 4, 4, 0), "group ratio"),
-        (("v4", "sm100f", 1, 4, 32, 4, 4, 1), "num_split"),
+        (("v1", "sm103a", 1, 7, 32, 4, 4, 0), "q_len"),
+        (("v1", "sm103a", 1, 4, 32, 4, 3, 0), "cp_world"),
+        (("v1", "sm103a", 1, 4, 64, 4, 4, 0), "group ratio"),
+        (("v4", "sm103a", 1, 4, 32, 4, 4, 1), "num_split"),
     ],
 )
 def test_dcp_spec_uri_rejects_unsupported_specialization(args, message) -> None:
@@ -86,13 +98,13 @@ def test_dcp_spec_uri_rejects_unsupported_specialization(args, message) -> None:
 
 
 def test_fp8_dcp_spec_uri_supports_q3_but_rejects_other_gaps() -> None:
-    assert "_q3_" in get_dcp_spec_fp8_uri("sm100f", 64, 3, 64, 8, 4, 3, 1)
+    assert "_q3_" in get_dcp_spec_fp8_uri("sm103a", 64, 3, 64, 8, 4, 3, 1)
     with pytest.raises(ValueError, match="q_len"):
-        get_dcp_spec_fp8_uri("sm100f", 64, 7, 64, 8, 4, 3, 1)
+        get_dcp_spec_fp8_uri("sm103a", 64, 7, 64, 8, 4, 3, 1)
     with pytest.raises(ValueError, match="num_split"):
-        get_dcp_spec_fp8_uri("sm100f", 64, 4, 64, 8, 4, 5, 1)
+        get_dcp_spec_fp8_uri("sm103a", 64, 4, 64, 8, 4, 5, 1)
     with pytest.raises(ValueError, match="retain_kv_l2"):
-        get_dcp_spec_fp8_uri("sm100f", 64, 4, 64, 8, 4, 3, 2)
+        get_dcp_spec_fp8_uri("sm103a", 64, 4, 64, 8, 4, 3, 2)
 
 
 def test_public_decode_api_adds_optional_dcp_arguments() -> None:
@@ -138,7 +150,7 @@ def test_dcp_split_selector_matches_promoted_policy() -> None:
     ("capability", "target"),
     [
         ((10, 0), "sm100a"),
-        ((10, 3), "sm100f"),
+        ((10, 3), "sm103a"),
     ],
 )
 def test_dcp_target_keeps_independent_architecture_baselines(
@@ -283,9 +295,18 @@ def test_bf16_page16_rejects_nonunit_bmm2_scale(monkeypatch) -> None:
         run_dcp_spec_decode(**_empty_rank_inputs(bmm2_scale=0.5))
 
 
-def test_q3_is_restricted_to_fp8_page64() -> None:
-    with pytest.raises(ValueError, match="q_len_per_req"):
-        run_dcp_spec_decode(**_empty_rank_inputs(q_len_per_req=3))
+def test_bf16_page16_q3_reaches_native_v1_route(monkeypatch) -> None:
+    dcp = importlib.import_module("flashinfer.dcp")
+    launches = []
+    module = SimpleNamespace(run=lambda *args: launches.append(args))
+    jit_dcp = importlib.import_module("flashinfer.jit.dcp")
+    monkeypatch.setattr(dcp, "get_device_sm_count", lambda _device: 148)
+    monkeypatch.setattr(dcp, "_select_target", lambda _device: "sm100a")
+    monkeypatch.setattr(jit_dcp, "load_dcp_spec_module", lambda *args: module)
+
+    run_dcp_spec_decode(**_empty_rank_inputs(q_len_per_req=3))
+
+    assert len(launches) == 1
 
 
 def test_dcp_rejects_non_int32_local_seq_lens() -> None:

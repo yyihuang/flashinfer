@@ -3303,8 +3303,9 @@ def trtllm_batch_decode_with_kv_cache(
         The native Cake FMHA path requires BF16 Q/O, head dimension 128,
         causal HND paging, ``return_lse=True`` (or a caller-owned ``lse``), and
         head group ratio in ``[1,8]``. BF16 KV uses page size 16 and
-        ``q_len_per_req`` in ``{1,2,4,5,6,8}``; FP8 e4m3 KV uses page size 64
-        and also supports ``q_len_per_req=3``. ``bmm1_scale`` is the fused QK
+        ``q_len_per_req`` in ``{1,2,3,4,5,6,8}``; FP8 e4m3 KV uses page size
+        64 and supports the same set.  The route can be selected explicitly
+        with ``backend="cake"``. ``bmm1_scale`` is the fused QK
         scale and ``bmm2_scale`` is the FP8 V/output scale (BF16 KV requires
         ``bmm2_scale=1``). LSE is FP32 base-2, matching the existing TRT-LLM
         backend contract. Here ``max_seq_len`` is the maximum compact
@@ -3375,10 +3376,10 @@ def trtllm_batch_decode_with_kv_cache(
             "DCP speculative decode path"
         )
     if dcp_spec_enabled:
-        if backend not in ("auto", "trtllm-gen"):
+        if backend not in ("auto", "trtllm-gen", "cake"):
             raise ValueError(
-                "DCP speculative decode is only available through backend='auto' "
-                "or backend='trtllm-gen'"
+                "DCP speculative decode is only available through backend='auto', "
+                "backend='trtllm-gen', or the explicit Cake FMHA product backend"
             )
         if kv_layout != "HND":
             raise ValueError(
@@ -3557,9 +3558,7 @@ def trtllm_batch_decode_with_kv_cache(
         if backend == "cake":
             from .cake_fmha import get_cake_fmha_module
 
-            run_func = get_cake_fmha_module(
-                query.device
-            ).cake_paged_attention_decode
+            run_func = get_cake_fmha_module(query.device).cake_paged_attention_decode
         else:
             run_func = get_trtllm_gen_fmha_module().trtllm_paged_attention_decode
         sm_count = get_device_sm_count(query.device)
