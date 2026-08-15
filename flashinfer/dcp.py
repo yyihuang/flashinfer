@@ -40,7 +40,7 @@ _RETAIN_KV_L2_MAX_BLOCKS = 9
 _FP8_MAX_NUM_SPLIT = 4
 _FP8_MIN_SPLIT_LOCAL_BLOCKS = 4
 _FP8_RETAIN_KV_L2_MAX_BLOCKS = 18
-_BF16_SUPPORTED_Q_LENS = (1, 2, 4, 5, 6, 8)
+_BF16_SUPPORTED_Q_LENS = (1, 2, 3, 4, 5, 6, 8)
 _FP8_SUPPORTED_Q_LENS = (1, 2, 3, 4, 5, 6, 8)
 _SUPPORTED_CP_WORLDS = (1, 2, 4, 8)
 
@@ -187,10 +187,7 @@ def _select_target(device: torch.device) -> str:
             "DCP speculative FMHA requires compute capability 10.0 "
             f"(B200/GB200) or 10.3 (B300/GB300), got {capability[0]}.{capability[1]}"
         )
-    # Keep B200 on its architecture-specific target even when the toolkit can
-    # also emit the forward-compatible family target.  SM103 requires the
-    # family target, while SM100 benefits from retaining its independent JIT
-    # and performance baseline.
+    # Base and add-on sources use the same exact product architecture names.
     if capability == (10, 0):
         if _is_cuda_version_at_least("12.8"):
             return "sm100a"
@@ -199,11 +196,11 @@ def _select_target(device: torch.device) -> str:
             "12.8 or newer"
         )
     if _is_cuda_version_at_least("12.9"):
-        return "sm100f"
+        return "sm103a"
     if capability == (10, 3):
         raise RuntimeError(
             "DCP speculative FMHA on compute capability 10.3 requires CUDA 12.9 "
-            "or newer for the sm_100f family target"
+            "or newer for the sm_103a exact target"
         )
     raise AssertionError(f"unreachable DCP target capability: {capability}")
 
