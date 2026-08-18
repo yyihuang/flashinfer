@@ -74,6 +74,7 @@ __global__ __launch_bounds__(128, 1) void router_gemm_kernel(Tout* out, Tin cons
 #endif
 
   // Process the GEMM in chunks
+#pragma unroll
   for (int ki = 0; ki < k_iterations; ki++) {
     int const k_base = k_bases[ki];
 
@@ -137,21 +138,19 @@ __global__ __launch_bounds__(128, 1) void router_gemm_kernel(Tout* out, Tin cons
 
   __syncthreads();
 
-  // Final reduction across warps (only first thread)
-  if (tid == 0) {
-#pragma unroll
-    for (int m = 0; m < kNumTokens; m++) {
-      float final_sum = 0.0f;
+  // Final reduction across warps. Warp 0 handles token rows in parallel.
+  if (warpId == 0 && laneId < kNumTokens) {
+    int const m = laneId;
+    float final_sum = 0.0f;
 
 // Sum across the kNumWarps
 #pragma unroll
-      for (int w = 0; w < kNumWarps; w++) {
-        final_sum += sm_reduction[m][w];
-      }
-
-      // Write final result
-      out[m * kNumExperts + n_idx] = final_sum;
+    for (int w = 0; w < kNumWarps; w++) {
+      final_sum += sm_reduction[m][w];
     }
+
+    // Write final result
+    out[m * kNumExperts + n_idx] = final_sum;
   }
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   cudaTriggerProgrammaticLaunchCompletion();
