@@ -43,10 +43,8 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_STATE_SMEM_OFF 0
 #define SMEM_STATE_SMEM_STAGE_BYTES 8192
 #define SMEM_STATE_SMEM_STRIDE 8192
-#define SMEM_V_SMEM_OFF 24320
-#define SMEM_V_SMEM_STAGE_BYTES 256
-#define SMEM_V_SMEM_STRIDE 256
-#define SMEM_TOTAL 24576
+#define SMEM_TOTAL 16384
+#define CAKE_KDA_PACKED_T1_BODY_VALUE_TILES 2
 #define THREADS 128
 
 #include <math_constants.h>
@@ -155,9 +153,6 @@ kernel_flashinfer_packed_kda_t1_cpasync_tile64_ilp4(__nv_bfloat16* __restrict__ 
     // Kernel setup ops
     __nv_bfloat16* state_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 0);
     const int state_smem_addr = smem + 0;
-    __nv_bfloat16* v_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 24320);
-    const int v_smem_addr = smem + 24320;
-
     // === Task calls (dependency order) ===
     int tid_0 = tid;
     int lane_1 = lane;
@@ -285,14 +280,8 @@ kernel_flashinfer_packed_kda_t1_cpasync_tile64_ilp4(__nv_bfloat16* __restrict__ 
                 {
                     if (chunk < 1) {
                         asm volatile("cp.async.wait_group 1;");
-                    } else if (chunk == -1) {
-                        asm volatile("cp.async.wait_group 2;");
                     } else {
-                        if (chunk == 0) {
-                            asm volatile("cp.async.wait_group 1;");
-                        } else {
-                            asm volatile("cp.async.wait_group 0;");
-                        }
+                        asm volatile("cp.async.wait_group 0;");
                     }
                 }
             }
@@ -302,7 +291,7 @@ kernel_flashinfer_packed_kda_t1_cpasync_tile64_ilp4(__nv_bfloat16* __restrict__ 
                     for (int private_row_1 = 0; private_row_1 < 4; private_row_1++) {
                         int copy_state_row_1 = group * 4 + private_row_1;
                         int copy_elem_1 = ((chunk + 3 - 1) * 32 + copy_state_row_1) * 128 + k_lane * 8;
-                        int copy_dst_1 = state_smem_addr + (unsigned int)((chunk + 3 - 1) % 3 * 8192) + (unsigned int)((copy_state_row_1 * 128 + k_lane * 8) * 2);
+                        int copy_dst_1 = state_smem_addr + (unsigned int)((chunk + 2) % 2 * SMEM_STATE_SMEM_STRIDE) + (unsigned int)((copy_state_row_1 * 128 + k_lane * 8) * 2);
                         asm volatile("cp.async.cg.shared::cta.global [%0], [%1], 16;"
                             :: "r"(copy_dst_1), "l"(state + (state_head_base + (long long)copy_elem_1)));
                     }
@@ -317,7 +306,7 @@ kernel_flashinfer_packed_kda_t1_cpasync_tile64_ilp4(__nv_bfloat16* __restrict__ 
                         int smem_row = group * 4 + row_local;
                         int state_smem_addr_0 = 0;
                         {
-                            state_smem_addr_0 = state_smem_addr + (unsigned int)(chunk % 3 * 8192) + (unsigned int)((smem_row * 128 + k_lane * 8) * 2);
+                            state_smem_addr_0 = state_smem_addr + (unsigned int)(chunk % 2 * SMEM_STATE_SMEM_STRIDE) + (unsigned int)((smem_row * 128 + k_lane * 8) * 2);
                         }
                         asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
                             : "=r"(*reinterpret_cast<uint32_t*>(&packed_state[0])), "=r"(*reinterpret_cast<uint32_t*>(&packed_state[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&packed_state[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&packed_state[(0) + 3]))

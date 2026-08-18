@@ -43,10 +43,8 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_STATE_SMEM_OFF 0
 #define SMEM_STATE_SMEM_STAGE_BYTES 4096
 #define SMEM_STATE_SMEM_STRIDE 4096
-#define SMEM_V_SMEM_OFF 16128
-#define SMEM_V_SMEM_STAGE_BYTES 256
-#define SMEM_V_SMEM_STRIDE 256
 #define SMEM_TOTAL 16384
+#define CAKE_KDA_PACKED_T1_BODY_VALUE_TILES 2
 #define THREADS 128
 
 #include <math_constants.h>
@@ -155,9 +153,6 @@ kernel_flashinfer_packed_kda_t1_cpasync_tile64_register_pipeline(__nv_bfloat16* 
     // Kernel setup ops
     __nv_bfloat16* state_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 0);
     const int state_smem_addr = smem + 0;
-    __nv_bfloat16* v_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 16128);
-    const int v_smem_addr = smem + 16128;
-
     // === Task calls (dependency order) ===
     int tid_0 = tid;
     int lane_1 = lane;

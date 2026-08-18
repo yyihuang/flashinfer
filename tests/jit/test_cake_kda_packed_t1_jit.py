@@ -119,6 +119,13 @@ def test_jit_specs_bind_frozen_source_and_physical_launch_metadata(
 
     source = (cake_kda_packed_t1._get_csrc_dir() / metadata.body).read_text()
     assert metadata.symbol in source
+    assert (
+        f"#define CAKE_KDA_PACKED_T1_BODY_VALUE_TILES {metadata.value_tiles}"
+        in source
+    )
+    if metadata.smem_bytes:
+        assert f"#define SMEM_TOTAL {metadata.smem_bytes}" in source
+    assert f"#define THREADS {metadata.threads}" in source
     binding = spec.sources[0].read_text()
     assert f'#define CAKE_KDA_PACKED_T1_BODY_FILE "{metadata.body}"' in binding
     assert f"#define CAKE_KDA_PACKED_T1_KERNEL {metadata.symbol}" in binding

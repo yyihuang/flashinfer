@@ -47,6 +47,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_V_SMEM_STAGE_BYTES 256
 #define SMEM_V_SMEM_STRIDE 256
 #define SMEM_TOTAL 20736
+#define CAKE_KDA_PACKED_T1_BODY_VALUE_TILES 1
 #define THREADS 128
 
 #include <math_constants.h>

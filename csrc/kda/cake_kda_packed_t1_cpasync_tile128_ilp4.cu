@@ -43,10 +43,8 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_STATE_SMEM_OFF 0
 #define SMEM_STATE_SMEM_STAGE_BYTES 8192
 #define SMEM_STATE_SMEM_STRIDE 8192
-#define SMEM_V_SMEM_OFF 24320
-#define SMEM_V_SMEM_STAGE_BYTES 256
-#define SMEM_V_SMEM_STRIDE 256
 #define SMEM_TOTAL 24576
+#define CAKE_KDA_PACKED_T1_BODY_VALUE_TILES 1
 #define THREADS 128
 
 #include <math_constants.h>
@@ -155,9 +153,6 @@ kernel_flashinfer_packed_kda_t1_cpasync_tile128_ilp4(__nv_bfloat16* __restrict__
     // Kernel setup ops
     __nv_bfloat16* state_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 0);
     const int state_smem_addr = smem + 0;
-    __nv_bfloat16* v_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 24320);
-    const int v_smem_addr = smem + 24320;
-
     // === Task calls (dependency order) ===
     int tid_0 = tid;
     int lane_1 = lane;
@@ -285,14 +280,8 @@ kernel_flashinfer_packed_kda_t1_cpasync_tile128_ilp4(__nv_bfloat16* __restrict__
                 {
                     if (chunk < 3) {
                         asm volatile("cp.async.wait_group 1;");
-                    } else if (chunk == 1) {
-                        asm volatile("cp.async.wait_group 2;");
                     } else {
-                        if (chunk == 2) {
-                            asm volatile("cp.async.wait_group 1;");
-                        } else {
-                            asm volatile("cp.async.wait_group 0;");
-                        }
+                        asm volatile("cp.async.wait_group 0;");
                     }
                 }
             }

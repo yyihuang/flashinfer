@@ -43,6 +43,7 @@
 #include <cuda_runtime.h>
 #include <math_constants.h>
 
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <utility>
@@ -61,6 +62,9 @@
 #define CakeTensorMapPack cake_kda_packed_generated_CakeTensorMapPack
 #define CUtensorMap cake_kda_packed_generated_CUtensorMap
 #include CAKE_KDA_PACKED_T1_BODY_FILE
+#ifndef CAKE_KDA_PACKED_T1_BODY_VALUE_TILES
+#error "frozen packed KDA T=1 body must declare its value tiling"
+#endif
 #undef uint8_t
 #undef uint16_t
 #undef uint32_t
@@ -84,12 +88,16 @@ constexpr int32_t kGateWidth = kHeads * kHeadDim;
 constexpr int32_t kTargetFamily = 100;
 constexpr int32_t kTargetSM100a = 1000;
 constexpr int32_t kTargetKind = FLASHINFER_CAKE_KDA_PACKED_T1_TARGET_KIND;
+constexpr int32_t kBodyValueTiles = CAKE_KDA_PACKED_T1_BODY_VALUE_TILES;
+#undef CAKE_KDA_PACKED_T1_BODY_VALUE_TILES
 
 static_assert(kTargetKind == kTargetFamily || kTargetKind == kTargetSM100a,
               "packed KDA T=1 must be compiled for SM100f or legacy exact SM100a");
 static_assert(CAKE_KDA_PACKED_T1_VALUE_TILES == 1 || CAKE_KDA_PACKED_T1_VALUE_TILES == 2 ||
                   CAKE_KDA_PACKED_T1_VALUE_TILES == 8 || CAKE_KDA_PACKED_T1_VALUE_TILES == 16,
               "packed KDA T=1 has an unsupported value tiling");
+static_assert(CAKE_KDA_PACKED_T1_VALUE_TILES == kBodyValueTiles,
+              "packed KDA T=1 binding value tiling does not match the frozen body");
 static_assert(CAKE_KDA_PACKED_T1_THREADS == 32 || CAKE_KDA_PACKED_T1_THREADS == 128,
               "packed KDA T=1 has an unsupported thread count");
 static_assert(CAKE_KDA_PACKED_T1_REQUIRES_AUX_VEC4 == 0 ||
@@ -100,13 +108,7 @@ inline void CheckCuda(cudaError_t status, const char* operation) {
   TVM_FFI_ICHECK(status == cudaSuccess) << operation << " failed: " << cudaGetErrorString(status);
 }
 
-inline void CheckTarget(int32_t device_id) {
-  int major = 0;
-  int minor = 0;
-  CheckCuda(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device_id),
-            "cudaDeviceGetAttribute(major)");
-  CheckCuda(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device_id),
-            "cudaDeviceGetAttribute(minor)");
+inline void CheckComputeCapability(int32_t major, int32_t minor) {
   if (kTargetKind == kTargetFamily) {
     TVM_FFI_ICHECK(major == 10 && (minor == 0 || minor == 3))
         << "this packed KDA T=1 module requires the SM100 family "
@@ -116,6 +118,31 @@ inline void CheckTarget(int32_t device_id) {
     TVM_FFI_ICHECK(major == 10 && minor == 0)
         << "this packed KDA T=1 module requires exact compute capability 10.0, got " << major << "."
         << minor;
+  }
+}
+
+inline void CheckTarget(int32_t device_id) {
+  constexpr int32_t kMaxCachedDevices = 64;
+  static std::atomic<int32_t> cached_compute_capability[kMaxCachedDevices]{};
+  const bool cacheable = device_id >= 0 && device_id < kMaxCachedDevices;
+  if (cacheable) {
+    const int32_t cached =
+        cached_compute_capability[device_id].load(std::memory_order_relaxed);
+    if (cached != 0) {
+      CheckComputeCapability(cached / 10, cached % 10);
+      return;
+    }
+  }
+
+  int major = 0;
+  int minor = 0;
+  CheckCuda(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device_id),
+            "cudaDeviceGetAttribute(major)");
+  CheckCuda(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device_id),
+            "cudaDeviceGetAttribute(minor)");
+  CheckComputeCapability(major, minor);
+  if (cacheable) {
+    cached_compute_capability[device_id].store(major * 10 + minor, std::memory_order_relaxed);
   }
 }
 

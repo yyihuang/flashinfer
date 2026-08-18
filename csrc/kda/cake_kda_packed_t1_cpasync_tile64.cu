@@ -43,10 +43,8 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_STATE_SMEM_OFF 0
 #define SMEM_STATE_SMEM_STAGE_BYTES 4096
 #define SMEM_STATE_SMEM_STRIDE 4096
-#define SMEM_V_SMEM_OFF 16128
-#define SMEM_V_SMEM_STAGE_BYTES 256
-#define SMEM_V_SMEM_STRIDE 256
 #define SMEM_TOTAL 16384
+#define CAKE_KDA_PACKED_T1_BODY_VALUE_TILES 2
 #define THREADS 128
 
 #include <math_constants.h>
@@ -155,9 +153,6 @@ kernel_flashinfer_packed_kda_t1_cpasync(__nv_bfloat16* __restrict__ q, __nv_bflo
     // Kernel setup ops
     __nv_bfloat16* state_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 0);
     const int state_smem_addr = smem + 0;
-    __nv_bfloat16* v_smem = reinterpret_cast<__nv_bfloat16*>(smem_raw + 16128);
-    const int v_smem_addr = smem + 16128;
-
     // === Task calls (dependency order) ===
     int tid_0 = tid;
     int lane_1 = lane;
@@ -184,7 +179,7 @@ kernel_flashinfer_packed_kda_t1_cpasync(__nv_bfloat16* __restrict__ q, __nv_bflo
                 #pragma unroll
                 for (int copy_vec = 0; copy_vec < 2; copy_vec++) {
                     int copy_elem = (prefetch_chunk * 16 + copy_row) * 128 + copy_col + copy_vec * 8;
-                    int copy_dst = state_smem_addr + (unsigned int)(prefetch_chunk * 4096) + (unsigned int)((copy_row * 128 + copy_col + copy_vec * 8) * 2);
+                    int copy_dst = state_smem_addr + (unsigned int)(prefetch_chunk * SMEM_STATE_SMEM_STRIDE) + (unsigned int)((copy_row * 128 + copy_col + copy_vec * 8) * 2);
                     asm volatile("cp.async.cg.shared::cta.global [%0], [%1], 16;"
                         :: "r"(copy_dst), "l"(state + (state_head_base + (long long)copy_elem)));
                 }
@@ -296,8 +291,8 @@ kernel_flashinfer_packed_kda_t1_cpasync(__nv_bfloat16* __restrict__ q, __nv_bflo
                 if (chunk == 0) {
                     #pragma unroll
                     for (int copy_vec_1 = 0; copy_vec_1 < 2; copy_vec_1++) {
-                        int copy_elem_1 = (48 + copy_row) * 128 + copy_col + copy_vec_1 * 8;
-                        int copy_dst_1 = state_smem_addr + 12288 + (unsigned int)((copy_row * 128 + copy_col + copy_vec_1 * 8) * 2);
+                        int copy_elem_1 = (3 * (SMEM_STATE_SMEM_STAGE_BYTES / (128 * sizeof(__nv_bfloat16))) + copy_row) * 128 + copy_col + copy_vec_1 * 8;
+                        int copy_dst_1 = state_smem_addr + 3 * SMEM_STATE_SMEM_STRIDE + (unsigned int)((copy_row * 128 + copy_col + copy_vec_1 * 8) * 2);
                         asm volatile("cp.async.cg.shared::cta.global [%0], [%1], 16;"
                             :: "r"(copy_dst_1), "l"(state + (state_head_base + (long long)copy_elem_1)));
                     }
@@ -312,7 +307,7 @@ kernel_flashinfer_packed_kda_t1_cpasync(__nv_bfloat16* __restrict__ q, __nv_bflo
                         int smem_row = group * 2 + row_local;
                         int state_smem_addr_0 = 0;
                         {
-                            state_smem_addr_0 = state_smem_addr + (unsigned int)(chunk * 4096) + (unsigned int)((smem_row * 128 + k_lane * 8) * 2);
+                            state_smem_addr_0 = state_smem_addr + (unsigned int)(chunk * SMEM_STATE_SMEM_STRIDE) + (unsigned int)((smem_row * 128 + k_lane * 8) * 2);
                         }
                         asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
                             : "=r"(*reinterpret_cast<uint32_t*>(&packed_state[0])), "=r"(*reinterpret_cast<uint32_t*>(&packed_state[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&packed_state[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&packed_state[(0) + 3]))

@@ -301,6 +301,40 @@ def test_packed_kda_decode_matches_reference_and_preserves_pool(
 
 
 @pytest.mark.arch_blackwell
+@pytest.mark.parametrize("batch", [8, 25, 38])
+def test_packed_kda_decode_scalar_aux_variants_match_reference(
+    packed_kda_device, batch
+):
+    case = _make_case(
+        batch,
+        packed_kda_device,
+        seed=20260860 + batch,
+        inactive=False,
+        gate_padding=1,
+    )
+    assert case["raw_gate"].stride(0) % 4 != 0
+    before_storage = case["state_storage"].clone()
+    _, reference_state = _clone_padded_state(case)
+    reference_output = _reference_step(
+        case["mixed_qkv"],
+        case["raw_gate"],
+        case["raw_beta"],
+        case["A_log"],
+        case["dt_bias"],
+        reference_state,
+        case["state_indices"],
+    )
+
+    result = _call(case)
+    torch.cuda.synchronize(packed_kda_device)
+
+    assert result is case["output"]
+    _assert_close(result, reference_output)
+    _assert_close(case["state"], reference_state)
+    _assert_mutation_contract(case, before_storage)
+
+
+@pytest.mark.arch_blackwell
 def test_packed_kda_decode_allocates_canonical_output(packed_kda_device):
     case = _make_case(8, packed_kda_device, seed=20260820)
     _, reference_state = _clone_padded_state(case)

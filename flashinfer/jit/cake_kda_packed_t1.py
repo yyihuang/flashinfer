@@ -109,7 +109,7 @@ CAKE_KDA_PACKED_T1_VARIANT_METADATA: dict[
         symbol="kernel_flashinfer_packed_kda_t1_cpasync_tile64_ilp4",
         value_tiles=2,
         threads=128,
-        smem_bytes=24576,
+        smem_bytes=16384,
         requires_aux_vec4=False,
     ),
     "cpasync_tile64": CakeKDAPackedT1VariantMetadata(
