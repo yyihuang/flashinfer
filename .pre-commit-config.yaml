@@ -14,11 +14,13 @@
 # Note the pre-commit hooks shoule only be used for formatting, but not for linting.
 # For linting consider using CI.
 
-# The kernel_src */src trees are upstream kernel drops that are re-synced
-# periodically (sm100/cutedsl_megamoe, sm90/pull_style_cutedsl_megakernel);
-# excluded from all hooks so formatting/lint churn doesn't block syncs.
+# The kernel_src */src trees and blackwell_msa CUDA snapshots are generated or
+# upstream kernel drops that are re-synced periodically
+# (sm100/cutedsl_megamoe, sm90/pull_style_cutedsl_megakernel);
+# excluded from all hooks so formatting/lint churn doesn't block syncs or alter
+# the source-distributed kernel payload.
 # The shim/ layers next to them are ours and stay checked.
-exclude: ^flashinfer/moe_ep/kernel_src/(cutedsl_megamoe|sm90/pull_style_cutedsl_megakernel)/src/
+exclude: ^(flashinfer/moe_ep/kernel_src/(cutedsl_megamoe|sm90/pull_style_cutedsl_megakernel)/src/|csrc/blackwell_msa/)
 
 repos:
   # Standard hooks
