@@ -3063,7 +3063,7 @@ class GatedDeltaNetChunkedKernel:
         # Wait for last GEMM-7 to finish
         kv_acc_handle = kv_acc_consumer.wait_and_advance()
 
-        for sub in cutlass.range(tTR_rState.shape[2]):
+        for sub in cutlass.range_constexpr(tTR_rState.shape[2]):
             # Read state TMEM -> fp32 registers
             cute.copy(
                 tiled_state_t2r,
@@ -3345,7 +3345,7 @@ class GatedDeltaNetChunkedKernel:
             kv_handle = kv_acc_consumer.wait_and_advance()
 
             state_inp_ready_handle = state_inp_ready_producer.acquire_and_advance()
-            for sub in cutlass.range(tRT_rState_inp.shape[2]):
+            for sub in cutlass.range_constexpr(tRT_rState_inp.shape[2]):
                 cute.copy(
                     tiled_state_t2r,
                     tTR_tCtState[None, 0, sub, kv_handle.index],
@@ -3387,7 +3387,7 @@ class GatedDeltaNetChunkedKernel:
             state_inp_ready_handle.commit()
 
             # Load S_prev -> scale by Phi -> write Phi*S_prev back to same TMEM slot.
-            for sub in cutlass.range(tTR_rState.shape[2]):
+            for sub in cutlass.range_constexpr(tTR_rState.shape[2]):
                 for k in cutlass.range(sub_tile_size, vectorize=True):
                     tTR_rState[k, 0, sub] = tTR_rState[k, 0, sub] * cumprod_total
                 cute.copy(
