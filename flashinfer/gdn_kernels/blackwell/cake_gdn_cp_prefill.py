@@ -1211,6 +1211,7 @@ def chunk_gated_delta_rule_cake_sm100(
 __all__ = [
     "CakeGDNCPPrefill",
     "CakeGDNCPPrefillPlan",
+    "_cake_gdn_cp_nvcc_version",
     "chunk_gated_delta_rule_cake_sm100",
     "prepare_cake_gdn_cp_prefill",
 ]
