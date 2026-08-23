@@ -34,6 +34,9 @@ from .core import (
 )
 from .deepgemm import gen_deepgemm_sm100_module
 from .fp8_blockscale import gen_fp8_blockscale_gemm_sm90_module
+from .blackwell_bf16_fp4_generated import (
+    gen_blackwell_bf16_fp4_generated_module,
+)
 
 __all__ = [
     "gen_gemm_module",
@@ -54,4 +57,5 @@ __all__ = [
     "gen_gemm_sm90_module",
     "gen_deepgemm_sm100_module",
     "gen_fp8_blockscale_gemm_sm90_module",
+    "gen_blackwell_bf16_fp4_generated_module",
 ]

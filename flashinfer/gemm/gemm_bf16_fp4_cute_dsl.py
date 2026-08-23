@@ -451,9 +451,17 @@ def _prepare_cute_dsl(
     alpha: Optional[torch.Tensor],
     block_size: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-    """Dispatch weight preparation to the architecture-specific DSL kernel."""
+    """Dispatch weight preparation to the selected architecture/kernel ABI."""
     major, minor = get_compute_capability(b.device)
     if (major, minor) in ((10, 0), (10, 3)):
+        from .gemm_bf16_fp4_generated import generated_bf16_fp4_available
+
+        # The source-generated kernel consumes the packed 16K x 64N prepared
+        # ABI. Keep the incumbent native preparation until the device source is
+        # installed and explicitly marked ready, so a scaffold-only checkout
+        # cannot change the behavior of the public backend.
+        if generated_bf16_fp4_available(b.device):
+            return _prepare_cute_dsl_sm12x(b, b_descale, alpha, block_size)
         return _prepare_cute_dsl_sm100(b, b_descale, alpha, block_size)
     elif major == 12:
         return _prepare_cute_dsl_sm12x(b, b_descale, alpha, block_size)
@@ -1122,12 +1130,43 @@ def _compute_cute_dsl(
 ) -> torch.Tensor:
     """Dispatch to the SM100/103 or SM12x compiled Blackwell kernel.
 
-    SM100 consumes the native ``(N, K // 2)`` uint8 NVFP4 weight and 128x4 SF.
+    The incumbent SM100 path consumes the native ``(N, K // 2)`` uint8 NVFP4
+    weight and 128x4 SF. When installed, the source-generated SM100/103 path
+    consumes the same packed layout described below for SM12x.
 
     SM12x consumes the packed ``(K // 16, N * 2)`` int32 weight and
     ``(K // block_size, N)`` uint8 SF in S0E5M3 format (reformatted from FP8-E4M3
     by :func:`_e4m3_to_s0e5m3`) returned by :func:`_prepare_cute_dsl`.
     """
+    from .gemm_bf16_fp4_generated import (
+        _compute_generated_bf16_fp4,
+        _generated_bf16_fp4_can_implement,
+    )
+
+    if _generated_bf16_fp4_can_implement(
+        a,
+        b,
+        b_descale,
+        backend="cute-dsl",
+        out_dtype=out_dtype,
+        block_size=block_size,
+    ):
+        m, k = map(int, a.shape)
+        n = int(b.shape[1]) // 2
+        if out is None:
+            out = torch.empty((m, n), device=a.device, dtype=out_dtype)
+        return _compute_generated_bf16_fp4(
+            a,
+            b,
+            b_descale,
+            alpha,
+            out,
+            backend="cute-dsl",
+            out_dtype=out_dtype,
+            block_size=block_size,
+            enable_pdl=enable_pdl,
+        )
+
     if get_compute_capability(a.device) in ((10, 0), (10, 3)):
         return _compute_cute_dsl_sm100(
             a,

@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Fail-closed source-export template. The validated generated translation
+ * unit replaces this .cu.in file as blackwell_bf16_fp4_generated.cu and must
+ * set FLASHINFER_BLACKWELL_BF16_FP4_SOURCE_READY to 1 before the dispatcher
+ * can select it.
+ */
+
+#error "validated generated BF16 x FP4 device source has not been installed"
+
+#define FLASHINFER_BLACKWELL_BF16_FP4_SOURCE_READY 0
+
+#include "blackwell_bf16_fp4_host.cuh"
+
+// The populated translation unit owns all device variants plus one TVM-FFI
+// entry named blackwell_bf16_fp4_generated. The entry accepts activation,
+// backend-prepared weight and scale tensors, alpha carrier, output, backend
+// id, alpha-present flag, and PDL flag. It must validate shapes and layouts,
+// encode tensor maps, obtain immutable cached descriptor slots, select the
+// exact alpha/output/PDL variant, choose the full-TMA or pointer-load route
+// from the reduction alignment, opt into dynamic shared memory, and launch on
+// the TVM-FFI environment stream. The cuDNN-prepared route keeps arbitrary
+// positive N and K divisible by 16; the packed route additionally requires N
+// divisible by 64.

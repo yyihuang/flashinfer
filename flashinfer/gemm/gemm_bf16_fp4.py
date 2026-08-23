@@ -110,7 +110,10 @@ def _cute_dsl_bf16_fp4_requirement(
 ):
     major, minor = get_compute_capability(a.device)
     cc = major * 10 + minor
-    expected_dtype = torch.uint8 if cc in (100, 103) else torch.int32
+    from .gemm_bf16_fp4_generated import generated_bf16_fp4_available
+
+    use_generated = cc in (100, 103) and generated_bf16_fp4_available(a.device)
+    expected_dtype = torch.int32 if use_generated or cc not in (100, 103) else torch.uint8
     if b.dtype != expected_dtype:
         raise ValueError(
             f"cute-dsl bf16 x fp4 on SM{cc} expects the {expected_dtype} weight "
@@ -143,8 +146,9 @@ def prepare_bf16_fp4_weights(
 
     * ``b`` is ``(N, K // 2)`` ``uint8`` with two FP4 codes packed per
       byte (low nibble = K=2i, high nibble = K=2i+1).
-    * ``b_descale`` is the 128x4-swizzled FP8-E4M3 per-block scales,
-      either as a 1-D byte buffer or a 2-D tensor.
+    * ``b_descale`` is contiguous storage containing the 128x4-swizzled
+      FP8-E4M3 per-block scales. Its rank is not significant, and excess
+      trailing storage is ignored.
 
     Each backend transforms these into whatever layout its compute kernel
     expects.  The returned ``(b, b_descale, alpha)`` tuple must be passed
@@ -153,8 +157,10 @@ def prepare_bf16_fp4_weights(
 
     Args:
         b: ``(N, K // 2)`` ``uint8`` packed FP4 weight.
-        b_descale: 128x4-swizzled FP8-E4M3 scale factors from
-            ``nvfp4_quantize``.  Either 1-D byte buffer or 2-D tensor.
+        b_descale: Contiguous storage containing the 128x4-swizzled FP8-E4M3
+            scale factors from ``nvfp4_quantize``. Any rank is accepted when
+            the storage contains at least the required number of bytes;
+            excess trailing bytes are ignored.
         alpha: Optional ``(1,) float32`` global scalar.  Pass ``None``
             (default) for implicit ``alpha=1.0``.  Returned unchanged;
             forward the returned tuple to :func:`flashinfer.mm_bf16_fp4`.
@@ -264,7 +270,16 @@ def mm_bf16_fp4(
     if backend == "cudnn":
         from .gemm_bf16_fp4_cudnn import _compute_cudnn
 
-        return _compute_cudnn(a, b, b_descale, alpha, out_dtype, out, block_size)
+        return _compute_cudnn(
+            a,
+            b,
+            b_descale,
+            alpha,
+            out_dtype,
+            out,
+            block_size,
+            enable_pdl=enable_pdl,
+        )
     if backend == "cute-dsl":
         from .gemm_bf16_fp4_cute_dsl import _compute_cute_dsl
 

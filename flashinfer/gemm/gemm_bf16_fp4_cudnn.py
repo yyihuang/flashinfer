@@ -568,6 +568,7 @@ def _compute_cudnn(
     out_dtype: torch.dtype,
     out: Optional[torch.Tensor],
     block_size: int,
+    enable_pdl: bool = True,
 ) -> torch.Tensor:
     """cuDNN-backend compute with autotuning over the M (token) dimension."""
     n = int(b.shape[0])
@@ -587,6 +588,31 @@ def _compute_cudnn(
             )
         if out.dtype != out_dtype:
             raise TypeError(f"out dtype {out.dtype} != requested out_dtype {out_dtype}")
+
+    from .gemm_bf16_fp4_generated import (
+        _compute_generated_bf16_fp4,
+        _generated_bf16_fp4_can_implement,
+    )
+
+    if _generated_bf16_fp4_can_implement(
+        a,
+        b,
+        b_descale,
+        backend="cudnn",
+        out_dtype=out_dtype,
+        block_size=block_size,
+    ):
+        return _compute_generated_bf16_fp4(
+            a,
+            b,
+            b_descale,
+            alpha,
+            out,
+            backend="cudnn",
+            out_dtype=out_dtype,
+            block_size=block_size,
+            enable_pdl=enable_pdl,
+        )
 
     workspace_buffer = _get_cache_buf(
         "mm_bf16_fp4_workspace", DEFAULT_WORKSPACE_SIZE, a.device

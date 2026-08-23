@@ -283,6 +283,7 @@ def test_cute_dsl_every_tactic_matches_reference(m, n, k):
         _cute_dsl_bf16_fp4_runner,
         _cute_dsl_sm100_bf16_fp4_runner,
         _prepare_bf16_fp4_alpha,
+        _prepare_cute_dsl_sm100,
     )
     from flashinfer.utils import get_device_sm_count
 
@@ -290,19 +291,21 @@ def test_cute_dsl_every_tactic_matches_reference(m, n, k):
     torch.manual_seed(0)
     a = torch.randn((m, k), device=device, dtype=torch.bfloat16)
     b_fp4, b_sf, alpha = _make_random_fp4_weights(n, k, device)
-    b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(
-        b_fp4, b_sf, alpha, backend="cute-dsl"
-    )
-
     weight_fp32 = _dequantize_bf16_fp4_torch(b_fp4, b_sf, alpha, n, k, 16)
     ref = (a.float() @ weight_fp32.T).to(torch.bfloat16)
 
     cc_major = get_compute_capability(device)[0]
     if cc_major == 10:
+        # Exercise incumbent tactics through their native prepared ABI even
+        # when the public dispatcher selects the generated packed-ABI route.
+        b_p, sf_p, alpha_p = _prepare_cute_dsl_sm100(b_fp4, b_sf, alpha, 16)
         runner = _cute_dsl_sm100_bf16_fp4_runner(enable_pdl=True)
         tactics = tuple(enumerate(_SM100_BF16_FP4_TACTICS))
         sf_for_launch = sf_p
     else:
+        b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(
+            b_fp4, b_sf, alpha, backend="cute-dsl"
+        )
         runner = _cute_dsl_bf16_fp4_runner(enable_pdl=True)
         tactics = tuple(
             enumerate(
@@ -513,7 +516,11 @@ def test_cute_dsl_prepare_uses_architecture_specific_layout():
 
     b_p, sf_p, _ = prepare_bf16_fp4_weights(b_fp4, b_sf, alpha, backend="cute-dsl")
     major, minor = get_compute_capability(device)
-    if major * 10 + minor in (100, 103):
+    from flashinfer.gemm.gemm_bf16_fp4_generated import (
+        generated_bf16_fp4_available,
+    )
+
+    if major * 10 + minor in (100, 103) and not generated_bf16_fp4_available(device):
         assert b_p.dtype == torch.uint8
         assert b_p.shape == b_fp4.shape
         assert sf_p.data_ptr() == b_sf.data_ptr()
@@ -553,6 +560,26 @@ def test_b_dtype_must_be_uint8_in_prepare():
     b_descale = torch.zeros((4096,), device=device, dtype=torch.uint8)
     with pytest.raises(TypeError):
         prepare_bf16_fp4_weights(b_bad, b_descale, None, backend="cute-dsl")
+
+
+@pytest.mark.parametrize("shape", [(512,), (2, 256), (2, 2, 128), (519,)])
+def test_prepare_accepts_arbitrary_rank_and_excess_scale_storage(shape):
+    """The canonical scale boundary is byte-count based, not rank based."""
+    b = torch.zeros((1, 8), dtype=torch.uint8)
+    b_descale = torch.zeros(shape, dtype=torch.uint8)
+    b_descale.view(-1)[0] = 0x38
+
+    b_prepared, sf_prepared, alpha_prepared = prepare_bf16_fp4_weights(
+        b,
+        b_descale,
+        None,
+        backend="cudnn",
+    )
+
+    assert b_prepared is b
+    assert tuple(sf_prepared.shape) == (1, 1)
+    assert sf_prepared.view(torch.uint8).item() == 0x38
+    assert alpha_prepared is None
 
 
 def test_alpha_dtype_must_be_float32():
