@@ -83,6 +83,10 @@ value-split CTAs for every task fit in one device wave.
 
 At maximum sequence length 16 or below, H96 uses the N32 schedule to retain
 the qualified BF16 error bound; H12 and other qualified head counts retain N16.
+On CC 10.3, packed H12 calls with maximum sequence length at least 64, indexed
+state, and beta token stride 32 instead use an N32 direct schedule.
+That production layout is qualified both with and without checkpoints; the
+fixed-layout and all other H12 cells retain their existing route.
 
 The frozen H12 N16 schedule's residual recurrence rounds four intermediates
 through BF16: the state/K
@@ -115,10 +119,11 @@ reduces the final partial wave. FlashInfer validates dtype, device, rank, and
 size without synchronizing the device to inspect permutation values.
 
 For Cake, omitting ``seq_order`` uses its cached eager scheduling metadata. H12
-selects the dedicated M128 schedule with a 16-token recurrence chunk for both
-fixed and packed layouts. Fixed ``B=1,H=64`` selects the two-CTA M64
-value-split kernel; the fixed small-BH region described above selects its
-eight-CTA owner/helper schedule. Eligible medium and long shapes instead use a
+selects the dedicated M128 schedule with a 16-token recurrence chunk for fixed
+layouts and packed layouts outside the CC 10.3 indexed-stride-32 N32 cell
+described above. Fixed ``B=1,H=64`` selects the two-CTA M64 value-split kernel;
+the fixed small-BH region described above selects its eight-CTA owner/helper
+schedule. Eligible medium and long shapes instead use a
 BT16 prepare/chain route: dense fixed ``B=1,H=60..64`` inputs qualify from
 4,096 tokens when two value-split CTAs per head fit on the device; general
 M128 shapes qualify from 65,536 tokens for one to eight sequence/head tasks,

@@ -71,27 +71,25 @@ _FLASH_KDA_TARGET_DEFINE = {
     "sm100f": "-DFLASHINFER_FLASH_KDA_TARGET_FAMILY=100",
 }
 
-# Keep every frozen cache key tied to its complete generated-plus-integration
-# implementation. This prevents an installed JIT/AOT cache from satisfying a
-# refreshed export or binding specialization after an in-place package upgrade.
+# First ten hex digits of SHA256 over each variant's generated body, binding,
+# and transitive local binding headers, separated by NUL bytes without a
+# trailing separator. Keep every frozen cache key tied to its complete compile
+# closure so an installed JIT/AOT cache cannot satisfy a refreshed integration.
 _FLASH_KDA_MODULE_IDENTS = {
-    "m64": "942c2fbe91",
-    "m128": "1e4650d41d",
-    "m128_tensor_state_decay": "0d8d9e6964",
-    "m128_h12_short": "d25044154d",
-    "m128_h12_long": "88cedfb168",
-    "m128_n16": "b4614a4ae4",
-    # Generated body, binding, and shared binding header, separated by NUL
-    # bytes without a trailing separator. Keep this route's cache key tied to
-    # all compiled content.
-    "m128_n16_checkpoint": "3fce0271a4",
-    "persistent_m128": "be9bb4cea9",
-    "small_bh_m128": "73369168de",
-    "bt16_prepare": "2c6cc4c1f6",
-    "bt16_prepare_beta_tma": "d9394ce430",
-    "bt16_chain_m64_s7": "350dbb8897",
-    "bt16_chain_m64_s8": "9e1ea1ef2d",
-    "bt16_chain_m64_s9": "e83ce16115",
+    "m64": "e6058c991c",
+    "m128": "f7a7a46162",
+    "m128_tensor_state_decay": "b2b7b6a1af",
+    "m128_h12_short": "7b90aa1ac5",
+    "m128_h12_long": "8a78d9ad81",
+    "m128_n16": "0ca97e51be",
+    "m128_n16_checkpoint": "2213de5af6",
+    "persistent_m128": "be81b0c433",
+    "small_bh_m128": "b8ce59c473",
+    "bt16_prepare": "875b8e3551",
+    "bt16_prepare_beta_tma": "076b53e779",
+    "bt16_chain_m64_s7": "2ff798dbd3",
+    "bt16_chain_m64_s8": "fd36bb3a6e",
+    "bt16_chain_m64_s9": "cf9866fd3b",
 }
 
 _FLASH_KDA_BINDING_STEMS = {

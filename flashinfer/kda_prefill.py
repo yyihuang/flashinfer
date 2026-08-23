@@ -589,6 +589,27 @@ def _direct_m128_route(*, num_heads: int, max_sequence_length: int = 0) -> str:
     )
 
 
+def _should_use_h12_indexed_n32(
+    *,
+    compute_capability: tuple[int, int],
+    fixed_layout: bool,
+    num_heads: int,
+    max_sequence_length: int,
+    has_state_indices: bool,
+    beta_token_stride: int,
+) -> bool:
+    """Select the qualified SGLang H12 state-pool layout on GB300."""
+
+    return (
+        compute_capability == (10, 3)
+        and not fixed_layout
+        and num_heads == 12
+        and max_sequence_length >= _FLASH_KDA_H12_DIRECT_N32_MIN_SEQUENCE_LENGTH
+        and has_state_indices
+        and beta_token_stride == 32
+    )
+
+
 def _should_use_n32_tensor_state_decay(
     *,
     compute_capability: tuple[int, int],
@@ -1845,16 +1866,21 @@ def _run_flash_kda_prefill(
             sm_count=sm_count,
         )
     max_sequence_length = max(sequence_lengths)
-    h12_indexed_n32 = (
-        needs_direct_m128
-        and compute_capability == (10, 3)
-        and num_heads == 12
-        and max_sequence_length >= _FLASH_KDA_H12_DIRECT_N32_MIN_SEQUENCE_LENGTH
-        and state_indices is not None
-        and beta.stride(-2) == 32
+    h12_indexed_n32 = needs_direct_m128 and _should_use_h12_indexed_n32(
+        compute_capability=compute_capability,
+        fixed_layout=fixed_layout,
+        num_heads=num_heads,
+        max_sequence_length=max_sequence_length,
+        has_state_indices=state_indices is not None,
+        beta_token_stride=beta.stride(-2),
+    )
+    checkpoint_requires_n16 = (
+        checkpoint_every_n_tokens != 0 and checkpoint_every_n_tokens % 32 != 0
     )
     route = (
-        _FLASH_KDA_ROUTE_DIRECT_M128
+        _FLASH_KDA_ROUTE_DIRECT_M128_N16
+        if checkpoint_requires_n16
+        else _FLASH_KDA_ROUTE_DIRECT_M128
         if h12_indexed_n32
         else _direct_m128_route(
             num_heads=num_heads, max_sequence_length=max_sequence_length
@@ -1898,6 +1924,7 @@ def _run_flash_kda_prefill(
         "m128_h12_short",
         "m128_h12_long",
         "m128_n16",
+        "m128_n16_checkpoint",
         "persistent_m128",
         "small_bh_m128",
     ]
@@ -1922,6 +1949,8 @@ def _run_flash_kda_prefill(
         )
     else:
         variant = "m128"
+    if checkpoint_every_n_tokens and variant == "m128_n16":
+        variant = "m128_n16_checkpoint"
     persistent_task_ids = None
     persistent_task_offsets = None
     if persistent_plan is None:

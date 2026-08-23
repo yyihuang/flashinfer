@@ -2131,8 +2131,53 @@ def test_direct_packed_prefill_automatically_sorts_sequences(cuda_device, monkey
 
 
 @pytest.mark.parametrize(
+    (
+        "compute_capability",
+        "fixed_layout",
+        "num_heads",
+        "max_sequence_length",
+        "has_state_indices",
+        "beta_token_stride",
+        "expected",
+    ),
+    [
+        ((10, 3), False, 12, 64, True, 32, True),
+        ((10, 0), False, 12, 64, True, 32, False),
+        ((10, 3), True, 12, 64, True, 32, False),
+        ((10, 3), False, 16, 64, True, 32, False),
+        ((10, 3), False, 12, 63, True, 32, False),
+        ((10, 3), False, 12, 64, False, 32, False),
+        ((10, 3), False, 12, 64, True, 24, False),
+    ],
+)
+def test_h12_indexed_n32_route_policy(
+    compute_capability,
+    fixed_layout,
+    num_heads,
+    max_sequence_length,
+    has_state_indices,
+    beta_token_stride,
+    expected,
+):
+    assert (
+        kda_prefill_api._should_use_h12_indexed_n32(
+            compute_capability=compute_capability,
+            fixed_layout=fixed_layout,
+            num_heads=num_heads,
+            max_sequence_length=max_sequence_length,
+            has_state_indices=has_state_indices,
+            beta_token_stride=beta_token_stride,
+        )
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
     ("compute_capability", "expected_variant"),
-    [((10, 0), "m128_n16"), ((10, 3), "m128")],
+    [
+        ((10, 0), "m128_n16_checkpoint"),
+        ((10, 3), "m128_n16_checkpoint"),
+    ],
 )
 def test_strided_beta_indexed_state_and_checkpoints_reach_native_ffi(
     cuda_device, monkeypatch, compute_capability, expected_variant
@@ -3154,6 +3199,79 @@ def test_frozen_prefill_h12_strided_beta_indexed_state_and_checkpoints_match_ref
         rtol=1e-2,
     )
     torch.testing.assert_close(state_pool[[0, 2, 4]], untouched_before)
+    torch.testing.assert_close(state_storage[:, state_slot_numel:], padding_before)
+    for name, before in source_before.items():
+        torch.testing.assert_close(inputs[name], before)
+
+
+def test_frozen_prefill_h12_strided_beta_indexed_state_without_checkpoints_matches_reference(
+    flash_kda_device, monkeypatch
+):
+    if get_compute_capability(flash_kda_device) != (10, 3):
+        pytest.skip("the indexed H12 N32 route is qualified only on CC 10.3")
+
+    routes = []
+    original_get_module = kda_prefill_api._get_flash_kda_prefill_module
+
+    def get_module(variant, target):
+        routes.append((variant, target))
+        return original_get_module(variant, target)
+
+    monkeypatch.setattr(kda_prefill_api, "_get_flash_kda_prefill_module", get_module)
+    inputs = _make_inputs(
+        seq_lens=[2048],
+        num_heads=12,
+        packed=True,
+        initial_state=True,
+        seed=204812,
+    )
+    compact_initial_state = inputs["initial_state"].clone()
+    beta_carrier = torch.empty(
+        (2048, 32), dtype=torch.bfloat16, device=flash_kda_device
+    )
+    beta_carrier[:, 8:20].copy_(inputs["beta"][0])
+    inputs["beta"] = beta_carrier[None, :, 8:20]
+    expected_output, expected_state = _chunk16_debug_reference(
+        {**inputs, "initial_state": compact_initial_state}
+    )
+
+    state_slot_numel = 12 * 128 * 128
+    state_storage = torch.zeros(
+        (3, state_slot_numel + 64),
+        dtype=torch.bfloat16,
+        device=flash_kda_device,
+    )
+    state_pool = state_storage.as_strided(
+        (3, 12, 128, 128),
+        (state_storage.stride(0), 128 * 128, 128, 1),
+    )
+    state_index = torch.tensor([1], dtype=torch.int32, device=flash_kda_device)
+    state_pool[1].copy_(compact_initial_state[0])
+    untouched_before = state_pool[[0, 2]].clone()
+    padding_before = state_storage[:, state_slot_numel:].clone()
+    inputs["initial_state"] = state_pool
+    source_before = {
+        name: inputs[name].clone()
+        for name in ("q", "k", "v", "g", "beta", "A_log", "dt_bias", "cu_seqlens")
+    }
+
+    actual_output, actual_state = recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=torch.empty_like(inputs["q"]),
+        output_final_state=True,
+        ssm_state_indices=state_index,
+        backend="cake",
+    )
+
+    assert routes == [("m128", "sm100f")]
+    assert actual_state is state_pool
+    torch.testing.assert_close(
+        actual_output.float(), expected_output.float(), atol=1e-2, rtol=1e-2
+    )
+    torch.testing.assert_close(
+        state_pool[1].float(), expected_state[0].float(), atol=1e-2, rtol=1e-2
+    )
+    torch.testing.assert_close(state_pool[[0, 2]], untouched_before)
     torch.testing.assert_close(state_storage[:, state_slot_numel:], padding_before)
     for name, before in source_before.items():
         torch.testing.assert_close(inputs[name], before)
