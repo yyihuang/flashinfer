@@ -1740,6 +1740,7 @@ def _run_flash_kda_prefill(
         )
         and not needs_direct_m128
         and prefill_workspace is None
+        and seq_order is None
         and initial_state is not None
         and num_heads != 12
         and num_sequences * num_heads > sm_count
@@ -1832,7 +1833,7 @@ def _run_flash_kda_prefill(
     persistent_task_ids = None
     persistent_task_offsets = None
     if persistent_plan is None:
-        if automatic_sequence_order is None:
+        if seq_order is not None or automatic_sequence_order is None:
             seq_order_i32 = _validate_prefill_seq_order(
                 seq_order,
                 fixed_layout=fixed_layout,
