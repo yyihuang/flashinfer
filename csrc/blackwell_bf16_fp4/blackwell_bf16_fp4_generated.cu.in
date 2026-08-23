@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Fail-closed source-export template. The validated generated translation
- * unit replaces this .cu.in file as blackwell_bf16_fp4_generated.cu and must
- * set FLASHINFER_BLACKWELL_BF16_FP4_SOURCE_READY to 1 before the dispatcher
- * can select it.
+ * units replace this .cu.in file as
+ * blackwell_bf16_fp4_generated_sm{100,103}.cu. Each must set
+ * FLASHINFER_BLACKWELL_BF16_FP4_SOURCE_READY to 1 and hash its matching
+ * schema-2 ABI manifest before the dispatcher can select it.
  */
 
 #error "validated generated BF16 x FP4 device source has not been installed"
@@ -14,8 +15,9 @@
 
 #include "blackwell_bf16_fp4_host.cuh"
 
-// The populated translation unit owns all device variants plus one TVM-FFI
-// entry named blackwell_bf16_fp4_generated. The entry accepts activation,
+// Each populated architecture translation unit owns only its 20 device
+// variants. A separate blackwell_bf16_fp4_binding.cu owns the TVM-FFI entry
+// named blackwell_bf16_fp4_generated. The entry accepts activation,
 // backend-prepared weight and scale tensors, alpha carrier, output, backend
 // id, alpha-present flag, and PDL flag. It must validate shapes and layouts,
 // encode tensor maps, obtain immutable cached descriptor slots, select the

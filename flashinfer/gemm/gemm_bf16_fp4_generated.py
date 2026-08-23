@@ -23,7 +23,7 @@ _SUPPORTED_COMPUTE_CAPABILITIES = ((10, 0), (10, 3))
 def generated_bf16_fp4_available(device: torch.device) -> bool:
     """Whether this installation can safely select the generated backend."""
     return (
-        generated_bf16_fp4_source_ready()
+        generated_bf16_fp4_source_ready(device)
         and torch.version.cuda is not None
         and version_at_least(torch.version.cuda, "12.8")
         and get_compute_capability(device) in _SUPPORTED_COMPUTE_CAPABILITIES

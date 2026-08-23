@@ -465,7 +465,8 @@ def test_cute_dsl_fallback_k_splits_selector():
 
 
 @pytest.mark.parametrize("backend", ALL_BACKENDS)
-def test_backend_preallocated_out(backend):
+@pytest.mark.parametrize("enable_pdl", [False, True])
+def test_backend_preallocated_out(backend, enable_pdl):
     """Caller-provided out tensor is written in place."""
     _skip_if_backend_unavailable(backend)
     device = torch.device("cuda")
@@ -482,10 +483,50 @@ def test_backend_preallocated_out(backend):
         alpha_p,
         backend=backend,
         out=out,
+        enable_pdl=enable_pdl,
     )
+    assert returned is out
     assert returned.data_ptr() == out_ptr_before
     ref = mm_bf16_fp4(a, b_p, sf_p, alpha_p, backend=backend)
     torch.testing.assert_close(returned, ref, atol=ATOL, rtol=RTOL)
+
+
+@pytest.mark.parametrize("backend", ALL_BACKENDS)
+@pytest.mark.parametrize(
+    "bad_out,expected_error",
+    [
+        (
+            lambda m, n, device: torch.empty(
+                (m, n + 1), device=device, dtype=torch.bfloat16
+            ),
+            ValueError,
+        ),
+        (
+            lambda m, n, device: torch.empty(
+                (m, n), device=device, dtype=torch.float16
+            ),
+            TypeError,
+        ),
+    ],
+)
+def test_backend_invalid_preallocated_out_raises(backend, bad_out, expected_error):
+    """A caller-provided output must match the public shape and dtype ABI."""
+    _skip_if_backend_unavailable(backend)
+    device = torch.device("cuda")
+    m, n, k = SMOKE_MNK
+    a = torch.randn((m, k), device=device, dtype=torch.bfloat16)
+    b_fp4, b_sf, alpha = _make_random_fp4_weights(n, k, device)
+    b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(b_fp4, b_sf, alpha, backend=backend)
+
+    with pytest.raises(expected_error):
+        mm_bf16_fp4(
+            a,
+            b_p,
+            sf_p,
+            alpha_p,
+            backend=backend,
+            out=bad_out(m, n, device),
+        )
 
 
 @pytest.mark.parametrize("backend", ALL_BACKENDS)
@@ -514,7 +555,10 @@ def test_cute_dsl_prepare_uses_architecture_specific_layout():
     n, k = 192, 192
     b_fp4, b_sf, alpha = _make_random_fp4_weights(n, k, device)
 
-    b_p, sf_p, _ = prepare_bf16_fp4_weights(b_fp4, b_sf, alpha, backend="cute-dsl")
+    b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(
+        b_fp4, b_sf, alpha, backend="cute-dsl"
+    )
+    assert alpha_p is alpha
     major, minor = get_compute_capability(device)
     from flashinfer.gemm.gemm_bf16_fp4_generated import (
         generated_bf16_fp4_available,
@@ -527,7 +571,28 @@ def test_cute_dsl_prepare_uses_architecture_specific_layout():
         assert sf_p.dim() == 6
     else:
         assert b_p.dtype == torch.int32
+        assert tuple(b_p.shape) == (k // 16, n * 2)
+        assert sf_p.dtype == torch.uint8
         assert sf_p.shape == (k // 16, n)
+
+
+def test_cudnn_prepare_uses_public_prepared_abi():
+    """cuDNN keeps packed weights and returns a linear FP8 scale matrix."""
+    _skip_if_backend_unavailable("cudnn")
+    device = torch.device("cuda")
+    n, k = 192, 192
+    b_fp4, b_sf, alpha = _make_random_fp4_weights(n, k, device)
+
+    b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(
+        b_fp4, b_sf, alpha, backend="cudnn"
+    )
+
+    assert b_p is b_fp4
+    assert b_p.dtype == torch.uint8
+    assert tuple(b_p.shape) == (n, k // 2)
+    assert sf_p.dtype == torch.float8_e4m3fn
+    assert tuple(sf_p.shape) == (n, k // 16)
+    assert alpha_p is alpha
 
 
 # =============================================================================
@@ -562,24 +627,56 @@ def test_b_dtype_must_be_uint8_in_prepare():
         prepare_bf16_fp4_weights(b_bad, b_descale, None, backend="cute-dsl")
 
 
-@pytest.mark.parametrize("shape", [(512,), (2, 256), (2, 2, 128), (519,)])
+@pytest.mark.parametrize("shape", [(512,), (128, 4), (8, 8, 8), (529,)])
 def test_prepare_accepts_arbitrary_rank_and_excess_scale_storage(shape):
     """The canonical scale boundary is byte-count based, not rank based."""
     b = torch.zeros((1, 8), dtype=torch.uint8)
     b_descale = torch.zeros(shape, dtype=torch.uint8)
-    b_descale.view(-1)[0] = 0x38
+    b_descale.view(torch.uint8).view(-1)[0] = 0x38
+    alpha = torch.ones((1,), dtype=torch.float32)
 
     b_prepared, sf_prepared, alpha_prepared = prepare_bf16_fp4_weights(
         b,
         b_descale,
-        None,
+        alpha,
         backend="cudnn",
     )
 
     assert b_prepared is b
     assert tuple(sf_prepared.shape) == (1, 1)
     assert sf_prepared.view(torch.uint8).item() == 0x38
-    assert alpha_prepared is None
+    assert alpha_prepared is alpha
+
+
+def test_prepare_accepts_fp8_scale_byte_carrier():
+    """Scale storage is interpreted by byte count, independent of carrier dtype."""
+    b = torch.zeros((1, 8), dtype=torch.uint8)
+    b_descale = torch.zeros((512,), dtype=torch.uint8).view(torch.float8_e4m3fn)
+    b_descale.view(torch.uint8)[0] = 0x38
+
+    _, sf_prepared, _ = prepare_bf16_fp4_weights(
+        b,
+        b_descale,
+        None,
+        backend="cudnn",
+    )
+
+    assert tuple(sf_prepared.shape) == (1, 1)
+    assert sf_prepared.view(torch.uint8).item() == 0x38
+
+
+def test_prepare_rejects_undersized_scale_storage():
+    """One byte below the required swizzled scale storage fails closed."""
+    b = torch.zeros((1, 8), dtype=torch.uint8)
+    b_descale = torch.zeros((511,), dtype=torch.uint8)
+
+    with pytest.raises(ValueError, match=r"has 511 bytes.*requires at least 512"):
+        prepare_bf16_fp4_weights(
+            b,
+            b_descale,
+            None,
+            backend="cudnn",
+        )
 
 
 def test_alpha_dtype_must_be_float32():
