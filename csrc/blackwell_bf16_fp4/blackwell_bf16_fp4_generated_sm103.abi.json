@@ -1,0 +1,5819 @@
+{
+  "adapter_boundary": "separate_translation_unit",
+  "arch": "sm_103a",
+  "bundle": "flashinfer_blackwell_bf16_fp4_gemm",
+  "schema_version": 2,
+  "tensor_map_abi": {
+    "alignment_bytes": 128,
+    "cuda_type": "CUtensorMap",
+    "public_type": "FlashInferTensorMap",
+    "size_bytes": 128
+  },
+  "tma_abi": "pointer",
+  "variants": [
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_bf16_a0_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_bf16_a0_pdl0_541e51cb8a",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_bf16_a0_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_bf16_a0_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_bf16_a0_pdl1_4c8866f603",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_bf16_a0_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_bf16_a1_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_bf16_a1_pdl0_f928510c45",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_bf16_a1_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_bf16_a1_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_bf16_a1_pdl1_8bf69c3611",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_bf16_a1_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_f16_a0_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_f16_a0_pdl0_e9d354354f",
+      "output_dtype": "float16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_f16_a0_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_f16_a0_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_f16_a0_pdl1_98d0e71dda",
+      "output_dtype": "float16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_f16_a0_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_f16_a1_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_f16_a1_pdl0_4cf33739d9",
+      "output_dtype": "float16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_f16_a1_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_tma_f16_a1_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_tma_f16_a1_pdl1_8f401c04b0",
+      "output_dtype": "float16",
+      "route": "cudnn_tma",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_tma_f16_a1_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              32,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              16,
+              64
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_bf16_a0_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a0_pdl0_ac0261234b",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a0_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_bf16_a0_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a0_pdl1_fcf9cdea05",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a0_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_bf16_a1_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a1_pdl0_08334db7c1",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a1_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_bf16_a1_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a1_pdl1_f40ea59ccd",
+      "output_dtype": "bfloat16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_bf16_a1_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_f16_a0_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a0_pdl0_d986da1037",
+      "output_dtype": "float16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a0_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_f16_a0_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a0_pdl1_947a284ae5",
+      "output_dtype": "float16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a0_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_f16_a1_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a1_pdl0_0dabf56b7c",
+      "output_dtype": "float16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a1_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "buffer",
+          "B"
+        ],
+        [
+          "buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cudnn_cp_async_f16_a1_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a1_pdl1_ac1a438df3",
+      "output_dtype": "float16",
+      "route": "cudnn_cp_async",
+      "schedule_symbol": "flashinfer_bf16_fp4_cudnn_cp_async_f16_a1_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cute_bf16_a0_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cute_bf16_a0_pdl0_5360bdfc99",
+      "output_dtype": "bfloat16",
+      "route": "cute_dsl",
+      "schedule_symbol": "flashinfer_bf16_fp4_cute_bf16_a0_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              128,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_INT32",
+            "logical_element_bits": 32,
+            "name": "i32"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": false,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cute_bf16_a0_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cute_bf16_a0_pdl1_a5519eb202",
+      "output_dtype": "bfloat16",
+      "route": "cute_dsl",
+      "schedule_symbol": "flashinfer_bf16_fp4_cute_bf16_a0_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              128,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_INT32",
+            "logical_element_bits": 32,
+            "name": "i32"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": true
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": false,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cute_bf16_a1_pdl0",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cute_bf16_a1_pdl0_da4de47786",
+      "output_dtype": "bfloat16",
+      "route": "cute_dsl",
+      "schedule_symbol": "flashinfer_bf16_fp4_cute_bf16_a1_pdl0",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              128,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_INT32",
+            "logical_element_bits": 32,
+            "name": "i32"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": false
+    },
+    {
+      "arg_plan": [
+        [
+          "tma_buffer",
+          "A"
+        ],
+        [
+          "tma_buffer",
+          "B"
+        ],
+        [
+          "tma_buffer",
+          "B_descale"
+        ],
+        [
+          "buffer",
+          "alpha"
+        ],
+        [
+          "buffer",
+          "C"
+        ],
+        [
+          "parameter",
+          "M"
+        ],
+        [
+          "parameter",
+          "N"
+        ],
+        [
+          "parameter",
+          "K"
+        ],
+        [
+          "grid",
+          "grid_x"
+        ],
+        [
+          "grid",
+          "grid_y"
+        ],
+        [
+          "grid",
+          "grid_z"
+        ]
+      ],
+      "cluster_dims": [
+        1,
+        1,
+        1
+      ],
+      "enable_pdl": true,
+      "has_alpha": true,
+      "kernel_symbol": "kernel_flashinfer_bf16_fp4_cute_bf16_a1_pdl1",
+      "launch_grid": {
+        "x": {
+          "expression": {
+            "lhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 5,
+                    "kernel_argument_index": 5,
+                    "name": "M",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 16
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 16
+              }
+            },
+            "op": "multiply",
+            "rhs": {
+              "lhs": {
+                "lhs": {
+                  "lhs": {
+                    "host_argument_index": 6,
+                    "kernel_argument_index": 6,
+                    "name": "N",
+                    "op": "parameter"
+                  },
+                  "op": "add",
+                  "rhs": {
+                    "op": "constant",
+                    "value": 64
+                  }
+                },
+                "op": "subtract",
+                "rhs": {
+                  "op": "constant",
+                  "value": 1
+                }
+              },
+              "op": "floor_divide",
+              "rhs": {
+                "op": "constant",
+                "value": 64
+              }
+            }
+          },
+          "host_argument_index": 8
+        },
+        "y": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 9
+        },
+        "z": {
+          "expression": {
+            "op": "constant",
+            "value": 1
+          },
+          "host_argument_index": 10
+        }
+      },
+      "module_ident": "flashinfer_bf16_fp4_cute_bf16_a1_pdl1_e86caa9683",
+      "output_dtype": "bfloat16",
+      "route": "cute_dsl",
+      "schedule_symbol": "flashinfer_bf16_fp4_cute_bf16_a1_pdl1",
+      "smem_bytes": 107520,
+      "threads": 512,
+      "tma_descriptors": [
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              16
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "A",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_BFLOAT16",
+            "logical_element_bits": 16,
+            "name": "bf16"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 0,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 0,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              0,
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "A",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 4,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_128B",
+            "m": 3,
+            "s": 3
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              128,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_INT32",
+            "logical_element_bits": 32,
+            "name": "i32"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 1,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 1,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        },
+        {
+          "box": {
+            "element_strides": [
+              1,
+              1
+            ],
+            "extents": [
+              64,
+              4
+            ]
+          },
+          "checks": [],
+          "coord_order": [],
+          "descriptor_name": "B_descale",
+          "dtype": {
+            "cuda_enum": "CU_TENSOR_MAP_DATA_TYPE_UINT8",
+            "logical_element_bits": 8,
+            "name": "u8"
+          },
+          "fp4_format": "unpacked",
+          "global_extents": [
+            {
+              "index": -1,
+              "op": "axis"
+            },
+            {
+              "index": 1,
+              "op": "outer"
+            }
+          ],
+          "global_strides": {
+            "expressions": [
+              {
+                "index": -2,
+                "op": "stride"
+              }
+            ],
+            "unit": "logical_elements"
+          },
+          "host_argument_index": 2,
+          "interleave": {
+            "cuda_enum": "CU_TENSOR_MAP_INTERLEAVE_NONE",
+            "mode": "none"
+          },
+          "kernel_argument_index": 2,
+          "l2_promotion": {
+            "cuda_enum": "CU_TENSOR_MAP_L2_PROMOTION_NONE",
+            "mode": "none"
+          },
+          "minimum_source_rank": 2,
+          "oob": {
+            "allow_box_exceeds_extent_axes": [
+              1
+            ],
+            "cuda_enum": "CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE",
+            "fill": "none"
+          },
+          "rank": 2,
+          "resource": "B_descale",
+          "sub_byte_pack": "",
+          "swizzle": {
+            "b": 0,
+            "cuda_enum": "CU_TENSOR_MAP_SWIZZLE_NONE",
+            "m": 0,
+            "s": 0
+          }
+        }
+      ],
+      "use_pdl": true
+    }
+  ]
+}

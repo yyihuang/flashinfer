@@ -189,6 +189,106 @@ def _make_random_fp4_weights(
     return b_fp4, b_sf, alpha
 
 
+@pytest.mark.parametrize(
+    "backend,m,n,k,out_dtype_name,has_alpha,enable_pdl,preallocated",
+    [
+        ("cudnn", 1, 1, 16, "bfloat16", False, True, False),
+        ("cudnn", 17, 65, 48, "float16", True, True, True),
+        ("cudnn", 17, 65, 256, "bfloat16", True, False, True),
+        ("cute-dsl", 17, 64, 80, "bfloat16", True, False, True),
+        ("cute-dsl", 16, 128, 128, "bfloat16", False, True, False),
+    ],
+)
+def test_generated_backend_boundary_routes(
+    backend,
+    m,
+    n,
+    k,
+    out_dtype_name,
+    has_alpha,
+    enable_pdl,
+    preallocated,
+):
+    """Every generated route preserves the prepared public API boundary."""
+    _skip_if_backend_unavailable(backend)
+    from flashinfer.gemm.gemm_bf16_fp4_generated import (
+        generated_bf16_fp4_available,
+    )
+
+    device = torch.device("cuda")
+    if not generated_bf16_fp4_available(device):
+        pytest.skip("generated BF16 x FP4 source bundle is not installed")
+
+    torch.manual_seed(0)
+    a = torch.randn((m, k), device=device, dtype=torch.bfloat16)
+    b_fp4, b_sf, alpha = _make_random_fp4_weights(n, k, device)
+    effective_alpha = alpha if has_alpha else None
+    b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(
+        b_fp4, b_sf, effective_alpha, backend=backend
+    )
+    out_dtype = getattr(torch, out_dtype_name)
+    out = torch.empty((m, n), device=device, dtype=out_dtype) if preallocated else None
+    out_pointer = None if out is None else out.data_ptr()
+    actual = mm_bf16_fp4(
+        a,
+        b_p,
+        sf_p,
+        alpha_p,
+        backend=backend,
+        out_dtype=out_dtype,
+        out=out,
+        enable_pdl=enable_pdl,
+    )
+
+    weight = _dequantize_bf16_fp4_torch(b_fp4, b_sf, effective_alpha, n, k, 16)
+    expected = (a.float() @ weight.T).to(out_dtype)
+    _assert_close_to_reference(actual, expected, backend)
+    assert tuple(actual.shape) == (m, n)
+    assert actual.dtype == out_dtype
+    if out_pointer is not None:
+        assert actual.data_ptr() == out_pointer
+
+
+def test_generated_backend_uses_tensor_device_not_current_device():
+    """The source binding must guard descriptor setup and launch by tensor device."""
+    if torch.cuda.device_count() < 2:
+        pytest.skip("requires two CUDA devices")
+
+    from flashinfer.gemm.gemm_bf16_fp4_generated import (
+        generated_bf16_fp4_available,
+    )
+
+    tensor_device = torch.device("cuda", 1)
+    if not generated_bf16_fp4_available(tensor_device):
+        pytest.skip("generated BF16 x FP4 source bundle is not installed")
+
+    m, n, k = 17, 65, 48
+    with torch.cuda.device(tensor_device):
+        torch.manual_seed(0)
+        a = torch.randn((m, k), device=tensor_device, dtype=torch.bfloat16)
+        b_fp4, b_sf, alpha = _make_random_fp4_weights(n, k, tensor_device)
+        b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(
+            b_fp4, b_sf, alpha, backend="cudnn"
+        )
+
+    torch.cuda.set_device(0)
+    assert torch.cuda.current_device() == 0
+    actual = mm_bf16_fp4(
+        a,
+        b_p,
+        sf_p,
+        alpha_p,
+        backend="cudnn",
+        out_dtype=torch.bfloat16,
+        enable_pdl=True,
+    )
+    assert torch.cuda.current_device() == 0
+
+    weight = _dequantize_bf16_fp4_torch(b_fp4, b_sf, alpha, n, k, 16)
+    expected = (a.float() @ weight.T).to(torch.bfloat16)
+    _assert_close_to_reference(actual, expected, "cudnn")
+
+
 # =============================================================================
 # Cross-backend numerical / behaviour contract
 # =============================================================================
@@ -583,9 +683,7 @@ def test_cudnn_prepare_uses_public_prepared_abi():
     n, k = 192, 192
     b_fp4, b_sf, alpha = _make_random_fp4_weights(n, k, device)
 
-    b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(
-        b_fp4, b_sf, alpha, backend="cudnn"
-    )
+    b_p, sf_p, alpha_p = prepare_bf16_fp4_weights(b_fp4, b_sf, alpha, backend="cudnn")
 
     assert b_p is b_fp4
     assert b_p.dtype == torch.uint8

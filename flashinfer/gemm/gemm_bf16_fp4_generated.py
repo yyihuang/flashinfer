@@ -31,11 +31,20 @@ def generated_bf16_fp4_available(device: torch.device) -> bool:
 
 
 @functools.cache
-def _get_generated_bf16_fp4_module():
-    module = gen_blackwell_bf16_fp4_generated_module().build_and_load()
+def _get_generated_bf16_fp4_module(arch_name: str, device_index: int):
+    device = torch.device("cuda", device_index)
+    capability = get_compute_capability(device)
+    expected_arch = {(10, 0): "sm100", (10, 3): "sm103"}.get(capability)
+    if expected_arch != arch_name:
+        raise RuntimeError(
+            f"generated BF16 x FP4 target {arch_name} does not match "
+            f"CUDA device {device_index} capability {capability}"
+        )
+    with torch.cuda.device(device):
+        module = gen_blackwell_bf16_fp4_generated_module(device).build_and_load()
 
     @register_custom_op(
-        "flashinfer::blackwell_bf16_fp4_generated",
+        f"flashinfer::blackwell_bf16_fp4_generated_{arch_name}_device_{device_index}",
         mutates_args=["out"],
     )
     def blackwell_bf16_fp4_generated_impl(
@@ -159,11 +168,23 @@ def _compute_generated_bf16_fp4(
             or alpha.device != a.device
             or not alpha.is_contiguous()
         ):
-            raise ValueError("alpha must be a contiguous float32[1] on the input device")
+            raise ValueError(
+                "alpha must be a contiguous float32[1] on the input device"
+            )
         alpha_carrier = alpha.reshape(1)
         has_alpha = True
 
-    _get_generated_bf16_fp4_module().run(
+    device_index = a.device.index
+    if device_index is None:
+        device_index = torch.cuda.current_device()
+    capability = get_compute_capability(a.device)
+    arch_name = {(10, 0): "sm100", (10, 3): "sm103"}.get(capability)
+    if arch_name is None:
+        raise ValueError(
+            "generated BF16 x FP4 kernels require SM100 or SM103, got "
+            f"SM{capability[0]}{capability[1]}"
+        )
+    _get_generated_bf16_fp4_module(arch_name, device_index).run(
         a,
         b,
         b_descale,

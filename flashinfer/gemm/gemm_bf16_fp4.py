@@ -113,7 +113,9 @@ def _cute_dsl_bf16_fp4_requirement(
     from .gemm_bf16_fp4_generated import generated_bf16_fp4_available
 
     use_generated = cc in (100, 103) and generated_bf16_fp4_available(a.device)
-    expected_dtype = torch.int32 if use_generated or cc not in (100, 103) else torch.uint8
+    expected_dtype = (
+        torch.int32 if use_generated or cc not in (100, 103) else torch.uint8
+    )
     if b.dtype != expected_dtype:
         raise ValueError(
             f"cute-dsl bf16 x fp4 on SM{cc} expects the {expected_dtype} weight "

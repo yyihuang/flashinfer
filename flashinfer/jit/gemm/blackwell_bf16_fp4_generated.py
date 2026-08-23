@@ -23,13 +23,12 @@ _MANIFEST_RELATIVE_PATHS = {
     arch: source.with_suffix(".abi.json")
     for arch, source in _SOURCE_RELATIVE_PATHS.items()
 }
-_BINDING_RELATIVE_PATH = Path(
-    "blackwell_bf16_fp4/blackwell_bf16_fp4_binding.cu"
-)
+_BINDING_RELATIVE_PATH = Path("blackwell_bf16_fp4/blackwell_bf16_fp4_binding.cu")
+_BINDING_SHA256 = "4cecb43feb3fc9f2e48c4e395ba594f03f2491dbf4060b0e11cea8150b8a2981"
+_HOST_RELATIVE_PATH = Path("blackwell_bf16_fp4/blackwell_bf16_fp4_host.cuh")
+_HOST_SHA256 = "6c40f8c7aad6433e55164bb406379ddf4ae489c55116df6f6511f6dac55c581f"
 _READY_MARKER = "#define FLASHINFER_BLACKWELL_BF16_FP4_SOURCE_READY 1"
-_MANIFEST_HASH_MARKER = (
-    "#define FLASHINFER_BLACKWELL_BF16_FP4_ABI_MANIFEST_SHA256 "
-)
+_MANIFEST_HASH_MARKER = "#define FLASHINFER_BLACKWELL_BF16_FP4_ABI_MANIFEST_SHA256 "
 _TARGET_SM_MARKER = "#define FLASHINFER_BLACKWELL_BF16_FP4_TARGET_SM "
 
 
@@ -87,10 +86,15 @@ def _source_bundle_ready(arch_name: str, manifest_arch: str) -> bool:
     source = _source_path(_SOURCE_RELATIVE_PATHS[arch_name])
     manifest = _source_path(_MANIFEST_RELATIVE_PATHS[arch_name])
     binding = _source_path(_BINDING_RELATIVE_PATH)
-    if not source.is_file() or not manifest.is_file() or not binding.is_file():
+    host = _source_path(_HOST_RELATIVE_PATH)
+    if not all(path.is_file() for path in (source, manifest, binding, host)):
         return False
     try:
-        if binding.stat().st_size == 0:
+        binding_bytes = binding.read_bytes()
+        if hashlib.sha256(binding_bytes).hexdigest() != _BINDING_SHA256:
+            return False
+        host_bytes = host.read_bytes()
+        if hashlib.sha256(host_bytes).hexdigest() != _HOST_SHA256:
             return False
         with source.open(encoding="utf-8") as handle:
             prefix = handle.read(4096)
@@ -136,22 +140,32 @@ def generated_bf16_fp4_source_ready(device: torch.device | None = None) -> bool:
 
 
 @functools.cache
-def gen_blackwell_bf16_fp4_generated_module() -> JitSpec:
-    """Create the arch-specific JIT spec after the source readiness gate."""
-    if not generated_bf16_fp4_source_ready():
+def _gen_blackwell_bf16_fp4_generated_module(
+    arch_name: str, manifest_arch: str, nvcc_flags: tuple[str, ...]
+) -> JitSpec:
+    if not _source_bundle_ready(arch_name, manifest_arch):
         raise RuntimeError(
             "generated BF16 x FP4 device source is not installed; the existing "
             "backend remains active"
         )
-    arch_name, _, nvcc_flags = _target()
     source = _source_path(_SOURCE_RELATIVE_PATHS[arch_name])
     binding = _source_path(_BINDING_RELATIVE_PATH)
     return gen_jit_spec(
         f"blackwell_bf16_fp4_generated_{arch_name}",
         [source, binding],
-        extra_cuda_cflags=nvcc_flags,
+        extra_cuda_cflags=list(nvcc_flags),
         extra_include_paths=[source.parent, jit_env.FLASHINFER_CSRC_DIR],
         extra_ldflags=["-lcuda"],
+    )
+
+
+def gen_blackwell_bf16_fp4_generated_module(
+    device: torch.device | None = None,
+) -> JitSpec:
+    """Create the JIT spec for ``device`` after the exact source gate."""
+    arch_name, manifest_arch, nvcc_flags = _target(device)
+    return _gen_blackwell_bf16_fp4_generated_module(
+        arch_name, manifest_arch, tuple(nvcc_flags)
     )
 
 
