@@ -3107,6 +3107,104 @@ def test_frozen_prefill_h12_packed_matches_reference(flash_kda_device):
     )
 
 
+def test_frozen_prefill_h12_strided_beta_indexed_state_n16_checkpoints_match_reference(
+    flash_kda_device, monkeypatch
+):
+    checkpoint_interval = 16
+    routes = []
+    original_get_module = kda_prefill_api._get_flash_kda_prefill_module
+
+    def get_module(variant, target):
+        routes.append((variant, target))
+        return original_get_module(variant, target)
+
+    monkeypatch.setattr(kda_prefill_api, "_get_flash_kda_prefill_module", get_module)
+    inputs = _make_inputs(
+        seq_lens=[65, 131],
+        num_heads=12,
+        packed=True,
+        initial_state=True,
+        seed=2064,
+    )
+    compact_initial_state = inputs["initial_state"].clone()
+    beta_carrier = torch.empty(
+        (inputs["q"].shape[1], 32),
+        dtype=torch.bfloat16,
+        device=flash_kda_device,
+    )
+    beta_carrier[:, 8:20].copy_(inputs["beta"][0])
+    inputs["beta"] = beta_carrier[None, :, 8:20]
+    expected_output, expected_state, expected_checkpoints = _chunk16_debug_reference(
+        {**inputs, "initial_state": compact_initial_state},
+        checkpoint_every_n_tokens=checkpoint_interval,
+    )
+
+    state_slot_numel = 12 * 128 * 128
+    state_storage = torch.zeros(
+        (5, state_slot_numel + 64),
+        dtype=torch.bfloat16,
+        device=flash_kda_device,
+    )
+    state_pool = state_storage.as_strided(
+        (5, 12, 128, 128),
+        (state_storage.stride(0), 128 * 128, 128, 1),
+    )
+    state_indices = torch.tensor([1, 3], dtype=torch.int32, device=flash_kda_device)
+    state_indices_i64 = state_indices.to(torch.int64)
+    state_pool[state_indices_i64] = compact_initial_state
+    untouched_before = state_pool[[0, 2, 4]].clone()
+    padding_before = state_storage[:, state_slot_numel:].clone()
+    inputs["initial_state"] = state_pool
+    checkpoint_cu_starts = torch.tensor(
+        [0, 5, 14], dtype=torch.int64, device=flash_kda_device
+    )
+    state_checkpoints = torch.empty(
+        (14, 12, 128, 128), dtype=torch.bfloat16, device=flash_kda_device
+    )
+    source_before = {
+        name: inputs[name].clone()
+        for name in ("q", "k", "v", "g", "beta", "A_log", "dt_bias", "cu_seqlens")
+    }
+
+    actual_output, actual_state, actual_checkpoints = recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=torch.empty_like(inputs["q"]),
+        output_final_state=True,
+        ssm_state_indices=state_indices,
+        state_checkpoints=state_checkpoints,
+        checkpoint_cu_starts=checkpoint_cu_starts,
+        checkpoint_every_n_tokens=checkpoint_interval,
+        backend="cake",
+    )
+
+    expected_target = kda_prefill_api._select_flash_kda_prefill_target(
+        flash_kda_device
+    )
+    assert routes == [("m128_n16_checkpoint", expected_target)]
+    assert actual_state is state_pool
+    assert actual_checkpoints is state_checkpoints
+    assert inputs["beta"].data_ptr() == beta_carrier[:, 8:20].data_ptr()
+    torch.testing.assert_close(
+        actual_output.float(), expected_output.float(), atol=1e-2, rtol=1e-2
+    )
+    torch.testing.assert_close(
+        state_pool[state_indices_i64].float(),
+        expected_state.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(
+        actual_checkpoints.float(),
+        expected_checkpoints.float(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    torch.testing.assert_close(state_pool[[0, 2, 4]], untouched_before)
+    torch.testing.assert_close(state_storage[:, state_slot_numel:], padding_before)
+    for name, before in source_before.items():
+        torch.testing.assert_close(inputs[name], before)
+
+
 def test_frozen_prefill_h12_strided_beta_indexed_state_and_checkpoints_match_reference(
     flash_kda_device, monkeypatch
 ):
