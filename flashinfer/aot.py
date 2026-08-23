@@ -71,6 +71,7 @@ from .jit.flash_kda import (
     gen_flash_kda_m64_module,
     gen_flash_kda_m128_module,
     gen_flash_kda_m128_n16_checkpoint_module,
+    gen_flash_kda_m128_tensor_state_decay_module,
     gen_flash_kda_m128_h12_long_module,
     gen_flash_kda_m128_h12_short_module,
     gen_flash_kda_m128_n16_module,
@@ -592,6 +593,7 @@ def gen_all_modules(
                 [
                     gen_flash_kda_m64_module(flash_kda_target),
                     gen_flash_kda_m128_module(flash_kda_target),
+                    gen_flash_kda_m128_tensor_state_decay_module(flash_kda_target),
                     gen_flash_kda_m128_h12_short_module(flash_kda_target),
                     gen_flash_kda_m128_h12_long_module(flash_kda_target),
                     gen_flash_kda_m128_n16_module(flash_kda_target),
