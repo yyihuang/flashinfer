@@ -226,7 +226,21 @@ def _build_plan(
     source_cp_chunk_len = _choose_chunk_len(
         total_tokens=total_tokens, num_heads=num_sab_heads, num_sms=num_sms
     )
-    cp_chunk_len = checkpoint_every_n_tokens or source_cp_chunk_len
+    # Preserve Stage-4's source-selected boundary, but avoid the measured BF16
+    # error from composing across a default 128-token physical boundary.  The
+    # rounded longest row is the smallest block-multiple chunk that removes
+    # that inter-chunk path; explicit checkpoint intervals remain exact.
+    bf16_crosses_128_boundary = (
+        not checkpoint_every_n_tokens
+        and q.dtype == torch.bfloat16
+        and source_cp_chunk_len == 2 * _BLOCK
+        and max(seq_lens) > source_cp_chunk_len
+    )
+    cp_chunk_len = checkpoint_every_n_tokens or (
+        _round_up(max(seq_lens), _BLOCK)
+        if bf16_crosses_128_boundary
+        else source_cp_chunk_len
+    )
     if (
         not checkpoint_every_n_tokens
         and arch == "sm_103a"

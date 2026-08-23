@@ -370,8 +370,46 @@ def test_zero_length_plan_uses_simt_state_fixup(
     assert plan.fixup_kernel == "state_fixup_simt_row4"
 
 
+def test_bf16_crossed_128_boundary_uses_one_physical_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cake, "_arch_for", lambda _device: "sm_100a")
+    monkeypatch.setattr(
+        cake.torch.cuda,
+        "get_device_properties",
+        lambda _device: SimpleNamespace(multi_processor_count=148),
+    )
+    device = SimpleNamespace()
+    common = {
+        "q": SimpleNamespace(
+            shape=(193, 4, 128),
+            device=device,
+            dtype=torch.bfloat16,
+        ),
+        "k": SimpleNamespace(shape=(193, 1, 128)),
+        "v": SimpleNamespace(shape=(193, 1, 128)),
+    }
+
+    crossed = cake._build_plan(**common, seq_lens=(64, 129))
+    exact = cake._build_plan(
+        q=SimpleNamespace(
+            shape=(128, 4, 128),
+            device=device,
+            dtype=torch.bfloat16,
+        ),
+        k=SimpleNamespace(shape=(128, 1, 128)),
+        v=SimpleNamespace(shape=(128, 1, 128)),
+        seq_lens=(128,),
+    )
+
+    assert (crossed.source_cp_chunk_len, crossed.cp_chunk_len) == (128, 192)
+    assert (exact.source_cp_chunk_len, exact.cp_chunk_len) == (128, 128)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_checkpoint_interval_becomes_cp_chunk_and_maps_boundaries(
     monkeypatch: pytest.MonkeyPatch,
+    dtype: torch.dtype,
 ) -> None:
     monkeypatch.setattr(cake, "_arch_for", lambda _device: "sm_103a")
     monkeypatch.setattr(
@@ -380,7 +418,7 @@ def test_checkpoint_interval_becomes_cp_chunk_and_maps_boundaries(
         lambda _device: SimpleNamespace(multi_processor_count=148),
     )
     device = torch.device("cpu")
-    q = SimpleNamespace(shape=(640, 1, 128), device=device, dtype=torch.float16)
+    q = SimpleNamespace(shape=(640, 1, 128), device=device, dtype=dtype)
     k = SimpleNamespace(shape=(640, 1, 128))
     v = SimpleNamespace(shape=(640, 1, 128))
 
@@ -1604,6 +1642,9 @@ def test_public_dispatcher_uses_only_cake_for_indexed_inplace_gqa(
     torch.cuda.synchronize()
 
     assert cake_calls == ["cake"]
+    assert cake._public_prepared is not None
+    assert cake._public_prepared.plan.source_cp_chunk_len == 128
+    assert cake._public_prepared.plan.cp_chunk_len == 192
     assert actual_output is output
     assert actual_state is candidate_state
     torch.testing.assert_close(actual_output, expected_output, atol=1e-2, rtol=1e-2)
