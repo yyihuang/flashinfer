@@ -1845,8 +1845,20 @@ def _run_flash_kda_prefill(
             sm_count=sm_count,
         )
     max_sequence_length = max(sequence_lengths)
+    h12_indexed_n32 = (
+        needs_direct_m128
+        and compute_capability == (10, 3)
+        and num_heads == 12
+        and max_sequence_length >= _FLASH_KDA_H12_DIRECT_N32_MIN_SEQUENCE_LENGTH
+        and state_indices is not None
+        and beta.stride(-2) == 32
+    )
     route = (
-        _direct_m128_route(num_heads=num_heads, max_sequence_length=max_sequence_length)
+        _FLASH_KDA_ROUTE_DIRECT_M128
+        if h12_indexed_n32
+        else _direct_m128_route(
+            num_heads=num_heads, max_sequence_length=max_sequence_length
+        )
         if needs_direct_m128
         else _select_flash_kda_bf16_route(
             compute_capability=compute_capability,

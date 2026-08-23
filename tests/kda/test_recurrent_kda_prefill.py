@@ -2130,11 +2130,17 @@ def test_direct_packed_prefill_automatically_sorts_sequences(cuda_device, monkey
     assert args[9].tolist() == [1, 2, 0]
 
 
+@pytest.mark.parametrize(
+    ("compute_capability", "expected_variant"),
+    [((10, 0), "m128_n16"), ((10, 3), "m128")],
+)
 def test_strided_beta_indexed_state_and_checkpoints_reach_native_ffi(
-    cuda_device, monkeypatch
+    cuda_device, monkeypatch, compute_capability, expected_variant
 ):
     monkeypatch.setattr(
-        kda_prefill_api, "get_compute_capability", lambda device: (10, 0)
+        kda_prefill_api,
+        "get_compute_capability",
+        lambda device: compute_capability,
     )
     monkeypatch.setattr(
         kda_prefill_api, "_is_cuda_version_at_least", lambda version: True
@@ -2191,7 +2197,7 @@ def test_strided_beta_indexed_state_and_checkpoints_reach_native_ffi(
     assert output.shape == inputs["q"].shape
     assert returned_state is state_pool
     assert returned_checkpoints is state_checkpoints
-    assert routes == [("m128_n16_checkpoint", "sm100f")]
+    assert routes == [(expected_variant, "sm100f")]
     (args,) = module.calls
     assert len(args) == 28
     assert args[4].data_ptr() == inputs["beta"].data_ptr()
@@ -3057,11 +3063,19 @@ def test_frozen_prefill_h12_packed_matches_reference(flash_kda_device):
 
 
 def test_frozen_prefill_h12_strided_beta_indexed_state_and_checkpoints_match_reference(
-    flash_kda_device,
+    flash_kda_device, monkeypatch
 ):
-    checkpoint_interval = 16
+    checkpoint_interval = 64
+    routes = []
+    original_get_module = kda_prefill_api._get_flash_kda_prefill_module
+
+    def get_module(variant, target):
+        routes.append((variant, target))
+        return original_get_module(variant, target)
+
+    monkeypatch.setattr(kda_prefill_api, "_get_flash_kda_prefill_module", get_module)
     inputs = _make_inputs(
-        seq_lens=[65, 131],
+        seq_lens=[510, 1538],
         num_heads=12,
         packed=True,
         initial_state=True,
@@ -3094,13 +3108,19 @@ def test_frozen_prefill_h12_strided_beta_indexed_state_and_checkpoints_match_ref
     state_indices_i64 = state_indices.to(torch.int64)
     state_pool[state_indices_i64] = compact_initial_state
     untouched_before = state_pool[[0, 2, 4]].clone()
+    padding_before = state_storage[:, state_slot_numel:].clone()
     inputs["initial_state"] = state_pool
     checkpoint_cu_starts = torch.tensor(
-        [0, 5, 14], dtype=torch.int64, device=flash_kda_device
+        [0, 8, 33], dtype=torch.int64, device=flash_kda_device
     )
     state_checkpoints = torch.empty(
-        (14, 12, 128, 128), dtype=torch.bfloat16, device=flash_kda_device
+        (33, 12, 128, 128), dtype=torch.bfloat16, device=flash_kda_device
     )
+    source_before = {
+        name: inputs[name].clone()
+        for name in ("q", "k", "v", "g", "beta", "A_log", "dt_bias", "cu_seqlens")
+    }
+    seq_order = torch.tensor([1, 0], dtype=torch.int32, device=flash_kda_device)
 
     actual_output, actual_state, actual_checkpoints = recurrent_kda(
         **_strict_prefill_kwargs(inputs),
@@ -3110,9 +3130,11 @@ def test_frozen_prefill_h12_strided_beta_indexed_state_and_checkpoints_match_ref
         state_checkpoints=state_checkpoints,
         checkpoint_cu_starts=checkpoint_cu_starts,
         checkpoint_every_n_tokens=checkpoint_interval,
+        seq_order=seq_order,
         backend="cake",
     )
 
+    assert routes == [("m128", "sm100f")]
     assert actual_state is state_pool
     assert actual_checkpoints is state_checkpoints
     assert inputs["beta"].data_ptr() == beta_carrier[:, 8:20].data_ptr()
@@ -3132,6 +3154,9 @@ def test_frozen_prefill_h12_strided_beta_indexed_state_and_checkpoints_match_ref
         rtol=1e-2,
     )
     torch.testing.assert_close(state_pool[[0, 2, 4]], untouched_before)
+    torch.testing.assert_close(state_storage[:, state_slot_numel:], padding_before)
+    for name, before in source_before.items():
+        torch.testing.assert_close(inputs[name], before)
 
 
 @pytest.mark.parametrize(
