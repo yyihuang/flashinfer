@@ -1111,6 +1111,7 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
         initial_state=initial_state,
         max_seqlen=total,
     )
+    source_output = expected_output.clone()
     if not bool(torch.isfinite(expected_output).all().item()):
         semantic_output, semantic_state = _fresh_batched_semantic_oracle(
             tmp_path=tmp_path,
@@ -1142,6 +1143,68 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
     )
     output, final_state = prepared.replay()
     torch.cuda.synchronize()
+
+    if (total, hq, hv) == (2048, 2, 8):
+        state = initial_state[0].transpose(-1, -2).float().clone()
+        k_expanded = k.repeat_interleave(hv // hq, dim=1).float()
+        v_expanded = v.float()
+        q_modulo = q[:, torch.arange(hv, device=device) % hq].float()
+        modulo_output = torch.empty_like(expected_output)
+        for token in range(total):
+            old_state = alpha[token].reshape(-1, 1, 1) * state
+            old_value = torch.einsum("hd,hdv->hv", k_expanded[token], old_state)
+            new_value = beta[token].reshape(-1, 1) * v_expanded[token]
+            new_value += (1.0 - beta[token].reshape(-1, 1)) * old_value
+            state = old_state - k_expanded[token].unsqueeze(-1) * old_value.unsqueeze(-2)
+            state += k_expanded[token].unsqueeze(-1) * new_value.unsqueeze(-2)
+            modulo_output[token] = (1.0 / dim**0.5) * torch.einsum(
+                "hd,hdv->hv", q_modulo[token], state
+            )
+
+        def comparison(actual: torch.Tensor, reference: torch.Tensor) -> dict[str, object]:
+            close = torch.isclose(actual, reference, atol=1e-2, rtol=1e-2)
+            difference = (actual.float() - reference.float()).abs()
+            return {
+                "mismatches": int((~close).sum().item()),
+                "max_abs": float(difference.max().item()),
+                "per_head_mismatches": [
+                    int((~close[:, head]).sum().item()) for head in range(hv)
+                ],
+                "per_192_token_mismatches": [
+                    int((~close[start : start + 192]).sum().item())
+                    for start in range(0, total, 192)
+                ],
+            }
+
+        source_finite = torch.isfinite(source_output)
+        source_close = torch.isclose(
+            output[source_finite], source_output[source_finite], atol=1e-2, rtol=1e-2
+        )
+        print(
+            "__GVA_DIAGNOSTIC__"
+            + json.dumps(
+                {
+                    "candidate_vs_grouped": comparison(output, expected_output),
+                    "candidate_vs_modulo": comparison(output, modulo_output),
+                    "candidate_vs_source_finite": {
+                        "finite": int(source_finite.sum().item()),
+                        "mismatches": int((~source_close).sum().item()),
+                        "max_abs": float(
+                            (
+                                output[source_finite].float()
+                                - source_output[source_finite].float()
+                            )
+                            .abs()
+                            .max()
+                            .item()
+                        ),
+                    },
+                    "source_nonfinite": int((~source_finite).sum().item()),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
 
     torch.testing.assert_close(output, expected_output, atol=1e-2, rtol=1e-2)
     torch.testing.assert_close(final_state, expected_state, atol=1e-2, rtol=1e-2)
