@@ -430,8 +430,6 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                         _phase_z_acc_full_0 ^= 1;
                         asm volatile("tcgen05.fence::after_thread_sync;");
                         int warp_row_0 = warp_in_wg * 32;
-                        int matrix_idx_1 = lane / 8;
-                        int address_row_2 = lane & 7;
                         #pragma unroll
                         for (int row_half_1 = 0; row_half_1 < 2; row_half_1++) {
                             int row_base_0_2 = warp_row_0 + row_half_1 * 16 << 16;
@@ -452,46 +450,8 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                                 "tcgen05.st.sync.aligned.16x128b.x8.b32"
                                 " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
                                 :: "r"(taddr + 320 + (unsigned int)row_base_0_2), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[0])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[3])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[4])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[5])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[6])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[7])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[8])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[9])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[10])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[11])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[12])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[13])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[14])), "r"(*reinterpret_cast<const uint32_t*>(&packed_2[15])));
-                            {
-                                float packed_f32_1[32];
-                                #pragma unroll
-                                for (int _pair = 0; _pair < 16; _pair++) {
-                                    asm volatile(
-                                        "{\n\t"
-                                        "shl.b32 %0, %2, 16;\n\t"
-                                        "and.b32 %1, %2, 0xffff0000;\n\t"
-                                        "}\n"
-                                        : "=f"((&packed_f32_1[_pair * 2])[0]), "=f"((&packed_f32_1[_pair * 2])[1])
-                                        : "r"(packed_2[_pair]));
-                                }
-                                #pragma unroll
-                                for (int _ls = 0; _ls < 16; _ls++)
-                                    sub_f32x2_inplace(&reinterpret_cast<float2*>(_tmem_load_3)[_ls], reinterpret_cast<const float2*>(packed_f32_1)[_ls]);
-                                unsigned int residual_packed[16];
-                                #pragma unroll
-                                for (int _lp = 0; _lp < 16; _lp++) {
-                                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(_tmem_load_3[_lp*2 + 0], _tmem_load_3[_lp*2+1 + 0]));
-                                    residual_packed[_lp] = *(uint32_t*)&_bf2;
-                                }
-                                #pragma unroll
-                                for (int token_group_1 = 0; token_group_1 < 4; token_group_1++) {
-                                    int dst_row_1 = warp_row_0 + row_half_1 * 16 + (matrix_idx_1 & 1) * 8;
-                                    int dst_token_1 = token_group_1 * 16 + matrix_idx_1 / 2 * 8 + address_row_2;
-                                    int row_group_1 = dst_row_1 / 64;
-                                    int row_within_2 = dst_row_1 % 64;
-                                    int atom_row_2 = row_group_1 * 64 + dst_token_1;
-                                    const int reg_base_1 = token_group_1 * 4;
-                                    uint32_t _stmatrix_addr_2 = static_cast<uint32_t>((unsigned long long)(smem_y_residual_addr + (unsigned int)(atom_row_2 * 128 + row_within_2 * 2 ^ (atom_row_2 * 128 + row_within_2 * 2 >> 7 & 7) << 4)));
-                                    asm volatile("stmatrix.sync.aligned.m8n8.x4.trans.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                        :: "r"(_stmatrix_addr_2), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1])), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1 + 3]))
-                                        : "memory");
-                                }
-                            }
                         }
                         asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
-                        {
-                            asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
-                        }
                         mbarrier_arrive(z_acc_empty_addr);
                         mbarrier_wait(z_ready_empty_addr, _phase_z_ready_empty_0);
                         _phase_z_ready_empty_0 ^= 1;
@@ -507,10 +467,10 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                         float _tmem_load_4[32];
                         tmem_ld_x32(&_tmem_load_4[0], taddr + (unsigned int)row_base_0_3 + (unsigned int)(panel_2 * 32));
                         asm volatile("tcgen05.wait::ld.sync.aligned;");
-                        const float2 _scale2_3 = {block_coeff_m, block_coeff_m};
+                        const float2 _scale2_2 = {block_coeff_m, block_coeff_m};
                         #pragma unroll
                         for (int _ls = 0; _ls < 16; _ls++)
-                            mul_f32x2_inplace(&reinterpret_cast<float2*>(_tmem_load_4)[_ls], _scale2_3);
+                            mul_f32x2_inplace(&reinterpret_cast<float2*>(_tmem_load_4)[_ls], _scale2_2);
                         tmem_st_x32_f32(taddr + (unsigned int)row_base_0_3 + (unsigned int)(panel_2 * 32), _tmem_load_4);
                     }
                     asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
@@ -625,7 +585,7 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                         if (block_idx_1 > 0) {
                             int row_base_0_5 = warp_in_wg_1 * 32 << 16;
                             int row_2 = warp_in_wg_1 * 32 + lane;
-                            int row_within_3 = row_2 % 64;
+                            int row_within_2 = row_2 % 64;
                             #pragma unroll
                             for (int panel_5 = 0; panel_5 < 4; panel_5++) {
                                 float _tmem_load_6[32];
@@ -641,7 +601,7 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                                     "tcgen05.st.sync.aligned.32x32b.x16.b32"
                                     " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
                                     :: "r"(taddr + 384 + (unsigned int)row_base_0_5 + (unsigned int)(panel_5 * 16)), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[0])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[3])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[4])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[5])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[6])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[7])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[8])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[9])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[10])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[11])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[12])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[13])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[14])), "r"(*reinterpret_cast<const uint32_t*>(&packed_3[15])));
-                                float packed_f32_2[32];
+                                float packed_f32_1[32];
                                 #pragma unroll
                                 for (int _pair = 0; _pair < 16; _pair++) {
                                     asm volatile(
@@ -649,20 +609,20 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                                         "shl.b32 %0, %2, 16;\n\t"
                                         "and.b32 %1, %2, 0xffff0000;\n\t"
                                         "}\n"
-                                        : "=f"((&packed_f32_2[_pair * 2])[0]), "=f"((&packed_f32_2[_pair * 2])[1])
+                                        : "=f"((&packed_f32_1[_pair * 2])[0]), "=f"((&packed_f32_1[_pair * 2])[1])
                                         : "r"(packed_3[_pair]));
                                 }
                                 #pragma unroll
                                 for (int _ls = 0; _ls < 16; _ls++)
-                                    sub_f32x2_inplace(&reinterpret_cast<float2*>(_tmem_load_6)[_ls], reinterpret_cast<const float2*>(packed_f32_2)[_ls]);
+                                    sub_f32x2_inplace(&reinterpret_cast<float2*>(_tmem_load_6)[_ls], reinterpret_cast<const float2*>(packed_f32_1)[_ls]);
                                 #pragma unroll
                                 for (int item_2 = 0; item_2 < 32; item_2++) {
                                     int col_2 = panel_5 * 32 + item_2;
-                                    int atom_row_3 = row_2 / 64 * 128 + col_2;
+                                    int atom_row_2 = row_2 / 64 * 128 + col_2;
                                     {
                                         __nv_bfloat16 _bval_0 = __float2bfloat16_rn(_tmem_load_6[item_2]);
                                         uint16_t _bits_0 = *(uint16_t*)&_bval_0;
-                                        uint32_t _addr_0 = static_cast<uint32_t>((smem_n_residual_addr + (unsigned int)(atom_row_3 * 128 + row_within_3 * 2 ^ (atom_row_3 * 128 + row_within_3 * 2 >> 7 & 7) << 4)));
+                                        uint32_t _addr_0 = static_cast<uint32_t>((smem_n_residual_addr + (unsigned int)(atom_row_2 * 128 + row_within_2 * 2 ^ (atom_row_2 * 128 + row_within_2 * 2 >> 7 & 7) << 4)));
                                         asm volatile("st.shared.b16 [%0], %1;" :: "r"(_addr_0), "h"(_bits_0) : "memory");
                                     }
                                 }
@@ -699,7 +659,7 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                     float block_coeff_n = smem_alpha[alpha_stage_n * 192 + 64 + 63];
                     int warp_row_1 = warp_in_wg_1 * 32;
                     int lane_quad = lane & 3;
-                    int matrix_idx_2 = lane / 8;
+                    int matrix_idx_1 = lane / 8;
                     int address_row_1 = lane & 7;
                     #pragma unroll
                     for (int row_half_2 = 0; row_half_2 < 2; row_half_2++) {
@@ -713,16 +673,16 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                         asm volatile("tcgen05.wait::ld.sync.aligned;");
                         float result[32];
                         #pragma unroll
-                        for (int token_group_2 = 0; token_group_2 < 4; token_group_2++) {
-                            int src_row = warp_row_1 + row_half_2 * 16 + (matrix_idx_2 & 1) * 8;
-                            int src_token = token_group_2 * 16 + matrix_idx_2 / 2 * 8 + address_row_1;
-                            int row_group_2 = src_row / 64;
-                            int row_within_4 = src_row % 64;
-                            int atom_row_4 = row_group_2 * 64 + src_token;
+                        for (int token_group_1 = 0; token_group_1 < 4; token_group_1++) {
+                            int src_row = warp_row_1 + row_half_2 * 16 + (matrix_idx_1 & 1) * 8;
+                            int src_token = token_group_1 * 16 + matrix_idx_1 / 2 * 8 + address_row_1;
+                            int row_group_1 = src_row / 64;
+                            int row_within_3 = src_row % 64;
+                            int atom_row_3 = row_group_1 * 64 + src_token;
                             unsigned int v_bits[4];
                             asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];\n"
                                 : "=r"(v_bits[0]), "=r"(v_bits[1]), "=r"(v_bits[2]), "=r"(v_bits[3])
-                                : "r"((smem_v_addr + v_stage_n * 16384 + (unsigned int)(atom_row_4 * 128 + row_within_4 * 2 ^ (atom_row_4 * 128 + row_within_4 * 2 >> 7 & 7) << 4)))
+                                : "r"((smem_v_addr + v_stage_n * 16384 + (unsigned int)(atom_row_3 * 128 + row_within_3 * 2 ^ (atom_row_3 * 128 + row_within_3 * 2 >> 7 & 7) << 4)))
                                 : "memory");
                             float v_bits_f32[8];
                             #pragma unroll
@@ -737,8 +697,8 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                             }
                             #pragma unroll
                             for (int item_3 = 0; item_3 < 8; item_3++) {
-                                const int reg_idx = token_group_2 * 8 + item_3;
-                                int token = token_group_2 * 16 + item_3 / 4 * 8 + lane_quad * 2 + (item_3 & 1);
+                                const int reg_idx = token_group_1 * 8 + item_3;
+                                int token = token_group_1 * 16 + item_3 / 4 * 8 + lane_quad * 2 + (item_3 & 1);
                                 float neg_end_rcp = smem_alpha[alpha_stage_n * 192 + 128 + (unsigned int)token];
                                 result[reg_idx] = block_coeff_n * _tmem_load_9[reg_idx] + v_bits_f32[item_3] * neg_end_rcp;
                             }
@@ -753,8 +713,46 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                             "tcgen05.st.sync.aligned.16x128b.x8.b32"
                             " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
                             :: "r"(taddr + 384 + (unsigned int)row_base_0_7), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[0])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[3])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[4])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[5])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[6])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[7])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[8])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[9])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[10])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[11])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[12])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[13])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[14])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[15])));
+                        {
+                            float packed_f32_2[32];
+                            #pragma unroll
+                            for (int _pair = 0; _pair < 16; _pair++) {
+                                asm volatile(
+                                    "{\n\t"
+                                    "shl.b32 %0, %2, 16;\n\t"
+                                    "and.b32 %1, %2, 0xffff0000;\n\t"
+                                    "}\n"
+                                    : "=f"((&packed_f32_2[_pair * 2])[0]), "=f"((&packed_f32_2[_pair * 2])[1])
+                                    : "r"(packed_5[_pair]));
+                            }
+                            #pragma unroll
+                            for (int _ls = 0; _ls < 16; _ls++)
+                                sub_f32x2_inplace(&reinterpret_cast<float2*>(result)[_ls], reinterpret_cast<const float2*>(packed_f32_2)[_ls]);
+                            unsigned int residual_packed[16];
+                            #pragma unroll
+                            for (int _lp = 0; _lp < 16; _lp++) {
+                                __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(result[_lp*2 + 0], result[_lp*2+1 + 0]));
+                                residual_packed[_lp] = *(uint32_t*)&_bf2;
+                            }
+                            #pragma unroll
+                            for (int token_group_2 = 0; token_group_2 < 4; token_group_2++) {
+                                int dst_row_1 = warp_row_1 + row_half_2 * 16 + (matrix_idx_1 & 1) * 8;
+                                int dst_token_1 = token_group_2 * 16 + matrix_idx_1 / 2 * 8 + address_row_1;
+                                int row_group_2 = dst_row_1 / 64;
+                                int row_within_4 = dst_row_1 % 64;
+                                int atom_row_4 = row_group_2 * 64 + dst_token_1;
+                                const int reg_base_1 = token_group_2 * 4;
+                                uint32_t _stmatrix_addr_1 = static_cast<uint32_t>((unsigned long long)(smem_y_residual_addr + (unsigned int)(atom_row_4 * 128 + row_within_4 * 2 ^ (atom_row_4 * 128 + row_within_4 * 2 >> 7 & 7) << 4)));
+                                asm volatile("stmatrix.sync.aligned.m8n8.x4.trans.shared.b16 [%0], {%1, %2, %3, %4};\n"
+                                    :: "r"(_stmatrix_addr_1), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1])), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&residual_packed[reg_base_1 + 3]))
+                                    : "memory");
+                            }
+                        }
                     }
                     asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
+                    {
+                        asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
+                    }
                     mbarrier_arrive(y_acc_empty_addr);
                     int row_base_0_8 = warp_in_wg_1 * 32 << 16;
                     #pragma unroll
@@ -762,10 +760,10 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1(const __grid_co
                         float _tmem_load_10[32];
                         tmem_ld_x32(&_tmem_load_10[0], taddr + 128 + (unsigned int)row_base_0_8 + (unsigned int)(panel_7 * 32));
                         asm volatile("tcgen05.wait::ld.sync.aligned;");
-                        const float2 _scale2_1 = {block_coeff_n, block_coeff_n};
+                        const float2 _scale2_2 = {block_coeff_n, block_coeff_n};
                         #pragma unroll
                         for (int _ls = 0; _ls < 16; _ls++)
-                            mul_f32x2_inplace(&reinterpret_cast<float2*>(_tmem_load_10)[_ls], _scale2_1);
+                            mul_f32x2_inplace(&reinterpret_cast<float2*>(_tmem_load_10)[_ls], _scale2_2);
                         tmem_st_x32_f32(taddr + 128 + (unsigned int)row_base_0_8 + (unsigned int)(panel_7 * 32), _tmem_load_10);
                     }
                     asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");

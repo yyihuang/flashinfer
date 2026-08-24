@@ -402,8 +402,6 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1(const __grid_constan
                         _phase_z_acc_full_0 ^= 1;
                         asm volatile("tcgen05.fence::after_thread_sync;");
                         int warp_row_0 = warp_in_wg * 32;
-                        int matrix_idx_1 = lane / 8;
-                        int address_row_2 = lane & 7;
                         #pragma unroll
                         for (int row_half_1 = 0; row_half_1 < 2; row_half_1++) {
                             int row_base_0_2 = warp_row_0 + row_half_1 * 16 << 16;
@@ -584,7 +582,7 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1(const __grid_constan
                     float block_coeff_n = smem_alpha[alpha_stage_n * 192 + 64 + 63];
                     int warp_row_1 = warp_in_wg_1 * 32;
                     int lane_quad = lane & 3;
-                    int matrix_idx_2 = lane / 8;
+                    int matrix_idx_1 = lane / 8;
                     int address_row_1 = lane & 7;
                     #pragma unroll
                     for (int row_half_2 = 0; row_half_2 < 2; row_half_2++) {
@@ -599,8 +597,8 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1(const __grid_constan
                         float result[32];
                         #pragma unroll
                         for (int token_group_1 = 0; token_group_1 < 4; token_group_1++) {
-                            int src_row = warp_row_1 + row_half_2 * 16 + (matrix_idx_2 & 1) * 8;
-                            int src_token = token_group_1 * 16 + matrix_idx_2 / 2 * 8 + address_row_1;
+                            int src_row = warp_row_1 + row_half_2 * 16 + (matrix_idx_1 & 1) * 8;
+                            int src_token = token_group_1 * 16 + matrix_idx_1 / 2 * 8 + address_row_1;
                             int row_group_1 = src_row / 64;
                             int row_within_1 = src_row % 64;
                             int atom_row_1 = row_group_1 * 64 + src_token;

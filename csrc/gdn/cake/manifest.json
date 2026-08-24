@@ -7595,9 +7595,9 @@
           ]
         ],
         "entry": "run_mn_precompute",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1_360b064a28",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1_550419c795",
         "path": "host/cake_mn_precompute.cc",
-        "sha256": "ae62748be58cd294a3f8a49b9ccfef97d97ef74854909dda5530b0200de29057",
+        "sha256": "aadfe4a42022d8193a40a0db14e15be1de95496ddef6b8635cb320d63c7c4fb4",
         "size_bytes": 21770
       },
       "name": "mn_precompute",
@@ -7608,8 +7608,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_mn_precompute.cu",
-          "sha256": "4f9f5ef2b518dfa26a77bbd9b10bcae36421f2386b31997876ec531fbca90ff1",
-          "size_bytes": 80740
+          "sha256": "78a7756ae0778ae3fff9fbd28cb6a2f8017fdbbbe450a9865cea9868dbff22ed",
+          "size_bytes": 80633
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1",
@@ -7741,9 +7741,9 @@
           ]
         ],
         "entry": "run_mn_precompute_bf16",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1_c816512376",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1_26431e4578",
         "path": "host/cake_mn_precompute_bf16.cc",
-        "sha256": "a1bb87de13631baefe5a99c3c7eaf7df61b82187d1f5670edc479f1f9317afe0",
+        "sha256": "ffc903ffac1f385ed75eb5f2d366a7d12db60692f12bcb6e3bfa53996559ef38",
         "size_bytes": 21798
       },
       "name": "mn_precompute_bf16",
@@ -7754,8 +7754,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_mn_precompute_bf16.cu",
-          "sha256": "f466ee73ace0f29fb336de4598e8ceb05deefbbd735f7fa6bf47e2ad37226641",
-          "size_bytes": 99074
+          "sha256": "6a563d21c4cde17db480e99494706a4c959095b0e019bd895094947c64316458",
+          "size_bytes": 98797
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1",
