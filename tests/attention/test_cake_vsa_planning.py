@@ -236,21 +236,22 @@ def test_direct_q2k_ignores_inactive_padding_indices(monkeypatch):
 @pytest.mark.parametrize(
     "row_counts,expected_profile",
     [
-        ([[1, 7], [1, 7]], "blk64_persistent"),
-        ([[1, 8], [2, 8]], "blk64_persistent_ws_m64n256"),
+        ([[32, 32], [32, 32]], "blk64_persistent"),
+        ([[32, 32], [32, 33]], "blk64_persistent_ws_m64n256"),
     ],
 )
 def test_blk64_profile_uses_actual_mixed_row_average(
     monkeypatch, row_counts, expected_profile
 ):
-    q2k_indices = torch.zeros((2, 2, 8), dtype=torch.int32)
+    max_count = max(map(max, row_counts))
+    q2k_indices = torch.zeros((2, 2, max_count), dtype=torch.int32)
     q2k_num = torch.tensor(row_counts, dtype=torch.int32)
 
     plan = _plan_on_cpu(
         monkeypatch,
         q2k_indices=q2k_indices,
         q2k_num=q2k_num,
-        N=8 * 64,
+        N=max_count * 64,
     )
 
     assert plan["blk64_selected_blocks_total"] == sum(map(sum, row_counts))

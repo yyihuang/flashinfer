@@ -204,17 +204,16 @@ def test_cake_vsa_blk64_mixed_rows_use_weight_stationary_profile():
     torch.manual_seed(20260823)
     device = torch.device("cuda")
     block_size, heads, head_dim = 64, 2, 128
-    mb, nb = 2, 8
+    mb, nb = 2, 64
     M, N = mb * block_size, nb * block_size
-    q2k_indices = torch.tensor(
+    columns = torch.arange(nb, dtype=torch.int32, device=device)
+    q2k_indices = torch.stack(
         [
-            [[3, 0, 1, 2, 4, 5, 6, 7], [1, 3, 5, 7, 0, 2, 4, 6]],
-            [[6, 2, 0, 1, 3, 4, 5, 7], [7, 6, 5, 4, 3, 2, 1, 0]],
+            torch.stack((torch.roll(columns, 3), torch.roll(columns, 11))),
+            torch.stack((torch.roll(columns, 19), torch.roll(columns, 29))),
         ],
-        dtype=torch.int32,
-        device=device,
     )
-    q2k_num = torch.tensor([[1, 8], [2, 8]], dtype=torch.int32, device=device)
+    q2k_num = torch.tensor([[1, 64], [2, 64]], dtype=torch.int32, device=device)
     q = torch.randn((M, heads, head_dim), dtype=torch.bfloat16, device=device)
     k = torch.randn((N, heads, head_dim), dtype=torch.bfloat16, device=device)
     v = torch.randn((N, heads, head_dim), dtype=torch.bfloat16, device=device)
