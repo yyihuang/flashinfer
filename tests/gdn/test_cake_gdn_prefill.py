@@ -421,7 +421,7 @@ def test_zero_length_plan_uses_simt_state_fixup(
     assert plan.fixup_kernel == "state_fixup_simt_row4"
 
 
-def test_bf16_crossed_128_boundary_keeps_canonical_chunking(
+def test_bf16_default_splits_only_two_block_stage2_factors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cake, "_arch_for", lambda _device: "sm_100a")
@@ -453,8 +453,20 @@ def test_bf16_crossed_128_boundary_keeps_canonical_chunking(
         seq_lens=(128,),
     )
 
-    assert (crossed.source_cp_chunk_len, crossed.cp_chunk_len) == (128, 128)
-    assert (exact.source_cp_chunk_len, exact.cp_chunk_len) == (128, 128)
+    longer = cake._build_plan(
+        q=SimpleNamespace(
+            shape=(4096, 4, 128),
+            device=device,
+            dtype=torch.bfloat16,
+        ),
+        k=SimpleNamespace(shape=(4096, 1, 128)),
+        v=SimpleNamespace(shape=(4096, 1, 128)),
+        seq_lens=(4096,),
+    )
+
+    assert (crossed.source_cp_chunk_len, crossed.cp_chunk_len) == (128, 64)
+    assert (exact.source_cp_chunk_len, exact.cp_chunk_len) == (128, 64)
+    assert (longer.source_cp_chunk_len, longer.cp_chunk_len) == (512, 512)
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
@@ -1727,7 +1739,7 @@ def test_public_dispatcher_uses_only_cake_for_indexed_inplace_gqa(
     assert cake_calls == ["cake"]
     assert cake._public_prepared is not None
     assert cake._public_prepared.plan.source_cp_chunk_len == 128
-    assert cake._public_prepared.plan.cp_chunk_len == 128
+    assert cake._public_prepared.plan.cp_chunk_len == 64
     assert actual_output is output
     assert actual_state is candidate_state
     torch.testing.assert_close(actual_output, expected_output, atol=1e-2, rtol=1e-2)

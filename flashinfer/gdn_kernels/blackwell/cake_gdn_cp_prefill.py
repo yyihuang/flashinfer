@@ -226,7 +226,15 @@ def _build_plan(
     source_cp_chunk_len = _choose_chunk_len(
         total_tokens=total_tokens, num_heads=num_sab_heads, num_sms=num_sms
     )
-    cp_chunk_len = checkpoint_every_n_tokens or source_cp_chunk_len
+    # A two-block BF16 Stage-2 factor can cross the public 1e-2 boundary,
+    # while the one-block factors compose correctly in FP32 Stage-3. Keep
+    # every other measured chunk policy and checkpoint topology unchanged.
+    split_bf16_two_block_factor = (
+        q.dtype == torch.bfloat16 and source_cp_chunk_len == 2 * _BLOCK
+    )
+    cp_chunk_len = checkpoint_every_n_tokens or (
+        _BLOCK if split_bf16_two_block_factor else source_cp_chunk_len
+    )
     if (
         not checkpoint_every_n_tokens
         and arch == "sm_103a"
