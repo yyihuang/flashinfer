@@ -1070,10 +1070,6 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
     hv: int,
     tmp_path: Path,
 ) -> None:
-    from flashinfer.gdn_kernels.blackwell.gdn_cp_prefill import (
-        cp_delta_rule_dsl_sm100,
-    )
-
     torch.manual_seed(4078 + hq * 100 + hv)
     device = torch.device("cuda")
     seq_lens = (total,)
@@ -1094,40 +1090,19 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
         tensor.clone() for tensor in (q, k, v, alpha, beta, cu_seqlens, initial_state)
     )
 
-    expected_output = torch.full(
-        (total, hv, dim), float("nan"), dtype=torch.float16, device=device
-    )
-    expected_state = torch.empty_like(initial_state)
-    cp_delta_rule_dsl_sm100(
-        expected_output,
-        expected_state,
-        q,
-        k,
-        v,
-        alpha,
-        beta,
-        cu_seqlens,
-        1.0 / dim**0.5,
+    expected_output, expected_state = _fresh_batched_semantic_oracle(
+        tmp_path=tmp_path,
+        q=q,
+        k=k,
+        v=v,
+        alpha=alpha,
+        beta=beta,
+        cu_seqlens=cu_seqlens,
         initial_state=initial_state,
-        max_seqlen=total,
+        state_indices=None,
+        scale=1.0 / dim**0.5,
+        output_state=output_state,
     )
-    if not bool(torch.isfinite(expected_output).all().item()):
-        semantic_output, semantic_state = _fresh_batched_semantic_oracle(
-            tmp_path=tmp_path,
-            q=q,
-            k=k,
-            v=v,
-            alpha=alpha,
-            beta=beta,
-            cu_seqlens=cu_seqlens,
-            initial_state=initial_state,
-            state_indices=None,
-            scale=1.0 / dim**0.5,
-            output_state=output_state,
-        )
-        torch.testing.assert_close(expected_state, semantic_state, atol=1e-2, rtol=1e-2)
-        expected_output = semantic_output
-        expected_state = semantic_state
     _assert_oracle_output_written(expected_output)
     prepared = cake.prepare_cake_gdn_cp_prefill(
         q,
