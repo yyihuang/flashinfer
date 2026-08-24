@@ -130,9 +130,20 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1(const __grid_consta
     const int tmem_tmem_acc = taddr;
     const int tmem_tmem_operand = taddr + 128;
 
+    // ---- Ordered hardware-WG register redistribution ----
+    // Dec phase frees registers before any WG attempts inc.
+    if (warp >= 4 && warp <= 7) {
+        asm volatile("setmaxnreg.dec.sync.aligned.u32 32;");
+    }
+    __syncthreads();
+    // Inc phase consumes the registers released above.
+    if (warp >= 0 && warp <= 3) {
+        asm volatile("setmaxnreg.inc.sync.aligned.u32 120;");
+    }
+    __syncthreads();
+
     // ---- Role: compute ----
     if (warp <= 3) {
-        asm volatile("setmaxnreg.inc.sync.aligned.u32 120;");
         { // compute_main
             int row_cta_idx = blockIdx.x % 2;
             int head_seq_idx = blockIdx.x / 2;
@@ -313,7 +324,6 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1(const __grid_consta
     }
     // ---- Role: other ----
     if (warp >= 4 && warp <= 7) {
-        asm volatile("setmaxnreg.dec.sync.aligned.u32 32;");
         { // other_main
             int row_cta_idx_1 = blockIdx.x % 2;
             int head_seq_idx_1 = blockIdx.x / 2;

@@ -7240,8 +7240,8 @@
         "entry": "run_t_precompute",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_t_precompute_v1_9de88209a3",
         "path": "host/cake_t_precompute.cc",
-        "sha256": "db0acec26a4d87aac8dc981ab150d337e562ac033868b297cbcc4b3400a595c4",
-        "size_bytes": 15900
+        "sha256": "348f92a136ae8a718c2fc6e77548f2ba1c0c37b2ae2d9be518c3343134d75355",
+        "size_bytes": 15951
       },
       "name": "t_precompute",
       "outputs": [
@@ -7346,8 +7346,8 @@
         "entry": "run_t_precompute_bf16",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_t_precompute_bf16_v1_5555fc4f5d",
         "path": "host/cake_t_precompute_bf16.cc",
-        "sha256": "632c331afa5ef98f03c1c0b664de0e05c75b6c8fcb9c1363ea54692f2ca891c9",
-        "size_bytes": 15926
+        "sha256": "3a5f5e9cb351298e3d9ffc2264916daeaa5dd7e81db0369f746ba036e16e2487",
+        "size_bytes": 15977
       },
       "name": "t_precompute_bf16",
       "outputs": [
@@ -7452,8 +7452,8 @@
         "entry": "run_t_precompute_gb300_hv48_min6",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_t_precompute_v1_gb300_hv48_min6_42e25b978b",
         "path": "host/cake_t_precompute_gb300_hv48_min6.cc",
-        "sha256": "60e4f30b3aa214bf483d4e82bb8b8f1328b8b2d0f0294443feffcbd61acb0286",
-        "size_bytes": 15980
+        "sha256": "874012cdaedd4a8e96ead5aa1623f67fb8b3ec5c1120abc78aece6754614c1a4",
+        "size_bytes": 16031
       },
       "name": "t_precompute_gb300_hv48_min6",
       "outputs": [
@@ -7595,10 +7595,10 @@
           ]
         ],
         "entry": "run_mn_precompute",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1_550419c795",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1_bc0c26660b",
         "path": "host/cake_mn_precompute.cc",
-        "sha256": "aadfe4a42022d8193a40a0db14e15be1de95496ddef6b8635cb320d63c7c4fb4",
-        "size_bytes": 21770
+        "sha256": "3d944600e50d6f7254bb23c92bef4169fa903e4beca9c7ac37d607b96a424af0",
+        "size_bytes": 21821
       },
       "name": "mn_precompute",
       "outputs": [
@@ -7608,8 +7608,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_mn_precompute.cu",
-          "sha256": "78a7756ae0778ae3fff9fbd28cb6a2f8017fdbbbe450a9865cea9868dbff22ed",
-          "size_bytes": 80633
+          "sha256": "983f8e026e78ffa0d0db12a001df459f00224e3705339f2105e2429f6aaca80b",
+          "size_bytes": 85986
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1",
@@ -7741,10 +7741,10 @@
           ]
         ],
         "entry": "run_mn_precompute_bf16",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1_26431e4578",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1_138f9d88e1",
         "path": "host/cake_mn_precompute_bf16.cc",
-        "sha256": "ffc903ffac1f385ed75eb5f2d366a7d12db60692f12bcb6e3bfa53996559ef38",
-        "size_bytes": 21798
+        "sha256": "711cf292990c9b01cfac46d55d3529989edd3ef215c52a6c52c30dfb5d790803",
+        "size_bytes": 21849
       },
       "name": "mn_precompute_bf16",
       "outputs": [
@@ -7754,8 +7754,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_mn_precompute_bf16.cu",
-          "sha256": "6a563d21c4cde17db480e99494706a4c959095b0e019bd895094947c64316458",
-          "size_bytes": 98797
+          "sha256": "0e3b679bafb1febf4e75ded6fb2c43214a2cbe6639f03d7f61f7014df5e3b443",
+          "size_bytes": 104671
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1",
@@ -7873,8 +7873,8 @@
         "entry": "run_state_fixup_simt_row4",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_fixup_v1_c94404f285",
         "path": "host/cake_state_fixup_simt_row4.cc",
-        "sha256": "896cec430d7633f1f288fc79d2c38d6eda9f3eee500da0a7c409c0e4162cd5e1",
-        "size_bytes": 15462
+        "sha256": "267b2500b18206bc6cc49a52e010c7703c06ef0e73ca6479dfa74731f55a77d0",
+        "size_bytes": 15513
       },
       "name": "state_fixup_simt_row4",
       "outputs": [
@@ -7995,8 +7995,8 @@
         "entry": "run_state_gather_fp32",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_state_gather_fp32_v1_08c5e1c7dd",
         "path": "host/cake_state_gather_fp32.cc",
-        "sha256": "0a20d3f311b0b1a5739cc797dc689580ffd409c9dab243ecc165fdb8efb76fb3",
-        "size_bytes": 13652
+        "sha256": "20202a8011d7744fc5e3de415ce1d49cf3dbf77a513c69cbca2b367634b3b30e",
+        "size_bytes": 13703
       },
       "name": "state_gather_fp32",
       "outputs": [
@@ -8117,8 +8117,8 @@
         "entry": "run_state_gather_fp16",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_state_gather_fp16_v1_89c49f5a02",
         "path": "host/cake_state_gather_fp16.cc",
-        "sha256": "9d2360032b18e36e107560fbfe18af2072f287a554df1280eb457cda0016e990",
-        "size_bytes": 13652
+        "sha256": "8d8723d1be8dcc41a6e4120fa8299682b553bd35cd3ca31c57cab8b9efcd5d11",
+        "size_bytes": 13703
       },
       "name": "state_gather_fp16",
       "outputs": [
@@ -8239,8 +8239,8 @@
         "entry": "run_state_gather_bf16",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_state_gather_bf16_v1_2d865afa7a",
         "path": "host/cake_state_gather_bf16.cc",
-        "sha256": "04a955c5900afb1babec88b7b00e8012bbe76cf8bfdaa595c69c783ea023982d",
-        "size_bytes": 13652
+        "sha256": "69f9f022603a850fdae30c51cf16de0d72d0aab66b1eb5a0ffbb0a547e1dd79a",
+        "size_bytes": 13703
       },
       "name": "state_gather_bf16",
       "outputs": [
@@ -8361,8 +8361,8 @@
         "entry": "run_state_scatter_fp32",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_state_scatter_fp32_v1_ee3f947d3b",
         "path": "host/cake_state_scatter_fp32.cc",
-        "sha256": "877409dd7c187036d3e530123a1c2479b28daa6c9393a83290814889ab1440c2",
-        "size_bytes": 13657
+        "sha256": "64814e1099a4f83c3c983c3c2ffeec67bf8ad82daed7243859d00db9eed1bc61",
+        "size_bytes": 13708
       },
       "name": "state_scatter_fp32",
       "outputs": [
@@ -8483,8 +8483,8 @@
         "entry": "run_state_scatter_fp16",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_state_scatter_fp16_v1_3b8909d30c",
         "path": "host/cake_state_scatter_fp16.cc",
-        "sha256": "6d059e17824ed86b6b02f445938ebaa1567a64222aea25405e0b21f52df05d2e",
-        "size_bytes": 13657
+        "sha256": "3586e0be6d482618a98646b3b3095071a6d7755478a69fd005a12b89713a89a4",
+        "size_bytes": 13708
       },
       "name": "state_scatter_fp16",
       "outputs": [
@@ -8605,8 +8605,8 @@
         "entry": "run_state_scatter_bf16",
         "module_ident": "flashinfer_blackwell_gdn_cp_prefill_state_scatter_bf16_v1_08e7f75aa1",
         "path": "host/cake_state_scatter_bf16.cc",
-        "sha256": "f436549c11587ca666cdb2580fc7736f189e1fb1872829f1024dd0ebca0287f2",
-        "size_bytes": 13657
+        "sha256": "b302167cf0b812af9f2ed6b473d5f1adef450220027ed0e9d9cc927dc24ee1ef",
+        "size_bytes": 13708
       },
       "name": "state_scatter_bf16",
       "outputs": [
@@ -8733,10 +8733,10 @@
           ]
         ],
         "entry": "run_state_fixup_utcmma64",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1_3f88fd15f2",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1_bfc0e87084",
         "path": "host/cake_state_fixup_utcmma64.cc",
-        "sha256": "b40598efe62517de8e2b88f076de1baf302d8c53231703539ccc8fa9b0e9bb5a",
-        "size_bytes": 20828
+        "sha256": "a608d7c4c853454f1820115b76bcd586b98eac32fd1e8047ddbb158d93e06b85",
+        "size_bytes": 20879
       },
       "name": "state_fixup_utcmma64",
       "outputs": [
@@ -8746,8 +8746,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_state_fixup_utcmma64.cu",
-          "sha256": "baa45bd10beffee1727547036aa6f63b54fe999b1e4b9833cb6c3ebce1d8a6ee",
-          "size_bytes": 36678
+          "sha256": "da2dba0ff14986b0fa2ab3f481df25ca421f90c89e93e554aabc29811119541d",
+          "size_bytes": 36979
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1",
@@ -8863,10 +8863,10 @@
           ]
         ],
         "entry": "run_state_fixup_utcmma128",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1_cacbdb1d1b",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1_d321a8dfde",
         "path": "host/cake_state_fixup_utcmma128.cc",
-        "sha256": "89a20ee93b5cca71c5480c2b228139fa19bcc5bdb7848f5d4a09f6febe10ec3c",
-        "size_bytes": 20836
+        "sha256": "3d4df7bb6f514bc682cfcc41c2f8ae26054b51b2db603d7764f9ef456fa72516",
+        "size_bytes": 20887
       },
       "name": "state_fixup_utcmma128",
       "outputs": [
@@ -8876,8 +8876,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_state_fixup_utcmma128.cu",
-          "sha256": "da6638ca5420a25d18345c1ab801eaa7d49750ed8e7b7cc48d539d3480afc288",
-          "size_bytes": 30078
+          "sha256": "bc6c18267f93f1b578ae6827f4d888f97f9ab4eed308f4089705cb31f7d07a72",
+          "size_bytes": 33471
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1",
@@ -9041,10 +9041,10 @@
           ]
         ],
         "entry": "run_cp_prefill",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_v1_e0902502a7",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_v1_5acc085190",
         "path": "host/cake_cp_prefill.cc",
-        "sha256": "40f751ef5c344ac46290f2566100511dffa7a08acd667a0ce384416b897fc4d0",
-        "size_bytes": 26905
+        "sha256": "e4e315ac7f2d59f723167799188f301de22d44f1bd39c6bcce6266c032e35a14",
+        "size_bytes": 26956
       },
       "name": "cp_prefill",
       "outputs": [
@@ -9054,8 +9054,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_cp_prefill.cu",
-          "sha256": "47e929a6fceefaafbe167c40e98b2ad78f1d744a1ddc4b6ea9a48444b11892e9",
-          "size_bytes": 147039
+          "sha256": "763d4b2e1d530484125cb7818f6b2de5b23af5953e1ade6150ee62b4c4045fe5",
+          "size_bytes": 146635
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_final_v1",
@@ -9219,10 +9219,10 @@
           ]
         ],
         "entry": "run_cp_prefill_equal_head",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_equal_head_v1_242cebdc88",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_equal_head_v1_1934f26622",
         "path": "host/cake_cp_prefill_equal_head.cc",
-        "sha256": "5d7ab887afeb3503baa5b5b44a7ac6076c57e9414ce81d3644e513e3a401c378",
-        "size_bytes": 26960
+        "sha256": "f8ecbf4fbf8baf9dcb262f5d794e00a4bd96e0e7ce1bbdaa7824e682ae6d213c",
+        "size_bytes": 27011
       },
       "name": "cp_prefill_equal_head",
       "outputs": [
@@ -9232,8 +9232,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_cp_prefill_equal_head.cu",
-          "sha256": "7951e10fc215e03707afa70a00cdb139a6092b32c0c1962d6e4c6c11e41cfa02",
-          "size_bytes": 146960
+          "sha256": "e16784dadb5d34ad84427442d36707ef88786a04147d07d9c7c802b780ecf86a",
+          "size_bytes": 146556
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_final_equal_head_v1",
@@ -9397,10 +9397,10 @@
           ]
         ],
         "entry": "run_cp_prefill_equal_head_h32",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_equal_head_h32_v1_521106e48d",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_equal_head_h32_v1_f50a9b0f67",
         "path": "host/cake_cp_prefill_equal_head_h32.cc",
-        "sha256": "37da836a16b5445b2edcd54e99e39ab281c147bd1d9ed3ab287abdb18e09b89f",
-        "size_bytes": 26980
+        "sha256": "7105093d21745f660c589037df8fee005933729be8395d5acf830f9a4c3c550d",
+        "size_bytes": 27031
       },
       "name": "cp_prefill_equal_head_h32",
       "outputs": [
@@ -9409,8 +9409,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_cp_prefill_equal_head_h32.sm_103a.cu",
-          "sha256": "fdd9027c9e0c111296a3cba5ca7228a336f07c27a68401a797d2f74df9198e1a",
-          "size_bytes": 147047
+          "sha256": "e6f162cbedcaa403284c4df43dd8b7132db3da2d04a35694d17f2fa80ff0e69a",
+          "size_bytes": 146643
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_final_equal_head_h32_v1",
@@ -9574,10 +9574,10 @@
           ]
         ],
         "entry": "run_cp_prefill_bf16",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_bf16_v1_4f7c3bd58b",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_bf16_v1_940ec5ca23",
         "path": "host/cake_cp_prefill_bf16.cc",
-        "sha256": "c0434503260bef561bfbf8bb9c22f25ca687fd6c226ce807783573f647a5b4db",
-        "size_bytes": 26935
+        "sha256": "76354875397dca1d28e56d7f4712a895a2d918456c9b1f90b871f0b20358d0a0",
+        "size_bytes": 26986
       },
       "name": "cp_prefill_bf16",
       "outputs": [
@@ -9587,8 +9587,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_cp_prefill_bf16.cu",
-          "sha256": "1d51028fefcc8efd7350bd7f07f6f627cc587a0a03c62c0c7d7a1ba2f28b42f9",
-          "size_bytes": 147064
+          "sha256": "c15ef469278f4b65fdd2a8316adae2743b6453d3aa0dac12167f780e3cb044a5",
+          "size_bytes": 146905
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_final_bf16_v1",
@@ -9752,10 +9752,10 @@
           ]
         ],
         "entry": "run_cp_prefill_generic",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_generic_v1_9b6639e376",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_generic_v1_062e30e61b",
         "path": "host/cake_cp_prefill_generic.cc",
-        "sha256": "d0a99a2a86bf2b5363fd3a9cbc51d3cb178afdf40f9ddc1218ca46195b2deeeb",
-        "size_bytes": 26945
+        "sha256": "66e0bf9a87655c38bc95b7d8b5b464cb92f24aed7bce13904042de91f44df0fa",
+        "size_bytes": 26996
       },
       "name": "cp_prefill_generic",
       "outputs": [
@@ -9765,8 +9765,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_cp_prefill_generic.cu",
-          "sha256": "b7957b50136aea5ff88b39840e2c88cc1bb0a83c70f4be5786dcb4d0c82b70ae",
-          "size_bytes": 149119
+          "sha256": "c4074e1a2dead32ca8e875cd624e089097ac9b69d2e840a02d8b266086f4e29e",
+          "size_bytes": 148715
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_final_generic_v1",
@@ -9930,10 +9930,10 @@
           ]
         ],
         "entry": "run_cp_prefill_generic_bf16",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1_2410faf33e",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1_3e0289ac03",
         "path": "host/cake_cp_prefill_generic_bf16.cc",
-        "sha256": "8e53ac46f3fb62142f373a0746888a09ade27cc5e08c38459b96a32d374e1cb4",
-        "size_bytes": 26975
+        "sha256": "4d04b05eadd57a4b392243ee29f9b82baf5d6a9c0a8716a570c943a0269b4566",
+        "size_bytes": 27026
       },
       "name": "cp_prefill_generic_bf16",
       "outputs": [
@@ -9943,8 +9943,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_cp_prefill_generic_bf16.cu",
-          "sha256": "c1034387041bdb2fd121a1b851c4b8ac2796f8a2627ae8f36d41369cbe47c91a",
-          "size_bytes": 186436
+          "sha256": "a091fe2c1496002f73720c84eb8da4fe19d832fdc561565968ee2f30da72cbe6",
+          "size_bytes": 185689
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1",

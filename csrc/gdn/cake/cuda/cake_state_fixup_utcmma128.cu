@@ -128,9 +128,20 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1(const __grid_const
     const int tmem_tmem_acc = taddr;
     const int tmem_tmem_operand = taddr + 128;
 
+    // ---- Ordered hardware-WG register redistribution ----
+    // Dec phase frees registers before any WG attempts inc.
+    if (warp >= 4 && warp <= 7) {
+        asm volatile("setmaxnreg.dec.sync.aligned.u32 32;");
+    }
+    __syncthreads();
+    // Inc phase consumes the registers released above.
+    if (warp >= 0 && warp <= 3) {
+        asm volatile("setmaxnreg.inc.sync.aligned.u32 256;");
+    }
+    __syncthreads();
+
     // ---- Role: compute ----
     if (warp <= 3) {
-        asm volatile("setmaxnreg.inc.sync.aligned.u32 256;");
         { // compute_main
             int row_cta_idx = 0;
             int head_seq_idx = blockIdx.x;
@@ -174,7 +185,11 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1(const __grid_const
                 #pragma unroll
                 for (int col_tile_1 = 0; col_tile_1 < 4; col_tile_1++) {
                     float _tmem_load_0[32];
-                    tmem_ld_x32(&_tmem_load_0[0], taddr + (unsigned int)tmem_row_base_1 + (unsigned int)(col_tile_1 * 32));
+                    asm volatile(
+                        "tcgen05.ld.sync.aligned.32x32b.x32.b32"
+                        " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
+                        : "=f"(_tmem_load_0[0]), "=f"(_tmem_load_0[1]), "=f"(_tmem_load_0[2]), "=f"(_tmem_load_0[3]), "=f"(_tmem_load_0[4]), "=f"(_tmem_load_0[5]), "=f"(_tmem_load_0[6]), "=f"(_tmem_load_0[7]), "=f"(_tmem_load_0[8]), "=f"(_tmem_load_0[9]), "=f"(_tmem_load_0[10]), "=f"(_tmem_load_0[11]), "=f"(_tmem_load_0[12]), "=f"(_tmem_load_0[13]), "=f"(_tmem_load_0[14]), "=f"(_tmem_load_0[15]), "=f"(_tmem_load_0[16]), "=f"(_tmem_load_0[17]), "=f"(_tmem_load_0[18]), "=f"(_tmem_load_0[19]), "=f"(_tmem_load_0[20]), "=f"(_tmem_load_0[21]), "=f"(_tmem_load_0[22]), "=f"(_tmem_load_0[23]), "=f"(_tmem_load_0[24]), "=f"(_tmem_load_0[25]), "=f"(_tmem_load_0[26]), "=f"(_tmem_load_0[27]), "=f"(_tmem_load_0[28]), "=f"(_tmem_load_0[29]), "=f"(_tmem_load_0[30]), "=f"(_tmem_load_0[31])
+                        : "r"(taddr + (unsigned int)tmem_row_base_1 + (unsigned int)(col_tile_1 * 32)));
                     asm volatile("tcgen05.wait::ld.sync.aligned;");
                     #pragma unroll
                     for (int vec_idx_1 = 0; vec_idx_1 < 8; vec_idx_1++) {
@@ -192,7 +207,11 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1(const __grid_const
                     #pragma unroll
                     for (int col_tile_2 = 0; col_tile_2 < 4; col_tile_2++) {
                         float _tmem_load_1[32];
-                        tmem_ld_x32(&_tmem_load_1[0], taddr + (unsigned int)tmem_row_base_0 + (unsigned int)(col_tile_2 * 32));
+                        asm volatile(
+                            "tcgen05.ld.sync.aligned.32x32b.x32.b32"
+                            " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
+                            : "=f"(_tmem_load_1[0]), "=f"(_tmem_load_1[1]), "=f"(_tmem_load_1[2]), "=f"(_tmem_load_1[3]), "=f"(_tmem_load_1[4]), "=f"(_tmem_load_1[5]), "=f"(_tmem_load_1[6]), "=f"(_tmem_load_1[7]), "=f"(_tmem_load_1[8]), "=f"(_tmem_load_1[9]), "=f"(_tmem_load_1[10]), "=f"(_tmem_load_1[11]), "=f"(_tmem_load_1[12]), "=f"(_tmem_load_1[13]), "=f"(_tmem_load_1[14]), "=f"(_tmem_load_1[15]), "=f"(_tmem_load_1[16]), "=f"(_tmem_load_1[17]), "=f"(_tmem_load_1[18]), "=f"(_tmem_load_1[19]), "=f"(_tmem_load_1[20]), "=f"(_tmem_load_1[21]), "=f"(_tmem_load_1[22]), "=f"(_tmem_load_1[23]), "=f"(_tmem_load_1[24]), "=f"(_tmem_load_1[25]), "=f"(_tmem_load_1[26]), "=f"(_tmem_load_1[27]), "=f"(_tmem_load_1[28]), "=f"(_tmem_load_1[29]), "=f"(_tmem_load_1[30]), "=f"(_tmem_load_1[31])
+                            : "r"(taddr + (unsigned int)tmem_row_base_0 + (unsigned int)(col_tile_2 * 32)));
                         asm volatile("tcgen05.wait::ld.sync.aligned;");
                         unsigned int tf32_values[32];
                         #pragma unroll
@@ -202,7 +221,7 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1(const __grid_const
                         asm volatile(
                             "tcgen05.st.sync.aligned.32x32b.x32.b32"
                             " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32};"
-                            :: "r"(taddr + 128 + (unsigned int)tmem_row_base_0 + (unsigned int)(col_tile_2 * 32)), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[0])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[1])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[2])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[3])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[4])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[5])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[6])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[7])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[8])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[9])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[10])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[11])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[12])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[13])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[14])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[15])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[16])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[17])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[18])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[19])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[20])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[21])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[22])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[23])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[24])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[25])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[26])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[27])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[28])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[29])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[30])), "r"(*reinterpret_cast<const uint32_t*>(&tf32_values[31])));
+                            :: "r"(taddr + 128 + (unsigned int)tmem_row_base_0 + (unsigned int)(col_tile_2 * 32)), "r"(tf32_values[0]), "r"(tf32_values[1]), "r"(tf32_values[2]), "r"(tf32_values[3]), "r"(tf32_values[4]), "r"(tf32_values[5]), "r"(tf32_values[6]), "r"(tf32_values[7]), "r"(tf32_values[8]), "r"(tf32_values[9]), "r"(tf32_values[10]), "r"(tf32_values[11]), "r"(tf32_values[12]), "r"(tf32_values[13]), "r"(tf32_values[14]), "r"(tf32_values[15]), "r"(tf32_values[16]), "r"(tf32_values[17]), "r"(tf32_values[18]), "r"(tf32_values[19]), "r"(tf32_values[20]), "r"(tf32_values[21]), "r"(tf32_values[22]), "r"(tf32_values[23]), "r"(tf32_values[24]), "r"(tf32_values[25]), "r"(tf32_values[26]), "r"(tf32_values[27]), "r"(tf32_values[28]), "r"(tf32_values[29]), "r"(tf32_values[30]), "r"(tf32_values[31]));
                     }
                     asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
                     mbarrier_wait(n_full_addr + (n_stage_compute) * 8, _phase_n_full);
@@ -242,7 +261,11 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1(const __grid_const
                         #pragma unroll
                         for (int col_tile_4 = 0; col_tile_4 < 4; col_tile_4++) {
                             float _tmem_load_2[32];
-                            tmem_ld_x32(&_tmem_load_2[0], taddr + (unsigned int)tmem_row_base_3 + (unsigned int)(col_tile_4 * 32));
+                            asm volatile(
+                                "tcgen05.ld.sync.aligned.32x32b.x32.b32"
+                                " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
+                                : "=f"(_tmem_load_2[0]), "=f"(_tmem_load_2[1]), "=f"(_tmem_load_2[2]), "=f"(_tmem_load_2[3]), "=f"(_tmem_load_2[4]), "=f"(_tmem_load_2[5]), "=f"(_tmem_load_2[6]), "=f"(_tmem_load_2[7]), "=f"(_tmem_load_2[8]), "=f"(_tmem_load_2[9]), "=f"(_tmem_load_2[10]), "=f"(_tmem_load_2[11]), "=f"(_tmem_load_2[12]), "=f"(_tmem_load_2[13]), "=f"(_tmem_load_2[14]), "=f"(_tmem_load_2[15]), "=f"(_tmem_load_2[16]), "=f"(_tmem_load_2[17]), "=f"(_tmem_load_2[18]), "=f"(_tmem_load_2[19]), "=f"(_tmem_load_2[20]), "=f"(_tmem_load_2[21]), "=f"(_tmem_load_2[22]), "=f"(_tmem_load_2[23]), "=f"(_tmem_load_2[24]), "=f"(_tmem_load_2[25]), "=f"(_tmem_load_2[26]), "=f"(_tmem_load_2[27]), "=f"(_tmem_load_2[28]), "=f"(_tmem_load_2[29]), "=f"(_tmem_load_2[30]), "=f"(_tmem_load_2[31])
+                                : "r"(taddr + (unsigned int)tmem_row_base_3 + (unsigned int)(col_tile_4 * 32)));
                             asm volatile("tcgen05.wait::ld.sync.aligned;");
                             #pragma unroll
                             for (int vec_idx_3 = 0; vec_idx_3 < 8; vec_idx_3++) {
@@ -263,7 +286,11 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1(const __grid_const
                         #pragma unroll
                         for (int col_tile_5 = 0; col_tile_5 < 4; col_tile_5++) {
                             float _tmem_load_3[32];
-                            tmem_ld_x32(&_tmem_load_3[0], taddr + (unsigned int)tmem_row_base_3_1 + (unsigned int)(col_tile_5 * 32));
+                            asm volatile(
+                                "tcgen05.ld.sync.aligned.32x32b.x32.b32"
+                                " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
+                                : "=f"(_tmem_load_3[0]), "=f"(_tmem_load_3[1]), "=f"(_tmem_load_3[2]), "=f"(_tmem_load_3[3]), "=f"(_tmem_load_3[4]), "=f"(_tmem_load_3[5]), "=f"(_tmem_load_3[6]), "=f"(_tmem_load_3[7]), "=f"(_tmem_load_3[8]), "=f"(_tmem_load_3[9]), "=f"(_tmem_load_3[10]), "=f"(_tmem_load_3[11]), "=f"(_tmem_load_3[12]), "=f"(_tmem_load_3[13]), "=f"(_tmem_load_3[14]), "=f"(_tmem_load_3[15]), "=f"(_tmem_load_3[16]), "=f"(_tmem_load_3[17]), "=f"(_tmem_load_3[18]), "=f"(_tmem_load_3[19]), "=f"(_tmem_load_3[20]), "=f"(_tmem_load_3[21]), "=f"(_tmem_load_3[22]), "=f"(_tmem_load_3[23]), "=f"(_tmem_load_3[24]), "=f"(_tmem_load_3[25]), "=f"(_tmem_load_3[26]), "=f"(_tmem_load_3[27]), "=f"(_tmem_load_3[28]), "=f"(_tmem_load_3[29]), "=f"(_tmem_load_3[30]), "=f"(_tmem_load_3[31])
+                                : "r"(taddr + (unsigned int)tmem_row_base_3_1 + (unsigned int)(col_tile_5 * 32)));
                             asm volatile("tcgen05.wait::ld.sync.aligned;");
                             #pragma unroll
                             for (int vec_idx_4 = 0; vec_idx_4 < 8; vec_idx_4++) {
@@ -284,7 +311,6 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma128_v1(const __grid_const
     }
     // ---- Role: other ----
     if (warp >= 4 && warp <= 7) {
-        asm volatile("setmaxnreg.dec.sync.aligned.u32 32;");
         { // other_main
             int row_cta_idx_1 = 0;
             int head_seq_idx_1 = blockIdx.x;

@@ -31,7 +31,7 @@
 
 TVM_FFI_EMBED_CUBIN(flashinfer_blackwell_gdn_cp_prefill_state_scatter_bf16_v1_08e7f75aa1);
 
-namespace cake_host_shim {
+namespace cake_host_shim_179e98e5f5ca4d24 {
 
 using tvm::ffi::TensorView;
 
@@ -293,7 +293,7 @@ void Run(TensorView arg_packed, TensorView arg_state_indices, TensorView arg_out
   TVM_FFI_CHECK_CUBIN_LAUNCHER_CUDA_ERROR(kernel.Launch(kargs, grid, block, stream, 0u));
 }
 
-}  // namespace cake_host_shim
+}  // namespace cake_host_shim_179e98e5f5ca4d24
 
-TVM_FFI_DLL_EXPORT_TYPED_FUNC(run_state_scatter_bf16, cake_host_shim::Run);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(run_state_scatter_bf16, cake_host_shim_179e98e5f5ca4d24::Run);
 // clang-format on

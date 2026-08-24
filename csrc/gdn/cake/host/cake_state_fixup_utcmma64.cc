@@ -29,9 +29,9 @@
 #include <unordered_map>
 #include <vector>
 
-TVM_FFI_EMBED_CUBIN(flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1_3f88fd15f2);
+TVM_FFI_EMBED_CUBIN(flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1_bfc0e87084);
 
-namespace cake_host_shim {
+namespace cake_host_shim_69efd09e3fa46c07 {
 
 using tvm::ffi::TensorView;
 
@@ -399,7 +399,7 @@ void Run(TensorView arg_local_transfer, TensorView arg_local_state, TensorView a
   int32_t v_num_heads = (int32_t)arg_num_heads;
   void* kargs[] = {&p_local_transfer, &p_local_state, &p_initial_state, &p_initial_state_workspace, &p_fixed_state, &p_output_state, &p_cu_seqlens, &v_chunk_len, &v_total_cp_chunks, &v_num_seqs, &v_num_heads};
 
-  static auto kernel = EmbedCubinModule_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1_3f88fd15f2::Global()->mod.GetKernel("kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1");
+  static auto kernel = EmbedCubinModule_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1_bfc0e87084::Global()->mod.GetKernel("kernel_flashinfer_blackwell_gdn_cp_prefill_fixup_utcmma64_v1");
   static signed char cake_smem_mode_cache[64] = {0};
   const bool use_oversized_smem = CakeConfigureDynamicSmem(
       kernel, (int)arg_local_transfer.device().device_id, 164864,
@@ -412,7 +412,7 @@ void Run(TensorView arg_local_transfer, TensorView arg_local_state, TensorView a
   TVM_FFI_CHECK_CUBIN_LAUNCHER_CUDA_ERROR(kernel.Launch(kargs, grid, block, stream, 164864u));
 }
 
-}  // namespace cake_host_shim
+}  // namespace cake_host_shim_69efd09e3fa46c07
 
-TVM_FFI_DLL_EXPORT_TYPED_FUNC(run_state_fixup_utcmma64, cake_host_shim::Run);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(run_state_fixup_utcmma64, cake_host_shim_69efd09e3fa46c07::Run);
 // clang-format on
