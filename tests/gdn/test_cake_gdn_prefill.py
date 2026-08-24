@@ -184,6 +184,57 @@ def _fresh_batched_semantic_oracle(
     return values["output"], values["final_state"]
 
 
+def _delegate_frozen_graph_case_to_fresh_pytest(
+    *, tmp_path: Path, total: int, hq: int, hv: int
+) -> dict[str, object] | None:
+    """Run one frozen-source comparison before other tests can pollute its cache."""
+
+    case = f"{total}-{hq}-{hv}"
+    marker = "FLASHINFER_CAKE_FRESH_FROZEN_CASE"
+    if os.environ.get(marker) == case:
+        return None
+    child_home = tmp_path / f"frozen-{case}-home"
+    child_workspace = tmp_path / f"frozen-{case}-workspace"
+    receipt_path = tmp_path / f"frozen-{case}-receipt.json"
+    child_home.mkdir()
+    child_workspace.mkdir()
+    environment = os.environ.copy()
+    environment.update(
+        {
+            marker: case,
+            "FLASHINFER_CAKE_FROZEN_RECEIPT": str(receipt_path),
+            "FLASHINFER_WORKSPACE_BASE": str(child_workspace),
+            "HOME": str(child_home),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+    )
+    node_id = (
+        f"{Path(__file__).resolve()}::"
+        "test_frozen_graph_matches_pr4078_and_preserves_inputs"
+        f"[{case}]"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", node_id],
+        cwd=Path(__file__).resolve().parents[2],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=1800,
+        check=False,
+    )
+    if completed.returncode != 0:
+        pytest.fail(
+            f"fresh frozen-source case {case} failed:\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    if not receipt_path.is_file():
+        pytest.fail(f"fresh frozen-source case {case} did not write its receipt")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["case"] == case
+    return receipt
+
+
 def test_generated_source_inventory_and_hashes() -> None:
     root = _source_root()
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
@@ -1100,6 +1151,14 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
     hv: int,
     tmp_path: Path,
 ) -> None:
+    receipt = _delegate_frozen_graph_case_to_fresh_pytest(
+        tmp_path=tmp_path, total=total, hq=hq, hv=hv
+    )
+    if receipt is not None:
+        assert receipt["oracle"] in {"pr4078", "semantic-nonfinite"}
+        assert receipt["inputs_immutable"] is True
+        return
+
     from flashinfer.gdn_kernels.blackwell.gdn_cp_prefill import (
         cp_delta_rule_dsl_sm100,
     )
@@ -1141,6 +1200,7 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
         initial_state=initial_state,
         max_seqlen=total,
     )
+    oracle = "pr4078"
     if not bool(torch.isfinite(expected_output).all().item()):
         semantic_output, semantic_state = _fresh_batched_semantic_oracle(
             tmp_path=tmp_path,
@@ -1158,6 +1218,7 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
         torch.testing.assert_close(expected_state, semantic_state, atol=1e-2, rtol=1e-2)
         expected_output = semantic_output
         expected_state = semantic_state
+        oracle = "semantic-nonfinite"
     _assert_oracle_output_written(expected_output)
     prepared = cake.prepare_cake_gdn_cp_prefill(
         q,
@@ -1175,10 +1236,32 @@ def test_frozen_graph_matches_pr4078_and_preserves_inputs(
 
     torch.testing.assert_close(output, expected_output, atol=1e-2, rtol=1e-2)
     torch.testing.assert_close(final_state, expected_state, atol=1e-2, rtol=1e-2)
-    for observed, before in zip(
-        (q, k, v, alpha, beta, cu_seqlens, initial_state), snapshots, strict=True
-    ):
-        assert torch.equal(observed, before)
+    inputs_immutable = all(
+        torch.equal(observed, before)
+        for observed, before in zip(
+            (q, k, v, alpha, beta, cu_seqlens, initial_state), snapshots, strict=True
+        )
+    )
+    assert inputs_immutable
+    receipt_path = Path(os.environ["FLASHINFER_CAKE_FROZEN_RECEIPT"])
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "case": f"{total}-{hq}-{hv}",
+                "oracle": oracle,
+                "inputs_immutable": inputs_immutable,
+                "output_max_abs": float(
+                    (output.float() - expected_output.float()).abs().max().item()
+                ),
+                "state_max_abs": float(
+                    (final_state.float() - expected_state.float()).abs().max().item()
+                ),
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 @pytest.mark.skipif(
