@@ -7595,9 +7595,9 @@
           ]
         ],
         "entry": "run_mn_precompute",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1_7a3a5bd997",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1_360b064a28",
         "path": "host/cake_mn_precompute.cc",
-        "sha256": "9e7c4847c33977bb507cb897f8d1f2083b020b1c8b87dac4427adab35359329d",
+        "sha256": "ae62748be58cd294a3f8a49b9ccfef97d97ef74854909dda5530b0200de29057",
         "size_bytes": 21770
       },
       "name": "mn_precompute",
@@ -7608,8 +7608,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_mn_precompute.cu",
-          "sha256": "874c4ee120c72d2a2f06c4db50f62a49465fb7a0b04a3ca8539310e07c581a30",
-          "size_bytes": 79681
+          "sha256": "4f9f5ef2b518dfa26a77bbd9b10bcae36421f2386b31997876ec531fbca90ff1",
+          "size_bytes": 80740
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_v1",
@@ -7672,7 +7672,7 @@
         }
       ],
       "cuda_symbol": "kernel_flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1",
-      "dynamic_smem_bytes": 192512,
+      "dynamic_smem_bytes": 225280,
       "host_binding": {
         "arg_plan": [
           [
@@ -7741,9 +7741,9 @@
           ]
         ],
         "entry": "run_mn_precompute_bf16",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1_02211680ce",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1_c816512376",
         "path": "host/cake_mn_precompute_bf16.cc",
-        "sha256": "fef8baa903c39f5cd2993765975a15da16b6b95fd2e907708c2eeb9d88378160",
+        "sha256": "a1bb87de13631baefe5a99c3c7eaf7df61b82187d1f5670edc479f1f9317afe0",
         "size_bytes": 21798
       },
       "name": "mn_precompute_bf16",
@@ -7754,8 +7754,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_mn_precompute_bf16.cu",
-          "sha256": "8980f0e9f8247b1987fb917e011981706dd82c990b5a3ff5be1084072403598a",
-          "size_bytes": 84938
+          "sha256": "f466ee73ace0f29fb336de4598e8ceb05deefbbd735f7fa6bf47e2ad37226641",
+          "size_bytes": 99074
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_mn_precompute_bf16_v1",
