@@ -864,21 +864,81 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     unsigned int vks_residual_bits_lo_cg1[16];
                     unsigned int vks_residual_bits_hi_cg1[16];
                     {
+                        float v_frag_lo_cg1_f32[32];
                         #pragma unroll
-                        for (int vks_pair_cg1 = 0; vks_pair_cg1 < 16; vks_pair_cg1++) {
-                            {
-                                if (source_final_vks_block_cg1 != 0) {
-                                    vks_bits_lo_cg1[vks_pair_cg1] = v_frag_lo_cg1[vks_pair_cg1];
-                                    vks_bits_hi_cg1[vks_pair_cg1] = v_frag_hi_cg1[vks_pair_cg1];
-                                } else {
-                                    uint32_t _bf16x2_sub_0;
-                                    asm volatile("sub.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_sub_0) : "r"(v_frag_lo_cg1[vks_pair_cg1]), "r"(ks_frag_lo_cg1_f16[vks_pair_cg1]));
-                                    vks_bits_lo_cg1[vks_pair_cg1] = _bf16x2_sub_0;
-                                    uint32_t _bf16x2_sub_1;
-                                    asm volatile("sub.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_sub_1) : "r"(v_frag_hi_cg1[vks_pair_cg1]), "r"(ks_frag_hi_cg1_f16[vks_pair_cg1]));
-                                    vks_bits_hi_cg1[vks_pair_cg1] = _bf16x2_sub_1;
-                                }
-                            }
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&v_frag_lo_cg1_f32[_pair * 2])[0]), "=f"((&v_frag_lo_cg1_f32[_pair * 2])[1])
+                                : "r"(v_frag_lo_cg1[_pair]));
+                        }
+                        float v_frag_hi_cg1_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&v_frag_hi_cg1_f32[_pair * 2])[0]), "=f"((&v_frag_hi_cg1_f32[_pair * 2])[1])
+                                : "r"(v_frag_hi_cg1[_pair]));
+                        }
+                        #pragma unroll
+                        for (int _ls = 0; _ls < 16; _ls++)
+                            sub_f32x2_inplace(&reinterpret_cast<float2*>(v_frag_lo_cg1_f32)[_ls], reinterpret_cast<const float2*>(ks_frag_lo_cg1)[_ls]);
+                        #pragma unroll
+                        for (int _ls = 0; _ls < 16; _ls++)
+                            sub_f32x2_inplace(&reinterpret_cast<float2*>(v_frag_hi_cg1_f32)[_ls], reinterpret_cast<const float2*>(ks_frag_hi_cg1)[_ls]);
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(v_frag_lo_cg1_f32[_lp*2 + 0], v_frag_lo_cg1_f32[_lp*2+1 + 0]));
+                            vks_bits_lo_cg1[_lp] = *(uint32_t*)&_bf2;
+                        }
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(v_frag_hi_cg1_f32[_lp*2 + 0], v_frag_hi_cg1_f32[_lp*2+1 + 0]));
+                            vks_bits_hi_cg1[_lp] = *(uint32_t*)&_bf2;
+                        }
+                        float vks_bits_lo_cg1_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&vks_bits_lo_cg1_f32[_pair * 2])[0]), "=f"((&vks_bits_lo_cg1_f32[_pair * 2])[1])
+                                : "r"(vks_bits_lo_cg1[_pair]));
+                        }
+                        float vks_bits_hi_cg1_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&vks_bits_hi_cg1_f32[_pair * 2])[0]), "=f"((&vks_bits_hi_cg1_f32[_pair * 2])[1])
+                                : "r"(vks_bits_hi_cg1[_pair]));
+                        }
+                        #pragma unroll
+                        for (int _ls = 0; _ls < 16; _ls++)
+                            sub_f32x2_inplace(&reinterpret_cast<float2*>(v_frag_lo_cg1_f32)[_ls], reinterpret_cast<const float2*>(vks_bits_lo_cg1_f32)[_ls]);
+                        #pragma unroll
+                        for (int _ls = 0; _ls < 16; _ls++)
+                            sub_f32x2_inplace(&reinterpret_cast<float2*>(v_frag_hi_cg1_f32)[_ls], reinterpret_cast<const float2*>(vks_bits_hi_cg1_f32)[_ls]);
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(v_frag_lo_cg1_f32[_lp*2 + 0], v_frag_lo_cg1_f32[_lp*2+1 + 0]));
+                            vks_residual_bits_lo_cg1[_lp] = *(uint32_t*)&_bf2;
+                        }
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(v_frag_hi_cg1_f32[_lp*2 + 0], v_frag_hi_cg1_f32[_lp*2+1 + 0]));
+                            vks_residual_bits_hi_cg1[_lp] = *(uint32_t*)&_bf2;
                         }
                     }
                     asm volatile(
@@ -889,6 +949,16 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                         "tcgen05.st.sync.aligned.16x128b.x8.b32"
                         " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
                         :: "r"(taddr + 448 + (unsigned int)tmem_row_base_cg1 + 1048576), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&vks_bits_hi_cg1[15])));
+                    {
+                        asm volatile(
+                            "tcgen05.st.sync.aligned.16x128b.x8.b32"
+                            " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
+                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_lo_cg1[15])));
+                        asm volatile(
+                            "tcgen05.st.sync.aligned.16x128b.x8.b32"
+                            " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
+                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1 + 1048576), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&vks_residual_bits_hi_cg1[15])));
+                    }
                     asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
                     mbarrier_arrive(vks_ready_addr);
                     {
@@ -1046,6 +1116,57 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                         " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
                         :: "r"(taddr + 448 + (unsigned int)tmem_row_base_cg1 + 1048576), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&nv_bits_hi_cg1[15])));
                     {
+                        float nv_bits_lo_cg1_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&nv_bits_lo_cg1_f32[_pair * 2])[0]), "=f"((&nv_bits_lo_cg1_f32[_pair * 2])[1])
+                                : "r"(nv_bits_lo_cg1[_pair]));
+                        }
+                        float nv_bits_hi_cg1_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&nv_bits_hi_cg1_f32[_pair * 2])[0]), "=f"((&nv_bits_hi_cg1_f32[_pair * 2])[1])
+                                : "r"(nv_bits_hi_cg1[_pair]));
+                        }
+                        #pragma unroll
+                        for (int nv_residual_item_cg1 = 0; nv_residual_item_cg1 < 32; nv_residual_item_cg1++) {
+                            nv_bits_lo_cg1_f32[nv_residual_item_cg1] = nv_frag_lo_cg1[nv_residual_item_cg1] - nv_bits_lo_cg1_f32[nv_residual_item_cg1];
+                            nv_bits_hi_cg1_f32[nv_residual_item_cg1] = nv_frag_hi_cg1[nv_residual_item_cg1] - nv_bits_hi_cg1_f32[nv_residual_item_cg1];
+                        }
+                        unsigned int nv_residual_bits_lo_cg1[16];
+                        unsigned int nv_residual_bits_hi_cg1[16];
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(nv_bits_lo_cg1_f32[_lp*2 + 0], nv_bits_lo_cg1_f32[_lp*2+1 + 0]));
+                            nv_residual_bits_lo_cg1[_lp] = *(uint32_t*)&_bf2;
+                        }
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(nv_bits_hi_cg1_f32[_lp*2 + 0], nv_bits_hi_cg1_f32[_lp*2+1 + 0]));
+                            nv_residual_bits_hi_cg1[_lp] = *(uint32_t*)&_bf2;
+                        }
+                        asm volatile(
+                            "tcgen05.st.sync.aligned.16x128b.x8.b32"
+                            " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
+                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_lo_cg1[15])));
+                        asm volatile(
+                            "tcgen05.st.sync.aligned.16x128b.x8.b32"
+                            " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
+                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1 + 1048576), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&nv_residual_bits_hi_cg1[15])));
+                        asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
+                        mbarrier_arrive(nv_ready_addr);
+                        mbarrier_wait(q_state_acc_full_addr + (q_state_stage_cg1) * 8, q_state_full_phase_cg1);
+                        asm volatile("tcgen05.fence::after_thread_sync;");
                     }
                     #pragma unroll
                     for (int _ls = 0; _ls < 16; _ls++)
@@ -1066,25 +1187,71 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                         decay_bits_hi_cg1[_lp] = *(uint32_t*)&_bf2;
                     }
                     {
+                    }
+                    {
+                        float decay_bits_lo_cg1_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&decay_bits_lo_cg1_f32[_pair * 2])[0]), "=f"((&decay_bits_lo_cg1_f32[_pair * 2])[1])
+                                : "r"(decay_bits_lo_cg1[_pair]));
+                        }
+                        float decay_bits_hi_cg1_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&decay_bits_hi_cg1_f32[_pair * 2])[0]), "=f"((&decay_bits_hi_cg1_f32[_pair * 2])[1])
+                                : "r"(decay_bits_hi_cg1[_pair]));
+                        }
+                        #pragma unroll
+                        for (int _ls = 0; _ls < 16; _ls++)
+                            sub_f32x2_inplace(&reinterpret_cast<float2*>(nv_frag_lo_cg1)[_ls], reinterpret_cast<const float2*>(decay_bits_lo_cg1_f32)[_ls]);
+                        #pragma unroll
+                        for (int _ls = 0; _ls < 16; _ls++)
+                            sub_f32x2_inplace(&reinterpret_cast<float2*>(nv_frag_hi_cg1)[_ls], reinterpret_cast<const float2*>(decay_bits_hi_cg1_f32)[_ls]);
+                        unsigned int decay_residual_bits_lo_cg1[16];
+                        unsigned int decay_residual_bits_hi_cg1[16];
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(nv_frag_lo_cg1[_lp*2 + 0], nv_frag_lo_cg1[_lp*2+1 + 0]));
+                            decay_residual_bits_lo_cg1[_lp] = *(uint32_t*)&_bf2;
+                        }
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(nv_frag_hi_cg1[_lp*2 + 0], nv_frag_hi_cg1[_lp*2+1 + 0]));
+                            decay_residual_bits_hi_cg1[_lp] = *(uint32_t*)&_bf2;
+                        }
                         asm volatile(
                             "tcgen05.st.sync.aligned.16x128b.x8.b32"
                             " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
-                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[15])));
+                            :: "r"(taddr + 448 + (unsigned int)tmem_row_base_cg1), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_lo_cg1[15])));
                         asm volatile(
                             "tcgen05.st.sync.aligned.16x128b.x8.b32"
                             " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
-                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1 + 1048576), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[15])));
+                            :: "r"(taddr + 448 + (unsigned int)tmem_row_base_cg1 + 1048576), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&decay_bits_hi_cg1[15])));
+                        asm volatile(
+                            "tcgen05.st.sync.aligned.16x128b.x8.b32"
+                            " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
+                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_lo_cg1[15])));
+                        asm volatile(
+                            "tcgen05.st.sync.aligned.16x128b.x8.b32"
+                            " [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};"
+                            :: "r"(taddr + 448 + 32 + (unsigned int)tmem_row_base_cg1 + 1048576), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[0])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[1])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[2])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[3])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[4])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[5])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[6])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[7])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[8])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[9])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[10])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[11])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[12])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[13])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[14])), "r"(*reinterpret_cast<const uint32_t*>(&decay_residual_bits_hi_cg1[15])));
                     }
                     asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
                     {
-                        {
-                            mbarrier_arrive(nv_ready_addr);
-                            mbarrier_arrive(decay_v_ready_addr);
-                        }
+                        mbarrier_arrive(decay_v_ready_addr);
                     }
                     mbarrier_wait(o_store_empty_addr + (o_stage_cg1) * 8, o_empty_phase_cg1);
                     {
-                        mbarrier_wait(q_state_acc_full_addr + (q_state_stage_cg1) * 8, q_state_full_phase_cg1);
                     }
                     asm volatile("tcgen05.fence::after_thread_sync;");
                     int o_stage_addr_cg1 = smem_o_addr + o_stage_cg1 * 16384;
@@ -1711,6 +1878,38 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
                     "}\n"
                     :: "r"(tmem_tmem_cg1_acc), "r"(_mma_b_lo_5), "r"(tmem_tmem_shared_input), "r"(0));
+                    {
+                        int _mma_b_lo_6 = make_warp_uniform((((smem_ainv_addr) >> 4) & 0x3FFF) + (ainv_stage_state) * 512);
+                        asm volatile(
+                    "{\n\t"
+                    ".reg .pred leader, p0, p1;\n\t"
+                    ".reg .b32 dhi, blo, ta, id;\n\t"
+                    ".reg .b64 db;\n\t"
+                    "elect.sync _|leader, 0xFFFFFFFF;\n\t"
+                    "setp.ne.b32 p0, %3, 0;\n\t"
+                    "setp.ne.b32 p1, 1, 0;\n\t"
+                    ""
+                    "mov.b32 dhi, 0x40004040;\n\t"
+                    "mov.b32 id, 135267472;\n\t"
+                    "mov.b32 ta, %2;\n\t"
+                    "mov.b32 blo, %1;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p0;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "}\n"
+                    :: "r"(tmem_tmem_cg1_acc), "r"(_mma_b_lo_6), "r"(tmem_tmem_shared_input + 32), "r"(1));
+                    }
                     elect_commit(cg1_acc_full_addr);
                     cg1_acc_stage_state += 1;
                     if (cg1_acc_stage_state == 1) { cg1_acc_stage_state = 0; cg1_acc_empty_phase_state ^= 1; }
@@ -1752,6 +1951,38 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     "}\n"
                     :: "r"(tmem_tmem_q_state), "r"(_mma_b_lo_7), "r"(tmem_tmem_shared_input), "r"(1));
                     {
+                        int _mma_b_lo_8 = make_warp_uniform((((smem_qk_addr) >> 4) & 0x3FFF) + (qk_stage_state) * 512);
+                        asm volatile(
+                    "{\n\t"
+                    ".reg .pred leader, p0, p1;\n\t"
+                    ".reg .b32 dhi, blo, ta, id;\n\t"
+                    ".reg .b64 db;\n\t"
+                    "elect.sync _|leader, 0xFFFFFFFF;\n\t"
+                    "setp.ne.b32 p0, %3, 0;\n\t"
+                    "setp.ne.b32 p1, 1, 0;\n\t"
+                    ""
+                    "mov.b32 dhi, 0x40004040;\n\t"
+                    "mov.b32 id, 135267472;\n\t"
+                    "mov.b32 ta, %2;\n\t"
+                    "mov.b32 blo, %1;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p0;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "}\n"
+                    :: "r"(tmem_tmem_q_state), "r"(_mma_b_lo_8), "r"(tmem_tmem_shared_input + 32), "r"(1));
+                    }
+                    {
                         int _mma_b_lo_9 = make_warp_uniform((((smem_qk_residual_addr) >> 4) & 0x3FFF) + (qk_stage_state) * 1024);
                         asm volatile(
                     "{\n\t"
@@ -1782,6 +2013,38 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
                     "}\n"
                     :: "r"(tmem_tmem_q_state), "r"(_mma_b_lo_9), "r"(tmem_tmem_shared_input), "r"(1));
+                        {
+                            int _mma_b_lo_10 = make_warp_uniform((((smem_qk_residual_addr) >> 4) & 0x3FFF) + (qk_stage_state) * 1024);
+                            asm volatile(
+                    "{\n\t"
+                    ".reg .pred leader, p0, p1;\n\t"
+                    ".reg .b32 dhi, blo, ta, id;\n\t"
+                    ".reg .b64 db;\n\t"
+                    "elect.sync _|leader, 0xFFFFFFFF;\n\t"
+                    "setp.ne.b32 p0, %3, 0;\n\t"
+                    "setp.ne.b32 p1, 1, 0;\n\t"
+                    ""
+                    "mov.b32 dhi, 0x40004040;\n\t"
+                    "mov.b32 id, 135267472;\n\t"
+                    "mov.b32 ta, %2;\n\t"
+                    "mov.b32 blo, %1;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p0;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "}\n"
+                    :: "r"(tmem_tmem_q_state), "r"(_mma_b_lo_10), "r"(tmem_tmem_shared_input + 32), "r"(1));
+                        }
                     }
                     elect_commit(q_state_acc_full_addr);
                     elect_commit(qk_empty_addr + (qk_stage_state) * 8);
@@ -1789,7 +2052,7 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     mbarrier_wait(decay_v_ready_addr, decay_v_phase_state);
                     asm volatile("tcgen05.fence::after_thread_sync;");
                     {
-                        int _mma_b_lo_13 = make_warp_uniform(((((smem_k_trans_addr) >> 4) & 0x3FFF) | 0x2000000) + (k_stage_state) * 1024);
+                        int _mma_b_lo_11 = make_warp_uniform(((((smem_k_trans_addr) >> 4) & 0x3FFF) | 0x2000000) + (k_stage_state) * 1024);
                         asm volatile(
                     "{\n\t"
                     ".reg .pred leader, p0, p1;\n\t"
@@ -1818,7 +2081,37 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     "mov.b64 db, {blo, dhi};\n\t"
                     "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
                     "}\n"
-                    :: "r"(tmem_tmem_state), "r"(_mma_b_lo_13), "r"(tmem_tmem_shared_input + 32), "r"(1));
+                    :: "r"(tmem_tmem_state), "r"(_mma_b_lo_11), "r"(tmem_tmem_shared_input), "r"(1));
+                        int _mma_b_lo_12 = make_warp_uniform(((((smem_k_trans_addr) >> 4) & 0x3FFF) | 0x2000000) + (k_stage_state) * 1024);
+                        asm volatile(
+                    "{\n\t"
+                    ".reg .pred leader, p0, p1;\n\t"
+                    ".reg .b32 dhi, blo, ta, id;\n\t"
+                    ".reg .b64 db;\n\t"
+                    "elect.sync _|leader, 0xFFFFFFFF;\n\t"
+                    "setp.ne.b32 p0, %3, 0;\n\t"
+                    "setp.ne.b32 p1, 1, 0;\n\t"
+                    ""
+                    "mov.b32 dhi, 0x40004040;\n\t"
+                    "mov.b32 id, 136381584;\n\t"
+                    "mov.b32 ta, %2;\n\t"
+                    "mov.b32 blo, %1;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p0;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 128;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 128;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 128;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "}\n"
+                    :: "r"(tmem_tmem_state), "r"(_mma_b_lo_12), "r"(tmem_tmem_shared_input + 32), "r"(1));
                     }
                     elect_commit(kv_acc_full_addr);
                     elect_commit(load_k_empty_addr + (k_stage_state) * 8);
