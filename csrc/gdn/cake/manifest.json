@@ -9930,9 +9930,9 @@
           ]
         ],
         "entry": "run_cp_prefill_generic_bf16",
-        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1_84c803844f",
+        "module_ident": "flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1_b55a5142d3",
         "path": "host/cake_cp_prefill_generic_bf16.cc",
-        "sha256": "ba45ba65bcba40d3136631d8d35e3faa09739503ce97dcf664a174f21c9b3a75",
+        "sha256": "4576ef338ad8f89c33d1a7ce59ac51d389d39ae216a995ea48b0bc8594bca2e6",
         "size_bytes": 26975
       },
       "name": "cp_prefill_generic_bf16",
@@ -9943,8 +9943,8 @@
             "sm_103a"
           ],
           "path": "cuda/cake_cp_prefill_generic_bf16.cu",
-          "sha256": "f9624a4e63ddbe0e7fbe4ea149fbc9aa554701394ba0ac3cd84b6c45cc6e8c10",
-          "size_bytes": 157289
+          "sha256": "6011e43029a97e8d1ee13a993e832b32ad92d0eefd7558e20f868ba0e1573770",
+          "size_bytes": 161802
         }
       ],
       "schedule_symbol": "flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1",

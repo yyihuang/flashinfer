@@ -494,6 +494,9 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                         mbarrier_arrive(load_t_empty_addr + (t_stage_cg0) * 8);
                     }
                     mbarrier_arrive(ainv_ready_addr + (ainv_stage_cg0) * 8);
+                    {
+                        mbarrier_wait(o_store_empty_addr + (qk_residual_stage_cg0) * 8, qk_residual_empty_phase_cg0);
+                    }
                     mbarrier_wait(cg0_acc_full_addr + (acc_stage_cg0) * 8, acc_full_phase_cg0);
                     asm volatile("tcgen05.fence::after_thread_sync;");
                     float _tmem_load_0[32];
@@ -521,6 +524,28 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                         qk_bits_cg0[_lp] = *(uint32_t*)&_bf2;
                     }
                     unsigned int qk_residual_bits_cg0[16];
+                    {
+                        float qk_bits_cg0_f32[32];
+                        #pragma unroll
+                        for (int _pair = 0; _pair < 16; _pair++) {
+                            asm volatile(
+                                "{\n\t"
+                                "shl.b32 %0, %2, 16;\n\t"
+                                "and.b32 %1, %2, 0xffff0000;\n\t"
+                                "}\n"
+                                : "=f"((&qk_bits_cg0_f32[_pair * 2])[0]), "=f"((&qk_bits_cg0_f32[_pair * 2])[1])
+                                : "r"(qk_bits_cg0[_pair]));
+                        }
+                        #pragma unroll
+                        for (int qk_residual_item_cg0 = 0; qk_residual_item_cg0 < 32; qk_residual_item_cg0++) {
+                            qk_bits_cg0_f32[qk_residual_item_cg0] = _tmem_load_0[qk_residual_item_cg0] - qk_bits_cg0_f32[qk_residual_item_cg0];
+                        }
+                        #pragma unroll
+                        for (int _lp = 0; _lp < 16; _lp++) {
+                            __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(qk_bits_cg0_f32[_lp*2 + 0], qk_bits_cg0_f32[_lp*2+1 + 0]));
+                            qk_residual_bits_cg0[_lp] = *(uint32_t*)&_bf2;
+                        }
+                    }
                     int qk_store_row_cg0 = qk_logical_row_base_cg0 + (lane & 7) + (lane & 8);
                     int qk_store_col_lane_cg0 = (lane & 16) / 2;
                     #pragma unroll
@@ -530,6 +555,12 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                         asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
                             :: "r"(_stmatrix_addr_2), "r"(*reinterpret_cast<const uint32_t*>(&qk_bits_cg0[qk_word_base_cg0])), "r"(*reinterpret_cast<const uint32_t*>(&qk_bits_cg0[qk_word_base_cg0 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&qk_bits_cg0[qk_word_base_cg0 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&qk_bits_cg0[qk_word_base_cg0 + 3]))
                             : "memory");
+                        {
+                            uint32_t _stmatrix_addr_3 = static_cast<uint32_t>((unsigned long long)(smem_qk_residual_addr + qk_residual_stage_cg0 * 16384 + (unsigned int)((qk_store_repeat_cg0 * 16 + qk_store_col_lane_cg0) / 64 * 8192 + qk_store_row_cg0 * 128 + (qk_store_repeat_cg0 * 16 + qk_store_col_lane_cg0) % 64 * 2 ^ ((qk_store_repeat_cg0 * 16 + qk_store_col_lane_cg0) / 64 * 8192 + qk_store_row_cg0 * 128 + (qk_store_repeat_cg0 * 16 + qk_store_col_lane_cg0) % 64 * 2 >> 7 & 7) << 4)));
+                            asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
+                                :: "r"(_stmatrix_addr_3), "r"(*reinterpret_cast<const uint32_t*>(&qk_residual_bits_cg0[qk_word_base_cg0])), "r"(*reinterpret_cast<const uint32_t*>(&qk_residual_bits_cg0[qk_word_base_cg0 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&qk_residual_bits_cg0[qk_word_base_cg0 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&qk_residual_bits_cg0[qk_word_base_cg0 + 3]))
+                                : "memory");
+                        }
                     }
                     asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     {
@@ -545,6 +576,10 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     if (ainv_stage_cg0 == 3) { ainv_stage_cg0 = 0; ainv_empty_phase_cg0 ^= 1; }
                     qk_stage_cg0 += 1;
                     if (qk_stage_cg0 == 2) { qk_stage_cg0 = 0; qk_empty_phase_cg0 ^= 1; }
+                    {
+                        qk_residual_stage_cg0 += 1;
+                        if (qk_residual_stage_cg0 == 2) { qk_residual_stage_cg0 = 0; qk_residual_empty_phase_cg0 ^= 1; }
+                    }
                     acc_stage_cg0 += 1;
                     if (acc_stage_cg0 == 2) { acc_stage_cg0 = 0; acc_full_phase_cg0 ^= 1; }
                 }
@@ -1716,6 +1751,38 @@ kernel_flashinfer_blackwell_gdn_cp_prefill_final_generic_bf16_v1(const __grid_co
                     "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
                     "}\n"
                     :: "r"(tmem_tmem_q_state), "r"(_mma_b_lo_7), "r"(tmem_tmem_shared_input), "r"(1));
+                    {
+                        int _mma_b_lo_9 = make_warp_uniform((((smem_qk_residual_addr) >> 4) & 0x3FFF) + (qk_stage_state) * 1024);
+                        asm volatile(
+                    "{\n\t"
+                    ".reg .pred leader, p0, p1;\n\t"
+                    ".reg .b32 dhi, blo, ta, id;\n\t"
+                    ".reg .b64 db;\n\t"
+                    "elect.sync _|leader, 0xFFFFFFFF;\n\t"
+                    "setp.ne.b32 p0, %3, 0;\n\t"
+                    "setp.ne.b32 p1, 1, 0;\n\t"
+                    ""
+                    "mov.b32 dhi, 0x40004040;\n\t"
+                    "mov.b32 id, 135267472;\n\t"
+                    "mov.b32 ta, %2;\n\t"
+                    "mov.b32 blo, %1;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p0;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "add.u32 ta, ta, 8;\n\t"
+                    "add.u32 blo, blo, 2;\n\t"
+                    "mov.b64 db, {blo, dhi};\n\t"
+                    "@leader tcgen05.mma.cta_group::1.kind::f16 [%0], [ta], db, id, p1;\n\t"
+                    "}\n"
+                    :: "r"(tmem_tmem_q_state), "r"(_mma_b_lo_9), "r"(tmem_tmem_shared_input), "r"(1));
+                    }
                     elect_commit(q_state_acc_full_addr);
                     elect_commit(qk_empty_addr + (qk_stage_state) * 8);
                     mbarrier_wait(kv_acc_empty_addr + (kv_stage_state) * 8, kv_empty_phase_state);
