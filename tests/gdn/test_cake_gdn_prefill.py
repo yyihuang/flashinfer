@@ -373,6 +373,7 @@ def test_long_row_dispatch_is_exact(
             "cp_prefill_generic_bf16",
         ),
         ("sm_103a", (384,), torch.float16, (2, 2, 8), "cp_prefill_generic"),
+        ("sm_100a", (2048,), torch.float16, (2, 2, 8), "cp_prefill_generic"),
         ("sm_100a", (65,), torch.bfloat16, (1, 1, 2), "cp_prefill_generic_bf16"),
         ("sm_100a", (128, 129), torch.float16, (4, 2, 2), "cp_prefill_generic"),
     ],
