@@ -253,12 +253,10 @@ def _build_plan(
         t_kernel = "t_precompute_gb300_hv48_min6"
     max_seqlen = max(seq_lens)
     # The specialized prefill schedules compile out the padded second member
-    # of each 64-token block pair and preserve the pinned source's complete
-    # CP-chunk boundary semantics.  A physical block-pair tail or an
-    # incomplete source CP chunk therefore selects the semantic tail kernel.
+    # of each 64-token block pair.  A sequence tail or the selected CP chunk
+    # can independently require that padding, so either one selects generic.
     generic_tail = cp_chunk_len % (2 * _BLOCK) != 0 or any(
-        length % (2 * _BLOCK) != 0 or length % source_cp_chunk_len != 0
-        for length in seq_lens
+        length % (2 * _BLOCK) != 0 for length in seq_lens
     )
     if q.dtype == torch.float16 and not generic_tail and hq == hk == hv:
         prefill_kernel = (
