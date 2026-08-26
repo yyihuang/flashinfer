@@ -668,7 +668,7 @@ def test_public_dispatch_preserves_upstream_sm100_cp_extensions(
     assert calls == [expected_route]
 
 
-def test_bf16_checkpoint_is_rejected_by_generic_sm100_cp() -> None:
+def test_bf16_checkpoint_is_supported_by_generic_sm100_cp() -> None:
     q = torch.zeros((103, 4, 128), dtype=torch.bfloat16)
     output = torch.empty((103, 8, 128), dtype=torch.bfloat16)
     state = torch.empty((1, 8, 128, 128), dtype=torch.bfloat16)
@@ -692,17 +692,14 @@ def test_bf16_checkpoint_is_rejected_by_generic_sm100_cp() -> None:
         cp_chunk_len=None,
     )
 
-    assert reason == (
-        "CP delta rule state checkpointing requires the Cake-supported "
-        "FP32 checkpoint contract"
-    )
+    assert reason is None
 
 
 @pytest.mark.skipif(
     not torch.cuda.is_available() or not is_sm100a_supported(torch.device("cuda")),
     reason="requires an exact SM100a or SM103a GPU",
 )
-def test_exact_b1_bf16_checkpoint_auto_falls_back_and_explicit_cp_fails(
+def test_exact_b1_bf16_checkpoint_uses_generic_cp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     torch.manual_seed(4254)
@@ -744,63 +741,44 @@ def test_exact_b1_bf16_checkpoint_auto_falls_back_and_explicit_cp_fails(
         use_cp=False,
     )
 
-    real_non_cp = gdn_prefill.chunk_gated_delta_rule_sm100
+    real_cp = gdn_prefill.cp_delta_rule_dsl_sm100
     calls: list[str] = []
 
-    def observed_non_cp(*args, **kwargs):
-        calls.append("non_cp")
-        return real_non_cp(*args, **kwargs)
+    def observed_cp(*args, **kwargs):
+        calls.append("cp")
+        return real_cp(*args, **kwargs)
 
-    def forbidden_cp(*_args, **_kwargs):
-        raise AssertionError("BF16 checkpoint entered generic CP without checkpoint I/O")
+    def forbidden_non_cp(*_args, **_kwargs):
+        raise AssertionError("BF16 checkpoint left the generic CP route")
 
-    monkeypatch.setattr(gdn_prefill, "chunk_gated_delta_rule_sm100", observed_non_cp)
-    monkeypatch.setattr(gdn_prefill, "cp_delta_rule_dsl_sm100", forbidden_cp)
+    monkeypatch.setattr(gdn_prefill, "chunk_gated_delta_rule_sm100", forbidden_non_cp)
+    monkeypatch.setattr(gdn_prefill, "cp_delta_rule_dsl_sm100", observed_cp)
     output = torch.empty_like(reference_output)
     output_state = torch.empty_like(reference_state)
     checkpoint = torch.full_like(reference_checkpoint, float("nan"))
-    with pytest.warns(RuntimeWarning, match="falling back to non-CP"):
-        actual_output, actual_state = gdn_prefill.chunk_gated_delta_rule(
-            q,
-            k,
-            v,
-            alpha,
-            beta,
-            initial_state=initial_state,
-            output_final_state=True,
-            cu_seqlens=cu_seqlens,
-            output=output,
-            output_state=output_state,
-            state_checkpoints=checkpoint,
-            checkpoint_cu_starts=checkpoint_cu_starts,
-            checkpoint_every_n_tokens=64,
-            use_cp="auto",
-        )
+    actual_output, actual_state = gdn_prefill.chunk_gated_delta_rule(
+        q,
+        k,
+        v,
+        alpha,
+        beta,
+        initial_state=initial_state,
+        output_final_state=True,
+        cu_seqlens=cu_seqlens,
+        output=output,
+        output_state=output_state,
+        state_checkpoints=checkpoint,
+        checkpoint_cu_starts=checkpoint_cu_starts,
+        checkpoint_every_n_tokens=64,
+        use_cp=True,
+    )
 
     torch.cuda.synchronize()
-    assert calls == ["non_cp"]
+    assert calls == ["cp"]
     assert torch.isfinite(checkpoint).all()
     torch.testing.assert_close(actual_output, reference_output, atol=1e-2, rtol=1e-2)
     torch.testing.assert_close(actual_state, reference_state, atol=1e-2, rtol=1e-2)
     torch.testing.assert_close(checkpoint, reference_checkpoint, atol=1e-2, rtol=1e-2)
-
-    with pytest.raises(ValueError, match="Cake-supported FP32 checkpoint"):
-        gdn_prefill.chunk_gated_delta_rule(
-            q,
-            k,
-            v,
-            alpha,
-            beta,
-            initial_state=initial_state,
-            output_final_state=True,
-            cu_seqlens=cu_seqlens,
-            output=output,
-            output_state=output_state,
-            state_checkpoints=checkpoint,
-            checkpoint_cu_starts=checkpoint_cu_starts,
-            checkpoint_every_n_tokens=64,
-            use_cp=True,
-        )
 
 
 def test_public_dispatch_fails_closed_when_cake_is_unavailable(
