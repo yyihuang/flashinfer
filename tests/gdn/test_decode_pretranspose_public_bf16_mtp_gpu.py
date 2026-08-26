@@ -282,16 +282,6 @@ def test_public_bf16_mtp_verify_cuda_graph_replay(
             tensors, graph_output, graph_cache
         )
     caller_stream.synchronize()
-    _assert_result(
-        case,
-        tensors,
-        graph_output,
-        graph_cache,
-        returned_output,
-        returned_state,
-        reference_output,
-        reference_cache,
-    )
 
     # Refill the same caller-owned buffers before each replay so successful
     # writes cannot be confused with values left by capture or a prior replay.
