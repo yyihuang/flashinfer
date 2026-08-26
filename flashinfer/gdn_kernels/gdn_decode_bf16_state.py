@@ -134,7 +134,7 @@ MTP_ILP4_ROWS = 4
 @cute.kernel
 def gdn_decode_bf16state_mtp_ilp4_kernel(
     h0_source: cute.Tensor,  # [pool_size, HV, V, K] as BF16
-    intermediate_states: cute.Tensor,  # [B * T * HV, V, K] as BF16 (or dummy)
+    intermediate_states: cute.Tensor,  # [B * cache_steps * HV, V, K] BF16
     vec_size: cutlass.Constexpr[int],
     num_v_tiles: cutlass.Constexpr[int],
     tile_v: cutlass.Constexpr[int],
@@ -155,6 +155,7 @@ def gdn_decode_bf16state_mtp_ilp4_kernel(
     scale: cutlass.Constexpr[float],
     HV: cutlass.Constexpr[int],
     T: cutlass.Constexpr[int],
+    cache_steps: cutlass.Constexpr[int],
     H: cutlass.Constexpr[int],
     K: cutlass.Constexpr[int],
     V: cutlass.Constexpr[int],
@@ -762,18 +763,19 @@ def gdn_decode_bf16state_mtp_ilp4_kernel(
                     cute.autovec_copy(r_hb4_2, itc)
                     cute.autovec_copy(r_hb4_3, itd)
                 elif cutlass.const_expr(cache_intermediate_states):
-                    # The intermediate_states buffer is sized [B, T, HV, V, K]
+                    # The intermediate_states buffer is sized
+                    # [B, cache_steps, HV, V, K]
                     # (batch-scoped, NOT pool-scoped), so this index uses i_n
                     # (the per-call batch index) and not cache_idx (the pool
                     # slot). Using cache_idx here writes OOB whenever
                     # initial_state_indices points at slots >= B (i.e. any
                     # realistic pool_size > B serving config). Fix mirrors
                     # upstream PR #3145.
-                    # Int64: intermediate_states is reshaped to [B*T*HV, V, K]
-                    # (BF16) with stride[0] = V*K = 16384 elements. flat_idx *
-                    # 16384 hits 2**31 at flat_idx >= 131072 (HV=64+T=8: i_n
-                    # >= 256). PR #3230.
-                    flat_idx = i_n * T * HV + i_t * HV + i_hv
+                    # Int64: intermediate_states is reshaped to
+                    # [B*cache_steps*HV, V, K] (BF16) with stride[0] = V*K =
+                    # 16384 elements. flat_idx * 16384 hits 2**31 at flat_idx
+                    # >= 131072 (HV=64+T=8: i_n >= 256). PR #3230.
+                    flat_idx = i_n * cache_steps * HV + i_t * HV + i_hv
                     ita = cute.local_tile(
                         intermediate_states,
                         (1, 1, vec_size),
@@ -877,6 +879,7 @@ def gdn_wide_vec_kernel(
     scale: cutlass.Constexpr[float],
     HV: cutlass.Constexpr[int],
     T: cutlass.Constexpr[int],
+    cache_steps: cutlass.Constexpr[int],
     H: cutlass.Constexpr[int],
     K: cutlass.Constexpr[int],
     V: cutlass.Constexpr[int],
@@ -1542,18 +1545,19 @@ def gdn_wide_vec_kernel(
                         r_hb1[i] = cutlass.BFloat16(r_h[1, i])
                         r_hb2[i] = cutlass.BFloat16(r_h[2, i])
                         r_hb3[i] = cutlass.BFloat16(r_h[3, i])
-                    # The intermediate_states buffer is sized [B, T, HV, V, K]
+                    # The intermediate_states buffer is sized
+                    # [B, cache_steps, HV, V, K]
                     # (batch-scoped, NOT pool-scoped), so this index uses i_n
                     # (the per-call batch index) and not cache_idx (the pool
                     # slot). Using cache_idx here writes OOB whenever
                     # initial_state_indices points at slots >= B (i.e. any
                     # realistic pool_size > B serving config). Fix mirrors
                     # upstream PR #3145.
-                    # Int64: intermediate_states is reshaped to [B*T*HV, V, K]
-                    # (BF16) with stride[0] = V*K = 16384 elements. flat_idx *
-                    # 16384 hits 2**31 at flat_idx >= 131072 (HV=64+T=8: i_n
-                    # >= 256). PR #3230.
-                    flat_idx = i_n * T * HV + i_t * HV + i_hv
+                    # Int64: intermediate_states is reshaped to
+                    # [B*cache_steps*HV, V, K] (BF16) with stride[0] = V*K =
+                    # 16384 elements. flat_idx * 16384 hits 2**31 at flat_idx
+                    # >= 131072 (HV=64+T=8: i_n >= 256). PR #3230.
+                    flat_idx = i_n * cache_steps * HV + i_t * HV + i_hv
                     it0 = cute.local_tile(
                         intermediate_states,
                         (1, 1, vec),
@@ -1862,11 +1866,11 @@ def gdn_wide_vec_kernel(
                     cute.autovec_copy(r_hb2, it2)
                     cute.autovec_copy(r_hb3, it3)
                 elif cutlass.const_expr(cache_intermediate_states):
-                    # Int64: intermediate_states is reshaped to [B*T*HV, V, K]
-                    # (BF16) with stride[0] = V*K = 16384 elements. flat_idx *
-                    # 16384 hits 2**31 at flat_idx >= 131072 (HV=64+T=8: i_n
-                    # >= 256). PR #3230.
-                    flat_idx = i_n * T * HV + i_t * HV + i_hv
+                    # Int64: intermediate_states is reshaped to
+                    # [B*cache_steps*HV, V, K] (BF16) with stride[0] = V*K =
+                    # 16384 elements. flat_idx * 16384 hits 2**31 at flat_idx
+                    # >= 131072 (HV=64+T=8: i_n >= 256). PR #3230.
+                    flat_idx = i_n * cache_steps * HV + i_t * HV + i_hv
                     it0 = cute.local_tile(
                         intermediate_states,
                         (1, 1, vec),
@@ -1953,6 +1957,7 @@ def gdn_wide_vec_kernel_t1(
     scale: cutlass.Constexpr[float],
     HV: cutlass.Constexpr[int],
     T: cutlass.Constexpr[int],
+    cache_steps: cutlass.Constexpr[int],
     H: cutlass.Constexpr[int],
     K: cutlass.Constexpr[int],
     V: cutlass.Constexpr[int],
@@ -2361,14 +2366,15 @@ def gdn_wide_vec_kernel_t1(
                         r_hb1[i] = cutlass.BFloat16(r_h[1, i])
                         r_hb2[i] = cutlass.BFloat16(r_h[2, i])
                         r_hb3[i] = cutlass.BFloat16(r_h[3, i])
-                    # The intermediate_states buffer is sized [B, T, HV, V, K]
+                    # The intermediate_states buffer is sized
+                    # [B, cache_steps, HV, V, K]
                     # (batch-scoped, NOT pool-scoped), so this index uses i_n
                     # (the per-call batch index) and not cache_idx (the pool
                     # slot). Using cache_idx here writes OOB whenever
                     # initial_state_indices points at slots >= B (i.e. any
                     # realistic pool_size > B serving config). Fix mirrors
                     # upstream PR #3145. Int64 widening per PR #3230.
-                    flat_idx = i_n * T * HV + i_t * HV + i_hv
+                    flat_idx = i_n * cache_steps * HV + i_t * HV + i_hv
                     it0 = cute.local_tile(
                         intermediate_states,
                         (1, 1, vec),
@@ -2423,7 +2429,7 @@ def gdn_wide_vec_kernel_t1(
 @cute.jit
 def run_gdn_decode_bf16state_mtp_ilp4(
     h0_source: cute.Tensor,  # [pool_size, HV, V, K] BF16
-    intermediate_states: cute.Tensor,  # [B * T * HV, V, K] BF16 (or dummy)
+    intermediate_states: cute.Tensor,  # [B * cache_steps * HV, V, K] BF16
     A_log: cute.Tensor,
     a: cute.Tensor,
     dt_bias: cute.Tensor,
@@ -2441,6 +2447,7 @@ def run_gdn_decode_bf16state_mtp_ilp4(
     scale: cutlass.Constexpr[float],
     HV: cutlass.Constexpr[int],
     T: cutlass.Constexpr[int],
+    cache_steps: cutlass.Constexpr[int],
     H: cutlass.Constexpr[int],
     K: cutlass.Constexpr[int],
     V: cutlass.Constexpr[int],
@@ -2498,6 +2505,7 @@ def run_gdn_decode_bf16state_mtp_ilp4(
         scale,
         HV,
         T,
+        cache_steps,
         H,
         K,
         V,
@@ -2544,6 +2552,7 @@ def _run_wide_vec(
     scale: cutlass.Constexpr[float],
     HV: cutlass.Constexpr[int],
     T: cutlass.Constexpr[int],
+    cache_steps: cutlass.Constexpr[int],
     H: cutlass.Constexpr[int],
     K: cutlass.Constexpr[int],
     V: cutlass.Constexpr[int],
@@ -2591,6 +2600,7 @@ def _run_wide_vec(
         scale,
         HV,
         T,
+        cache_steps,
         H,
         K,
         V,
@@ -2638,6 +2648,7 @@ def _run_wide_vec_t1(
     scale: cutlass.Constexpr[float],
     HV: cutlass.Constexpr[int],
     T: cutlass.Constexpr[int],
+    cache_steps: cutlass.Constexpr[int],
     H: cutlass.Constexpr[int],
     K: cutlass.Constexpr[int],
     V: cutlass.Constexpr[int],
@@ -2676,6 +2687,7 @@ def _run_wide_vec_t1(
         scale,
         HV,
         T,
+        cache_steps,
         H,
         K,
         V,
@@ -3015,12 +3027,14 @@ def gated_delta_rule_mtp_wide_vec(
         and tuple(int(s) for s in h0_source.stride()) == canonical_pool_stride
     )
 
+    cache_steps = T_val
     cache_intermediate_states = intermediate_states_buffer is not None
     if cache_intermediate_states:
-        # The cache buffer is BATCH-scoped: shape [B, T, HV, V, K]. The kernel
-        # indexes it by i_n (the per-call batch index), NOT by cache_idx (the
-        # pool slot), so a pool_size-sized buffer would be OOB-prone. Fix
-        # mirrors upstream PR #3145.
+        # The cache buffer is BATCH-scoped: shape
+        # [B, cache_steps, HV, V, K]. The kernel indexes it by i_n (the
+        # per-call batch index), NOT by cache_idx (the pool slot), so a
+        # pool_size-sized buffer would be OOB-prone. Fix mirrors upstream
+        # PR #3145.
         buffer_size = intermediate_states_buffer.shape[0]
         cache_steps = intermediate_states_buffer.shape[1]
         assert buffer_size == B_val, (
@@ -3132,6 +3146,7 @@ def gated_delta_rule_mtp_wide_vec(
     cache_key = (
         "v3_mtp_bf16_tiled_dynB",
         T_val,
+        cache_steps,
         H_val,
         HV_val,
         K_val,
@@ -3224,6 +3239,7 @@ def gated_delta_rule_mtp_wide_vec(
                 scale,
                 HV_val,
                 T_val,
+                cache_steps,
                 H_val,
                 K_val,
                 V_val,
@@ -3364,12 +3380,14 @@ def gated_delta_rule_t1_wide_vec(
     # tests/gdn/test_decode_pretranspose_bf16_padded_pool.py and PR #3268.
     h0_source = initial_state_source
 
+    cache_steps = T_val
     cache_intermediate_states = intermediate_states_buffer is not None
     if cache_intermediate_states:
-        # The cache buffer is BATCH-scoped: shape [B, T, HV, V, K]. The kernel
-        # indexes it by i_n (the per-call batch index), NOT by cache_idx (the
-        # pool slot), so a pool_size-sized buffer would be OOB-prone. Fix
-        # mirrors upstream PR #3145.
+        # The cache buffer is BATCH-scoped: shape
+        # [B, cache_steps, HV, V, K]. The kernel indexes it by i_n (the
+        # per-call batch index), NOT by cache_idx (the pool slot), so a
+        # pool_size-sized buffer would be OOB-prone. Fix mirrors upstream
+        # PR #3145.
         buffer_size = intermediate_states_buffer.shape[0]
         cache_steps = intermediate_states_buffer.shape[1]
         assert buffer_size == B_val, (
@@ -3411,6 +3429,7 @@ def gated_delta_rule_t1_wide_vec(
     cache_key = (
         "v3_mtp_bf16_tiled_dynB",
         T_val,
+        cache_steps,
         H_val,
         HV_val,
         K_val,
@@ -3483,6 +3502,7 @@ def gated_delta_rule_t1_wide_vec(
                 scale,
                 HV_val,
                 T_val,
+                cache_steps,
                 H_val,
                 K_val,
                 V_val,
@@ -3577,11 +3597,12 @@ def gated_delta_rule_mtp(
         initial_state_indices: [B] int32 - indices into state pool (read)
         output_state_indices: Optional [B] int32 - indices for writing updated state.
             Defaults to initial_state_indices when None.
-        intermediate_states_buffer: Optional [B, T, HV, V, K] bf16. Note: this
-            buffer is BATCH-scoped, not pool-scoped — the kernel indexes it by
-            the per-call batch index (i_n), not by the pool slot. Sizing it
-            larger than B silently wastes memory; sizing it smaller than B
-            triggers an assertion (see the OOB fix mirroring upstream PR #3145).
+        intermediate_states_buffer: Optional [B, cache_steps, HV, V, K] bf16.
+            cache_steps must be >= T. This buffer is BATCH-scoped, not
+            pool-scoped — the kernel indexes it by the per-call batch index
+            (i_n), not by the pool slot. Sizing it larger than B silently
+            wastes memory; sizing it smaller than B triggers an assertion
+            (see the OOB fix mirroring upstream PR #3145).
         disable_state_update: bool - if True, don't update initial state
         scale: Optional, default 1/sqrt(K)
         output: Optional pre-allocated output tensor [B, T, HV, V] bf16
@@ -3617,9 +3638,10 @@ def gated_delta_rule_mtp(
     h0_source = initial_state_source
 
     # Handle intermediate states. The cache buffer is BATCH-scoped: shape
-    # [B, T, HV, V, K]. The kernel indexes it by i_n (per-call batch index),
-    # NOT by cache_idx (pool slot), so a pool_size-sized buffer would be
-    # OOB-prone. Fix mirrors upstream PR #3145.
+    # [B, cache_steps, HV, V, K]. The kernel indexes it by i_n (per-call
+    # batch index), NOT by cache_idx (pool slot), so a pool_size-sized buffer
+    # would be OOB-prone. Fix mirrors upstream PR #3145.
+    cache_steps = T
     cache_intermediate_states = intermediate_states_buffer is not None
     if cache_intermediate_states:
         buffer_size = intermediate_states_buffer.shape[0]
@@ -3776,6 +3798,7 @@ def gated_delta_rule_mtp(
     cache_key = (
         "mtp_bf16_dynB",
         T,
+        cache_steps,
         H,
         HV,
         K,
@@ -3868,6 +3891,7 @@ def gated_delta_rule_mtp(
                 scale,
                 HV,
                 T,
+                cache_steps,
                 H,
                 K,
                 V,
