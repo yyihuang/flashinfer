@@ -53,7 +53,9 @@ _EAGER_CASES = (
     _PublicVerifyCase(8, 4),
     _PublicVerifyCase(2, 6),
 )
-_GRAPH_CASES = tuple(_PublicVerifyCase(batch_size, 4) for batch_size in (2, 3, 5, 8))
+_GRAPH_CASES = tuple(
+    _PublicVerifyCase(batch_size, 4) for batch_size in (2, 3, 5, 8)
+) + (_PublicVerifyCase(2, 6),)
 
 
 def _case_id(case: _PublicVerifyCase) -> str:
