@@ -151,8 +151,11 @@ def _reference(
 def _call_public(
     tensors: dict[str, torch.Tensor],
     output: torch.Tensor,
-    cache: torch.Tensor,
+    cache_backing: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    cache = cache_backing[:, :_T]
+    assert cache.shape[1] == _T
+    assert cache.data_ptr() == cache_backing.data_ptr()
     return gdn_decode.gated_delta_rule_decode_pretranspose(
         q=tensors["q"],
         k=tensors["k"],
@@ -180,6 +183,8 @@ def _new_outputs(case: _PublicVerifyCase) -> tuple[torch.Tensor, torch.Tensor]:
             torch.nan,
             dtype=torch.bfloat16,
         )
+        # Pass only the logical T-row view to the public wrapper. For padded
+        # cases, stride(0) retains the physical backing capacity.
         cache = torch.full(
             (case.batch_size, case.cache_steps, _HV, _V, _K),
             _CACHE_SENTINEL,
