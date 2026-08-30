@@ -73,6 +73,9 @@ def _dispatcher_source(
     module_ids_value = tuple(module_ids) if module_ids_are_tuple else list(module_ids)
     if run_parameters is None:
         run_parameters = "*, " + ", ".join(promotion.DISPATCHER_RUN_ARGUMENTS)
+    run_arguments = "{" + ", ".join(
+        f"{name!r}: {name}" for name in promotion.DISPATCHER_RUN_ARGUMENTS
+    ) + "}"
     if select_parameters is None:
         select_parameters = "*, " + ", ".join(
             promotion.DISPATCHER_SELECT_ARGUMENTS
@@ -118,7 +121,7 @@ def {promotion.DISPATCHER_BIND_ENTRYPOINT}({binder_parameters}):
     def select_fp32_indexed_schedule_route({select_parameters}):
         return ('selected', locals())
     def prepare_fwd({run_parameters}):
-        return _Prepared(locals())
+        return _Prepared({run_arguments})
     return {{{', '.join(entries)}}}
 """.encode()
 
