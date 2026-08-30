@@ -2889,6 +2889,7 @@ def _run_flash_kda_prefill(
                 "deterministic promotion payload"
             )
         return adapter.run(
+            compute_capability=get_compute_capability(q.device),
             q=q,
             k=k,
             v=v,

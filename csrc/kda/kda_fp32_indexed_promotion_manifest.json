@@ -1,0 +1,28 @@
+{
+  "arguments": null,
+  "contract": {
+    "A_log_dtype": "float32",
+    "beta_dtype": "bfloat16",
+    "beta_is_logit": true,
+    "checkpoint_mode": "none",
+    "dt_bias_dtype": "float32",
+    "gate_kind": "softplus",
+    "head_dim": 128,
+    "head_relationship": "equal_q_kv",
+    "initial_state": "indexed_float32_pool",
+    "operation": "recurrent_kda_prefill",
+    "output_dtype": "bfloat16",
+    "qkv_dtype": "bfloat16",
+    "targets": [
+      "sm100a",
+      "sm103a"
+    ]
+  },
+  "entries": [],
+  "entry_point": null,
+  "kind": "flashinfer.kda_fp32_indexed_promotion",
+  "mode": null,
+  "module_ident": null,
+  "schema_version": 1,
+  "status": "pending"
+}

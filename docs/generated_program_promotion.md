@@ -61,8 +61,26 @@ They decide whether an artifact is acceptable; this importer only proves that
 the accepted artifact is the one copied into the public tree.
 
 Runtime adapters are workload-specific and are themselves eligible manifest
-artifacts. For FP32 indexed recurrent-KDA prefill, the stable dispatcher looks
-for `flashinfer.jit.kda_fp32_indexed_promotion`. That module must expose
-`is_available(compute_capability=...)` and `run(**kwargs)`. Until such a
-verified adapter and its CUDA or cubin payload are installed, FP32 indexed
-state-pool calls fail closed and existing BF16 dispatch is unchanged.
+artifacts. For FP32 indexed recurrent-KDA prefill, the stable
+`flashinfer.jit.kda_fp32_indexed_promotion` adapter validates
+`csrc/kda/kda_fp32_indexed_promotion_manifest.json`. The checked-in manifest is
+pending, so FP32 indexed calls fail closed until a complete promoted payload is
+installed; existing BF16 dispatch does not probe this adapter.
+
+A complete runtime manifest fixes the public operation contract, one ordered
+FFI argument table, the entry-point and module identifiers, and exact SM100a
+and SM103a file closures. It also selects exactly one representation:
+
+- `cuda` declares hashed generated sources and the translation units compiled
+  with FlashInfer's fixed target-specific JIT recipe.
+- `cubin` declares hashed target cubins and hashed C++ host bindings. The
+  adapter embeds the verified cubin bytes in the binding; it does not compile
+  or rewrite device code.
+
+`is_available(compute_capability=...)` only reports true for a complete,
+integrity-checked contract and matching architecture. `load` additionally
+requires the caller to name `mode="cuda"` or `mode="cubin"`, and rejects a
+mode different from the installed manifest. `run` resolves only generic output
+and scale defaults before invoking the manifest's ordered argument table. A
+missing artifact, single-byte mutation, unsupported architecture, contract
+change, absent symbol, or non-enqueueing return fails closed.
