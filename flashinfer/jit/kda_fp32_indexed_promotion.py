@@ -964,9 +964,7 @@ def _reverified_file_bytes(
     return payload
 
 
-def _reverified_artifact_bytes(
-    artifact: _InstalledArtifact, *, label: str
-) -> bytes:
+def _reverified_artifact_bytes(artifact: _InstalledArtifact, *, label: str) -> bytes:
     """Read one sealed artifact once and verify the exact bytes being consumed."""
 
     return _reverified_file_bytes(

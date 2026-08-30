@@ -73,13 +73,13 @@ def _dispatcher_source(
     module_ids_value = tuple(module_ids) if module_ids_are_tuple else list(module_ids)
     if run_parameters is None:
         run_parameters = "*, " + ", ".join(promotion.DISPATCHER_RUN_ARGUMENTS)
-    run_arguments = "{" + ", ".join(
-        f"{name!r}: {name}" for name in promotion.DISPATCHER_RUN_ARGUMENTS
-    ) + "}"
+    run_arguments = (
+        "{"
+        + ", ".join(f"{name!r}: {name}" for name in promotion.DISPATCHER_RUN_ARGUMENTS)
+        + "}"
+    )
     if select_parameters is None:
-        select_parameters = "*, " + ", ".join(
-            promotion.DISPATCHER_SELECT_ARGUMENTS
-        )
+        select_parameters = "*, " + ", ".join(promotion.DISPATCHER_SELECT_ARGUMENTS)
     entries = []
     if include_select:
         entries.append(
@@ -122,7 +122,7 @@ def {promotion.DISPATCHER_BIND_ENTRYPOINT}({binder_parameters}):
         return ('selected', locals())
     def prepare_fwd({run_parameters}):
         return _Prepared({run_arguments})
-    return {{{', '.join(entries)}}}
+    return {{{", ".join(entries)}}}
 """.encode()
 
 
@@ -298,9 +298,7 @@ def _write_complete_manifest(csrc_root, mode, *, dispatcher_source=None):
     return document, expected_cubins
 
 
-def _install_fake_csrc(
-    tmp_path, monkeypatch, mode, *, dispatcher_source=None
-):
+def _install_fake_csrc(tmp_path, monkeypatch, mode, *, dispatcher_source=None):
     root = tmp_path / "csrc/kda"
     root.mkdir(parents=True)
     document, cubins = _write_complete_manifest(
@@ -382,8 +380,7 @@ def test_public_prepare_and_run_have_the_fixed_keyword_only_abi():
         parameters = tuple(inspect.signature(entry).parameters.values())
         assert tuple(parameter.name for parameter in parameters) == expected
         assert all(
-            parameter.kind is inspect.Parameter.KEYWORD_ONLY
-            for parameter in parameters
+            parameter.kind is inspect.Parameter.KEYWORD_ONLY for parameter in parameters
         )
         assert all(
             parameter.default is inspect.Parameter.empty
@@ -439,7 +436,9 @@ def test_prepared_close_is_idempotent_and_run_closes_after_launch_failure(monkey
     with pytest.raises(RuntimeError, match="is closed"):
         prepared.launch()
 
-    monkeypatch.setattr(promotion, "prepare", lambda **_kwargs: promotion.Prepared(Closure()))
+    monkeypatch.setattr(
+        promotion, "prepare", lambda **_kwargs: promotion.Prepared(Closure())
+    )
     with pytest.raises(RuntimeError, match="launch failed"):
         promotion.run(
             compute_capability=(10, 0),
@@ -448,9 +447,7 @@ def test_prepared_close_is_idempotent_and_run_closes_after_launch_failure(monkey
     assert events == ["close", "launch", "close"]
 
 
-def test_dispatcher_source_is_rehashed_immediately_before_import(
-    tmp_path, monkeypatch
-):
+def test_dispatcher_source_is_rehashed_immediately_before_import(tmp_path, monkeypatch):
     _install_fake_csrc(tmp_path, monkeypatch, "cubin")
     spec = promotion.get_module_specs()[0]
     spec.dispatcher.path.write_bytes(spec.dispatcher.path.read_bytes() + b"# drift\n")
@@ -460,7 +457,9 @@ def test_dispatcher_source_is_rehashed_immediately_before_import(
         lambda _spec, _module, _cubin: lambda **_kwargs: None,
     )
 
-    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+    with pytest.raises(
+        promotion.PromotionManifestError, match="bytes drifted before use"
+    ):
         promotion.load(compute_capability=(10, 0), mode="cubin")
 
 
@@ -501,9 +500,7 @@ def test_dispatcher_source_is_rehashed_immediately_before_import(
         ),
         (
             _dispatcher_source(
-                select_parameters=", ".join(
-                    promotion.DISPATCHER_SELECT_ARGUMENTS
-                )
+                select_parameters=", ".join(promotion.DISPATCHER_SELECT_ARGUMENTS)
             ),
             "select entrypoint must have exact required keyword-only signature",
         ),
@@ -536,9 +533,7 @@ def test_dispatcher_fixed_binding_contract_fails_closed(
     assert not promotion.is_available(compute_capability=(10, 0))
 
 
-def test_dispatcher_rejects_non_callable_loaded_module_map_entry(
-    tmp_path, monkeypatch
-):
+def test_dispatcher_rejects_non_callable_loaded_module_map_entry(tmp_path, monkeypatch):
     _install_fake_csrc(tmp_path, monkeypatch, "cubin")
     monkeypatch.setattr(
         promotion,
@@ -611,7 +606,9 @@ def test_cubin_is_rehashed_immediately_before_load(tmp_path, monkeypatch):
         lambda _spec, _module, _cubin: pytest.fail("host loader was reached"),
     )
 
-    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+    with pytest.raises(
+        promotion.PromotionManifestError, match="bytes drifted before use"
+    ):
         promotion.load(compute_capability=(10, 0), mode="cubin")
 
 
@@ -635,7 +632,9 @@ def test_shared_library_is_rehashed_before_and_after_load(tmp_path, monkeypatch)
         return Loaded()
 
     monkeypatch.setattr(tvm_ffi, "load_module", mutate_during_load)
-    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+    with pytest.raises(
+        promotion.PromotionManifestError, match="bytes drifted before use"
+    ):
         promotion._load_host_module(
             spec,
             module,
@@ -643,9 +642,7 @@ def test_shared_library_is_rehashed_before_and_after_load(tmp_path, monkeypatch)
         )
 
 
-def test_cuda_host_source_is_rehashed_immediately_before_compile(
-    tmp_path, monkeypatch
-):
+def test_cuda_host_source_is_rehashed_immediately_before_compile(tmp_path, monkeypatch):
     from tvm_ffi import cpp
 
     _, _, expected = _install_fake_csrc(tmp_path, monkeypatch, "cuda")
@@ -659,7 +656,9 @@ def test_cuda_host_source_is_rehashed_immediately_before_compile(
         lambda *_args, **_kwargs: pytest.fail("compiler was reached"),
     )
 
-    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+    with pytest.raises(
+        promotion.PromotionManifestError, match="bytes drifted before use"
+    ):
         promotion._load_host_module(
             spec,
             module,
@@ -752,7 +751,9 @@ Path(a.report).write_text(json.dumps({'kind': 'flashinfer.generated_program_cuda
         "module-b": b"cubin-b",
     }
     recipe_path.write_bytes(recipe_payload + b"# drift\n")
-    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+    with pytest.raises(
+        promotion.PromotionManifestError, match="bytes drifted before use"
+    ):
         promotion._build_cuda_cubins(spec)
 
 
