@@ -289,6 +289,12 @@ def test_cubin_and_inventory_mutations_fail_closed(tmp_path, monkeypatch):
     promotion._clear_caches_for_testing()
     assert not promotion.is_available(compute_capability=(10, 0))
 
+    cubin.write_bytes(data)
+    document["entries"][0]["runtime_inventory"]["routes"][0]["selector"] = {}
+    (root / promotion.MANIFEST_FILENAME).write_text(json.dumps(document))
+    promotion._clear_caches_for_testing()
+    assert not promotion.is_available(compute_capability=(10, 0))
+
 
 def test_cubin_mode_loads_exact_host_shared_library(tmp_path, monkeypatch):
     import tvm_ffi
@@ -390,12 +396,6 @@ Path(a.report).write_text(json.dumps({'kind': 'flashinfer.generated_program_cuda
         "module-a": b"cubin-a",
         "module-b": b"cubin-b",
     }
-
-    cubin.write_bytes(data)
-    document["entries"][0]["runtime_inventory"]["routes"][0]["selector"] = {}
-    (root / promotion.MANIFEST_FILENAME).write_text(json.dumps(document))
-    promotion._clear_caches_for_testing()
-    assert not promotion.is_available(compute_capability=(10, 0))
 
 
 def test_checked_in_manifest_is_pending_and_unavailable():
