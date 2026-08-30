@@ -50,11 +50,17 @@ _FRAGMENT_SELECTOR_ARGUMENTS = {
 }
 _FRAGMENT_TOPOLOGY_COUNTS = {1: 32, 2: 9, 4: 7}
 _HOST_ACTIVITY_ROLES = ("beta_tma_refresh", "affine_torch_epilogue")
+_AFFINE_HOST_ACTIVITY_ROLES = (
+    _HOST_ACTIVITY_ROLES[0],
+    _HOST_ACTIVITY_ROLES[0],
+    _HOST_ACTIVITY_ROLES[0],
+    _HOST_ACTIVITY_ROLES[1],
+)
 _FRAGMENT_ACTIVITY_TOPOLOGY_COUNTS = {
     (1, ()): 27,
     (1, (_HOST_ACTIVITY_ROLES[0],)): 5,
     (2, ()): 9,
-    (4, (_HOST_ACTIVITY_ROLES[1],)): 7,
+    (4, _AFFINE_HOST_ACTIVITY_ROLES): 7,
 }
 _RECEIPT_KEYS = {
     "architecture",
@@ -134,10 +140,12 @@ _FRAGMENT_SELECTOR_KEYS = {"arguments", "kind", "route_count"}
 _FRAGMENT_BUILD_KEYS = {"kind", "outputs", "recipe"}
 _ACTIVITY_KEYS = {
     "device_kernel_names",
+    "expected_activity_segments",
     "expected_fixed_host_activity_markers",
     "expected_host_activity_count",
     "host_roles",
 }
+_ACTIVITY_SEGMENT_KEYS = {"activity_count", "fixed_markers"}
 _FINAL_INVENTORY_KEYS = {
     "architecture",
     "contract",
@@ -246,6 +254,77 @@ def _string_list(
         f"{label} contains duplicates",
     )
     return result
+
+
+def _activity_segments(
+    value: object,
+    label: str,
+    *,
+    module_count: int,
+) -> list[dict[str, object]]:
+    _require(
+        isinstance(value, list) and len(value) == module_count + 1,
+        f"{label} must contain one segment around every device stage",
+    )
+    assert isinstance(value, list)
+    result: list[dict[str, object]] = []
+    for index, item in enumerate(value):
+        segment_label = f"{label} {index}"
+        _require(
+            isinstance(item, dict) and set(item) == _ACTIVITY_SEGMENT_KEYS,
+            f"{segment_label} is invalid",
+        )
+        assert isinstance(item, dict)
+        activity_count = item.get("activity_count")
+        _require(
+            isinstance(activity_count, int)
+            and not isinstance(activity_count, bool)
+            and activity_count >= 0,
+            f"{segment_label} activity count is invalid",
+        )
+        fixed_markers = _string_list(
+            item.get("fixed_markers"),
+            f"{segment_label} fixed markers",
+            allow_empty=True,
+            allow_duplicates=True,
+        )
+        result.append(
+            {
+                "activity_count": activity_count,
+                "fixed_markers": fixed_markers,
+            }
+        )
+    return result
+
+
+def _expected_activity_identity(
+    module_count: int,
+    roles: tuple[str, ...],
+) -> tuple[int, list[str], list[dict[str, object]]] | None:
+    empty = {"activity_count": 0, "fixed_markers": []}
+    copy = {
+        "activity_count": 1,
+        "fixed_markers": ["direct_copy_kernel_cuda"],
+    }
+    if (module_count, roles) == (1, ()):
+        return 0, [], [dict(empty), dict(empty)]
+    if (module_count, roles) == (1, (_HOST_ACTIVITY_ROLES[0],)):
+        return 1, ["direct_copy_kernel_cuda"], [dict(copy), dict(empty)]
+    if (module_count, roles) == (2, ()):
+        return 0, [], [dict(empty), dict(empty), dict(empty)]
+    if (module_count, roles) == (4, _AFFINE_HOST_ACTIVITY_ROLES):
+        return (
+            6,
+            ["direct_copy_kernel_cuda"] * 3,
+            [
+                dict(copy),
+                dict(copy),
+                dict(empty),
+                dict(copy),
+                {"activity_count": 3, "fixed_markers": []},
+            ],
+        )
+    return None
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -1127,31 +1206,30 @@ def _normalized_fragment_input(
             activity.get("host_roles"),
             f"{label} host roles",
             allow_empty=True,
+            allow_duplicates=True,
         )
         markers = _string_list(
             activity.get("expected_fixed_host_activity_markers"),
             f"{label} host markers",
             allow_empty=True,
+            allow_duplicates=True,
+        )
+        segments = _activity_segments(
+            activity.get("expected_activity_segments"),
+            f"{label} activity segments",
+            module_count=module_count,
         )
         host_count = activity.get("expected_host_activity_count")
         roles = tuple(host_roles)
-        beta = _HOST_ACTIVITY_ROLES[0] in roles
-        affine = _HOST_ACTIVITY_ROLES[1] in roles
-        expected_markers = ["direct_copy_kernel_cuda"] if beta else []
-        expected_host_count = int(beta) + 3 * int(affine)
+        expected_activity = _expected_activity_identity(module_count, roles)
         _require(
             activity.get("device_kernel_names") == expected_names
-            and roles
-            in (
-                (),
-                (_HOST_ACTIVITY_ROLES[0],),
-                (_HOST_ACTIVITY_ROLES[1],),
-                _HOST_ACTIVITY_ROLES,
-            )
-            and markers == expected_markers
+            and expected_activity is not None
             and isinstance(host_count, int)
             and not isinstance(host_count, bool)
-            and host_count == expected_host_count,
+            and host_count == expected_activity[0]
+            and markers == expected_activity[1]
+            and segments == expected_activity[2],
             f"{label} activity identity differs",
         )
         activity_topology = (module_count, roles)
@@ -1170,6 +1248,7 @@ def _normalized_fragment_input(
         logical_routes.append(
             {
                 "activity": {
+                    "expected_activity_segments": segments,
                     "expected_fixed_host_activity_markers": markers,
                     "expected_host_activity_count": host_count,
                     "host_roles": host_roles,

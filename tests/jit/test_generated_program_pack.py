@@ -308,17 +308,37 @@ def _write_fragment_input(root, target_name, mode):
             seed = seeds[1]
         else:
             seed = seeds[2]
+        route_module_ids = seed["module_ids"]
         host_roles = []
         markers = []
         host_count = 0
+        segments = [
+            {"activity_count": 0, "fixed_markers": []}
+            for _ in range(len(route_module_ids) + 1)
+        ]
         if index < 5:
             host_roles = ["beta_tma_refresh"]
             markers = ["direct_copy_kernel_cuda"]
             host_count = 1
+            segments[0] = {
+                "activity_count": 1,
+                "fixed_markers": ["direct_copy_kernel_cuda"],
+            }
         elif index >= 41:
-            host_roles = ["affine_torch_epilogue"]
-            host_count = 3
-        route_module_ids = seed["module_ids"]
+            host_roles = [
+                "beta_tma_refresh",
+                "beta_tma_refresh",
+                "beta_tma_refresh",
+                "affine_torch_epilogue",
+            ]
+            markers = ["direct_copy_kernel_cuda"] * 3
+            host_count = 6
+            for segment_index in (0, 1, 3):
+                segments[segment_index] = {
+                    "activity_count": 1,
+                    "fixed_markers": ["direct_copy_kernel_cuda"],
+                }
+            segments[4] = {"activity_count": 3, "fixed_markers": []}
         kernel_names = [
             modules[module_ids.index(module_id)]["kernel_name"]
             for module_id in route_module_ids
@@ -329,6 +349,7 @@ def _write_fragment_input(root, target_name, mode):
                 "module_ids": route_module_ids,
                 "public_activity_contract": {
                     "device_kernel_names": kernel_names,
+                    "expected_activity_segments": segments,
                     "expected_fixed_host_activity_markers": markers,
                     "expected_host_activity_count": host_count,
                     "host_roles": host_roles,
@@ -655,10 +676,22 @@ def test_fragment_pack_rejects_route_topology_denominator_drift(tmp_path):
         route["public_activity_contract"]["device_kernel_names"] = [
             module["kernel_name"] for module in fragment["modules"]
         ]
+        route["public_activity_contract"].update(
+            {
+                "expected_activity_segments": [
+                    {"activity_count": 0, "fixed_markers": []},
+                    {"activity_count": 0, "fixed_markers": []},
+                    {"activity_count": 0, "fixed_markers": []},
+                ],
+                "expected_fixed_host_activity_markers": [],
+                "expected_host_activity_count": 0,
+                "host_roles": [],
+            }
+        )
         _seal_fragment_identities(fragment)
 
     _rewrite_fragment(inputs["sm100a"], mutate)
-    with pytest.raises(PromotionPackError, match="activity denominator"):
+    with pytest.raises(PromotionPackError, match="topology denominator"):
         pack_public_fragment_promotions(
             inputs,
             mode="cubin",
@@ -712,6 +745,65 @@ def test_fragment_pack_rejects_activity_outside_fixed_contract(tmp_path, mutatio
         )
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "extra",
+        "unknown_key",
+        "moved_marker",
+        "wrong_count",
+        "early_epilogue",
+        "role_order",
+    ],
+)
+def test_fragment_pack_rejects_activity_segment_drift(tmp_path, mutation):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cubin")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        activity = fragment["routes"][41]["public_activity_contract"]
+        segments = activity["expected_activity_segments"]
+        if mutation == "missing":
+            segments.pop()
+        elif mutation == "extra":
+            segments.append({"activity_count": 0, "fixed_markers": []})
+        elif mutation == "unknown_key":
+            segments[0]["unknown"] = True
+        elif mutation == "moved_marker":
+            segments[0]["fixed_markers"] = []
+            segments[2]["fixed_markers"] = ["direct_copy_kernel_cuda"]
+        elif mutation == "wrong_count":
+            segments[0]["activity_count"] = 2
+        elif mutation == "early_epilogue":
+            segments[3]["activity_count"] = 4
+            segments[4]["activity_count"] = 0
+        else:
+            activity["host_roles"] = [
+                "beta_tma_refresh",
+                "beta_tma_refresh",
+                "affine_torch_epilogue",
+                "beta_tma_refresh",
+            ]
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm100a"], mutate)
+    with pytest.raises(PromotionPackError, match="activity (segments|identity)"):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cubin",
+            name="example-program",
+            target=tmp_path / f"rejected-activity-segment-{mutation}",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
 @pytest.mark.parametrize("mutation", ["combined", "bt16", "affine", "denominator"])
 def test_fragment_pack_rejects_activity_topology_or_denominator_drift(
     tmp_path, mutation
@@ -745,6 +837,14 @@ def test_fragment_pack_rejects_activity_topology_or_denominator_drift(
                 "direct_copy_kernel_cuda"
             ]
             activity["expected_host_activity_count"] = 1
+            if mutation == "denominator":
+                activity["expected_activity_segments"] = [
+                    {
+                        "activity_count": 1,
+                        "fixed_markers": ["direct_copy_kernel_cuda"],
+                    },
+                    {"activity_count": 0, "fixed_markers": []},
+                ]
         else:
             activity["host_roles"] = []
             activity["expected_fixed_host_activity_markers"] = []
@@ -752,7 +852,10 @@ def test_fragment_pack_rejects_activity_topology_or_denominator_drift(
         _seal_fragment_identities(fragment)
 
     _rewrite_fragment(inputs["sm100a"], mutate)
-    with pytest.raises(PromotionPackError, match="activity denominator"):
+    expected_error = (
+        "activity denominator" if mutation == "denominator" else "activity identity"
+    )
+    with pytest.raises(PromotionPackError, match=expected_error):
         pack_public_fragment_promotions(
             inputs,
             mode="cubin",
@@ -783,6 +886,35 @@ def test_fragment_pack_rejects_cross_target_logical_topology_drift(tmp_path):
             mode="cuda",
             name="example-program",
             target=tmp_path / "rejected-topology",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
+def test_fragment_pack_rejects_cross_target_activity_segment_topology_drift(tmp_path):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cuda")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        routes = fragment["routes"]
+        routes[0]["public_activity_contract"], routes[5]["public_activity_contract"] = (
+            routes[5]["public_activity_contract"],
+            routes[0]["public_activity_contract"],
+        )
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm103a"], mutate)
+    with pytest.raises(PromotionPackError, match="logical route topology"):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cuda",
+            name="example-program",
+            target=tmp_path / "rejected-activity-topology",
             runtime_manifest_destination="csrc/example/runtime.json",
             runtime_contract=_RUNTIME_CONTRACT,
             dispatcher_run_entrypoint="prepare_fwd",
