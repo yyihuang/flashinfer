@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 
 import pytest
@@ -56,7 +57,77 @@ def _ref(record):
     return {"artifact_id": record["id"], "sha256": record["sha256"]}
 
 
-def _write_complete_manifest(csrc_root, mode):
+def _dispatcher_source(
+    *,
+    abi=promotion.DISPATCHER_ABI,
+    module_ids=("module-a", "module-b"),
+    module_ids_are_tuple=True,
+    binder_parameters="modules",
+    include_select=True,
+    include_run=True,
+    mutate_modules=False,
+    prepared_contract="valid",
+    run_parameters=None,
+    select_parameters=None,
+):
+    module_ids_value = tuple(module_ids) if module_ids_are_tuple else list(module_ids)
+    if run_parameters is None:
+        run_parameters = "*, " + ", ".join(promotion.DISPATCHER_RUN_ARGUMENTS)
+    if select_parameters is None:
+        select_parameters = "*, " + ", ".join(
+            promotion.DISPATCHER_SELECT_ARGUMENTS
+        )
+    entries = []
+    if include_select:
+        entries.append(
+            "'select_fp32_indexed_schedule_route': select_fp32_indexed_schedule_route"
+        )
+    if include_run:
+        entries.append("'prepare_fwd': prepare_fwd")
+    mutation = "modules['extra'] = lambda: None" if mutate_modules else "pass"
+    prepared_methods = {
+        "valid": """\
+        def launch(self):
+            return tuple(modules[module_id](**self.arguments) for module_id in FLASHINFER_MODULE_IDS)
+        def close(self):
+            self.arguments = None
+""",
+        "missing_close": """\
+        def launch(self):
+            return None
+""",
+        "launch_argument": """\
+        def launch(self, unexpected):
+            return unexpected
+        def close(self):
+            self.arguments = None
+""",
+    }.get(prepared_contract)
+    if prepared_methods is None:
+        raise ValueError(f"unknown prepared contract {prepared_contract!r}")
+    return f"""\
+{promotion.DISPATCHER_ABI_ATTRIBUTE} = {abi!r}
+{promotion.DISPATCHER_MODULE_IDS_ATTRIBUTE} = {module_ids_value!r}
+
+def {promotion.DISPATCHER_BIND_ENTRYPOINT}({binder_parameters}):
+    {mutation}
+    class _Prepared:
+        def __init__(self, arguments):
+            self.arguments = arguments
+{prepared_methods}
+    def select_fp32_indexed_schedule_route({select_parameters}):
+        return ('selected', locals())
+    def prepare_fwd({run_parameters}):
+        return _Prepared(locals())
+    return {{{', '.join(entries)}}}
+""".encode()
+
+
+def _dispatcher_arguments(names):
+    return {name: f"value-{name}" for name in names}
+
+
+def _write_complete_manifest(csrc_root, mode, *, dispatcher_source=None):
     repository = csrc_root.parents[1]
     entries = []
     expected_cubins = {}
@@ -72,7 +143,7 @@ def _write_complete_manifest(csrc_root, mode):
             artifact_root,
             "dispatcher",
             "runtime/dispatcher.py",
-            b"# sealed producer dispatcher\n",
+            _dispatcher_source() if dispatcher_source is None else dispatcher_source,
         )
         artifacts = [dispatcher]
         recipe = None
@@ -224,10 +295,14 @@ def _write_complete_manifest(csrc_root, mode):
     return document, expected_cubins
 
 
-def _install_fake_csrc(tmp_path, monkeypatch, mode):
+def _install_fake_csrc(
+    tmp_path, monkeypatch, mode, *, dispatcher_source=None
+):
     root = tmp_path / "csrc/kda"
     root.mkdir(parents=True)
-    document, cubins = _write_complete_manifest(root, mode)
+    document, cubins = _write_complete_manifest(
+        root, mode, dispatcher_source=dispatcher_source
+    )
     monkeypatch.setattr(promotion, "_get_csrc_dir", lambda: root)
     promotion._clear_caches_for_testing()
     return root, document, cubins
@@ -252,12 +327,17 @@ def test_multi_module_manifest_loads_exact_modules_in_order(
     def load_host(spec, module, cubin):
         assert cubin == expected[(spec.target, module.module_id)]
         observed.append(module.module_id)
-        return module.module_id
+        module_id = module.module_id
+
+        def entry(**kwargs):
+            return module_id, kwargs
+
+        return entry
 
     monkeypatch.setattr(promotion, "_load_host_module", load_host)
 
     assert promotion.selected_mode() == mode
-    assert not promotion.is_available(compute_capability=(10, 0))
+    assert promotion.is_available(compute_capability=(10, 0))
     with pytest.raises(promotion.PromotionManifestError, match="not requested mode"):
         promotion.load(
             compute_capability=(10, 0),
@@ -269,11 +349,202 @@ def test_multi_module_manifest_loads_exact_modules_in_order(
     )
     assert list(loaded.modules) == ["module-a", "module-b"]
     assert observed == ["module-a", "module-b"]
-    with pytest.raises(promotion.PromotionManifestError, match="portable runtime"):
+    with pytest.raises(TypeError):
+        loaded.modules["extra"] = lambda: None
+    select_arguments = _dispatcher_arguments(promotion.DISPATCHER_SELECT_ARGUMENTS)
+    assert loaded.dispatcher.select(**select_arguments) == (
+        "selected",
+        select_arguments,
+    )
+    run_arguments = _dispatcher_arguments(promotion.DISPATCHER_RUN_ARGUMENTS)
+    prepared = promotion.prepare(compute_capability=(10, 0), **run_arguments)
+    assert isinstance(prepared, promotion.Prepared)
+    assert prepared.launch() == (
+        ("module-a", run_arguments),
+        ("module-b", run_arguments),
+    )
+    prepared.close()
+    prepared.close()
+    with pytest.raises(RuntimeError, match="is closed"):
+        prepared.launch()
+    assert promotion.run(compute_capability=(10, 0), **run_arguments) == (
+        ("module-a", run_arguments),
+        ("module-b", run_arguments),
+    )
+
+
+def test_public_prepare_and_run_have_the_fixed_keyword_only_abi():
+    expected = promotion.DISPATCHER_RUN_ARGUMENTS + ("compute_capability",)
+    for entry in (promotion.prepare, promotion.run):
+        parameters = tuple(inspect.signature(entry).parameters.values())
+        assert tuple(parameter.name for parameter in parameters) == expected
+        assert all(
+            parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            for parameter in parameters
+        )
+        assert all(
+            parameter.default is inspect.Parameter.empty
+            for parameter in parameters[:-1]
+        )
+        assert parameters[-1].default is None
+
+
+@pytest.mark.parametrize(
+    ("prepared_contract", "message"),
+    (
+        ("missing_close", "does not expose launch/close"),
+        ("launch_argument", "launch must have exact required keyword-only signature"),
+    ),
+)
+def test_dispatcher_prepared_object_abi_fails_closed(
+    tmp_path, monkeypatch, prepared_contract, message
+):
+    _install_fake_csrc(
+        tmp_path,
+        monkeypatch,
+        "cubin",
+        dispatcher_source=_dispatcher_source(prepared_contract=prepared_contract),
+    )
+    monkeypatch.setattr(
+        promotion,
+        "_load_host_module",
+        lambda _spec, _module, _cubin: lambda **_kwargs: None,
+    )
+
+    with pytest.raises(promotion.PromotionManifestError, match=message):
+        promotion.prepare(
+            compute_capability=(10, 0),
+            **_dispatcher_arguments(promotion.DISPATCHER_RUN_ARGUMENTS),
+        )
+
+
+def test_prepared_close_is_idempotent_and_run_closes_after_launch_failure(monkeypatch):
+    events = []
+
+    class Closure:
+        def launch(self):
+            events.append("launch")
+            raise RuntimeError("launch failed")
+
+        def close(self):
+            events.append("close")
+
+    prepared = promotion.Prepared(Closure())
+    prepared.close()
+    prepared.close()
+    assert events == ["close"]
+    with pytest.raises(RuntimeError, match="is closed"):
+        prepared.launch()
+
+    monkeypatch.setattr(promotion, "prepare", lambda **_kwargs: promotion.Prepared(Closure()))
+    with pytest.raises(RuntimeError, match="launch failed"):
         promotion.run(
             compute_capability=(10, 0),
-            q="q",
+            **_dispatcher_arguments(promotion.DISPATCHER_RUN_ARGUMENTS),
         )
+    assert events == ["close", "launch", "close"]
+
+
+def test_dispatcher_source_is_rehashed_immediately_before_import(
+    tmp_path, monkeypatch
+):
+    _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    spec = promotion.get_module_specs()[0]
+    spec.dispatcher.path.write_bytes(spec.dispatcher.path.read_bytes() + b"# drift\n")
+    monkeypatch.setattr(
+        promotion,
+        "_load_host_module",
+        lambda _spec, _module, _cubin: lambda **_kwargs: None,
+    )
+
+    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+        promotion.load(compute_capability=(10, 0), mode="cubin")
+
+
+@pytest.mark.parametrize(
+    ("dispatcher_source", "message"),
+    (
+        (
+            _dispatcher_source(abi="wrong.dispatcher.abi"),
+            "FLASHINFER_DISPATCHER_ABI differs",
+        ),
+        (
+            _dispatcher_source(module_ids=("module-b", "module-a")),
+            "exact ordered module tuple",
+        ),
+        (
+            _dispatcher_source(module_ids_are_tuple=False),
+            "exact ordered module tuple",
+        ),
+        (
+            _dispatcher_source(binder_parameters="modules, optional=None"),
+            "signature must be exactly",
+        ),
+        (
+            _dispatcher_source(include_select=False),
+            "plain dict containing exactly",
+        ),
+        (
+            _dispatcher_source(mutate_modules=True),
+            "binder failed with TypeError",
+        ),
+        (
+            _dispatcher_source(select_parameters="**kwargs"),
+            "select entrypoint must have exact required keyword-only signature",
+        ),
+        (
+            _dispatcher_source(run_parameters="**kwargs"),
+            "prepare entrypoint must have exact required keyword-only signature",
+        ),
+        (
+            _dispatcher_source(
+                select_parameters=", ".join(
+                    promotion.DISPATCHER_SELECT_ARGUMENTS
+                )
+            ),
+            "select entrypoint must have exact required keyword-only signature",
+        ),
+        (
+            _dispatcher_source(
+                run_parameters="*, "
+                + ", ".join(reversed(promotion.DISPATCHER_RUN_ARGUMENTS))
+            ),
+            "prepare entrypoint must have exact required keyword-only signature",
+        ),
+    ),
+)
+def test_dispatcher_fixed_binding_contract_fails_closed(
+    tmp_path, monkeypatch, dispatcher_source, message
+):
+    _install_fake_csrc(
+        tmp_path,
+        monkeypatch,
+        "cubin",
+        dispatcher_source=dispatcher_source,
+    )
+    monkeypatch.setattr(
+        promotion,
+        "_load_host_module",
+        lambda _spec, _module, _cubin: lambda **_kwargs: None,
+    )
+
+    with pytest.raises(promotion.PromotionManifestError, match=message):
+        promotion.load(compute_capability=(10, 0), mode="cubin")
+    assert not promotion.is_available(compute_capability=(10, 0))
+
+
+def test_dispatcher_rejects_non_callable_loaded_module_map_entry(
+    tmp_path, monkeypatch
+):
+    _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    monkeypatch.setattr(
+        promotion,
+        "_load_host_module",
+        lambda _spec, _module, _cubin: object(),
+    )
+
+    with pytest.raises(promotion.PromotionManifestError, match="non-callable entry"):
+        promotion.load(compute_capability=(10, 0), mode="cubin")
 
 
 def test_cubin_and_inventory_mutations_fail_closed(tmp_path, monkeypatch):
@@ -299,7 +570,7 @@ def test_cubin_and_inventory_mutations_fail_closed(tmp_path, monkeypatch):
 def test_cubin_mode_loads_exact_host_shared_library(tmp_path, monkeypatch):
     import tvm_ffi
 
-    _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    _, _, expected = _install_fake_csrc(tmp_path, monkeypatch, "cubin")
     spec = promotion.get_module_specs()[0]
     module = spec.modules[0]
     observed = []
@@ -314,8 +585,83 @@ def test_cubin_mode_loads_exact_host_shared_library(tmp_path, monkeypatch):
         "load_module",
         lambda path: observed.append(path) or Loaded(),
     )
-    assert promotion._load_host_module(spec, module, b"verified cubin") is Loaded.run
+    assert (
+        promotion._load_host_module(
+            spec,
+            module,
+            expected[(spec.target, module.module_id)],
+        )
+        is Loaded.run
+    )
     assert observed == [str(module.shared_library.path)]
+
+
+def test_cubin_is_rehashed_immediately_before_load(tmp_path, monkeypatch):
+    _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    spec = promotion.get_module_specs()[0]
+    module = spec.modules[0]
+    assert module.cubin is not None
+    module.cubin.path.write_bytes(module.cubin.path.read_bytes() + b"drift")
+    monkeypatch.setattr(
+        promotion,
+        "_load_host_module",
+        lambda _spec, _module, _cubin: pytest.fail("host loader was reached"),
+    )
+
+    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+        promotion.load(compute_capability=(10, 0), mode="cubin")
+
+
+def test_shared_library_is_rehashed_before_and_after_load(tmp_path, monkeypatch):
+    import tvm_ffi
+
+    _, _, expected = _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    spec = promotion.get_module_specs()[0]
+    module = spec.modules[0]
+    assert isinstance(module.shared_library, promotion._InstalledArtifact)
+
+    class Loaded:
+        @staticmethod
+        def run():
+            return None
+
+    def mutate_during_load(_path):
+        module.shared_library.path.write_bytes(
+            module.shared_library.path.read_bytes() + b"drift"
+        )
+        return Loaded()
+
+    monkeypatch.setattr(tvm_ffi, "load_module", mutate_during_load)
+    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+        promotion._load_host_module(
+            spec,
+            module,
+            expected[(spec.target, module.module_id)],
+        )
+
+
+def test_cuda_host_source_is_rehashed_immediately_before_compile(
+    tmp_path, monkeypatch
+):
+    from tvm_ffi import cpp
+
+    _, _, expected = _install_fake_csrc(tmp_path, monkeypatch, "cuda")
+    spec = promotion.get_module_specs()[0]
+    module = spec.modules[0]
+    assert isinstance(module.host, promotion._InstalledArtifact)
+    module.host.path.write_bytes(module.host.path.read_bytes() + b"drift")
+    monkeypatch.setattr(
+        cpp,
+        "load_inline",
+        lambda *_args, **_kwargs: pytest.fail("compiler was reached"),
+    )
+
+    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+        promotion._load_host_module(
+            spec,
+            module,
+            expected[(spec.target, module.module_id)],
+        )
 
 
 def test_cuda_recipe_must_reproduce_exact_ordered_cubins(tmp_path, monkeypatch):
@@ -351,8 +697,14 @@ Path(a.report).write_text(json.dumps({'kind': 'flashinfer.generated_program_cuda
         encoding="utf-8",
     )
     recipe_path.chmod(0o755)
+    recipe_payload = recipe_path.read_bytes()
     recipe = promotion._InstalledArtifact(
-        "recipe", "recipe", recipe_path, "0" * 64, recipe_path.stat().st_size, True
+        "recipe",
+        "recipe",
+        recipe_path,
+        hashlib.sha256(recipe_payload).hexdigest(),
+        len(recipe_payload),
+        True,
     )
     host_path = tmp_path / "host.cc"
     host_path.write_text("// host\n")
@@ -396,6 +748,9 @@ Path(a.report).write_text(json.dumps({'kind': 'flashinfer.generated_program_cuda
         "module-a": b"cubin-a",
         "module-b": b"cubin-b",
     }
+    recipe_path.write_bytes(recipe_payload + b"# drift\n")
+    with pytest.raises(promotion.PromotionManifestError, match="bytes drifted before use"):
+        promotion._build_cuda_cubins(spec)
 
 
 def test_checked_in_manifest_is_pending_and_unavailable():

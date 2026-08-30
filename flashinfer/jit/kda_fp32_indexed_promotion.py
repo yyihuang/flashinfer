@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import inspect
 import json
 import re
+import stat
 import subprocess
 import sys
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType, ModuleType
 from typing import Any, Literal
 
 from . import env as jit_env
@@ -28,6 +32,40 @@ PACK_KIND = "flashinfer.generated_program_pack"
 MANIFEST_FILENAME = "kda_fp32_indexed_promotion_manifest.json"
 SCHEMA_VERSION = 1
 TARGETS: tuple[PromotionTarget, ...] = ("sm100a", "sm103a")
+DISPATCHER_ABI = "flashinfer.generated_program_dispatcher.v1"
+DISPATCHER_ABI_ATTRIBUTE = "FLASHINFER_DISPATCHER_ABI"
+DISPATCHER_MODULE_IDS_ATTRIBUTE = "FLASHINFER_MODULE_IDS"
+DISPATCHER_BIND_ENTRYPOINT = "bind_loaded_modules"
+DISPATCHER_SELECT_ARGUMENTS = (
+    "gpu_arch",
+    "sm_count",
+    "fixed_layout",
+    "sequence_lengths",
+    "num_heads",
+    "use_initial_state",
+    "store_final_state",
+)
+DISPATCHER_RUN_ARGUMENTS = (
+    "q",
+    "k",
+    "v",
+    "g",
+    "beta",
+    "A_log",
+    "dt_bias",
+    "scale",
+    "initial_state",
+    "output_final_state",
+    "lower_bound",
+    "cu_seqlens",
+    "output",
+    "seq_order",
+    "prefill_workspace",
+    "state_indices",
+    "state_checkpoints",
+    "checkpoint_cu_starts",
+    "checkpoint_every_n_tokens",
+)
 
 RUNTIME_CONTRACT = {
     "A_log_dtype": "float32",
@@ -162,8 +200,60 @@ class PromotionTargetSpec:
 
 @dataclass(frozen=True)
 class _LoadedProgram:
-    modules: dict[str, object]
+    dispatcher: _BoundDispatcher
+    modules: Mapping[str, Callable[..., object]]
     spec: PromotionTargetSpec
+
+
+@dataclass(frozen=True)
+class _BoundDispatcher:
+    prepare: Callable[..., object]
+    select: Callable[..., object]
+
+
+class Prepared:
+    """One bound dispatcher closure whose launch path takes no arguments."""
+
+    __slots__ = ("_close", "_closed", "_launch")
+
+    def __init__(self, value: object) -> None:
+        try:
+            launch = getattr(value, "launch")
+            close = getattr(value, "close")
+        except Exception as exc:
+            raise PromotionManifestError(
+                "invalid FP32 indexed KDA promotion manifest: dispatcher prepare "
+                "result does not expose launch/close"
+            ) from exc
+        self._launch = _require_exact_keyword_callable(
+            launch,
+            argument_names=(),
+            label="prepared dispatcher launch",
+        )
+        self._close = _require_exact_keyword_callable(
+            close,
+            argument_names=(),
+            label="prepared dispatcher close",
+        )
+        self._closed = False
+
+    def launch(self) -> object:
+        """Launch the already-selected, already-bound program closure."""
+
+        if self._closed:
+            raise RuntimeError("prepared FP32 indexed KDA promotion is closed")
+        return self._launch()
+
+    def close(self) -> None:
+        """Release retained resources; repeated closes are harmless."""
+
+        if self._closed:
+            return
+        close = self._close
+        self._closed = True
+        self._launch = None
+        self._close = None
+        close()
 
 
 def _require(condition: bool, message: str) -> None:
@@ -706,15 +796,21 @@ def _parse_target(
         inventory.get("dispatcher_seed_identity") == _content_identity(dispatcher_seed),
         f"{label} dispatcher/seed identity is invalid",
     )
+    dispatcher_run_entrypoint = _identifier(
+        dispatcher.get("run_entrypoint"), f"{label} dispatcher run entrypoint"
+    )
+    dispatcher_select_entrypoint = _identifier(
+        dispatcher.get("select_entrypoint"), f"{label} dispatcher select entrypoint"
+    )
+    _require(
+        dispatcher_run_entrypoint != dispatcher_select_entrypoint,
+        f"{label} dispatcher run/select entrypoints must differ",
+    )
     return PromotionTargetSpec(
         artifact_root=artifact_root,
         dispatcher=dispatcher_artifact,
-        dispatcher_run_entrypoint=_identifier(
-            dispatcher.get("run_entrypoint"), f"{label} dispatcher run entrypoint"
-        ),
-        dispatcher_select_entrypoint=_identifier(
-            dispatcher.get("select_entrypoint"), f"{label} dispatcher select entrypoint"
-        ),
+        dispatcher_run_entrypoint=dispatcher_run_entrypoint,
+        dispatcher_select_entrypoint=dispatcher_select_entrypoint,
         identity=str(value["runtime_inventory_identity"]).removeprefix("sha256:")[:16],
         mode=mode,
         modules=tuple(modules),
@@ -812,17 +908,210 @@ def _get_spec(compute_capability: tuple[int, int]) -> PromotionTargetSpec:
 
 
 def is_available(*, compute_capability: tuple[int, int]) -> bool:
-    """Return false until a producer-validated portable adapter is installed."""
+    """Return true only after the exact modules and dispatcher bind successfully."""
 
     try:
-        _get_spec(compute_capability)
-    except (OSError, PromotionManifestError, TypeError):
+        spec = _get_spec(compute_capability)
+        load(compute_capability=compute_capability, mode=spec.mode)
+    except (
+        ImportError,
+        OSError,
+        PromotionManifestError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ):
         return False
-    return False
+    return True
 
 
 def _module_name(target: PromotionTargetSpec, module: PromotionModuleSpec) -> str:
     return f"{module.module_ident}_{target.target}_{target.mode}_{target.identity}"
+
+
+def _reverified_file_bytes(
+    path: Path,
+    *,
+    sha256: str,
+    size_bytes: int,
+    label: str,
+) -> bytes:
+    """Read one regular file once and verify the exact bytes being consumed."""
+
+    try:
+        before = path.stat(follow_symlinks=False)
+        _require(
+            stat.S_ISREG(before.st_mode),
+            f"{label} is missing or a symlink",
+        )
+        payload = path.read_bytes()
+        after = path.stat(follow_symlinks=False)
+    except PromotionManifestError:
+        raise
+    except OSError as exc:
+        raise PromotionManifestError(
+            f"invalid FP32 indexed KDA promotion manifest: could not read {label}: {exc}"
+        ) from exc
+    stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+    _require(
+        all(getattr(before, field) == getattr(after, field) for field in stable_fields),
+        f"{label} changed while being read",
+    )
+    _require(
+        len(payload) == size_bytes and hashlib.sha256(payload).hexdigest() == sha256,
+        f"{label} bytes drifted before use",
+    )
+    return payload
+
+
+def _reverified_artifact_bytes(
+    artifact: _InstalledArtifact, *, label: str
+) -> bytes:
+    """Read one sealed artifact once and verify the exact bytes being consumed."""
+
+    return _reverified_file_bytes(
+        artifact.path,
+        sha256=artifact.sha256,
+        size_bytes=artifact.size_bytes,
+        label=label,
+    )
+
+
+def _load_dispatcher_namespace(spec: PromotionTargetSpec) -> ModuleType:
+    """Compile and execute the rehashed dispatcher bytes without path import."""
+
+    payload = _reverified_artifact_bytes(spec.dispatcher, label="dispatcher source")
+    try:
+        source = payload.decode("utf-8")
+        code = compile(
+            source,
+            str(spec.dispatcher.path),
+            "exec",
+            dont_inherit=True,
+            optimize=0,
+        )
+    except (SyntaxError, UnicodeDecodeError) as exc:
+        raise PromotionManifestError(
+            "invalid FP32 indexed KDA promotion manifest: dispatcher source "
+            f"does not compile as UTF-8 Python: {exc}"
+        ) from exc
+    namespace = ModuleType(
+        f"_flashinfer_generated_dispatcher_{spec.target}_{spec.mode}_{spec.identity}"
+    )
+    namespace.__file__ = str(spec.dispatcher.path)
+    namespace.__package__ = ""
+    try:
+        exec(code, namespace.__dict__)
+    except Exception as exc:
+        raise PromotionManifestError(
+            "invalid FP32 indexed KDA promotion manifest: dispatcher import "
+            f"failed with {type(exc).__name__}: {exc}"
+        ) from exc
+    return namespace
+
+
+def _require_binder_signature(binder: object) -> None:
+    try:
+        signature = inspect.signature(binder)
+    except (TypeError, ValueError) as exc:
+        raise PromotionManifestError(
+            "invalid FP32 indexed KDA promotion manifest: dispatcher binder "
+            "signature is not inspectable"
+        ) from exc
+    parameters = tuple(signature.parameters.values())
+    _require(
+        len(parameters) == 1
+        and parameters[0].name == "modules"
+        and parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        and parameters[0].default is inspect.Parameter.empty,
+        "dispatcher binder signature must be exactly (modules)",
+    )
+
+
+def _require_exact_keyword_callable(
+    value: object,
+    *,
+    argument_names: tuple[str, ...],
+    label: str,
+) -> Callable[..., object]:
+    _require(callable(value), f"{label} must be callable")
+    try:
+        signature = inspect.signature(value)
+    except (TypeError, ValueError) as exc:
+        raise PromotionManifestError(
+            f"invalid FP32 indexed KDA promotion manifest: {label} signature "
+            "is not inspectable"
+        ) from exc
+    parameters = tuple(signature.parameters.values())
+    _require(
+        tuple(parameter.name for parameter in parameters) == argument_names
+        and all(
+            parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            and parameter.default is inspect.Parameter.empty
+            for parameter in parameters
+        ),
+        f"{label} must have exact required keyword-only signature {argument_names!r}",
+    )
+    assert callable(value)
+    return value
+
+
+def _bind_dispatcher(
+    spec: PromotionTargetSpec,
+    modules: Mapping[str, Callable[..., object]],
+) -> _BoundDispatcher:
+    expected_module_ids = tuple(module.module_id for module in spec.modules)
+    _require(
+        tuple(modules) == expected_module_ids,
+        "loaded module map order differs from the sealed module inventory",
+    )
+    _require(
+        all(callable(entry) for entry in modules.values()),
+        "loaded module map contains a non-callable entry",
+    )
+    namespace = _load_dispatcher_namespace(spec)
+    _require(
+        getattr(namespace, DISPATCHER_ABI_ATTRIBUTE, None) == DISPATCHER_ABI,
+        f"dispatcher {DISPATCHER_ABI_ATTRIBUTE} differs from {DISPATCHER_ABI!r}",
+    )
+    declared_module_ids = getattr(namespace, DISPATCHER_MODULE_IDS_ATTRIBUTE, None)
+    _require(
+        type(declared_module_ids) is tuple
+        and declared_module_ids == expected_module_ids,
+        f"dispatcher {DISPATCHER_MODULE_IDS_ATTRIBUTE} must be the exact ordered module tuple",
+    )
+    binder = getattr(namespace, DISPATCHER_BIND_ENTRYPOINT, None)
+    _require(callable(binder), f"dispatcher must export {DISPATCHER_BIND_ENTRYPOINT}()")
+    _require_binder_signature(binder)
+    try:
+        bound = binder(modules)
+    except Exception as exc:
+        raise PromotionManifestError(
+            "invalid FP32 indexed KDA promotion manifest: dispatcher binder "
+            f"failed with {type(exc).__name__}: {exc}"
+        ) from exc
+    expected_entries = {
+        spec.dispatcher_run_entrypoint,
+        spec.dispatcher_select_entrypoint,
+    }
+    _require(
+        type(bound) is dict and set(bound) == expected_entries,
+        "dispatcher binder result must be a plain dict containing exactly the "
+        "declared run/select entrypoints",
+    )
+    assert isinstance(bound, dict)
+    return _BoundDispatcher(
+        prepare=_require_exact_keyword_callable(
+            bound[spec.dispatcher_run_entrypoint],
+            argument_names=DISPATCHER_RUN_ARGUMENTS,
+            label="bound dispatcher prepare entrypoint",
+        ),
+        select=_require_exact_keyword_callable(
+            bound[spec.dispatcher_select_entrypoint],
+            argument_names=DISPATCHER_SELECT_ARGUMENTS,
+            label="bound dispatcher select entrypoint",
+        ),
+    )
 
 
 def _cuda_include_dir() -> Path:
@@ -842,11 +1131,41 @@ def _load_host_module(
     import tvm_ffi
 
     if target.mode == "cubin":
+        if not isinstance(module.cubin, _InstalledArtifact):
+            raise PromotionManifestError(
+                f"module {module.module_id!r} has no exact cubin"
+            )
+        expected_cubin_sha256 = module.cubin.sha256
+        expected_cubin_size = module.cubin.size_bytes
+    else:
+        if module.build_output is None:
+            raise PromotionManifestError(
+                f"module {module.module_id!r} has no CUDA build output"
+            )
+        expected_cubin_sha256 = str(module.build_output["sha256"])
+        expected_cubin_size = int(module.build_output["size_bytes"])
+    _require(
+        len(cubin) == expected_cubin_size
+        and hashlib.sha256(cubin).hexdigest() == expected_cubin_sha256,
+        f"module {module.module_id!r} cubin bytes drifted before embedding or loading",
+    )
+
+    if target.mode == "cubin":
         if not isinstance(module.shared_library, _InstalledArtifact):
             raise PromotionManifestError(
                 f"module {module.module_id!r} has no exact host shared library"
             )
+        shared_label = f"module {module.module_id!r} host shared library"
+        before = _reverified_artifact_bytes(
+            module.shared_library,
+            label=shared_label,
+        )
         loaded = tvm_ffi.load_module(str(module.shared_library.path))
+        after = _reverified_artifact_bytes(
+            module.shared_library,
+            label=shared_label,
+        )
+        _require(before == after, f"{shared_label} changed while being loaded")
         entry = getattr(loaded, module.entry_point, None)
         if not callable(entry):
             raise RuntimeError(
@@ -861,13 +1180,24 @@ def _load_host_module(
         raise PromotionManifestError(
             f"module {module.module_id!r} has no exact CUDA host shim"
         )
+    host_payload = _reverified_artifact_bytes(
+        module.host,
+        label=f"module {module.module_id!r} CUDA host source",
+    )
+    try:
+        host_source = host_payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PromotionManifestError(
+            "invalid FP32 indexed KDA promotion manifest: module "
+            f"{module.module_id!r} CUDA host source is not UTF-8"
+        ) from exc
 
     module_name = _module_name(target, module)
     build_dir = jit_env.FLASHINFER_JIT_DIR / module_name
     build_dir.mkdir(parents=True, exist_ok=True)
     loaded = cpp.load_inline(
         module_name,
-        cpp_sources=module.host.path.read_text(encoding="utf-8"),
+        cpp_sources=host_source,
         embed_cubin={module.module_ident: cubin},
         extra_include_paths=[
             str(_cuda_include_dir()),
@@ -895,7 +1225,20 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
         raise PromotionManifestError(
             "CUDA target must bind exactly one public build recipe"
         )
-    recipe = next(iter(recipes))
+    recipe_artifact = next(
+        module.recipe for module in spec.modules if module.recipe is not None
+    )
+    recipe_payload = _reverified_artifact_bytes(
+        recipe_artifact,
+        label="CUDA build recipe",
+    )
+    try:
+        recipe_source = recipe_payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PromotionManifestError(
+            "invalid FP32 indexed KDA promotion manifest: CUDA build recipe "
+            "is not UTF-8"
+        ) from exc
     build_root = jit_env.FLASHINFER_JIT_DIR / (
         f"kda_fp32_indexed_{spec.target}_cuda_{spec.identity}"
     )
@@ -904,7 +1247,7 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
     output_root.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
-        str(recipe),
+        "-",
         "--source-root",
         str(spec.artifact_root),
         "--output-root",
@@ -916,7 +1259,13 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
         "--include-dir",
         str(_get_include_dir()),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        input=recipe_source,
+        check=False,
+    )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(f"exact CUDA build recipe failed: {detail[-2000:]}")
@@ -976,11 +1325,11 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
             path.is_file() and not path.is_symlink(),
             f"module {module.module_id!r} build output is missing",
         )
-        payload = path.read_bytes()
-        _require(
-            len(payload) == expected["size_bytes"]
-            and hashlib.sha256(payload).hexdigest() == expected["sha256"],
-            f"module {module.module_id!r} rebuilt cubin identity differs",
+        payload = _reverified_file_bytes(
+            path,
+            sha256=str(expected["sha256"]),
+            size_bytes=int(expected["size_bytes"]),
+            label=f"module {module.module_id!r} rebuilt cubin",
         )
         cubins[module.module_id] = payload
     return cubins
@@ -988,7 +1337,7 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
 
 @functools.cache
 def load(*, compute_capability: tuple[int, int], mode: PromotionMode):
-    """Load exact modules for one target without inventing a dispatch ABI."""
+    """Load exact modules and bind the sealed fixed dispatcher ABI."""
 
     if mode not in ("cuda", "cubin"):
         raise ValueError("mode must be 'cuda' or 'cubin'")
@@ -1001,7 +1350,10 @@ def load(*, compute_capability: tuple[int, int], mode: PromotionMode):
         _build_cuda_cubins(spec)
         if mode == "cuda"
         else {
-            module.module_id: module.cubin.path.read_bytes()
+            module.module_id: _reverified_artifact_bytes(
+                module.cubin,
+                label=f"module {module.module_id!r} cubin",
+            )
             for module in spec.modules
             if module.cubin is not None
         }
@@ -1010,11 +1362,14 @@ def load(*, compute_capability: tuple[int, int], mode: PromotionMode):
         raise PromotionManifestError(
             "runtime cubin closure differs from ordered modules"
         )
-    modules = {
+    mutable_modules = {
         module.module_id: _load_host_module(spec, module, cubins[module.module_id])
         for module in spec.modules
     }
+    modules: Mapping[str, Callable[..., object]] = MappingProxyType(mutable_modules)
+    dispatcher = _bind_dispatcher(spec, modules)
     return _LoadedProgram(
+        dispatcher=dispatcher,
         modules=modules,
         spec=spec,
     )
@@ -1031,17 +1386,113 @@ def _compute_capability_from_q(q: object) -> tuple[int, int]:
         ) from exc
 
 
-def run(*, compute_capability: tuple[int, int] | None = None, **kwargs: Any):
-    """Fail closed until the portable workload adapter contract is installed."""
+def prepare(
+    *,
+    q: Any,
+    k: Any,
+    v: Any,
+    g: Any,
+    beta: Any,
+    A_log: Any,
+    dt_bias: Any,
+    scale: Any,
+    initial_state: Any,
+    output_final_state: Any,
+    lower_bound: Any,
+    cu_seqlens: Any,
+    output: Any,
+    seq_order: Any,
+    prefill_workspace: Any,
+    state_indices: Any,
+    state_checkpoints: Any,
+    checkpoint_cu_starts: Any,
+    checkpoint_every_n_tokens: Any,
+    compute_capability: tuple[int, int] | None = None,
+) -> Prepared:
+    """Bind the sealed route and all launch arguments outside the hot path."""
 
-    q = kwargs.get("q")
     if compute_capability is None:
         compute_capability = _compute_capability_from_q(q)
-    _get_spec(compute_capability)
-    raise PromotionManifestError(
-        "the promoted modules are sealed, but no producer-validated portable "
-        "runtime adapter contract is installed"
+    spec = _get_spec(compute_capability)
+    loaded = load(
+        compute_capability=compute_capability,
+        mode=spec.mode,
     )
+    prepared = loaded.dispatcher.prepare(
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        beta=beta,
+        A_log=A_log,
+        dt_bias=dt_bias,
+        scale=scale,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        lower_bound=lower_bound,
+        cu_seqlens=cu_seqlens,
+        output=output,
+        seq_order=seq_order,
+        prefill_workspace=prefill_workspace,
+        state_indices=state_indices,
+        state_checkpoints=state_checkpoints,
+        checkpoint_cu_starts=checkpoint_cu_starts,
+        checkpoint_every_n_tokens=checkpoint_every_n_tokens,
+    )
+    return Prepared(prepared)
+
+
+def run(
+    *,
+    q: Any,
+    k: Any,
+    v: Any,
+    g: Any,
+    beta: Any,
+    A_log: Any,
+    dt_bias: Any,
+    scale: Any,
+    initial_state: Any,
+    output_final_state: Any,
+    lower_bound: Any,
+    cu_seqlens: Any,
+    output: Any,
+    seq_order: Any,
+    prefill_workspace: Any,
+    state_indices: Any,
+    state_checkpoints: Any,
+    checkpoint_cu_starts: Any,
+    checkpoint_every_n_tokens: Any,
+    compute_capability: tuple[int, int] | None = None,
+) -> object:
+    """Prepare, launch once, and always release the bound program closure."""
+
+    prepared = prepare(
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        beta=beta,
+        A_log=A_log,
+        dt_bias=dt_bias,
+        scale=scale,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        lower_bound=lower_bound,
+        cu_seqlens=cu_seqlens,
+        output=output,
+        seq_order=seq_order,
+        prefill_workspace=prefill_workspace,
+        state_indices=state_indices,
+        state_checkpoints=state_checkpoints,
+        checkpoint_cu_starts=checkpoint_cu_starts,
+        checkpoint_every_n_tokens=checkpoint_every_n_tokens,
+        compute_capability=compute_capability,
+    )
+    try:
+        return prepared.launch()
+    finally:
+        prepared.close()
 
 
 def _clear_caches_for_testing() -> None:
@@ -1052,13 +1503,21 @@ def _clear_caches_for_testing() -> None:
 
 
 __all__ = [
+    "DISPATCHER_ABI",
+    "DISPATCHER_ABI_ATTRIBUTE",
+    "DISPATCHER_BIND_ENTRYPOINT",
+    "DISPATCHER_MODULE_IDS_ATTRIBUTE",
+    "DISPATCHER_RUN_ARGUMENTS",
+    "DISPATCHER_SELECT_ARGUMENTS",
     "MANIFEST_FILENAME",
     "MANIFEST_KIND",
+    "Prepared",
     "PromotionManifestError",
     "RUNTIME_CONTRACT",
     "get_module_specs",
     "is_available",
     "load",
+    "prepare",
     "run",
     "selected_mode",
 ]
