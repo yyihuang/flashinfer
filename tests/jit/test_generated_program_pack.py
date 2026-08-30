@@ -658,7 +658,7 @@ def test_fragment_pack_rejects_route_topology_denominator_drift(tmp_path):
         _seal_fragment_identities(fragment)
 
     _rewrite_fragment(inputs["sm100a"], mutate)
-    with pytest.raises(PromotionPackError, match="topology denominator"):
+    with pytest.raises(PromotionPackError, match="activity denominator"):
         pack_public_fragment_promotions(
             inputs,
             mode="cubin",
