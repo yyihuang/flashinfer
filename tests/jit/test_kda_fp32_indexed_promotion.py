@@ -418,8 +418,7 @@ def test_repeated_load_and_prepare_reuse_loaded_modules_and_dispatcher(
     assert first is second
     run_arguments = _dispatcher_arguments(promotion.DISPATCHER_RUN_ARGUMENTS)
     prepared = [
-        promotion.prepare(compute_capability=(10, 0), **run_arguments)
-        for _ in range(2)
+        promotion.prepare(compute_capability=(10, 0), **run_arguments) for _ in range(2)
     ]
     for closure in prepared:
         closure.close()
