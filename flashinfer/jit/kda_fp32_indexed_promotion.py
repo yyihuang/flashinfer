@@ -218,8 +218,8 @@ class Prepared:
 
     def __init__(self, value: object) -> None:
         try:
-            launch = getattr(value, "launch")
-            close = getattr(value, "close")
+            launch = value.launch
+            close = value.close
         except Exception as exc:
             raise PromotionManifestError(
                 "invalid FP32 indexed KDA promotion manifest: dispatcher prepare "
