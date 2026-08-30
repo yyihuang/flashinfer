@@ -69,6 +69,7 @@ def _dispatcher_source(
     prepared_contract="valid",
     run_parameters=None,
     select_parameters=None,
+    allowed_selector=None,
 ):
     module_ids_value = tuple(module_ids) if module_ids_are_tuple else list(module_ids)
     if run_parameters is None:
@@ -99,15 +100,32 @@ def _dispatcher_source(
         def launch(self):
             return None
 """,
+        "missing_launch": """\
+        def close(self):
+            self.arguments = None
+""",
         "launch_argument": """\
         def launch(self, unexpected):
             return unexpected
         def close(self):
             self.arguments = None
 """,
+        "close_argument": """\
+        def launch(self):
+            return None
+        def close(self, unexpected):
+            self.arguments = unexpected
+""",
     }.get(prepared_contract)
     if prepared_methods is None:
         raise ValueError(f"unknown prepared contract {prepared_contract!r}")
+    selector_body = "        return ('selected', locals())"
+    if allowed_selector is not None:
+        selector_body = f"""\
+        facts = locals()
+        if facts != {allowed_selector!r}:
+            raise ValueError('unknown selector facts')
+        return ('selected', facts)"""
     return f"""\
 {promotion.DISPATCHER_ABI_ATTRIBUTE} = {abi!r}
 {promotion.DISPATCHER_MODULE_IDS_ATTRIBUTE} = {module_ids_value!r}
@@ -119,7 +137,7 @@ def {promotion.DISPATCHER_BIND_ENTRYPOINT}({binder_parameters}):
             self.arguments = arguments
 {prepared_methods}
     def select_fp32_indexed_schedule_route({select_parameters}):
-        return ('selected', locals())
+{selector_body}
     def prepare_fwd({run_parameters}):
         return _Prepared({run_arguments})
     return {{{", ".join(entries)}}}
@@ -374,6 +392,42 @@ def test_multi_module_manifest_loads_exact_modules_in_order(
     )
 
 
+def test_repeated_load_and_prepare_reuse_loaded_modules_and_dispatcher(
+    tmp_path, monkeypatch
+):
+    _, _, expected = _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    loaded_modules = []
+    bind_count = 0
+    original_bind = promotion._bind_dispatcher
+
+    def load_host(spec, module, cubin):
+        assert cubin == expected[(spec.target, module.module_id)]
+        loaded_modules.append(module.module_id)
+        return lambda **_kwargs: None
+
+    def bind_dispatcher(spec, modules):
+        nonlocal bind_count
+        bind_count += 1
+        return original_bind(spec, modules)
+
+    monkeypatch.setattr(promotion, "_load_host_module", load_host)
+    monkeypatch.setattr(promotion, "_bind_dispatcher", bind_dispatcher)
+
+    first = promotion.load(compute_capability=(10, 0), mode="cubin")
+    second = promotion.load(compute_capability=(10, 0), mode="cubin")
+    assert first is second
+    run_arguments = _dispatcher_arguments(promotion.DISPATCHER_RUN_ARGUMENTS)
+    prepared = [
+        promotion.prepare(compute_capability=(10, 0), **run_arguments)
+        for _ in range(2)
+    ]
+    for closure in prepared:
+        closure.close()
+
+    assert loaded_modules == ["module-a", "module-b"]
+    assert bind_count == 1
+
+
 def test_public_prepare_and_run_have_the_fixed_keyword_only_abi():
     expected = promotion.DISPATCHER_RUN_ARGUMENTS + ("compute_capability",)
     for entry in (promotion.prepare, promotion.run):
@@ -393,7 +447,9 @@ def test_public_prepare_and_run_have_the_fixed_keyword_only_abi():
     ("prepared_contract", "message"),
     (
         ("missing_close", "does not expose launch/close"),
+        ("missing_launch", "does not expose launch/close"),
         ("launch_argument", "launch must have exact required keyword-only signature"),
+        ("close_argument", "close must have exact required keyword-only signature"),
     ),
 )
 def test_dispatcher_prepared_object_abi_fails_closed(
@@ -445,6 +501,31 @@ def test_prepared_close_is_idempotent_and_run_closes_after_launch_failure(monkey
             **_dispatcher_arguments(promotion.DISPATCHER_RUN_ARGUMENTS),
         )
     assert events == ["close", "launch", "close"]
+
+
+def test_run_closes_after_successful_launch(monkeypatch):
+    events = []
+
+    class Closure:
+        def launch(self):
+            events.append("launch")
+            return "result"
+
+        def close(self):
+            events.append("close")
+
+    monkeypatch.setattr(
+        promotion, "prepare", lambda **_kwargs: promotion.Prepared(Closure())
+    )
+
+    assert (
+        promotion.run(
+            compute_capability=(10, 0),
+            **_dispatcher_arguments(promotion.DISPATCHER_RUN_ARGUMENTS),
+        )
+        == "result"
+    )
+    assert events == ["launch", "close"]
 
 
 def test_dispatcher_source_is_rehashed_immediately_before_import(tmp_path, monkeypatch):
@@ -533,6 +614,38 @@ def test_dispatcher_fixed_binding_contract_fails_closed(
     assert not promotion.is_available(compute_capability=(10, 0))
 
 
+def test_dispatcher_rejects_unknown_selector_facts(tmp_path, monkeypatch):
+    allowed_selector = {
+        "gpu_arch": "sm_100a",
+        "sm_count": 100,
+        "fixed_layout": True,
+        "sequence_lengths": (64,),
+        "num_heads": 8,
+        "use_initial_state": True,
+        "store_final_state": True,
+    }
+    _install_fake_csrc(
+        tmp_path,
+        monkeypatch,
+        "cubin",
+        dispatcher_source=_dispatcher_source(allowed_selector=allowed_selector),
+    )
+    monkeypatch.setattr(
+        promotion,
+        "_load_host_module",
+        lambda _spec, _module, _cubin: lambda **_kwargs: None,
+    )
+    loaded = promotion.load(compute_capability=(10, 0), mode="cubin")
+
+    assert loaded.dispatcher.select(**allowed_selector) == (
+        "selected",
+        allowed_selector,
+    )
+    unknown_selector = {**allowed_selector, "num_heads": 16}
+    with pytest.raises(ValueError, match="unknown selector facts"):
+        loaded.dispatcher.select(**unknown_selector)
+
+
 def test_dispatcher_rejects_non_callable_loaded_module_map_entry(tmp_path, monkeypatch):
     _install_fake_csrc(tmp_path, monkeypatch, "cubin")
     monkeypatch.setattr(
@@ -563,6 +676,22 @@ def test_cubin_and_inventory_mutations_fail_closed(tmp_path, monkeypatch):
     (root / promotion.MANIFEST_FILENAME).write_text(json.dumps(document))
     promotion._clear_caches_for_testing()
     assert not promotion.is_available(compute_capability=(10, 0))
+
+
+def test_executable_mode_mutation_fails_closed(tmp_path, monkeypatch):
+    _, document, _ = _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    dispatcher = next(
+        artifact
+        for artifact in document["entries"][0]["artifacts"]
+        if artifact["id"] == "dispatcher"
+    )
+    (tmp_path / dispatcher["path"]).chmod(0o755)
+    promotion._clear_caches_for_testing()
+
+    with pytest.raises(
+        promotion.PromotionManifestError, match="executable mode drifted"
+    ):
+        promotion.get_module_specs()
 
 
 def test_cubin_mode_loads_exact_host_shared_library(tmp_path, monkeypatch):
