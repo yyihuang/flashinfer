@@ -117,7 +117,9 @@ def test_complete_manifest_selects_explicit_mode_and_runs_ordered_entry(
 
     monkeypatch.setattr(promotion, loader_name, lambda spec: FakeModule())
     other_loader = (
-        "_load_cubin_module" if loader_name == "_load_cuda_module" else "_load_cuda_module"
+        "_load_cubin_module"
+        if loader_name == "_load_cuda_module"
+        else "_load_cuda_module"
     )
     monkeypatch.setattr(
         promotion,

@@ -551,9 +551,7 @@ def _flash_kda_prefill_is_eligible(
             return False
     if initial_state is not None:
         state_dtype = (
-            initial_state.dtype
-            if isinstance(initial_state, torch.Tensor)
-            else None
+            initial_state.dtype if isinstance(initial_state, torch.Tensor) else None
         )
         if state_dtype not in (torch.bfloat16, torch.float32):
             return False

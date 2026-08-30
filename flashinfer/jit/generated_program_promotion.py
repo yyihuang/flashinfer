@@ -122,9 +122,7 @@ def _parse_artifact(value: object, index: int) -> PromotionArtifact:
     _require(isinstance(executable, bool), f"{label}.executable must be boolean")
     return PromotionArtifact(
         source=_relative_path(value["source"], f"{label}.source"),
-        destination=_relative_path(
-            value["destination"], f"{label}.destination"
-        ),
+        destination=_relative_path(value["destination"], f"{label}.destination"),
         sha256=sha256,
         size_bytes=size_bytes,
         executable=executable,
@@ -158,8 +156,7 @@ def parse_manifest(payload: object) -> PromotionManifest:
         "artifacts must be a non-empty list",
     )
     artifacts = tuple(
-        _parse_artifact(value, index)
-        for index, value in enumerate(artifact_payloads)
+        _parse_artifact(value, index) for index, value in enumerate(artifact_payloads)
     )
     destinations = [item.destination.as_posix() for item in artifacts]
     sources = [item.source.as_posix() for item in artifacts]
@@ -293,8 +290,7 @@ def _materialize_paths(
     root: Path, artifacts: Iterable[PromotionArtifact]
 ) -> list[tuple[PromotionArtifact, Path]]:
     return [
-        (artifact, root.joinpath(*artifact.destination.parts))
-        for artifact in artifacts
+        (artifact, root.joinpath(*artifact.destination.parts)) for artifact in artifacts
     ]
 
 
@@ -357,7 +353,9 @@ def import_promotion(
         _verify_file(source, artifact, "source")
         sources.append((artifact, source))
         if destination.exists() or destination.is_symlink():
-            _require(not destination.is_symlink(), f"destination is a symlink: {destination}")
+            _require(
+                not destination.is_symlink(), f"destination is a symlink: {destination}"
+            )
             _require(destination.is_file(), f"destination is not a file: {destination}")
             if not replace:
                 _verify_destination(destination, artifact)

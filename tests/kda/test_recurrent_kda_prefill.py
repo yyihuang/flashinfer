@@ -859,9 +859,7 @@ def test_fp32_indexed_state_pool_eligibility_requires_promotion(
         "_fp32_indexed_kda_prefill_is_available",
         lambda device: False,
     )
-    assert not kda_prefill_api._flash_kda_prefill_is_eligible(
-        **eligibility_kwargs
-    )
+    assert not kda_prefill_api._flash_kda_prefill_is_eligible(**eligibility_kwargs)
 
     monkeypatch.setattr(
         kda_prefill_api,

@@ -330,8 +330,7 @@ def _parse_entry(
 
     _require(
         all(
-            record.path.suffix in _ALLOWED_SOURCE_SUFFIXES
-            for record in source_records
+            record.path.suffix in _ALLOWED_SOURCE_SUFFIXES for record in source_records
         ),
         f"{label}.sources contains an unsupported file type",
     )
@@ -518,9 +517,7 @@ def _load_cubin_module(spec: PromotionModuleSpec):
 
 
 @functools.cache
-def load(
-    *, compute_capability: tuple[int, int], mode: PromotionMode
-):
+def load(*, compute_capability: tuple[int, int], mode: PromotionMode):
     """Load a verified module, requiring an explicit representation mode."""
 
     if mode not in ("cuda", "cubin"):
@@ -550,9 +547,7 @@ def _compute_capability_from_q(q: object) -> tuple[int, int]:
         ) from exc
 
 
-def run(
-    *, compute_capability: tuple[int, int] | None = None, **kwargs: Any
-):
+def run(*, compute_capability: tuple[int, int] | None = None, **kwargs: Any):
     """Run the installed entry through its sealed ordered argument table."""
 
     q = kwargs.get("q")

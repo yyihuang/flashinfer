@@ -25,7 +25,9 @@ import sys
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPOSITORY_ROOT / "flashinfer" / "jit" / "generated_program_promotion.py"
-SPEC = importlib.util.spec_from_file_location("_flashinfer_program_promotion", MODULE_PATH)
+SPEC = importlib.util.spec_from_file_location(
+    "_flashinfer_program_promotion", MODULE_PATH
+)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"could not load promotion importer from {MODULE_PATH}")
 PROMOTION = importlib.util.module_from_spec(SPEC)
