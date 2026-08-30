@@ -50,6 +50,12 @@ _FRAGMENT_SELECTOR_ARGUMENTS = {
 }
 _FRAGMENT_TOPOLOGY_COUNTS = {1: 32, 2: 9, 4: 7}
 _HOST_ACTIVITY_ROLES = ("beta_tma_refresh", "affine_torch_epilogue")
+_FRAGMENT_ACTIVITY_TOPOLOGY_COUNTS = {
+    (1, ()): 27,
+    (1, (_HOST_ACTIVITY_ROLES[0],)): 5,
+    (2, ()): 9,
+    (4, (_HOST_ACTIVITY_ROLES[1],)): 7,
+}
 _RECEIPT_KEYS = {
     "architecture",
     "artifacts",
@@ -802,10 +808,7 @@ def _normalized_fragment_input(
         _require(
             shared["kind"] == "shared_library"
             and PurePosixPath(str(shared["path"])).suffix == ".so"
-            and (
-                shared_artifact is None
-                or shared_artifact.get("executable") is False
-            ),
+            and (shared_artifact is None or shared_artifact.get("executable") is False),
             f"{label} shared evidence differs",
         )
         _require(
@@ -822,8 +825,7 @@ def _normalized_fragment_input(
                 cubin["kind"] == "cubin"
                 and PurePosixPath(str(cubin["path"])).suffix == ".cubin"
                 and (
-                    cubin_artifact is None
-                    or cubin_artifact.get("executable") is False
+                    cubin_artifact is None or cubin_artifact.get("executable") is False
                 ),
                 f"{label} cubin evidence differs",
             )
@@ -933,9 +935,7 @@ def _normalized_fragment_input(
                 suffixes=(".py",),
                 executable=True,
             )
-            output_path = _relative(
-                build_output["path"], f"{label} build output path"
-            )
+            output_path = _relative(build_output["path"], f"{label} build output path")
             _require(
                 output_path.suffix == ".cubin"
                 and output_path.as_posix() not in output_paths,
@@ -961,9 +961,7 @@ def _normalized_fragment_input(
             raw_recipes.append(recipe)
             raw_outputs.append(build_output)
         final_modules.append(final_module)
-        logical_modules.append(
-            {"entry_point": entry_point, "kernel_name": kernel_name}
-        )
+        logical_modules.append({"entry_point": entry_point, "kernel_name": kernel_name})
 
     raw_build = fragment.get("build")
     _require(
@@ -1064,6 +1062,9 @@ def _normalized_fragment_input(
     logical_routes: list[dict[str, object]] = []
     route_ids: set[str] = set()
     topology_counts = {module_count: 0 for module_count in _FRAGMENT_TOPOLOGY_COUNTS}
+    activity_topology_counts = {
+        topology: 0 for topology in _FRAGMENT_ACTIVITY_TOPOLOGY_COUNTS
+    }
     for index, raw_route in enumerate(raw_routes):
         label = f"fragment route {index}"
         _require(
@@ -1110,7 +1111,9 @@ def _normalized_fragment_input(
         )
         sm_count = selector_facts.get("sm_count")
         _require(
-            isinstance(sm_count, int) and not isinstance(sm_count, bool) and sm_count > 0,
+            isinstance(sm_count, int)
+            and not isinstance(sm_count, bool)
+            and sm_count > 0,
             f"{label} selector SM count is invalid",
         )
         activity = raw_route.get("public_activity_contract")
@@ -1151,6 +1154,12 @@ def _normalized_fragment_input(
             and host_count == expected_host_count,
             f"{label} activity identity differs",
         )
+        activity_topology = (module_count, roles)
+        _require(
+            activity_topology in activity_topology_counts,
+            f"{label} activity denominator differs from its route topology",
+        )
+        activity_topology_counts[activity_topology] += 1
         final_route = {
             "id": route_id,
             "module_ids": route_modules,
@@ -1181,6 +1190,10 @@ def _normalized_fragment_input(
     _require(
         topology_counts == _FRAGMENT_TOPOLOGY_COUNTS,
         "fragment topology denominator differs",
+    )
+    _require(
+        activity_topology_counts == _FRAGMENT_ACTIVITY_TOPOLOGY_COUNTS,
+        "fragment activity denominator differs",
     )
 
     dispatcher_seed = {
@@ -1423,10 +1436,10 @@ def pack_public_fragment_promotions(
         normalized_contract = json.loads(_canonical(dict(runtime_contract)))
     except (TypeError, ValueError) as exc:
         raise PromotionPackError("runtime contract is not canonical JSON") from exc
-    _require(isinstance(normalized_contract, dict), "runtime contract must be an object")
-    run_entrypoint = _identifier(
-        dispatcher_run_entrypoint, "dispatcher run entrypoint"
+    _require(
+        isinstance(normalized_contract, dict), "runtime contract must be an object"
     )
+    run_entrypoint = _identifier(dispatcher_run_entrypoint, "dispatcher run entrypoint")
     select_entrypoint = _identifier(
         dispatcher_select_entrypoint, "dispatcher select entrypoint"
     )

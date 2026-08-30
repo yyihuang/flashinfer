@@ -138,15 +138,18 @@ def _seal_fragment_identities(fragment):
     fragment["route_denominator_sha256"] = hashlib.sha256(
         _canonical(fragment["routes"])
     ).hexdigest()
-    fragment["dispatcher_seed_identity"] = "sha256:" + hashlib.sha256(
-        _canonical(
-            {
-                "dispatcher": fragment["dispatcher"],
-                "routes": fragment["routes"],
-                "seeds": fragment["seeds"],
-            }
-        )
-    ).hexdigest()
+    fragment["dispatcher_seed_identity"] = (
+        "sha256:"
+        + hashlib.sha256(
+            _canonical(
+                {
+                    "dispatcher": fragment["dispatcher"],
+                    "routes": fragment["routes"],
+                    "seeds": fragment["seeds"],
+                }
+            )
+        ).hexdigest()
+    )
 
 
 def _write_fragment_input(root, target_name, mode):
@@ -246,9 +249,7 @@ def _write_fragment_input(root, target_name, mode):
                     "cooperative": False,
                     "cubin_sha256": hashlib.sha256(cubin_payload).hexdigest(),
                     "cubin_size_bytes": len(cubin_payload),
-                    "cuda_source_sha256": hashlib.sha256(
-                        source_payload
-                    ).hexdigest(),
+                    "cuda_source_sha256": hashlib.sha256(source_payload).hexdigest(),
                     "cuda_source_size_bytes": len(source_payload),
                     "host_source_sha256": hashlib.sha256(host_payload).hexdigest(),
                     "host_source_size_bytes": len(host_payload),
@@ -389,9 +390,7 @@ def _write_fragment_input(root, target_name, mode):
         "mode": mode,
         "name": "example-program",
         "route_count": 48,
-        "route_denominator_sha256": hashlib.sha256(
-            _canonical(routes)
-        ).hexdigest(),
+        "route_denominator_sha256": hashlib.sha256(_canonical(routes)).hexdigest(),
         "schema_version": 1,
     }
     (root / "promotion-receipt.json").write_bytes(_canonical(receipt) + b"\n")
@@ -503,21 +502,24 @@ def test_fragment_pack_builds_exact_two_target_runtime_closure(tmp_path, mode):
         inventory = entry["runtime_inventory"]
         assert inventory["contract"] == _RUNTIME_CONTRACT
         assert entry["route_count"] == len(inventory["routes"]) == 48
-        assert entry["route_denominator_sha256"] == hashlib.sha256(
-            _canonical(inventory["routes"])
-        ).hexdigest()
+        assert (
+            entry["route_denominator_sha256"]
+            == hashlib.sha256(_canonical(inventory["routes"])).hexdigest()
+        )
         dispatcher_seed = {
             "contract": _RUNTIME_CONTRACT,
             "dispatcher": inventory["dispatcher"],
             "routes": inventory["routes"],
             "seeds": inventory["seeds"],
         }
-        assert inventory["dispatcher_seed_identity"] == "sha256:" + hashlib.sha256(
-            _canonical(dispatcher_seed)
-        ).hexdigest()
-        assert entry["runtime_inventory_identity"] == "sha256:" + hashlib.sha256(
-            _canonical(inventory)
-        ).hexdigest()
+        assert (
+            inventory["dispatcher_seed_identity"]
+            == "sha256:" + hashlib.sha256(_canonical(dispatcher_seed)).hexdigest()
+        )
+        assert (
+            entry["runtime_inventory_identity"]
+            == "sha256:" + hashlib.sha256(_canonical(inventory)).hexdigest()
+        )
         installed_ids = {artifact["id"] for artifact in entry["artifacts"]}
         if mode == "cubin":
             expected_ids = {f"dispatcher-{target_name}-{mode}"}
@@ -703,6 +705,59 @@ def test_fragment_pack_rejects_activity_outside_fixed_contract(tmp_path, mutatio
             mode="cubin",
             name="example-program",
             target=tmp_path / f"rejected-activity-{mutation}",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
+@pytest.mark.parametrize("mutation", ["combined", "bt16", "affine", "denominator"])
+def test_fragment_pack_rejects_activity_topology_or_denominator_drift(
+    tmp_path, mutation
+):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cubin")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        route_index = {
+            "combined": 0,
+            "bt16": 32,
+            "affine": 41,
+            "denominator": 5,
+        }[mutation]
+        activity = fragment["routes"][route_index]["public_activity_contract"]
+        if mutation == "combined":
+            activity["host_roles"] = [
+                "beta_tma_refresh",
+                "affine_torch_epilogue",
+            ]
+            activity["expected_fixed_host_activity_markers"] = [
+                "direct_copy_kernel_cuda"
+            ]
+            activity["expected_host_activity_count"] = 4
+        elif mutation in ("bt16", "denominator"):
+            activity["host_roles"] = ["beta_tma_refresh"]
+            activity["expected_fixed_host_activity_markers"] = [
+                "direct_copy_kernel_cuda"
+            ]
+            activity["expected_host_activity_count"] = 1
+        else:
+            activity["host_roles"] = []
+            activity["expected_fixed_host_activity_markers"] = []
+            activity["expected_host_activity_count"] = 0
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm100a"], mutate)
+    with pytest.raises(PromotionPackError, match="activity denominator"):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cubin",
+            name="example-program",
+            target=tmp_path / f"rejected-activity-topology-{mutation}",
             runtime_manifest_destination="csrc/example/runtime.json",
             runtime_contract=_RUNTIME_CONTRACT,
             dispatcher_run_entrypoint="prepare_fwd",
