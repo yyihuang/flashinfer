@@ -92,9 +92,11 @@ representation for both targets; existing BF16 dispatch does not probe this
 adapter.
 
 A complete runtime manifest fixes the public operation contract, exact SM100a
-and SM103a file closures, an ordered `modules[]` inventory, ordered seed module
-sequences, immutable routes, and a hash-bound producer dispatcher. It also
-selects exactly one representation:
+and SM103a file closures, an ordered `modules[]` inventory, ordered
+dispatch-policy seed identities, each route's exact ordered module sequence,
+immutable routes, and a hash-bound producer dispatcher. A seed may be shared by
+routes with different module sequences; the combined dispatcher, seed, and
+route identity binds both. The manifest also selects exactly one representation:
 
 - `cuda` declares hashed generated sources, host bindings, an exact published
   build recipe, and every expected cubin digest. The recipe's ordered output

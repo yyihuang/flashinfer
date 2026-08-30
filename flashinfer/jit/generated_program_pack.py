@@ -1108,30 +1108,16 @@ def _normalized_fragment_input(
     for index, raw_seed in enumerate(raw_seeds):
         label = f"fragment seed {index}"
         _require(
-            isinstance(raw_seed, dict) and set(raw_seed) == {"id", "module_ids"},
+            isinstance(raw_seed, dict) and set(raw_seed) == {"id"},
             f"{label} envelope is invalid",
         )
         assert isinstance(raw_seed, dict)
         seed_id = _safe_id(raw_seed.get("id"), f"{label} id")
-        seed_modules = _string_list(
-            raw_seed.get("module_ids"),
-            f"{label} modules",
-            allow_duplicates=True,
-        )
-        _require(
-            all(module_id in module_positions for module_id in seed_modules),
-            f"{label} references an unknown module",
-        )
-        seed = {"id": seed_id, "module_ids": seed_modules}
+        seed = {"id": seed_id}
         _require(seed_id not in seed_by_id, f"{label} id repeats")
         seed_by_id[seed_id] = seed
         seeds.append(seed)
-        logical_seeds.append(
-            {
-                "id": seed_id,
-                "module_positions": [module_positions[item] for item in seed_modules],
-            }
-        )
+        logical_seeds.append({"id": seed_id})
 
     raw_routes = fragment.get("routes")
     _require(
@@ -1154,6 +1140,7 @@ def _normalized_fragment_input(
     routes: list[dict[str, object]] = []
     logical_routes: list[dict[str, object]] = []
     route_ids: set[str] = set()
+    referenced_seed_ids: set[str] = set()
     topology_counts = {module_count: 0 for module_count in _FRAGMENT_TOPOLOGY_COUNTS}
     activity_topology_counts = {
         topology: 0 for topology in _FRAGMENT_ACTIVITY_TOPOLOGY_COUNTS
@@ -1176,14 +1163,15 @@ def _normalized_fragment_input(
         )
         seed_id = _safe_id(raw_route.get("seed_id"), f"{label} seed id")
         _require(seed_id in seed_by_id, f"{label} references an unknown seed")
+        referenced_seed_ids.add(seed_id)
         route_modules = _string_list(
             raw_route.get("module_ids"),
             f"{label} modules",
             allow_duplicates=True,
         )
         _require(
-            route_modules == seed_by_id[seed_id]["module_ids"],
-            f"{label} module order differs from its seed",
+            all(module_id in module_positions for module_id in route_modules),
+            f"{label} references an unknown module",
         )
         module_count = len(route_modules)
         _require(
@@ -1283,6 +1271,10 @@ def _normalized_fragment_input(
     _require(
         topology_counts == _FRAGMENT_TOPOLOGY_COUNTS,
         "fragment topology denominator differs",
+    )
+    _require(
+        referenced_seed_ids == set(seed_by_id),
+        "fragment seed denominator differs from route references",
     )
     _require(
         activity_topology_counts == _FRAGMENT_ACTIVITY_TOPOLOGY_COUNTS,

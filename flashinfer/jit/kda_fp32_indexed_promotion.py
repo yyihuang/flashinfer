@@ -147,7 +147,7 @@ _MODULE_KEYS = {
 }
 _REF_KEYS = {"artifact_id", "sha256"}
 _BUILD_OUTPUT_KEYS = {"id", "path", "sha256", "size_bytes"}
-_SEED_KEYS = {"id", "module_ids"}
+_SEED_KEYS = {"id"}
 _ROUTE_KEYS = {"id", "module_ids", "seed_id", "selector"}
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
@@ -735,19 +735,11 @@ def _parse_target(
         )
         assert isinstance(seed, dict)
         seed_id = _safe_id(seed.get("id"), f"{label} seed id")
-        seed_modules = seed.get("module_ids")
-        _require(
-            isinstance(seed_modules, list) and bool(seed_modules),
-            f"{label} seed modules are invalid",
-        )
-        _require(
-            all(item in module_ids for item in seed_modules),
-            f"{label} seed references unknown modules",
-        )
-        seeds.append({"id": seed_id, "module_ids": list(seed_modules)})
+        seeds.append({"id": seed_id})
     seed_by_id = {str(seed["id"]): seed for seed in seeds}
     _require(len(seed_by_id) == len(seeds), f"{label} seed ids repeat")
     routes: list[dict[str, object]] = []
+    referenced_seed_ids: set[str] = set()
     for route_index, route in enumerate(raw_routes):
         _require(
             isinstance(route, dict) and set(route) == _ROUTE_KEYS,
@@ -758,13 +750,14 @@ def _parse_target(
         seed_id = _safe_id(route.get("seed_id"), f"{label} route seed")
         route_modules = route.get("module_ids")
         _require(seed_id in seed_by_id, f"{label} route references an unknown seed")
-        _require(
-            route_modules == seed_by_id[seed_id]["module_ids"],
-            f"{label} route module order differs from its seed",
-        )
+        referenced_seed_ids.add(seed_id)
         _require(
             isinstance(route_modules, list) and bool(route_modules),
             f"{label} route modules are invalid",
+        )
+        _require(
+            all(item in module_ids for item in route_modules),
+            f"{label} route references unknown modules",
         )
         _require(
             isinstance(route.get("selector"), dict),
@@ -780,6 +773,10 @@ def _parse_target(
         )
     route_ids = [str(route["id"]) for route in routes]
     _require(len(route_ids) == len(set(route_ids)), f"{label} route ids repeat")
+    _require(
+        referenced_seed_ids == set(seed_by_id),
+        f"{label} seed denominator differs from route references",
+    )
     _require(value.get("route_count") == len(routes), f"{label} route count is invalid")
     _require(
         value.get("route_denominator_sha256")

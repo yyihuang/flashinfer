@@ -43,6 +43,22 @@ def _identity(value):
     return "sha256:" + hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _seal_entry_identities(entry, *, dispatcher_seed=True):
+    inventory = entry["runtime_inventory"]
+    routes = inventory["routes"]
+    entry["route_denominator_sha256"] = hashlib.sha256(_canonical(routes)).hexdigest()
+    if dispatcher_seed:
+        inventory["dispatcher_seed_identity"] = _identity(
+            {
+                "contract": promotion.RUNTIME_CONTRACT,
+                "dispatcher": inventory["dispatcher"],
+                "routes": routes,
+                "seeds": inventory["seeds"],
+            }
+        )
+    entry["runtime_inventory_identity"] = _identity(inventory)
+
+
 def _artifact(repository, root, artifact_id, relative, payload, executable=False):
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -265,14 +281,20 @@ def _write_complete_manifest(csrc_root, mode, *, dispatcher_source=None):
             "run_entrypoint": "prepare_fwd",
             "select_entrypoint": "select_fp32_indexed_schedule_route",
         }
-        seeds = [{"id": "seed-a", "module_ids": ["module-b", "module-a"]}]
+        seeds = [{"id": "seed-a"}]
         routes = [
             {
                 "id": "route-a",
                 "module_ids": ["module-b", "module-a"],
                 "seed_id": "seed-a",
                 "selector": {"head_dim": 128},
-            }
+            },
+            {
+                "id": "route-b",
+                "module_ids": ["module-a"],
+                "seed_id": "seed-a",
+                "selector": {"head_dim": 64},
+            },
         ]
         inventory = {
             "architecture": architecture,
@@ -297,7 +319,7 @@ def _write_complete_manifest(csrc_root, mode, *, dispatcher_source=None):
                 "architecture": architecture,
                 "artifact_root": artifact_root.relative_to(repository).as_posix(),
                 "artifacts": artifacts,
-                "route_count": 1,
+                "route_count": 2,
                 "route_denominator_sha256": hashlib.sha256(
                     _canonical(routes)
                 ).hexdigest(),
@@ -362,6 +384,16 @@ def test_multi_module_manifest_loads_exact_modules_in_order(
 
     assert promotion.selected_mode() == mode
     assert promotion.is_available(compute_capability=(10, 0))
+    for spec in promotion.get_module_specs():
+        assert spec.seeds == ({"id": "seed-a"},)
+        assert [route["seed_id"] for route in spec.routes] == [
+            "seed-a",
+            "seed-a",
+        ]
+        assert [route["module_ids"] for route in spec.routes] == [
+            ["module-b", "module-a"],
+            ["module-a"],
+        ]
     with pytest.raises(promotion.PromotionManifestError, match="not requested mode"):
         promotion.load(
             compute_capability=(10, 0),
@@ -682,6 +714,61 @@ def test_cubin_and_inventory_mutations_fail_closed(tmp_path, monkeypatch):
     assert not promotion.is_available(compute_capability=(10, 0))
 
 
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("unknown_seed", "route references an unknown seed"),
+        ("unknown_module", "route references unknown modules"),
+        ("unused_seed", "seed denominator differs from route references"),
+        ("seed_module_bundle", "seed 0 is invalid"),
+    ],
+)
+def test_manifest_rejects_invalid_seed_and_route_closure(
+    tmp_path, monkeypatch, mutation, message
+):
+    root, document, _ = _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    entry = document["entries"][0]
+    inventory = entry["runtime_inventory"]
+    if mutation == "unknown_seed":
+        inventory["routes"][0]["seed_id"] = "seed-unknown"
+    elif mutation == "unknown_module":
+        inventory["routes"][0]["module_ids"] = ["module-unknown"]
+    elif mutation == "seed_module_bundle":
+        inventory["seeds"][0]["module_ids"] = inventory["routes"][0]["module_ids"]
+    else:
+        inventory["seeds"].append({"id": "seed-unused"})
+    _seal_entry_identities(entry)
+    (root / promotion.MANIFEST_FILENAME).write_text(json.dumps(document))
+    promotion._clear_caches_for_testing()
+
+    with pytest.raises(promotion.PromotionManifestError, match=message):
+        promotion.get_module_specs()
+
+
+@pytest.mark.parametrize("mutation", ["seed", "route_modules"])
+def test_manifest_rejects_dispatcher_seed_identity_drift(
+    tmp_path, monkeypatch, mutation
+):
+    root, document, _ = _install_fake_csrc(tmp_path, monkeypatch, "cubin")
+    entry = document["entries"][0]
+    inventory = entry["runtime_inventory"]
+    if mutation == "seed":
+        inventory["seeds"][0]["id"] = "seed-drifted"
+        for route in inventory["routes"]:
+            route["seed_id"] = "seed-drifted"
+    else:
+        inventory["routes"][0]["module_ids"].reverse()
+    _seal_entry_identities(entry, dispatcher_seed=False)
+    (root / promotion.MANIFEST_FILENAME).write_text(json.dumps(document))
+    promotion._clear_caches_for_testing()
+
+    with pytest.raises(
+        promotion.PromotionManifestError,
+        match="dispatcher/seed identity is invalid",
+    ):
+        promotion.get_module_specs()
+
+
 def test_executable_mode_mutation_fails_closed(tmp_path, monkeypatch):
     _, document, _ = _install_fake_csrc(tmp_path, monkeypatch, "cubin")
     dispatcher = next(
@@ -902,9 +989,7 @@ def test_checked_in_manifest_has_complete_two_target_route_denominator():
         assert expected_mode in ("cubin", "cuda")
         assert document["mode"] == expected_mode
     assert promotion.selected_mode() == document["mode"]
-    assert [entry["target"] for entry in document["entries"]] == list(
-        promotion.TARGETS
-    )
+    assert [entry["target"] for entry in document["entries"]] == list(promotion.TARGETS)
     assert [spec.target for spec in specs] == list(promotion.TARGETS)
 
     route_ids = None
@@ -912,9 +997,10 @@ def test_checked_in_manifest_has_complete_two_target_route_denominator():
     for entry, spec in zip(document["entries"], specs, strict=True):
         routes = entry["runtime_inventory"]["routes"]
         assert entry["route_count"] == len(routes) == len(spec.routes) == 48
-        assert entry["route_denominator_sha256"] == hashlib.sha256(
-            _canonical(routes)
-        ).hexdigest()
+        assert (
+            entry["route_denominator_sha256"]
+            == hashlib.sha256(_canonical(routes)).hexdigest()
+        )
         assert Counter(len(route["module_ids"]) for route in routes) == {
             1: 32,
             2: 9,

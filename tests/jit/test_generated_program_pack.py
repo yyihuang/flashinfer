@@ -61,7 +61,7 @@ def _write_public_input(root, architecture, mode="cubin"):
         "mode": mode,
         "modules": [{"id": "module-a"}],
         "routes": [{"id": "route-a", "module_ids": ["module-a"]}],
-        "seeds": [{"id": "seed-a", "module_ids": ["module-a"]}],
+        "seeds": [{"id": "seed-a"}],
     }
     denominator = hashlib.sha256(b"contract").hexdigest()
     receipt = {
@@ -283,14 +283,7 @@ def _write_fragment_input(root, target_name, mode):
     )
     artifacts.append(contract_artifact)
     module_ids = [module["id"] for module in modules]
-    seeds = [
-        {"id": "seed-single", "module_ids": [module_ids[0]]},
-        {"id": "seed-two", "module_ids": module_ids},
-        {
-            "id": "seed-four",
-            "module_ids": [module_ids[0], module_ids[1], module_ids[0], module_ids[1]],
-        },
-    ]
+    seeds = [{"id": "seed-shared-policy"}]
     selector_arguments = [
         "fixed_layout",
         "gpu_arch",
@@ -303,12 +296,16 @@ def _write_fragment_input(root, target_name, mode):
     routes = []
     for index in range(48):
         if index < 32:
-            seed = seeds[0]
+            route_module_ids = [module_ids[0]]
         elif index < 41:
-            seed = seeds[1]
+            route_module_ids = module_ids
         else:
-            seed = seeds[2]
-        route_module_ids = seed["module_ids"]
+            route_module_ids = [
+                module_ids[0],
+                module_ids[1],
+                module_ids[0],
+                module_ids[1],
+            ]
         host_roles = []
         markers = []
         host_count = 0
@@ -360,7 +357,7 @@ def _write_fragment_input(root, target_name, mode):
                 },
                 "route": f"variant-{index:03d}",
                 "route_index": index,
-                "seed_id": seed["id"],
+                "seed_id": seeds[0]["id"],
                 "selector_facts": {
                     "fixed_layout": True,
                     "gpu_arch": architecture,
@@ -527,6 +524,23 @@ def test_fragment_pack_builds_exact_two_target_runtime_closure(tmp_path, mode):
         inventory = entry["runtime_inventory"]
         assert inventory["contract"] == _RUNTIME_CONTRACT
         assert entry["route_count"] == len(inventory["routes"]) == 48
+        assert inventory["seeds"] == [{"id": "seed-shared-policy"}]
+        assert {tuple(route["module_ids"]) for route in inventory["routes"]} == {
+            (f"module-{target_name}-{mode}-0",),
+            (
+                f"module-{target_name}-{mode}-0",
+                f"module-{target_name}-{mode}-1",
+            ),
+            (
+                f"module-{target_name}-{mode}-0",
+                f"module-{target_name}-{mode}-1",
+                f"module-{target_name}-{mode}-0",
+                f"module-{target_name}-{mode}-1",
+            ),
+        }
+        assert {route["seed_id"] for route in inventory["routes"]} == {
+            "seed-shared-policy"
+        }
         assert (
             entry["route_denominator_sha256"]
             == hashlib.sha256(_canonical(inventory["routes"])).hexdigest()
@@ -671,12 +685,8 @@ def test_fragment_pack_rejects_route_topology_denominator_drift(tmp_path):
 
     def mutate(fragment):
         module_ids = [module["id"] for module in fragment["modules"]]
-        fragment["seeds"].append(
-            {"id": "seed-denominator-drift", "module_ids": module_ids}
-        )
         route = fragment["routes"][0]
         route["module_ids"] = module_ids
-        route["seed_id"] = "seed-denominator-drift"
         route["public_activity_contract"]["device_kernel_names"] = [
             module["kernel_name"] for module in fragment["modules"]
         ]
@@ -708,6 +718,85 @@ def test_fragment_pack_rejects_route_topology_denominator_drift(tmp_path):
         )
 
 
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("unknown_seed", "references an unknown seed"),
+        ("unknown_module", "references an unknown module"),
+        ("unused_seed", "seed denominator differs from route references"),
+        ("seed_module_bundle", "seed 0 envelope is invalid"),
+    ],
+)
+def test_fragment_pack_rejects_invalid_seed_and_route_closure(
+    tmp_path, mutation, message
+):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cubin")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        if mutation == "unknown_seed":
+            fragment["routes"][0]["seed_id"] = "seed-unknown"
+        elif mutation == "unknown_module":
+            fragment["routes"][0]["module_ids"] = ["module-unknown"]
+        elif mutation == "seed_module_bundle":
+            fragment["seeds"][0]["module_ids"] = fragment["routes"][0]["module_ids"]
+        else:
+            fragment["seeds"].append({"id": "seed-unused"})
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm100a"], mutate)
+    with pytest.raises(PromotionPackError, match=message):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cubin",
+            name="example-program",
+            target=tmp_path / f"rejected-{mutation}",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("seed", "dispatcher/seed identity"),
+        ("route_modules", "route denominator identity"),
+    ],
+)
+def test_fragment_pack_rejects_unsealed_seed_or_route_identity_drift(
+    tmp_path, mutation, message
+):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cubin")
+        inputs[target_name] = source
+
+    def mutate_fragment(fragment):
+        if mutation == "seed":
+            fragment["seeds"][0]["id"] = "seed-drifted"
+        else:
+            fragment["routes"][32]["module_ids"].reverse()
+
+    _rewrite_fragment(inputs["sm100a"], mutate_fragment)
+    with pytest.raises(PromotionPackError, match=message):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cubin",
+            name="example-program",
+            target=tmp_path / f"rejected-unsealed-{mutation}",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
 @pytest.mark.parametrize("mutation", ["role", "marker", "count", "order"])
 def test_fragment_pack_rejects_activity_outside_fixed_contract(tmp_path, mutation):
     inputs = {}
@@ -717,7 +806,7 @@ def test_fragment_pack_rejects_activity_outside_fixed_contract(tmp_path, mutatio
         inputs[target_name] = source
 
     def mutate(fragment):
-        route_index = 0 if mutation == "order" else 5
+        route_index = 0 if mutation == "order" else 9
         activity = fragment["routes"][route_index]["public_activity_contract"]
         if mutation == "role":
             activity["host_roles"] = ["unknown_host_role"]
@@ -823,7 +912,7 @@ def test_fragment_pack_rejects_activity_topology_or_denominator_drift(
             "combined": 0,
             "bt16": 32,
             "affine": 41,
-            "denominator": 5,
+            "denominator": 9,
         }[mutation]
         activity = fragment["routes"][route_index]["public_activity_contract"]
         if mutation == "combined":
@@ -906,8 +995,8 @@ def test_fragment_pack_rejects_cross_target_activity_segment_topology_drift(tmp_
 
     def mutate(fragment):
         routes = fragment["routes"]
-        routes[0]["public_activity_contract"], routes[5]["public_activity_contract"] = (
-            routes[5]["public_activity_contract"],
+        routes[0]["public_activity_contract"], routes[9]["public_activity_contract"] = (
+            routes[9]["public_activity_contract"],
             routes[0]["public_activity_contract"],
         )
         _seal_fragment_identities(fragment)
