@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from . import env as jit_env
+
 PromotionMode = Literal["cuda", "cubin"]
 PromotionTarget = Literal["sm100a", "sm103a"]
 
@@ -282,25 +283,39 @@ def _installed_artifact(
     assert isinstance(raw_path, str)
     relative = PurePosixPath(raw_path)
     _require(
-        not relative.is_absolute() and relative.as_posix() == raw_path and ".." not in relative.parts,
+        not relative.is_absolute()
+        and relative.as_posix() == raw_path
+        and ".." not in relative.parts,
         f"{label} path must be normalized and relative",
     )
-    root_relative = PurePosixPath(artifact_root.relative_to(_repository_root()).as_posix())
+    root_relative = PurePosixPath(
+        artifact_root.relative_to(_repository_root()).as_posix()
+    )
     _require(
         relative.parts[: len(root_relative.parts)] == root_relative.parts,
         f"{label} escapes its target root",
     )
     path = _repository_root().joinpath(*relative.parts)
-    _require(path.is_file() and not path.is_symlink(), f"{label} is missing or a symlink")
+    _require(
+        path.is_file() and not path.is_symlink(), f"{label} is missing or a symlink"
+    )
     digest = _sha256_value(value.get("sha256"), f"{label} sha256")
     size = value.get("size_bytes")
     executable = value.get("executable")
     kind = value.get("kind")
-    _require(isinstance(size, int) and not isinstance(size, bool) and size >= 0, f"{label} size is invalid")
+    _require(
+        isinstance(size, int) and not isinstance(size, bool) and size >= 0,
+        f"{label} size is invalid",
+    )
     _require(isinstance(executable, bool), f"{label} executable is invalid")
     _require(isinstance(kind, str) and bool(kind), f"{label} kind is invalid")
-    _require((_sha256(path), path.stat().st_size) == (digest, size), f"{label} bytes drifted")
-    _require(bool(path.stat().st_mode & 0o111) == executable, f"{label} executable mode drifted")
+    _require(
+        (_sha256(path), path.stat().st_size) == (digest, size), f"{label} bytes drifted"
+    )
+    _require(
+        bool(path.stat().st_mode & 0o111) == executable,
+        f"{label} executable mode drifted",
+    )
     return _InstalledArtifact(
         artifact_id=artifact_id,
         kind=kind,
@@ -318,13 +333,19 @@ def _artifact_ref(
     label: str,
     installed: bool,
 ) -> _InstalledArtifact | dict[str, str]:
-    _require(isinstance(value, dict) and set(value) == _REF_KEYS, f"{label} reference is invalid")
+    _require(
+        isinstance(value, dict) and set(value) == _REF_KEYS,
+        f"{label} reference is invalid",
+    )
     assert isinstance(value, dict)
     artifact_id = _safe_id(value.get("artifact_id"), f"{label} artifact id")
     digest = _sha256_value(value.get("sha256"), f"{label} sha256")
     artifact = artifacts.get(artifact_id)
     if installed:
-        _require(artifact is not None and artifact.sha256 == digest, f"{label} is not an installed exact artifact")
+        _require(
+            artifact is not None and artifact.sha256 == digest,
+            f"{label} is not an installed exact artifact",
+        )
         assert artifact is not None
         return artifact
     if artifact is not None:
@@ -344,15 +365,23 @@ def _optional_ref(
     return _artifact_ref(value, artifacts=artifacts, label=label, installed=installed)
 
 
-def _parse_target(value: object, *, mode: PromotionMode, index: int) -> PromotionTargetSpec:
+def _parse_target(
+    value: object, *, mode: PromotionMode, index: int
+) -> PromotionTargetSpec:
     label = f"entries[{index}]"
-    _require(isinstance(value, dict) and set(value) == _ENTRY_KEYS, f"{label} envelope is invalid")
+    _require(
+        isinstance(value, dict) and set(value) == _ENTRY_KEYS,
+        f"{label} envelope is invalid",
+    )
     assert isinstance(value, dict)
     target = value.get("target")
     _require(target in TARGETS, f"{label}.target must be one of {list(TARGETS)}")
     assert target in TARGETS
     expected_architecture = "sm_" + target.removeprefix("sm")
-    _require(value.get("architecture") == expected_architecture, f"{label} architecture differs from target")
+    _require(
+        value.get("architecture") == expected_architecture,
+        f"{label} architecture differs from target",
+    )
     raw_root = value.get("artifact_root")
     _require(isinstance(raw_root, str), f"{label} artifact_root must be a path")
     assert isinstance(raw_root, str)
@@ -366,20 +395,34 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
         f"{label} artifact_root must be a normalized relative path",
     )
     artifact_root = _repository_root().joinpath(*root_relative.parts)
-    _require(artifact_root.is_dir() and not artifact_root.is_symlink(), f"{label} artifact root is unavailable")
+    _require(
+        artifact_root.is_dir() and not artifact_root.is_symlink(),
+        f"{label} artifact root is unavailable",
+    )
     raw_artifacts = value.get("artifacts")
-    _require(isinstance(raw_artifacts, list) and bool(raw_artifacts), f"{label} artifact inventory is empty")
+    _require(
+        isinstance(raw_artifacts, list) and bool(raw_artifacts),
+        f"{label} artifact inventory is empty",
+    )
     artifacts_list = [
-        _installed_artifact(item, artifact_root=artifact_root, label=f"{label} artifact {item_index}")
+        _installed_artifact(
+            item, artifact_root=artifact_root, label=f"{label} artifact {item_index}"
+        )
         for item_index, item in enumerate(raw_artifacts)
     ]
     artifacts = {artifact.artifact_id: artifact for artifact in artifacts_list}
     _require(len(artifacts) == len(artifacts_list), f"{label} artifact ids repeat")
 
     inventory = value.get("runtime_inventory")
-    _require(isinstance(inventory, dict) and set(inventory) == _INVENTORY_KEYS, f"{label} runtime inventory is invalid")
+    _require(
+        isinstance(inventory, dict) and set(inventory) == _INVENTORY_KEYS,
+        f"{label} runtime inventory is invalid",
+    )
     assert isinstance(inventory, dict)
-    _require(value.get("runtime_inventory_identity") == _content_identity(inventory), f"{label} inventory identity is invalid")
+    _require(
+        value.get("runtime_inventory_identity") == _content_identity(inventory),
+        f"{label} inventory identity is invalid",
+    )
     _require(
         inventory.get("schema_version") == 1
         and inventory.get("architecture") == expected_architecture
@@ -389,7 +432,10 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
     )
 
     dispatcher = inventory.get("dispatcher")
-    _require(isinstance(dispatcher, dict) and set(dispatcher) == _DISPATCHER_KEYS, f"{label} dispatcher is invalid")
+    _require(
+        isinstance(dispatcher, dict) and set(dispatcher) == _DISPATCHER_KEYS,
+        f"{label} dispatcher is invalid",
+    )
     assert isinstance(dispatcher, dict)
     dispatcher_artifact = _artifact_ref(
         {key: dispatcher[key] for key in _REF_KEYS},
@@ -398,23 +444,47 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
         installed=True,
     )
     assert isinstance(dispatcher_artifact, _InstalledArtifact)
-    _require(dispatcher_artifact.path.suffix == ".py", f"{label} dispatcher must be Python source")
+    _require(
+        dispatcher_artifact.path.suffix == ".py",
+        f"{label} dispatcher must be Python source",
+    )
     raw_modules = inventory.get("modules")
-    _require(isinstance(raw_modules, list) and bool(raw_modules), f"{label} modules must be non-empty")
+    _require(
+        isinstance(raw_modules, list) and bool(raw_modules),
+        f"{label} modules must be non-empty",
+    )
     modules: list[PromotionModuleSpec] = []
     for module_index, raw_module in enumerate(raw_modules):
         module_label = f"{label} module {module_index}"
-        _require(isinstance(raw_module, dict) and set(raw_module) == _MODULE_KEYS, f"{module_label} is invalid")
+        _require(
+            isinstance(raw_module, dict) and set(raw_module) == _MODULE_KEYS,
+            f"{module_label} is invalid",
+        )
         assert isinstance(raw_module, dict)
-        source = _optional_ref(raw_module.get("source"), artifacts=artifacts, label=f"{module_label} source", installed=mode == "cuda")
+        source = _optional_ref(
+            raw_module.get("source"),
+            artifacts=artifacts,
+            label=f"{module_label} source",
+            installed=mode == "cuda",
+        )
         host = _artifact_ref(
             raw_module.get("host"),
             artifacts=artifacts,
             label=f"{module_label} host",
             installed=mode == "cuda",
         )
-        cubin = _optional_ref(raw_module.get("cubin"), artifacts=artifacts, label=f"{module_label} cubin", installed=mode == "cubin")
-        recipe = _optional_ref(raw_module.get("recipe"), artifacts=artifacts, label=f"{module_label} recipe", installed=mode == "cuda")
+        cubin = _optional_ref(
+            raw_module.get("cubin"),
+            artifacts=artifacts,
+            label=f"{module_label} cubin",
+            installed=mode == "cubin",
+        )
+        recipe = _optional_ref(
+            raw_module.get("recipe"),
+            artifacts=artifacts,
+            label=f"{module_label} recipe",
+            installed=mode == "cuda",
+        )
         shared = _artifact_ref(
             raw_module.get("shared_library"),
             artifacts=artifacts,
@@ -432,21 +502,44 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
                 host.path.suffix in (".cc", ".cpp"),
                 f"{module_label} host shim has the wrong suffix",
             )
-            _require(isinstance(source, _InstalledArtifact), f"{module_label} CUDA source is unavailable")
-            _require(isinstance(recipe, _InstalledArtifact), f"{module_label} build recipe is unavailable")
-            _require(cubin is not None and not isinstance(cubin, _InstalledArtifact), f"{module_label} expected cubin evidence is invalid")
-            _require(isinstance(build_output, dict) and set(build_output) == _BUILD_OUTPUT_KEYS, f"{module_label} build output is invalid")
+            _require(
+                isinstance(source, _InstalledArtifact),
+                f"{module_label} CUDA source is unavailable",
+            )
+            _require(
+                isinstance(recipe, _InstalledArtifact),
+                f"{module_label} build recipe is unavailable",
+            )
+            _require(
+                cubin is not None and not isinstance(cubin, _InstalledArtifact),
+                f"{module_label} expected cubin evidence is invalid",
+            )
+            _require(
+                isinstance(build_output, dict)
+                and set(build_output) == _BUILD_OUTPUT_KEYS,
+                f"{module_label} build output is invalid",
+            )
             assert isinstance(build_output, dict)
             assert isinstance(source, _InstalledArtifact)
             assert isinstance(recipe, _InstalledArtifact)
             _require(source.path.suffix == ".cu", f"{module_label} source must be CUDA")
-            _require(recipe.path.suffix == ".py", f"{module_label} recipe must be Python")
+            _require(
+                recipe.path.suffix == ".py", f"{module_label} recipe must be Python"
+            )
             _require(recipe.executable, f"{module_label} recipe must be executable")
             _safe_id(build_output.get("id"), f"{module_label} build output id")
-            _sha256_value(build_output.get("sha256"), f"{module_label} build output sha256")
-            _require(build_output.get("sha256") == cubin["sha256"], f"{module_label} build and cubin identities differ")
+            _sha256_value(
+                build_output.get("sha256"), f"{module_label} build output sha256"
+            )
+            _require(
+                build_output.get("sha256") == cubin["sha256"],
+                f"{module_label} build and cubin identities differ",
+            )
             output_path = build_output.get("path")
-            _require(isinstance(output_path, str), f"{module_label} build output path is invalid")
+            _require(
+                isinstance(output_path, str),
+                f"{module_label} build output path is invalid",
+            )
             assert isinstance(output_path, str)
             output_relative = PurePosixPath(output_path)
             _require(
@@ -466,10 +559,19 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
             )
             installed_cubin = None
         else:
-            _require(source is None and recipe is None and build_output is None, f"{module_label} cubin mode has CUDA build fields")
-            _require(isinstance(cubin, _InstalledArtifact), f"{module_label} exact cubin is unavailable")
+            _require(
+                source is None and recipe is None and build_output is None,
+                f"{module_label} cubin mode has CUDA build fields",
+            )
+            _require(
+                isinstance(cubin, _InstalledArtifact),
+                f"{module_label} exact cubin is unavailable",
+            )
             assert isinstance(cubin, _InstalledArtifact)
-            _require(cubin.path.suffix == ".cubin", f"{module_label} cubin has the wrong suffix")
+            _require(
+                cubin.path.suffix == ".cubin",
+                f"{module_label} cubin has the wrong suffix",
+            )
             _require(
                 isinstance(host, dict),
                 f"{module_label} cubin mode host source must be evidence only",
@@ -488,11 +590,15 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
             PromotionModuleSpec(
                 build_output=build_output if isinstance(build_output, dict) else None,
                 cubin=installed_cubin,
-                entry_point=_identifier(raw_module.get("entry_point"), f"{module_label} entry point"),
+                entry_point=_identifier(
+                    raw_module.get("entry_point"), f"{module_label} entry point"
+                ),
                 host=host,
                 module_id=_safe_id(raw_module.get("id"), f"{module_label} id"),
                 mode=mode,
-                module_ident=_identifier(raw_module.get("module_ident"), f"{module_label} module ident"),
+                module_ident=_identifier(
+                    raw_module.get("module_ident"), f"{module_label} module ident"
+                ),
                 recipe=recipe if isinstance(recipe, _InstalledArtifact) else None,
                 shared_library=shared,
                 source=source if isinstance(source, _InstalledArtifact) else None,
@@ -523,28 +629,49 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
 
     raw_seeds = inventory.get("seeds")
     raw_routes = inventory.get("routes")
-    _require(isinstance(raw_seeds, list) and bool(raw_seeds), f"{label} seeds must be non-empty")
-    _require(isinstance(raw_routes, list) and bool(raw_routes), f"{label} routes must be non-empty")
+    _require(
+        isinstance(raw_seeds, list) and bool(raw_seeds),
+        f"{label} seeds must be non-empty",
+    )
+    _require(
+        isinstance(raw_routes, list) and bool(raw_routes),
+        f"{label} routes must be non-empty",
+    )
     seeds: list[dict[str, object]] = []
     for seed_index, seed in enumerate(raw_seeds):
-        _require(isinstance(seed, dict) and set(seed) == _SEED_KEYS, f"{label} seed {seed_index} is invalid")
+        _require(
+            isinstance(seed, dict) and set(seed) == _SEED_KEYS,
+            f"{label} seed {seed_index} is invalid",
+        )
         assert isinstance(seed, dict)
         seed_id = _safe_id(seed.get("id"), f"{label} seed id")
         seed_modules = seed.get("module_ids")
-        _require(isinstance(seed_modules, list) and bool(seed_modules), f"{label} seed modules are invalid")
-        _require(all(item in module_ids for item in seed_modules), f"{label} seed references unknown modules")
+        _require(
+            isinstance(seed_modules, list) and bool(seed_modules),
+            f"{label} seed modules are invalid",
+        )
+        _require(
+            all(item in module_ids for item in seed_modules),
+            f"{label} seed references unknown modules",
+        )
         seeds.append({"id": seed_id, "module_ids": list(seed_modules)})
     seed_by_id = {str(seed["id"]): seed for seed in seeds}
     _require(len(seed_by_id) == len(seeds), f"{label} seed ids repeat")
     routes: list[dict[str, object]] = []
     for route_index, route in enumerate(raw_routes):
-        _require(isinstance(route, dict) and set(route) == _ROUTE_KEYS, f"{label} route {route_index} is invalid")
+        _require(
+            isinstance(route, dict) and set(route) == _ROUTE_KEYS,
+            f"{label} route {route_index} is invalid",
+        )
         assert isinstance(route, dict)
         route_id = _safe_id(route.get("id"), f"{label} route id")
         seed_id = _safe_id(route.get("seed_id"), f"{label} route seed")
         route_modules = route.get("module_ids")
         _require(seed_id in seed_by_id, f"{label} route references an unknown seed")
-        _require(route_modules == seed_by_id[seed_id]["module_ids"], f"{label} route module order differs from its seed")
+        _require(
+            route_modules == seed_by_id[seed_id]["module_ids"],
+            f"{label} route module order differs from its seed",
+        )
         _require(
             isinstance(route_modules, list) and bool(route_modules),
             f"{label} route modules are invalid",
@@ -565,7 +692,8 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
     _require(len(route_ids) == len(set(route_ids)), f"{label} route ids repeat")
     _require(value.get("route_count") == len(routes), f"{label} route count is invalid")
     _require(
-        value.get("route_denominator_sha256") == hashlib.sha256(_canonical(routes)).hexdigest(),
+        value.get("route_denominator_sha256")
+        == hashlib.sha256(_canonical(routes)).hexdigest(),
         f"{label} route denominator is invalid",
     )
     dispatcher_seed = {
@@ -581,8 +709,12 @@ def _parse_target(value: object, *, mode: PromotionMode, index: int) -> Promotio
     return PromotionTargetSpec(
         artifact_root=artifact_root,
         dispatcher=dispatcher_artifact,
-        dispatcher_run_entrypoint=_identifier(dispatcher.get("run_entrypoint"), f"{label} dispatcher run entrypoint"),
-        dispatcher_select_entrypoint=_identifier(dispatcher.get("select_entrypoint"), f"{label} dispatcher select entrypoint"),
+        dispatcher_run_entrypoint=_identifier(
+            dispatcher.get("run_entrypoint"), f"{label} dispatcher run entrypoint"
+        ),
+        dispatcher_select_entrypoint=_identifier(
+            dispatcher.get("select_entrypoint"), f"{label} dispatcher select entrypoint"
+        ),
         identity=str(value["runtime_inventory_identity"]).removeprefix("sha256:")[:16],
         mode=mode,
         modules=tuple(modules),
@@ -608,7 +740,9 @@ def get_module_specs() -> tuple[PromotionTargetSpec, ...]:
     _require(isinstance(document, dict), "root must be an object")
     assert isinstance(document, dict)
     if document.get("kind") == MANIFEST_KIND:
-        _require(set(document) == _PENDING_ROOT_KEYS, "pending manifest envelope is invalid")
+        _require(
+            set(document) == _PENDING_ROOT_KEYS, "pending manifest envelope is invalid"
+        )
         _require(
             document.get("schema_version") == SCHEMA_VERSION
             and document.get("status") == "pending"
@@ -622,8 +756,15 @@ def get_module_specs() -> tuple[PromotionTargetSpec, ...]:
         )
         return ()
     _require(set(document) == _ROOT_KEYS, f"root keys must be {sorted(_ROOT_KEYS)}")
-    _require(document.get("kind") == PACK_KIND and document.get("schema_version") == SCHEMA_VERSION, "pack kind/schema is invalid")
-    _require(document.get("name") == "flashinfer-kda-indexed-prefill", "pack name does not match this runtime")
+    _require(
+        document.get("kind") == PACK_KIND
+        and document.get("schema_version") == SCHEMA_VERSION,
+        "pack kind/schema is invalid",
+    )
+    _require(
+        document.get("name") == "flashinfer-kda-indexed-prefill",
+        "pack name does not match this runtime",
+    )
     denominators = document.get("contract_denominators")
     _require(
         isinstance(denominators, dict)
@@ -642,7 +783,10 @@ def get_module_specs() -> tuple[PromotionTargetSpec, ...]:
         _parse_target(value, mode=mode, index=index)
         for index, value in enumerate(entries)
     )
-    _require(tuple(spec.target for spec in specs) == TARGETS, f"entries must be ordered exactly as {list(TARGETS)}")
+    _require(
+        tuple(spec.target for spec in specs) == TARGETS,
+        f"entries must be ordered exactly as {list(TARGETS)}",
+    )
     return specs
 
 
@@ -744,9 +888,13 @@ def _load_host_module(
 
 
 def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
-    recipes = {module.recipe.path for module in spec.modules if module.recipe is not None}
+    recipes = {
+        module.recipe.path for module in spec.modules if module.recipe is not None
+    }
     if len(recipes) != 1:
-        raise PromotionManifestError("CUDA target must bind exactly one public build recipe")
+        raise PromotionManifestError(
+            "CUDA target must bind exactly one public build recipe"
+        )
     recipe = next(iter(recipes))
     build_root = jit_env.FLASHINFER_JIT_DIR / (
         f"kda_fp32_indexed_{spec.target}_cuda_{spec.identity}"
@@ -813,7 +961,9 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
     for module in spec.modules:
         expected = module.build_output
         if expected is None:
-            raise PromotionManifestError(f"module {module.module_id!r} has no CUDA build output")
+            raise PromotionManifestError(
+                f"module {module.module_id!r} has no CUDA build output"
+            )
         output_id = str(expected["id"])
         _safe_id(output_id, f"module {module.module_id!r} build output id")
         relative = PurePosixPath(str(expected["path"]))
@@ -822,7 +972,10 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
             f"module {module.module_id!r} build output path is invalid",
         )
         path = output_root.joinpath(*relative.parts)
-        _require(path.is_file() and not path.is_symlink(), f"module {module.module_id!r} build output is missing")
+        _require(
+            path.is_file() and not path.is_symlink(),
+            f"module {module.module_id!r} build output is missing",
+        )
         payload = path.read_bytes()
         _require(
             len(payload) == expected["size_bytes"]
@@ -854,7 +1007,9 @@ def load(*, compute_capability: tuple[int, int], mode: PromotionMode):
         }
     )
     if set(cubins) != {module.module_id for module in spec.modules}:
-        raise PromotionManifestError("runtime cubin closure differs from ordered modules")
+        raise PromotionManifestError(
+            "runtime cubin closure differs from ordered modules"
+        )
     modules = {
         module.module_id: _load_host_module(spec, module, cubins[module.module_id])
         for module in spec.modules

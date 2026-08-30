@@ -146,11 +146,17 @@ def _input_files(root: Path) -> set[str]:
     for directory, directories, files in os.walk(root, followlinks=False):
         base = Path(directory)
         for name in directories:
-            _require(not (base / name).is_symlink(), f"input contains a directory symlink: {base / name}")
+            _require(
+                not (base / name).is_symlink(),
+                f"input contains a directory symlink: {base / name}",
+            )
         for name in files:
             path = base / name
             _require(not path.is_symlink(), f"input contains a file symlink: {path}")
-            _require(stat.S_ISREG(path.stat().st_mode), f"input contains a non-regular file: {path}")
+            _require(
+                stat.S_ISREG(path.stat().st_mode),
+                f"input contains a non-regular file: {path}",
+            )
             observed.add(path.relative_to(root).as_posix())
     return observed
 
@@ -159,17 +165,25 @@ def _validated_input(root: Path, *, mode: str) -> dict[str, object]:
     receipt = _load_json(root / "promotion-receipt.json")
     _require(set(receipt) == _RECEIPT_KEYS, "public receipt envelope is invalid")
     _require(
-        receipt.get("kind") == PUBLIC_RECEIPT_KIND and receipt.get("schema_version") == SCHEMA_VERSION,
+        receipt.get("kind") == PUBLIC_RECEIPT_KIND
+        and receipt.get("schema_version") == SCHEMA_VERSION,
         "public receipt kind/schema is invalid",
     )
-    _require(receipt.get("mode") == mode, "public receipt mode differs from the selected mode")
     _require(
-        isinstance(receipt.get("name"), str) and _NAME.fullmatch(str(receipt["name"])) is not None,
+        receipt.get("mode") == mode,
+        "public receipt mode differs from the selected mode",
+    )
+    _require(
+        isinstance(receipt.get("name"), str)
+        and _NAME.fullmatch(str(receipt["name"])) is not None,
         "public receipt name is invalid",
     )
     target = _target(receipt.get("architecture"))
     inventory = receipt.get("runtime_inventory")
-    _require(isinstance(inventory, dict), "public receipt runtime_inventory must be an object")
+    _require(
+        isinstance(inventory, dict),
+        "public receipt runtime_inventory must be an object",
+    )
     _require(
         receipt.get("runtime_inventory_identity") == _digest(inventory),
         "public receipt runtime inventory identity is invalid",
@@ -192,15 +206,23 @@ def _validated_input(root: Path, *, mode: str) -> dict[str, object]:
             f"public receipt {contract_name} denominator",
         )
     artifacts = receipt.get("artifacts")
-    _require(isinstance(artifacts, list) and bool(artifacts), "public receipt has no artifacts")
+    _require(
+        isinstance(artifacts, list) and bool(artifacts),
+        "public receipt has no artifacts",
+    )
     expected = {"promotion-receipt.json"}
     artifact_ids: set[str] = set()
     normalized: list[dict[str, object]] = []
     for index, raw in enumerate(artifacts):
-        _require(isinstance(raw, dict) and set(raw) == _ARTIFACT_KEYS, f"artifact {index} envelope is invalid")
+        _require(
+            isinstance(raw, dict) and set(raw) == _ARTIFACT_KEYS,
+            f"artifact {index} envelope is invalid",
+        )
         artifact_id = raw.get("id")
         _require(
-            isinstance(artifact_id, str) and bool(artifact_id) and artifact_id not in artifact_ids,
+            isinstance(artifact_id, str)
+            and bool(artifact_id)
+            and artifact_id not in artifact_ids,
             f"artifact {index} id is invalid or repeated",
         )
         assert isinstance(artifact_id, str)
@@ -211,12 +233,23 @@ def _validated_input(root: Path, *, mode: str) -> dict[str, object]:
         digest = _sha256(raw.get("sha256"), f"artifact {artifact_id} sha256")
         size = raw.get("size_bytes")
         executable = raw.get("executable")
-        _require(isinstance(size, int) and not isinstance(size, bool) and size >= 0, "artifact size is invalid")
+        _require(
+            isinstance(size, int) and not isinstance(size, bool) and size >= 0,
+            "artifact size is invalid",
+        )
         _require(isinstance(executable, bool), "artifact executable flag is invalid")
-        _require(_sha256_file(path) == (digest, size), f"artifact bytes drifted: {relative}")
-        _require(bool(path.stat().st_mode & 0o111) == executable, f"artifact mode drifted: {relative}")
+        _require(
+            _sha256_file(path) == (digest, size), f"artifact bytes drifted: {relative}"
+        )
+        _require(
+            bool(path.stat().st_mode & 0o111) == executable,
+            f"artifact mode drifted: {relative}",
+        )
         normalized.append(dict(raw))
-    _require(_input_files(root) == expected, "public input file closure differs from its receipt")
+    _require(
+        _input_files(root) == expected,
+        "public input file closure differs from its receipt",
+    )
     return {**receipt, "target": target, "artifacts": normalized}
 
 
@@ -231,13 +264,20 @@ def pack_public_promotions(
     """Pack one selected mode across named targets into an importer payload."""
 
     _require(mode in ("cuda", "cubin"), "mode must be 'cuda' or 'cubin'")
-    _require(_NAME.fullmatch(name) is not None, "name is not a safe promotion identifier")
+    _require(
+        _NAME.fullmatch(name) is not None, "name is not a safe promotion identifier"
+    )
     _require(bool(inputs), "at least one target input is required")
-    runtime_destination = _relative(runtime_manifest_destination, "runtime manifest destination")
+    runtime_destination = _relative(
+        runtime_manifest_destination, "runtime manifest destination"
+    )
     loaded: dict[str, dict[str, object]] = {}
     for expected_target, root in inputs.items():
         receipt = _validated_input(Path(root).absolute(), mode=mode)
-        _require(receipt["target"] == expected_target, f"input target label differs from {expected_target}")
+        _require(
+            receipt["target"] == expected_target,
+            f"input target label differs from {expected_target}",
+        )
         _require(expected_target not in loaded, f"duplicate target: {expected_target}")
         loaded[expected_target] = receipt
     names = {str(receipt["name"]) for receipt in loaded.values()}
@@ -250,12 +290,20 @@ def pack_public_promotions(
         str(receipt["contracts"]["performance"]["denominator_sha256"])
         for receipt in loaded.values()
     }
-    _require(len(correctness) == len(performance) == 1, "public input contract denominators differ")
+    _require(
+        len(correctness) == len(performance) == 1,
+        "public input contract denominators differ",
+    )
 
     target = target.absolute()
-    _require(not target.exists() and not target.is_symlink(), f"refusing to overwrite pack target: {target}")
+    _require(
+        not target.exists() and not target.is_symlink(),
+        f"refusing to overwrite pack target: {target}",
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f".{target.name}.incomplete-", dir=target.parent))
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{target.name}.incomplete-", dir=target.parent)
+    )
     try:
         payload = temporary / "payload"
         payload.mkdir()
@@ -269,14 +317,20 @@ def pack_public_promotions(
                 assert isinstance(artifact, dict)
                 relative = _relative(artifact["path"], "public artifact path")
                 source_relative = PurePosixPath(target_name) / relative
-                destination = PurePosixPath("csrc/generated_programs") / name / target_name / relative
+                destination = (
+                    PurePosixPath("csrc/generated_programs")
+                    / name
+                    / target_name
+                    / relative
+                )
                 source = _safe_file(source_root, relative)
                 output = payload.joinpath(*source_relative.parts)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, output)
                 output.chmod(0o755 if artifact["executable"] else 0o644)
                 _require(
-                    _sha256_file(output) == (artifact["sha256"], artifact["size_bytes"]),
+                    _sha256_file(output)
+                    == (artifact["sha256"], artifact["size_bytes"]),
                     "packed artifact differs from its public input",
                 )
                 importer_artifacts.append(
@@ -339,7 +393,9 @@ def pack_public_promotions(
             "name": name,
             "schema_version": SCHEMA_VERSION,
         }
-        (temporary / "promotion-manifest.json").write_bytes(_canonical(importer_manifest) + b"\n")
+        (temporary / "promotion-manifest.json").write_bytes(
+            _canonical(importer_manifest) + b"\n"
+        )
         (temporary / "pack-manifest.json").write_bytes(runtime_bytes)
         os.rename(temporary, target)
     except BaseException:
