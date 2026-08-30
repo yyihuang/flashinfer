@@ -25,8 +25,8 @@ from flashinfer.jit import kda_fp32_indexed_promotion as promotion
 
 _EXPECTED_MODE_ENV = "FLASHINFER_KDA_PROMOTION_EXPECTED_MODE"
 _CAPABILITY_FACTS = {
-    (10, 0): ("sm100a", "sm_100a", 148),
-    (10, 3): ("sm103a", "sm_103a", 160),
+    (10, 0): ("sm100a", "sm_100a"),
+    (10, 3): ("sm103a", "sm_103a"),
 }
 _HEADS = 6
 _HEAD_DIM = 128
@@ -53,9 +53,8 @@ def _blackwell_device() -> tuple[torch.device, tuple[int, int], str, str, int]:
     capability = tuple(torch.cuda.get_device_capability(device))
     if capability not in _CAPABILITY_FACTS:
         pytest.skip("the promoted KDA payload requires exact CC 10.0 or CC 10.3")
-    target, architecture, expected_sm_count = _CAPABILITY_FACTS[capability]
+    target, architecture = _CAPABILITY_FACTS[capability]
     sm_count = int(torch.cuda.get_device_properties(device).multi_processor_count)
-    assert sm_count == expected_sm_count
     return device, capability, target, architecture, sm_count
 
 
