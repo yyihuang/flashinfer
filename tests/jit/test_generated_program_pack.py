@@ -21,6 +21,7 @@ import pytest
 
 from flashinfer.jit.generated_program_pack import (
     PromotionPackError,
+    pack_public_fragment_promotions,
     pack_public_promotions,
 )
 from flashinfer.jit.generated_program_promotion import (
@@ -86,6 +87,333 @@ def _write_public_input(root, architecture, mode="cubin"):
     return receipt
 
 
+_RUNTIME_CONTRACT = {
+    "operation": "generated-prefill",
+    "targets": ["sm100a", "sm103a"],
+}
+
+
+def _write_artifact(
+    root,
+    artifact_id,
+    kind,
+    relative,
+    payload,
+    *,
+    executable=False,
+):
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    path.chmod(0o755 if executable else 0o644)
+    digest = hashlib.sha256(payload).hexdigest()
+    artifact = {
+        "executable": executable,
+        "kind": kind,
+        "path": relative,
+        "sha256": digest,
+        "size_bytes": len(payload),
+    }
+    reference = {
+        "artifact_id": artifact_id,
+        "kind": kind,
+        "path": relative,
+        "sha256": digest,
+        "size_bytes": len(payload),
+    }
+    return artifact, reference
+
+
+def _evidence_reference(artifact_id, kind, relative, payload):
+    return {
+        "artifact_id": artifact_id,
+        "kind": kind,
+        "path": relative,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size_bytes": len(payload),
+    }
+
+
+def _seal_fragment_identities(fragment):
+    fragment["route_denominator_sha256"] = hashlib.sha256(
+        _canonical(fragment["routes"])
+    ).hexdigest()
+    fragment["dispatcher_seed_identity"] = "sha256:" + hashlib.sha256(
+        _canonical(
+            {
+                "dispatcher": fragment["dispatcher"],
+                "routes": fragment["routes"],
+                "seeds": fragment["seeds"],
+            }
+        )
+    ).hexdigest()
+
+
+def _write_fragment_input(root, target_name, mode):
+    root.mkdir()
+    architecture = "sm_" + target_name.removeprefix("sm")
+    mode_root = f"generated/{target_name}/{mode}"
+    artifacts = []
+
+    dispatcher_artifact, dispatcher = _write_artifact(
+        root,
+        f"dispatcher-{target_name}-{mode}",
+        "python_source",
+        f"{mode_root}/dispatcher.py",
+        b"def bind_loaded_modules(modules): return modules\n",
+    )
+    artifacts.append(dispatcher_artifact)
+    package_artifact, package_library = _write_artifact(
+        root,
+        f"package-{target_name}-{mode}",
+        "shared_library",
+        f"{mode_root}/package/family.so",
+        b"shared package " + architecture.encode(),
+    )
+    artifacts.append(package_artifact)
+    recipe = None
+    if mode == "cuda":
+        recipe_artifact, recipe = _write_artifact(
+            root,
+            f"recipe-{target_name}-{mode}",
+            "build_recipe",
+            f"{mode_root}/build.py",
+            b"#!/usr/bin/env python3\n",
+            executable=True,
+        )
+        artifacts.append(recipe_artifact)
+
+    modules = []
+    build_outputs = []
+    for module_index in range(2):
+        module_root = f"{mode_root}/modules/module-{module_index:03d}"
+        host_payload = f"// generated host {module_index}\n".encode()
+        host_artifact, host = _write_artifact(
+            root,
+            f"host-{target_name}-{mode}-{module_index}",
+            "host_source",
+            f"{module_root}/host.cpp",
+            host_payload,
+        )
+        artifacts.append(host_artifact)
+        shared_payload = f"shared module {architecture} {module_index}".encode()
+        shared_artifact, shared = _write_artifact(
+            root,
+            f"shared-{target_name}-{mode}-{module_index}",
+            "shared_library",
+            f"{module_root}/module.so",
+            shared_payload,
+        )
+        artifacts.append(shared_artifact)
+        source_payload = (
+            f'extern "C" __global__ void generated_kernel_{module_index}() {{}}\n'
+        ).encode()
+        cubin_payload = f"cubin {architecture} {module_index}".encode()
+        if mode == "cuda":
+            source_artifact, source = _write_artifact(
+                root,
+                f"source-{target_name}-{mode}-{module_index}",
+                "cuda_source",
+                f"{module_root}/kernel.cu",
+                source_payload,
+            )
+            artifacts.append(source_artifact)
+            build_output = _evidence_reference(
+                f"output-{target_name}-{mode}-{module_index}",
+                "cubin",
+                f"{module_root}/kernel.cubin",
+                cubin_payload,
+            )
+            cubin = dict(build_output)
+            build_outputs.append(build_output)
+        else:
+            source = None
+            cubin_artifact, cubin = _write_artifact(
+                root,
+                f"cubin-{target_name}-{mode}-{module_index}",
+                "cubin",
+                f"{module_root}/kernel.cubin",
+                cubin_payload,
+            )
+            artifacts.append(cubin_artifact)
+            build_output = dict(cubin)
+
+        modules.append(
+            {
+                "build_output": build_output,
+                "build_receipt": {
+                    "compile_options": ["--std=c++17"],
+                    "cooperative": False,
+                    "cubin_sha256": hashlib.sha256(cubin_payload).hexdigest(),
+                    "cubin_size_bytes": len(cubin_payload),
+                    "cuda_source_sha256": hashlib.sha256(
+                        source_payload
+                    ).hexdigest(),
+                    "cuda_source_size_bytes": len(source_payload),
+                    "host_source_sha256": hashlib.sha256(host_payload).hexdigest(),
+                    "host_source_size_bytes": len(host_payload),
+                    "tma_abi": "pointer",
+                    "use_pdl": False,
+                },
+                "build_recipe": recipe,
+                "cubin": cubin,
+                "cuda_source": source,
+                "entry_point": "run",
+                "host_source": host,
+                "id": f"module-{target_name}-{mode}-{module_index}",
+                "kernel_name": f"generated_kernel_{module_index}",
+                "module_ident": f"generated_module_{module_index}",
+                "shared_library": shared,
+            }
+        )
+
+    build = (
+        {"kind": "nvrtc", "outputs": build_outputs, "recipe": recipe}
+        if mode == "cuda"
+        else {"kind": "prebuilt", "outputs": [], "recipe": None}
+    )
+
+    contract_artifact, _contract_reference = _write_artifact(
+        root,
+        f"contract-{target_name}-{mode}",
+        "data",
+        "contracts/correctness.json",
+        b'{"rows":48}\n',
+    )
+    artifacts.append(contract_artifact)
+    module_ids = [module["id"] for module in modules]
+    seeds = [
+        {"id": "seed-single", "module_ids": [module_ids[0]]},
+        {"id": "seed-two", "module_ids": module_ids},
+        {
+            "id": "seed-four",
+            "module_ids": [module_ids[0], module_ids[1], module_ids[0], module_ids[1]],
+        },
+    ]
+    selector_arguments = [
+        "fixed_layout",
+        "gpu_arch",
+        "num_heads",
+        "sequence_lengths",
+        "sm_count",
+        "store_final_state",
+        "use_initial_state",
+    ]
+    routes = []
+    for index in range(48):
+        if index < 32:
+            seed = seeds[0]
+        elif index < 41:
+            seed = seeds[1]
+        else:
+            seed = seeds[2]
+        host_roles = []
+        markers = []
+        host_count = 0
+        if index < 5:
+            host_roles = ["beta_tma_refresh"]
+            markers = ["direct_copy_kernel_cuda"]
+            host_count = 1
+        elif index >= 41:
+            host_roles = ["affine_torch_epilogue"]
+            host_count = 3
+        route_module_ids = seed["module_ids"]
+        kernel_names = [
+            modules[module_ids.index(module_id)]["kernel_name"]
+            for module_id in route_module_ids
+        ]
+        routes.append(
+            {
+                "id": f"route-{index:03d}",
+                "module_ids": route_module_ids,
+                "public_activity_contract": {
+                    "device_kernel_names": kernel_names,
+                    "expected_fixed_host_activity_markers": markers,
+                    "expected_host_activity_count": host_count,
+                    "host_roles": host_roles,
+                },
+                "route": f"variant-{index:03d}",
+                "route_index": index,
+                "seed_id": seed["id"],
+                "selector_facts": {
+                    "fixed_layout": True,
+                    "gpu_arch": architecture,
+                    "num_heads": 8,
+                    "sequence_lengths": [index + 1],
+                    "sm_count": 100 if target_name == "sm100a" else 103,
+                    "store_final_state": True,
+                    "use_initial_state": True,
+                },
+            }
+        )
+    fragment = {
+        "architecture": architecture,
+        "build": build,
+        "contract": dict(_RUNTIME_CONTRACT),
+        "dispatcher": dispatcher,
+        "dispatcher_seed_identity": "",
+        "kind": "flashinfer.generated_program_pack.fragment",
+        "mode": mode,
+        "modules": modules,
+        "pack_kind": "flashinfer.generated_program_pack",
+        "package_shared_library": package_library,
+        "route_denominator_sha256": "",
+        "routes": routes,
+        "schema_version": 1,
+        "seeds": seeds,
+        "selector": {
+            "arguments": selector_arguments,
+            "kind": "exact_selector_facts",
+            "route_count": 48,
+        },
+        "target": target_name,
+    }
+    _seal_fragment_identities(fragment)
+    fragment_artifact, _fragment_reference = _write_artifact(
+        root,
+        f"fragment-{target_name}-{mode}",
+        "data",
+        f"{mode_root}/fragment.json",
+        _canonical(fragment) + b"\n",
+    )
+    artifacts.append(fragment_artifact)
+    denominator = hashlib.sha256(b"fixed contract denominator").hexdigest()
+    receipt = {
+        "architecture": architecture,
+        "artifacts": artifacts,
+        "contracts": {
+            "correctness": {"denominator_sha256": denominator, "passed": True},
+            "performance": {"denominator_sha256": denominator, "passed": True},
+        },
+        "kind": "generated_program_public_promotion_receipt",
+        "mode": mode,
+        "name": "example-program",
+        "route_count": 48,
+        "route_denominator_sha256": hashlib.sha256(
+            _canonical(routes)
+        ).hexdigest(),
+        "schema_version": 1,
+    }
+    (root / "promotion-receipt.json").write_bytes(_canonical(receipt) + b"\n")
+    return receipt
+
+
+def _rewrite_fragment(root, mutation):
+    receipt_path = root / "promotion-receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    artifact = next(
+        item for item in receipt["artifacts"] if item["path"].endswith("fragment.json")
+    )
+    fragment_path = root / artifact["path"]
+    fragment = json.loads(fragment_path.read_text())
+    mutation(fragment)
+    payload = _canonical(fragment) + b"\n"
+    fragment_path.write_bytes(payload)
+    artifact["sha256"] = hashlib.sha256(payload).hexdigest()
+    artifact["size_bytes"] = len(payload)
+    receipt_path.write_bytes(_canonical(receipt) + b"\n")
+
+
 def test_pack_merges_targets_and_imports_exact_inventory(tmp_path):
     sm100a = tmp_path / "sm100a"
     sm103a = tmp_path / "sm103a"
@@ -143,4 +471,293 @@ def test_pack_rejects_inventory_drift_and_wrong_selected_mode(tmp_path):
             name="example-program",
             target=tmp_path / "pack-b",
             runtime_manifest_destination="csrc/example/runtime.json",
+        )
+
+
+@pytest.mark.parametrize("mode", ["cubin", "cuda"])
+def test_fragment_pack_builds_exact_two_target_runtime_closure(tmp_path, mode):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, mode)
+        inputs[target_name] = source
+    packed = tmp_path / f"packed-{mode}"
+
+    runtime = pack_public_fragment_promotions(
+        inputs,
+        mode=mode,
+        name="example-program",
+        target=packed,
+        runtime_manifest_destination="csrc/example/runtime.json",
+        runtime_contract=_RUNTIME_CONTRACT,
+        dispatcher_run_entrypoint="prepare_fwd",
+        dispatcher_select_entrypoint="select_route",
+    )
+
+    assert [entry["target"] for entry in runtime["entries"]] == [
+        "sm100a",
+        "sm103a",
+    ]
+    for entry in runtime["entries"]:
+        target_name = entry["target"]
+        inventory = entry["runtime_inventory"]
+        assert inventory["contract"] == _RUNTIME_CONTRACT
+        assert entry["route_count"] == len(inventory["routes"]) == 48
+        assert entry["route_denominator_sha256"] == hashlib.sha256(
+            _canonical(inventory["routes"])
+        ).hexdigest()
+        dispatcher_seed = {
+            "contract": _RUNTIME_CONTRACT,
+            "dispatcher": inventory["dispatcher"],
+            "routes": inventory["routes"],
+            "seeds": inventory["seeds"],
+        }
+        assert inventory["dispatcher_seed_identity"] == "sha256:" + hashlib.sha256(
+            _canonical(dispatcher_seed)
+        ).hexdigest()
+        assert entry["runtime_inventory_identity"] == "sha256:" + hashlib.sha256(
+            _canonical(inventory)
+        ).hexdigest()
+        installed_ids = {artifact["id"] for artifact in entry["artifacts"]}
+        if mode == "cubin":
+            expected_ids = {f"dispatcher-{target_name}-{mode}"}
+            for module_index in range(2):
+                expected_ids.update(
+                    {
+                        f"cubin-{target_name}-{mode}-{module_index}",
+                        f"shared-{target_name}-{mode}-{module_index}",
+                    }
+                )
+            assert installed_ids == expected_ids
+            for module in inventory["modules"]:
+                assert module["build_output"] is None
+                assert module["host"]["artifact_id"] not in installed_ids
+        else:
+            expected_ids = {
+                f"dispatcher-{target_name}-{mode}",
+                f"recipe-{target_name}-{mode}",
+            }
+            for module_index in range(2):
+                expected_ids.update(
+                    {
+                        f"host-{target_name}-{mode}-{module_index}",
+                        f"source-{target_name}-{mode}-{module_index}",
+                    }
+                )
+            assert installed_ids == expected_ids
+            output_paths = [
+                module["build_output"]["path"] for module in inventory["modules"]
+            ]
+            assert len(set(output_paths)) == 2
+            assert all(path.endswith("/kernel.cubin") for path in output_paths)
+            assert {path.rsplit("/", 1)[-1] for path in output_paths} == {
+                "kernel.cubin"
+            }
+            for module in inventory["modules"]:
+                assert module["cubin"]["artifact_id"] not in installed_ids
+                assert module["shared_library"]["artifact_id"] not in installed_ids
+
+    manifest = load_manifest(packed / "promotion-manifest.json")
+    checkout = tmp_path / f"checkout-{mode}"
+    import_promotion(
+        manifest,
+        payload_root=packed / "payload",
+        output_root=checkout,
+        mode=mode,
+    )
+    assert json.loads((checkout / "csrc/example/runtime.json").read_text()) == runtime
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("kind", "fragment kind"),
+        ("pack_kind", "fragment kind"),
+        ("contract", "runtime contract"),
+        ("target", "target identity"),
+        ("selector", "selector denominator"),
+        ("selector_arguments", "selector argument set"),
+        ("artifact", "differs from its publicized artifact"),
+        ("identity", "dispatcher/seed identity"),
+        ("tma_abi", "tensor-map ABI"),
+        ("closure", "cubin mode has CUDA build fields"),
+    ],
+)
+def test_fragment_pack_rejects_mutated_identity_and_closure(
+    tmp_path, mutation, message
+):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cubin")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        if mutation == "kind":
+            fragment["kind"] = "unknown.fragment"
+        elif mutation == "pack_kind":
+            fragment["pack_kind"] = "unknown.pack"
+        elif mutation == "contract":
+            fragment["contract"]["operation"] = "different-operation"
+        elif mutation == "target":
+            fragment["target"] = "sm999a"
+        elif mutation == "selector":
+            fragment["selector"]["route_count"] = 47
+        elif mutation == "selector_arguments":
+            fragment["selector"]["arguments"].remove("fixed_layout")
+        elif mutation == "artifact":
+            fragment["dispatcher"]["sha256"] = "f" * 64
+        elif mutation == "identity":
+            fragment["dispatcher_seed_identity"] = "sha256:" + "f" * 64
+        elif mutation == "tma_abi":
+            fragment["modules"][0]["build_receipt"]["tma_abi"] = "value"
+        else:
+            build_receipt = fragment["modules"][0]["build_receipt"]
+            fragment["modules"][0]["cuda_source"] = {
+                "artifact_id": "unexpected-source",
+                "kind": "cuda_source",
+                "path": "evidence/unexpected.cu",
+                "sha256": build_receipt["cuda_source_sha256"],
+                "size_bytes": build_receipt["cuda_source_size_bytes"],
+            }
+
+    _rewrite_fragment(inputs["sm100a"], mutate)
+    with pytest.raises(PromotionPackError, match=message):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cubin",
+            name="example-program",
+            target=tmp_path / f"rejected-{mutation}",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
+def test_fragment_pack_rejects_route_topology_denominator_drift(tmp_path):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cubin")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        module_ids = [module["id"] for module in fragment["modules"]]
+        fragment["seeds"].append(
+            {"id": "seed-denominator-drift", "module_ids": module_ids}
+        )
+        route = fragment["routes"][0]
+        route["module_ids"] = module_ids
+        route["seed_id"] = "seed-denominator-drift"
+        route["public_activity_contract"]["device_kernel_names"] = [
+            module["kernel_name"] for module in fragment["modules"]
+        ]
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm100a"], mutate)
+    with pytest.raises(PromotionPackError, match="topology denominator"):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cubin",
+            name="example-program",
+            target=tmp_path / "rejected-route-denominator",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
+@pytest.mark.parametrize("mutation", ["role", "marker", "count", "order"])
+def test_fragment_pack_rejects_activity_outside_fixed_contract(tmp_path, mutation):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cubin")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        route_index = 0 if mutation == "order" else 5
+        activity = fragment["routes"][route_index]["public_activity_contract"]
+        if mutation == "role":
+            activity["host_roles"] = ["unknown_host_role"]
+        elif mutation == "marker":
+            activity["expected_fixed_host_activity_markers"] = [
+                "direct_copy_kernel_cuda"
+            ]
+        elif mutation == "count":
+            activity["expected_host_activity_count"] = 1
+        else:
+            activity["host_roles"] = [
+                "affine_torch_epilogue",
+                "beta_tma_refresh",
+            ]
+            activity["expected_host_activity_count"] = 4
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm100a"], mutate)
+    with pytest.raises(PromotionPackError, match="activity identity"):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cubin",
+            name="example-program",
+            target=tmp_path / f"rejected-activity-{mutation}",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
+def test_fragment_pack_rejects_cross_target_logical_topology_drift(tmp_path):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cuda")
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        fragment["routes"][0]["route"] = "different-variant"
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm103a"], mutate)
+    with pytest.raises(PromotionPackError, match="logical route topology"):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cuda",
+            name="example-program",
+            target=tmp_path / "rejected-topology",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
+        )
+
+
+def test_fragment_pack_rejects_nonexecutable_cuda_recipe(tmp_path):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, "cuda")
+        inputs[target_name] = source
+    receipt_path = inputs["sm100a"] / "promotion-receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    recipe = next(
+        item for item in receipt["artifacts"] if item["kind"] == "build_recipe"
+    )
+    recipe["executable"] = False
+    (inputs["sm100a"] / recipe["path"]).chmod(0o644)
+    receipt_path.write_bytes(_canonical(receipt) + b"\n")
+
+    with pytest.raises(PromotionPackError, match="executable flag"):
+        pack_public_fragment_promotions(
+            inputs,
+            mode="cuda",
+            name="example-program",
+            target=tmp_path / "rejected-recipe-mode",
+            runtime_manifest_destination="csrc/example/runtime.json",
+            runtime_contract=_RUNTIME_CONTRACT,
+            dispatcher_run_entrypoint="prepare_fwd",
+            dispatcher_select_entrypoint="select_route",
         )
