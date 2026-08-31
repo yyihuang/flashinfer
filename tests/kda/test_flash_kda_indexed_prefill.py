@@ -81,9 +81,7 @@ def _write_receipt(root: Path, catalog_payload: bytes) -> None:
         "outputs": outputs,
         "passed": True,
     }
-    (root / loader._RECEIPT_NAME).write_text(
-        json.dumps(receipt), encoding="utf-8"
-    )
+    (root / loader._RECEIPT_NAME).write_text(json.dumps(receipt), encoding="utf-8")
 
 
 def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
