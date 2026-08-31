@@ -54,9 +54,7 @@ _TARGET_ARCHITECTURES: dict[GeneratedKDAIndexedTarget, str] = {
     "sm100a": "sm_100a",
     "sm103a": "sm_103a",
 }
-_TARGET_COMPUTE_CAPABILITIES: dict[
-    tuple[int, int], GeneratedKDAIndexedTarget
-] = {
+_TARGET_COMPUTE_CAPABILITIES: dict[tuple[int, int], GeneratedKDAIndexedTarget] = {
     (10, 0): "sm100a",
     (10, 3): "sm103a",
 }
@@ -1046,6 +1044,7 @@ def _run_generated_kda_indexed_prefill(
         isinstance(result, tuple) and len(result) == 2,
         "generated dispatcher returned an invalid public result",
     )
+    assert isinstance(result, tuple)
     expected_state = initial_state if output_final_state else None
     _require(
         result[0] is out and result[1] is expected_state,
