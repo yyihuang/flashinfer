@@ -819,7 +819,6 @@ def _normalized_fragment_input(
     raw_recipes: list[dict[str, object]] = []
     raw_outputs: list[dict[str, object]] = []
     output_paths: set[str] = set()
-    logical_modules: list[dict[str, object]] = []
     for index, raw_module in enumerate(raw_modules):
         label = f"fragment module {index}"
         _require(
@@ -1054,7 +1053,6 @@ def _normalized_fragment_input(
             raw_recipes.append(recipe)
             raw_outputs.append(build_output)
         final_modules.append(final_module)
-        logical_modules.append({"entry_point": entry_point, "kernel_name": kernel_name})
 
     raw_build = fragment.get("build")
     _require(
@@ -1104,7 +1102,6 @@ def _normalized_fragment_input(
     assert isinstance(raw_seeds, list)
     seeds: list[dict[str, object]] = []
     seed_by_id: dict[str, dict[str, object]] = {}
-    logical_seeds: list[dict[str, object]] = []
     for index, raw_seed in enumerate(raw_seeds):
         label = f"fragment seed {index}"
         _require(
@@ -1117,7 +1114,6 @@ def _normalized_fragment_input(
         _require(seed_id not in seed_by_id, f"{label} id repeats")
         seed_by_id[seed_id] = seed
         seeds.append(seed)
-        logical_seeds.append({"id": seed_id})
 
     raw_routes = fragment.get("routes")
     _require(
@@ -1256,10 +1252,8 @@ def _normalized_fragment_input(
                     "host_roles": host_roles,
                 },
                 "id": route_id,
-                "module_positions": [module_positions[item] for item in route_modules],
-                "route": route_name,
+                "module_count": module_count,
                 "route_index": index,
-                "seed_id": seed_id,
                 "selector": {
                     key: value
                     for key, value in selector_facts.items()
@@ -1317,9 +1311,7 @@ def _normalized_fragment_input(
         "schema_version": SCHEMA_VERSION,
     }
     logical = {
-        "modules": logical_modules,
         "routes": logical_routes,
-        "seeds": logical_seeds,
         "selector_arguments": selector_arguments,
     }
     return normalized_receipt, logical

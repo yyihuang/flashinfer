@@ -609,6 +609,53 @@ def test_fragment_pack_builds_exact_two_target_runtime_closure(tmp_path, mode):
     assert json.loads((checkout / "csrc/example/runtime.json").read_text()) == runtime
 
 
+@pytest.mark.parametrize("mode", ["cubin", "cuda"])
+def test_fragment_pack_allows_target_specific_route_implementation(tmp_path, mode):
+    inputs = {}
+    for target_name in ("sm100a", "sm103a"):
+        source = tmp_path / f"source-{target_name}"
+        _write_fragment_input(source, target_name, mode)
+        inputs[target_name] = source
+
+    def mutate(fragment):
+        target_seed_id = "seed-sm103a-policy"
+        fragment["seeds"] = [{"id": target_seed_id}]
+        modules = fragment["modules"]
+        modules[0]["kernel_name"] = "sm103a_generated_kernel_0"
+        module_names = {module["id"]: module["kernel_name"] for module in modules}
+        for route in fragment["routes"]:
+            route["route"] = f"sm103a_{route['route']}"
+            route["seed_id"] = target_seed_id
+            if len(route["module_ids"]) == 1:
+                route["module_ids"] = [modules[1]["id"]]
+            route["public_activity_contract"]["device_kernel_names"] = [
+                module_names[module_id] for module_id in route["module_ids"]
+            ]
+        _seal_fragment_identities(fragment)
+
+    _rewrite_fragment(inputs["sm103a"], mutate)
+    runtime = pack_public_fragment_promotions(
+        inputs,
+        mode=mode,
+        name="example-program",
+        target=tmp_path / f"packed-target-specific-{mode}",
+        runtime_manifest_destination="csrc/example/runtime.json",
+        runtime_contract=_RUNTIME_CONTRACT,
+        dispatcher_run_entrypoint="prepare_fwd",
+        dispatcher_select_entrypoint="select_route",
+    )
+
+    sm100a, sm103a = [entry["runtime_inventory"] for entry in runtime["entries"]]
+    assert sm100a["seeds"] == [{"id": "seed-shared-policy"}]
+    assert sm103a["seeds"] == [{"id": "seed-sm103a-policy"}]
+    assert {route["module_ids"][0] for route in sm100a["routes"][:32]} == {
+        f"module-sm100a-{mode}-0"
+    }
+    assert {route["module_ids"][0] for route in sm103a["routes"][:32]} == {
+        f"module-sm103a-{mode}-1"
+    }
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -961,7 +1008,7 @@ def test_fragment_pack_rejects_activity_topology_or_denominator_drift(
         )
 
 
-def test_fragment_pack_rejects_cross_target_logical_topology_drift(tmp_path):
+def test_fragment_pack_rejects_cross_target_route_identity_drift(tmp_path):
     inputs = {}
     for target_name in ("sm100a", "sm103a"):
         source = tmp_path / f"source-{target_name}"
@@ -969,7 +1016,7 @@ def test_fragment_pack_rejects_cross_target_logical_topology_drift(tmp_path):
         inputs[target_name] = source
 
     def mutate(fragment):
-        fragment["routes"][0]["route"] = "different-variant"
+        fragment["routes"][0]["id"] = "different-route-id"
         _seal_fragment_identities(fragment)
 
     _rewrite_fragment(inputs["sm103a"], mutate)
