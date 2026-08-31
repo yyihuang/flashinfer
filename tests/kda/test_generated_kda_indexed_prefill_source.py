@@ -131,7 +131,7 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
                     "kernel_name": f"kernel_generated_kda_{target}_{index:03d}",
                     "compile_options": ["--use_fast_math"],
                     "cooperative": False,
-                    "tma_abi": {},
+                    "tma_abi": "pointer",
                     "use_pdl": False,
                     "cuda_source": _write_record(
                         root,

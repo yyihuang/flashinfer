@@ -487,7 +487,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
             _require(
                 type(module["cooperative"]) is bool
                 and type(module["use_pdl"]) is bool
-                and isinstance(module["tma_abi"], Mapping),
+                and module["tma_abi"] == "pointer",
                 f"{module_label} launch metadata is invalid",
             )
             options = module["compile_options"]

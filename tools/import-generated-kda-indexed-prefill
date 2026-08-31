@@ -588,6 +588,12 @@ def _import_target(
             },
             f"{target} module {index} build receipt fields differ",
         )
+        _require(
+            type(receipt.get("cooperative")) is bool
+            and type(receipt.get("use_pdl")) is bool
+            and receipt.get("tma_abi") == "pointer",
+            f"{target} module {index} launch metadata is invalid",
+        )
         compile_options = receipt.get("compile_options")
         _require(
             isinstance(compile_options, list)
