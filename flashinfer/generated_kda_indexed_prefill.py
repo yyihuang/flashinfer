@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from glob import glob
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Protocol, cast
 
 import torch
 from filelock import FileLock
@@ -50,11 +50,13 @@ _EXPECTED_MODULE_COUNTS = {
     "sm103a": 19,
 }
 _EXPECTED_STATE_POOL_CAPACITY = 65
-_TARGET_ARCHITECTURES = {
+_TARGET_ARCHITECTURES: dict[GeneratedKDAIndexedTarget, str] = {
     "sm100a": "sm_100a",
     "sm103a": "sm_103a",
 }
-_TARGET_COMPUTE_CAPABILITIES = {
+_TARGET_COMPUTE_CAPABILITIES: dict[
+    tuple[int, int], GeneratedKDAIndexedTarget
+] = {
     (10, 0): "sm100a",
     (10, 3): "sm103a",
 }
@@ -112,6 +114,12 @@ class _TargetRecord:
     build_recipe: _SourceRecord
     dispatcher: _SourceRecord
     modules: tuple[_ModuleRecord, ...]
+
+
+class _PreparedLaunch(Protocol):
+    def launch(self) -> object: ...
+
+    def close(self) -> None: ...
 
 
 def _require(condition: bool, message: str) -> None:
@@ -244,6 +252,7 @@ def _source_record(root: Path, value: object, label: str) -> _SourceRecord:
         isinstance(size, int) and not isinstance(size, bool) and size >= 0,
         f"{label}.size_bytes is invalid",
     )
+    assert isinstance(size, int) and not isinstance(size, bool)
     digest = _full_sha256(record["sha256"], f"{label}.sha256")
     path = root.joinpath(*relative.parts)
     _require(path.is_file() and not path.is_symlink(), f"{label} is unavailable")
@@ -326,6 +335,7 @@ def _verify_catalog_receipt(root: Path, catalog_payload: bytes) -> dict[str, str
         isinstance(inputs, list) and len(inputs) == len(_TARGET_ARCHITECTURES),
         "Generated KDA import receipt input denominator differs",
     )
+    assert isinstance(inputs, list)
     input_archives: dict[str, str] = {}
     for index, target in enumerate(_TARGET_ARCHITECTURES):
         item = _object(
@@ -373,6 +383,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
     )
     raw_targets = catalog["targets"]
     _require(isinstance(raw_targets, list), "catalog.targets must be a list")
+    assert isinstance(raw_targets, list)
     targets: list[_TargetRecord] = []
     for target_index, raw_target in enumerate(raw_targets):
         label = f"catalog.targets[{target_index}]"
@@ -399,6 +410,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
             f"{label}.target is invalid",
         )
         assert isinstance(target_name, str)
+        target_name = cast(GeneratedKDAIndexedTarget, target_name)
         _require(
             target["architecture"] == _TARGET_ARCHITECTURES[target_name],
             f"{label}.architecture differs",
@@ -455,6 +467,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
             and len(raw_modules) == _EXPECTED_MODULE_COUNTS[target_name],
             f"{label}.modules denominator differs",
         )
+        assert isinstance(raw_modules, list)
         modules: list[_ModuleRecord] = []
         for module_index, raw_module in enumerate(raw_modules):
             module_label = f"{label}.modules[{module_index}]"
@@ -497,6 +510,8 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
                 and all(isinstance(option, str) and option for option in options),
                 f"{module_label}.compile_options are invalid",
             )
+            assert isinstance(options, list)
+            compile_options = cast(list[str], options)
             cuda_source = _source_record(
                 root, module["cuda_source"], f"{module_label}.cuda_source"
             )
@@ -520,13 +535,14 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
                 and cubin_size > 0,
                 f"{module_label}.expected_cubin.size_bytes is invalid",
             )
+            assert isinstance(cubin_size, int) and not isinstance(cubin_size, bool)
             modules.append(
                 _ModuleRecord(
                     id=module_id,
                     module_ident=module_ident,
                     entry_point=entry_point,
                     kernel_name=kernel_name,
-                    compile_options=tuple(options),
+                    compile_options=tuple(compile_options),
                     cuda_source=cuda_source,
                     host_source=host_source,
                     cubin_sha256=_full_sha256(
@@ -543,7 +559,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
         )
         targets.append(
             _TargetRecord(
-                target=target_name,  # type: ignore[arg-type]
+                target=target_name,
                 architecture=str(target["architecture"]),
                 toolchain_identity=toolchain_identity,
                 build_recipe=build_recipe,
@@ -995,7 +1011,7 @@ def _run_generated_kda_indexed_prefill(
     target = _target_for_device(q.device)
     dispatcher = get_generated_kda_indexed_prefill_dispatcher(target)
     out = torch.empty_like(q) if output is None else output
-    prepared = dispatcher["prepare_fwd"](
+    prepared_object = dispatcher["prepare_fwd"](
         q=q,
         k=k,
         v=v,
@@ -1016,6 +1032,12 @@ def _run_generated_kda_indexed_prefill(
         checkpoint_cu_starts=None,
         checkpoint_every_n_tokens=0,
     )
+    _require(
+        callable(getattr(prepared_object, "launch", None))
+        and callable(getattr(prepared_object, "close", None)),
+        "generated dispatcher returned an invalid prepared launch",
+    )
+    prepared = cast(_PreparedLaunch, prepared_object)
     try:
         result = prepared.launch()
     finally:

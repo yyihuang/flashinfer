@@ -24,10 +24,15 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Protocol
 
 
 class GeneratedKDANVRTCWorkerError(RuntimeError):
     """The requested source cannot be rebuilt with the sealed toolchain."""
+
+
+class _NVRTCModule(Protocol):
+    def nvrtcVersion(self) -> tuple[object, int, int]: ...
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -62,7 +67,7 @@ def _check(error: object, operation: str) -> None:
         )
 
 
-def _loaded_toolchain_identity(nvrtc: object) -> str:
+def _loaded_toolchain_identity(nvrtc: _NVRTCModule) -> str:
     error, major, minor = nvrtc.nvrtcVersion()
     _check(error, "nvrtcVersion")
     maps = Path("/proc/self/maps")
