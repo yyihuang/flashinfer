@@ -919,8 +919,7 @@ def generated_kda_indexed_prefill_is_eligible(
         not isinstance(initial_state, torch.Tensor)
         or initial_state.device != q.device
         or initial_state.dtype != torch.float32
-        or initial_state.shape
-        != (_EXPECTED_STATE_POOL_CAPACITY, heads, 128, 128)
+        or initial_state.shape != (_EXPECTED_STATE_POOL_CAPACITY, heads, 128, 128)
         or tuple(initial_state.stride()) != (state_inner, 128 * 128, 128, 1)
         or initial_state.storage_offset() != 0
         or not isinstance(ssm_state_indices, torch.Tensor)
