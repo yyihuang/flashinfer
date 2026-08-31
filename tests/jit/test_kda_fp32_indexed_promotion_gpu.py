@@ -181,9 +181,7 @@ def _production_reference(
     state_indices = arguments["state_indices"]
     output = arguments["output"]
     cu_seqlens = arguments["cu_seqlens"]
-    assert (
-        isinstance(state_pool, torch.Tensor) and state_pool.dtype == torch.float32
-    )
+    assert isinstance(state_pool, torch.Tensor) and state_pool.dtype == torch.float32
     assert (
         isinstance(state_indices, torch.Tensor) and state_indices.dtype == torch.int32
     )
