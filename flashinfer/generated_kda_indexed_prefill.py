@@ -49,6 +49,7 @@ _EXPECTED_MODULE_COUNTS = {
     "sm100a": 18,
     "sm103a": 19,
 }
+_EXPECTED_STATE_POOL_CAPACITY = 65
 _TARGET_ARCHITECTURES = {
     "sm100a": "sm_100a",
     "sm103a": "sm_103a",
@@ -918,11 +919,10 @@ def generated_kda_indexed_prefill_is_eligible(
         not isinstance(initial_state, torch.Tensor)
         or initial_state.device != q.device
         or initial_state.dtype != torch.float32
-        or initial_state.ndim != 4
-        or initial_state.shape[0] <= 0
-        or tuple(initial_state.shape[1:]) != (heads, 128, 128)
-        or tuple(initial_state.stride()[1:]) != (128 * 128, 128, 1)
-        or initial_state.stride(0) < state_inner
+        or initial_state.shape
+        != (_EXPECTED_STATE_POOL_CAPACITY, heads, 128, 128)
+        or tuple(initial_state.stride()) != (state_inner, 128 * 128, 128, 1)
+        or initial_state.storage_offset() != 0
         or not isinstance(ssm_state_indices, torch.Tensor)
         or ssm_state_indices.device != q.device
         or ssm_state_indices.dtype != torch.int32

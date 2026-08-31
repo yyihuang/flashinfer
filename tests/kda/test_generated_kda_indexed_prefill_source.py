@@ -508,7 +508,7 @@ def test_indexed_fp32_source_backend_matches_flash_kda_reference() -> None:
         (heads, head_dim), dtype=torch.float32, device=device, generator=generator
     )
     state_pool = 0.25 * torch.randn(
-        (4, heads, head_dim, head_dim),
+        (loader._EXPECTED_STATE_POOL_CAPACITY, heads, head_dim, head_dim),
         dtype=torch.float32,
         device=device,
         generator=generator,
@@ -573,7 +573,7 @@ def test_indexed_fp32_source_backend_matches_flash_kda_reference() -> None:
     torch.testing.assert_close(
         actual_state.float(), expected_state.float(), atol=1e-2, rtol=1e-2
     )
-    unselected = torch.tensor([0, 1, 3], dtype=torch.int64, device=device)
+    unselected = torch.tensor([0, 1, 64], dtype=torch.int64, device=device)
     assert torch.equal(
         actual_state.index_select(0, unselected),
         state_before.index_select(0, unselected),
