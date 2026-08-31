@@ -514,7 +514,9 @@ def test_indexed_fp32_source_backend_matches_flash_kda_reference() -> None:
         generator=generator,
     )
     state_before = state_pool.clone()
-    state_indices = torch.tensor([2], dtype=torch.int32, device=device)
+    state_index = (13008 * 17 + 11) % loader._EXPECTED_STATE_POOL_CAPACITY
+    assert state_index == 17
+    state_indices = torch.tensor([state_index], dtype=torch.int32, device=device)
     compact_initial = state_before.index_select(0, state_indices.long()).contiguous()
     compact_final = torch.empty_like(compact_initial)
     expected_output = torch.empty_like(q)
