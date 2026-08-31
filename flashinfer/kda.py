@@ -29,6 +29,7 @@ from typing import Literal, Optional
 
 import torch
 
+from . import generated_kda_indexed_prefill as _generated_kda_indexed_prefill
 from . import kda_decode as _kda_decode
 from . import kda_prefill as _kda_prefill
 from . import kda_prefill_cute as _kda_prefill_cute
@@ -137,13 +138,15 @@ def recurrent_kda(
         scale (Optional[float]):
             Scale factor for queries. If ``None``, defaults to ``1 / sqrt(K)``.
         initial_state (Optional[torch.Tensor]):
-            Initial state of shape ``[N, HV, V, K]``. Must be bfloat16.
-            If ``None``, zero-initialized. Updated in-place. For batched spec
-            decode without ``cu_seqlens``, ``N`` is the packed checkpoint-slot
-            count ``B * (1 + num_spec_tokens)`` when ``ssm_state_indices`` is
-            omitted. For eligible frozen prefill with ``ssm_state_indices``,
-            this is a state pool ``[N_pool, H, 128, 128]`` whose inner slots
-            are contiguous; padding between pool slots is allowed.
+            Initial state of shape ``[N, HV, V, K]``. Must normally be
+            bfloat16; the source-only generated indexed prefill domain requires
+            float32. If ``None``, zero-initialized. Updated in-place. For
+            batched spec decode without ``cu_seqlens``, ``N`` is the packed
+            checkpoint-slot count ``B * (1 + num_spec_tokens)`` when
+            ``ssm_state_indices`` is omitted. For eligible frozen prefill with
+            ``ssm_state_indices``, this is a state pool
+            ``[N_pool, H, 128, 128]`` whose inner slots are contiguous;
+            padding between pool slots is allowed.
         output_final_state (bool):
             Whether to return the final state. Default: ``False``.
         use_qk_l2norm_in_kernel (bool):
@@ -336,6 +339,58 @@ def recurrent_kda(
     is_plain_prefill = _kda_prefill._is_plain_multi_token_prefill(
         q, cu_seqlens, num_spec_tokens
     )
+    use_generated_indexed_prefill = (
+        backend == "cake"
+        and is_plain_prefill
+        and _generated_kda_indexed_prefill.generated_kda_indexed_prefill_is_eligible(
+            q=q,
+            k=k,
+            v=v,
+            g=g,
+            beta=beta,
+            A_log=A_log,
+            dt_bias=dt_bias,
+            initial_state=initial_state,
+            use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
+            use_gate_in_kernel=use_gate_in_kernel,
+            lower_bound=lower_bound,
+            cu_seqlens=cu_seqlens,
+            ssm_state_indices=ssm_state_indices,
+            num_spec_tokens=num_spec_tokens,
+            num_accepted_tokens=num_accepted_tokens,
+            output=output,
+            initial_state_source=initial_state_source,
+            initial_state_indices=initial_state_indices,
+            beta_is_logit=beta_is_logit,
+            seq_order=seq_order,
+            prefill_workspace=prefill_workspace,
+            state_checkpoints=state_checkpoints,
+            checkpoint_cu_starts=checkpoint_cu_starts,
+            checkpoint_every_n_tokens=checkpoint_every_n_tokens,
+        )
+    )
+    if use_generated_indexed_prefill:
+        assert A_log is not None
+        assert dt_bias is not None
+        assert initial_state is not None
+        assert ssm_state_indices is not None
+        assert lower_bound is not None
+        return _generated_kda_indexed_prefill._run_generated_kda_indexed_prefill(
+            q=q,
+            k=k,
+            v=v,
+            g=g,
+            beta=beta,
+            A_log=A_log,
+            dt_bias=dt_bias,
+            scale=scale,
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+            lower_bound=lower_bound,
+            cu_seqlens=cu_seqlens,
+            output=output,
+            state_indices=ssm_state_indices,
+        )
     try_cute_dsl_prefill = backend in ("auto", "cute-dsl")
     if try_cute_dsl_prefill and is_plain_prefill:
         cute_dsl_eligible = _kda_prefill_cute._is_cute_dsl_kda_prefill_eligible(
