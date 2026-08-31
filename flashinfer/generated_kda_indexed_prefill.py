@@ -246,7 +246,9 @@ def _source_record(root: Path, value: object, label: str) -> _SourceRecord:
     try:
         path.resolve(strict=True).relative_to(root)
     except ValueError as error:
-        raise GeneratedKDAIndexedPrefillError(f"{label} escapes the source root") from error
+        raise GeneratedKDAIndexedPrefillError(
+            f"{label} escapes the source root"
+        ) from error
     payload = path.read_bytes()
     _require(
         len(payload) == size and _sha256(payload) == digest,
@@ -264,10 +266,14 @@ def _installed_source_manifest(root: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     receipt_name = "generated_kda_import_receipt.json"
     for path in sorted(root.rglob("*")):
-        _require(not path.is_symlink(), "Generated KDA source closure contains a symlink")
+        _require(
+            not path.is_symlink(), "Generated KDA source closure contains a symlink"
+        )
         if path.is_dir():
             continue
-        _require(path.is_file(), "Generated KDA source closure contains a non-regular file")
+        _require(
+            path.is_file(), "Generated KDA source closure contains a non-regular file"
+        )
         relative = path.relative_to(root).as_posix()
         if relative == receipt_name:
             continue
@@ -291,7 +297,9 @@ def _verify_catalog_receipt(root: Path, catalog_payload: bytes) -> dict[str, str
     try:
         receipt = json.loads(receipt_path.read_bytes())
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise GeneratedKDAIndexedPrefillError("Generated KDA import receipt is invalid") from error
+        raise GeneratedKDAIndexedPrefillError(
+            "Generated KDA import receipt is invalid"
+        ) from error
     receipt = _object(
         receipt,
         {"kind", "schema_version", "catalog_sha256", "inputs", "outputs", "passed"},
@@ -321,7 +329,10 @@ def _verify_catalog_receipt(root: Path, catalog_payload: bytes) -> dict[str, str
             {"target", "archive_sha256"},
             f"import receipt.inputs[{index}]",
         )
-        _require(item["target"] == target, "Generated KDA import receipt target order differs")
+        _require(
+            item["target"] == target,
+            "Generated KDA import receipt target order differs",
+        )
         input_archives[target] = _full_sha256(
             item["archive_sha256"],
             f"import receipt.inputs[{index}].archive_sha256",
@@ -346,7 +357,9 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
     try:
         catalog = json.loads(catalog_payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise GeneratedKDAIndexedPrefillError("Generated KDA source catalog is invalid") from error
+        raise GeneratedKDAIndexedPrefillError(
+            "Generated KDA source catalog is invalid"
+        ) from error
     catalog = _object(catalog, {"kind", "schema_version", "targets"}, "catalog")
     _require(
         catalog["kind"] == _CATALOG_KIND
@@ -378,8 +391,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
         )
         target_name = target["target"]
         _require(
-            isinstance(target_name, str)
-            and target_name in _TARGET_ARCHITECTURES,
+            isinstance(target_name, str) and target_name in _TARGET_ARCHITECTURES,
             f"{label}.target is invalid",
         )
         assert isinstance(target_name, str)
@@ -401,8 +413,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
         )
         seed_identity = target["dispatcher_seed_identity"]
         _require(
-            isinstance(seed_identity, str)
-            and seed_identity.startswith("sha256:"),
+            isinstance(seed_identity, str) and seed_identity.startswith("sha256:"),
             f"{label}.dispatcher_seed_identity is invalid",
         )
         assert isinstance(seed_identity, str)
@@ -552,7 +563,9 @@ def _target_record(target: GeneratedKDAIndexedTarget) -> _TargetRecord:
     for record in _catalog():
         if record.target == target:
             return record
-    raise GeneratedKDAIndexedPrefillError(f"Generated KDA target {target!r} is unavailable")
+    raise GeneratedKDAIndexedPrefillError(
+        f"Generated KDA target {target!r} is unavailable"
+    )
 
 
 def _target_for_device(device: torch.device) -> GeneratedKDAIndexedTarget:
@@ -578,9 +591,13 @@ def _cuda_include_dirs() -> tuple[Path, ...]:
     candidates.append("/usr/local/cuda/include")
     for entry in sys.path:
         if entry:
-            candidates.extend(sorted(glob(str(Path(entry) / "nvidia" / "cu*" / "include"))))
+            candidates.extend(
+                sorted(glob(str(Path(entry) / "nvidia" / "cu*" / "include")))
+            )
             candidates.append(str(Path(entry) / "nvidia" / "cuda_runtime" / "include"))
-            candidates.append(str(Path(entry) / "triton" / "backends" / "nvidia" / "include"))
+            candidates.append(
+                str(Path(entry) / "triton" / "backends" / "nvidia" / "include")
+            )
     result: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
@@ -588,9 +605,14 @@ def _cuda_include_dirs() -> tuple[Path, ...]:
         if path in seen:
             continue
         seen.add(path)
-        if any((path / marker).is_file() for marker in ("cuda.h", "cuda_runtime.h", "cuda_bf16.h")):
+        if any(
+            (path / marker).is_file()
+            for marker in ("cuda.h", "cuda_runtime.h", "cuda_bf16.h")
+        ):
             result.append(path)
-    _require(bool(result), "CUDA headers required by the generated source are unavailable")
+    _require(
+        bool(result), "CUDA headers required by the generated source are unavailable"
+    )
     return tuple(result)
 
 
@@ -629,9 +651,7 @@ def _compile_exact_cubin(module: _ModuleRecord, target: _TargetRecord) -> bytes:
             "--cubin-size-bytes",
             str(module.cubin_size_bytes),
         ]
-        command.extend(
-            f"--include-dir={include}" for include in _cuda_include_dirs()
-        )
+        command.extend(f"--include-dir={include}" for include in _cuda_include_dirs())
         command.extend(
             f"--compile-option={option}" for option in module.compile_options
         )
@@ -645,8 +665,7 @@ def _compile_exact_cubin(module: _ModuleRecord, target: _TargetRecord) -> bytes:
             )
         except subprocess.TimeoutExpired as error:
             raise GeneratedKDAIndexedPrefillError(
-                f"isolated NVRTC compilation timed out for "
-                f"{target.target}/{module.id}"
+                f"isolated NVRTC compilation timed out for {target.target}/{module.id}"
             ) from error
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
@@ -660,8 +679,7 @@ def _compile_exact_cubin(module: _ModuleRecord, target: _TargetRecord) -> bytes:
         )
         cubin = output.read_bytes()
     _require(
-        len(cubin) == module.cubin_size_bytes
-        and _sha256(cubin) == module.cubin_sha256,
+        len(cubin) == module.cubin_size_bytes and _sha256(cubin) == module.cubin_sha256,
         f"rebuilt cubin identity differs for {target.target}/{module.id}",
     )
     return cubin
@@ -713,7 +731,9 @@ def _exact_cubin(module: _ModuleRecord, target: _TargetRecord) -> tuple[bytes, P
 
 
 @functools.cache
-def _load_entrypoint(target_name: GeneratedKDAIndexedTarget, module_id: str) -> Callable[..., object]:
+def _load_entrypoint(
+    target_name: GeneratedKDAIndexedTarget, module_id: str
+) -> Callable[..., object]:
     from tvm_ffi import cpp
 
     target = _target_record(target_name)

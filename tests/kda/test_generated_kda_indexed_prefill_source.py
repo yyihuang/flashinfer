@@ -109,8 +109,7 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
             dispatcher,
         )
         build_recipe = (
-            "EXPECTED_TOOLCHAIN_IDENTITY = "
-            f"{_TOOLCHAIN_IDENTITY!r}\n"
+            f"EXPECTED_TOOLCHAIN_IDENTITY = {_TOOLCHAIN_IDENTITY!r}\n"
         ).encode()
         build_recipe_record = _write_record(
             root,
@@ -169,9 +168,9 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
         "schema_version": 2,
         "targets": targets,
     }
-    catalog_payload = json.dumps(
-        catalog, sort_keys=True, separators=(",", ":")
-    ).encode() + b"\n"
+    catalog_payload = (
+        json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    )
     (root / "generated_kda_source_catalog.json").write_bytes(catalog_payload)
     _write_receipt(root, catalog_payload)
     assert sum(path.is_file() for path in root.rglob("*")) == 78
@@ -197,7 +196,9 @@ def test_source_catalog_verifies_complete_target_module_and_source_closure(
         loader._read_catalog(tmp_path)
 
 
-def test_source_catalog_rejects_files_outside_the_import_receipt(tmp_path: Path) -> None:
+def test_source_catalog_rejects_files_outside_the_import_receipt(
+    tmp_path: Path,
+) -> None:
     _catalog_tree(tmp_path)
     (tmp_path / "generated_unbound_source.cu").write_text("// unbound\n")
 
@@ -210,9 +211,9 @@ def test_source_catalog_rejects_path_capable_module_ident(tmp_path: Path) -> Non
     catalog_path = tmp_path / "generated_kda_source_catalog.json"
     catalog = json.loads(catalog_path.read_text())
     catalog["targets"][0]["modules"][0]["module_ident"] = "../escape"
-    catalog_payload = json.dumps(
-        catalog, sort_keys=True, separators=(",", ":")
-    ).encode() + b"\n"
+    catalog_payload = (
+        json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    )
     catalog_path.write_bytes(catalog_payload)
     _write_receipt(tmp_path, catalog_payload)
 
@@ -265,7 +266,10 @@ def _archive_recipe_payload(
 
 def test_importer_validates_embedded_build_recipe_identity_and_unit_closure() -> None:
     importer = runpy.run_path(
-        str(Path(__file__).resolve().parents[2] / "tools/import-generated-kda-indexed-prefill")
+        str(
+            Path(__file__).resolve().parents[2]
+            / "tools/import-generated-kda-indexed-prefill"
+        )
     )
 
     identity, units = importer["_build_recipe_contract"](
@@ -326,7 +330,9 @@ def test_cached_cubin_identity_is_checked_before_host_loading(
     (build / f"{module.module_ident}.cubin").write_bytes(b"wrong cubin")
     monkeypatch.setattr(loader, "_module_build_directory", lambda *_args: build)
 
-    with pytest.raises(loader.GeneratedKDAIndexedPrefillError, match="cached cubin identity"):
+    with pytest.raises(
+        loader.GeneratedKDAIndexedPrefillError, match="cached cubin identity"
+    ):
         loader._exact_cubin(module, target)
 
 
@@ -394,7 +400,9 @@ def test_explicit_backend_routes_exact_indexed_prefill_before_legacy(
     monkeypatch.setattr(
         kda_api._kda_prefill,
         "_flash_kda_prefill_is_eligible",
-        lambda **_kwargs: pytest.fail("indexed source route must precede legacy prefill"),
+        lambda **_kwargs: pytest.fail(
+            "indexed source route must precede legacy prefill"
+        ),
     )
 
     result = kda_api.recurrent_kda(
@@ -445,7 +453,9 @@ def test_source_backend_rejects_output_alias_before_dispatch(
 def test_indexed_fp32_source_backend_matches_flash_kda_reference() -> None:
     reference_root_value = os.environ.get("FLASH_KDA_REFERENCE_ROOT")
     if reference_root_value is None:
-        pytest.skip("FLASH_KDA_REFERENCE_ROOT must identify the pinned reference checkout")
+        pytest.skip(
+            "FLASH_KDA_REFERENCE_ROOT must identify the pinned reference checkout"
+        )
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required")
     if torch.cuda.get_device_capability() not in {(10, 0), (10, 3)}:
@@ -456,9 +466,9 @@ def test_indexed_fp32_source_backend_matches_flash_kda_reference() -> None:
     expected_reference_commit = os.environ.get("FLASH_KDA_REFERENCE_COMMIT")
     if expected_reference_commit is None:
         pytest.skip("FLASH_KDA_REFERENCE_COMMIT must pin the reference commit")
-    assert len(expected_reference_commit) == 40 and set(expected_reference_commit) <= set(
-        "0123456789abcdef"
-    )
+    assert len(expected_reference_commit) == 40 and set(
+        expected_reference_commit
+    ) <= set("0123456789abcdef")
     reference_commit = subprocess.check_output(
         ["git", "-C", str(reference_root), "rev-parse", "HEAD^{commit}"],
         text=True,
@@ -481,7 +491,9 @@ def test_indexed_fp32_source_backend_matches_flash_kda_reference() -> None:
         device=device,
         generator=generator,
     )
-    A_log = torch.rand((heads,), dtype=torch.float32, device=device, generator=generator)
+    A_log = torch.rand(
+        (heads,), dtype=torch.float32, device=device, generator=generator
+    )
     dt_bias = torch.rand(
         (heads, head_dim), dtype=torch.float32, device=device, generator=generator
     )

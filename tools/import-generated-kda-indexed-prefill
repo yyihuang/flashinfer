@@ -154,8 +154,7 @@ def _artifact_reference(
     digest = reference.get("sha256")
     size = reference.get("size_bytes")
     _require(
-        isinstance(digest, str)
-        and _SHA256.fullmatch(digest) is not None,
+        isinstance(digest, str) and _SHA256.fullmatch(digest) is not None,
         f"{label} identity is invalid",
     )
     _require(
@@ -172,7 +171,9 @@ def _build_recipe_contract(
     target: str,
 ) -> tuple[str, tuple[Mapping[str, object], ...]]:
     try:
-        module = ast.parse(payload.decode("utf-8"), filename="generated_kda_build_cuda.py")
+        module = ast.parse(
+            payload.decode("utf-8"), filename="generated_kda_build_cuda.py"
+        )
     except (UnicodeDecodeError, SyntaxError) as error:
         raise ImportError(f"{target} build recipe is not valid UTF-8 Python") from error
     assignments: dict[str, ast.expr] = {}
@@ -193,7 +194,9 @@ def _build_recipe_contract(
         f"{target} build recipe identity is unresolved",
     )
     try:
-        toolchain_identity = ast.literal_eval(assignments["EXPECTED_TOOLCHAIN_IDENTITY"])
+        toolchain_identity = ast.literal_eval(
+            assignments["EXPECTED_TOOLCHAIN_IDENTITY"]
+        )
     except (ValueError, TypeError) as error:
         raise ImportError(f"{target} toolchain identity is not literal") from error
     toolchain_identity = _full_identity(
@@ -294,7 +297,9 @@ def _validate_build_output_unit_closure(
 
 def _dispatcher_module_ids(payload: bytes) -> tuple[str, ...]:
     try:
-        module = ast.parse(payload.decode("utf-8"), filename="generated_kda_dispatcher.py")
+        module = ast.parse(
+            payload.decode("utf-8"), filename="generated_kda_dispatcher.py"
+        )
     except (UnicodeDecodeError, SyntaxError) as error:
         raise ImportError("generated dispatcher is not valid UTF-8 Python") from error
     assignments = [
@@ -305,11 +310,15 @@ def _dispatcher_module_ids(payload: bytes) -> tuple[str, ...]:
         and isinstance(node.targets[0], ast.Name)
         and node.targets[0].id == "FLASHINFER_MODULE_IDS"
     ]
-    _require(len(assignments) == 1, "generated dispatcher module inventory is unresolved")
+    _require(
+        len(assignments) == 1, "generated dispatcher module inventory is unresolved"
+    )
     try:
         value = ast.literal_eval(assignments[0].value)
     except (ValueError, TypeError) as error:
-        raise ImportError("generated dispatcher module inventory is not literal") from error
+        raise ImportError(
+            "generated dispatcher module inventory is not literal"
+        ) from error
     _require(
         isinstance(value, tuple)
         and len(value) == EXPECTED_MODULE_COUNT
@@ -360,7 +369,9 @@ class _Archive:
     def read(self, path: PurePosixPath | str, *, label: str) -> bytes:
         normalized = _safe_relative(str(path), label).as_posix()
         member = self.members.get(normalized)
-        _require(member is not None and member.isfile(), f"{label} is absent: {normalized}")
+        _require(
+            member is not None and member.isfile(), f"{label} is absent: {normalized}"
+        )
         assert member is not None
         extracted = self.tar.extractfile(member)
         _require(extracted is not None, f"cannot read {label}: {normalized}")
@@ -398,7 +409,9 @@ class _Archive:
 def _write(root: Path, relative: PurePosixPath, payload: bytes) -> dict[str, object]:
     path = root.joinpath(*relative.parts)
     path.parent.mkdir(parents=True, exist_ok=True)
-    _require(not path.exists() and not path.is_symlink(), f"duplicate output: {relative}")
+    _require(
+        not path.exists() and not path.is_symlink(), f"duplicate output: {relative}"
+    )
     path.write_bytes(payload)
     return {
         "path": relative.as_posix(),
@@ -407,7 +420,9 @@ def _write(root: Path, relative: PurePosixPath, payload: bytes) -> dict[str, obj
     }
 
 
-def _load_fragment(archive: _Archive, target: str) -> tuple[Mapping[str, object], bytes]:
+def _load_fragment(
+    archive: _Archive, target: str
+) -> tuple[Mapping[str, object], bytes]:
     relative = PurePosixPath("generated_program") / target / "cuda" / "fragment.json"
     payload = archive.read(relative, label=f"{target} fragment")
     _assert_public(payload, f"{target} fragment")
@@ -436,8 +451,7 @@ def _load_fragment(archive: _Archive, target: str) -> tuple[Mapping[str, object]
         f"{target} module denominator differs",
     )
     _require(
-        set(build) == {"kind", "recipe", "outputs"}
-        and build.get("kind") == "nvrtc",
+        set(build) == {"kind", "recipe", "outputs"} and build.get("kind") == "nvrtc",
         f"{target} is not a complete CUDA source export",
     )
     outputs = build.get("outputs")
@@ -552,7 +566,9 @@ def _import_target(
             label=f"{target} module {index} host source",
             expected_kind="host_source",
         )
-        receipt = _object(module.get("build_receipt"), f"{target} module {index} build receipt")
+        receipt = _object(
+            module.get("build_receipt"), f"{target} module {index} build receipt"
+        )
         _require(
             set(receipt)
             == {
@@ -646,8 +662,13 @@ def _import_target(
                 },
             }
         )
-    _require(tuple(observed_ids) == module_ids, f"{target} dispatcher/module order differs")
-    _require(len(observed_ids) == len(set(observed_ids)), f"{target} module ids are not unique")
+    _require(
+        tuple(observed_ids) == module_ids, f"{target} dispatcher/module order differs"
+    )
+    _require(
+        len(observed_ids) == len(set(observed_ids)),
+        f"{target} module ids are not unique",
+    )
     return {
         "target": target,
         "architecture": TARGETS[target],
@@ -670,7 +691,11 @@ def _manifest(root: Path) -> list[dict[str, object]]:
             relative = path.relative_to(root).as_posix()
             payload = path.read_bytes()
             records.append(
-                {"path": relative, "sha256": _sha256(payload), "size_bytes": len(payload)}
+                {
+                    "path": relative,
+                    "sha256": _sha256(payload),
+                    "size_bytes": len(payload),
+                }
             )
     return records
 
@@ -690,7 +715,11 @@ def main() -> None:
         f"destination already exists: {destination}",
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".generated_kda_indexed_prefill-", dir=destination.parent))
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=".generated_kda_indexed_prefill-", dir=destination.parent
+        )
+    )
     try:
         with ExitStack() as stack:
             archives = {

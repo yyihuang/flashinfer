@@ -57,7 +57,9 @@ def _file_identity(path: Path) -> dict[str, object]:
 def _check(error: object, operation: str) -> None:
     code = getattr(error, "value", error)
     if code != 0:
-        raise GeneratedKDANVRTCWorkerError(f"{operation} failed with NVRTC result {code}")
+        raise GeneratedKDANVRTCWorkerError(
+            f"{operation} failed with NVRTC result {code}"
+        )
 
 
 def _loaded_toolchain_identity(nvrtc: object) -> str:
