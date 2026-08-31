@@ -333,74 +333,9 @@ struct KernelSpec {
   uint32_t smem_bytes;
 };
 
-#define FLASHINFER_BF16_FP4_FOUR(COMPONENT, PREFIX, THREADS, SMEM, FLAT)                  \
-  KernelSpec{COMPONENT, false, false, FLAT, PREFIX "_a0_pdl0", THREADS, SMEM},          \
-      KernelSpec{COMPONENT, false, true, FLAT, PREFIX "_a0_pdl1", THREADS, SMEM},       \
-      KernelSpec{COMPONENT, true, false, FLAT, PREFIX "_a1_pdl0", THREADS, SMEM},       \
-      KernelSpec{COMPONENT, true, true, FLAT, PREFIX "_a1_pdl1", THREADS, SMEM}
-
 constexpr std::array<KernelSpec, 74> kKernelSpecs = {{
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeTmaBf16,
-        "kernel_flashinfer_bf16_fp4_cudnn_tma_bf16", 512u, 107520u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeTmaF16,
-        "kernel_flashinfer_bf16_fp4_cudnn_tma_f16", 512u, 107520u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeCpAsyncBf16,
-        "kernel_flashinfer_bf16_fp4_cudnn_cp_async_bf16", 512u, 107520u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeCpAsyncF16,
-        "kernel_flashinfer_bf16_fp4_cudnn_cp_async_f16", 512u, 107520u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledBaseBf16,
-        "kernel_flashinfer_bf16_fp4_cute_bf16", 512u, 107520u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeTmaBf16,
-        "kernel_flashinfer_bf16_fp4_cudnn_tma_bf16_flat", 512u, 107520u, true),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeTmaF16,
-        "kernel_flashinfer_bf16_fp4_cudnn_tma_f16_flat", 512u, 107520u, true),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeCpAsyncBf16,
-        "kernel_flashinfer_bf16_fp4_cudnn_cp_async_bf16_flat", 512u, 107520u, true),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeCpAsyncF16,
-        "kernel_flashinfer_bf16_fp4_cudnn_cp_async_f16_flat", 512u, 107520u, true),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledBaseBf16,
-        "kernel_flashinfer_bf16_fp4_cute_bf16_flat", 512u, 107520u, true),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeGroupM128Bf16,
-        "kernel_flashinfer_bf16_fp4_cudnn_group_m128_bf16", 512u, 139264u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledWarpM16Bf16,
-        "kernel_flashinfer_bf16_fp4_cute_warp_mma_m16_bf16", 96u, 150528u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledWarpM32Bf16,
-        "kernel_flashinfer_bf16_fp4_cute_warp_mma_m32_bf16", 160u, 218112u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledWarpM64Bf16,
-        "kernel_flashinfer_bf16_fp4_cute_warp_mma_m64_bf16", 160u, 73728u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledWarpM16K16Bf16,
-        "kernel_flashinfer_bf16_fp4_cute_warp_mma_m16_k16_bf16", 96u, 150528u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledWarpM16K32Bf16,
-        "kernel_flashinfer_bf16_fp4_cute_warp_mma_m16_k32_bf16", 96u, 150528u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kTiledWarpM16K48Bf16,
-        "kernel_flashinfer_bf16_fp4_cute_warp_mma_m16_k48_bf16", 96u, 150528u, false),
-    FLASHINFER_BF16_FP4_FOUR(
-        Component::kNativeSplitK2PartialF32,
-        "kernel_flashinfer_bf16_fp4_cudnn_split_k2_partial_f32", 512u, 107520u, false),
-    KernelSpec{Component::kNativeSplitK2ReduceBf16, false, false, false,
-               "kernel_flashinfer_bf16_fp4_cudnn_split_k2_reduce_bf16_pdl0", 128u, 0u},
-    KernelSpec{Component::kNativeSplitK2ReduceBf16, false, true, false,
-               "kernel_flashinfer_bf16_fp4_cudnn_split_k2_reduce_bf16_pdl1", 128u, 0u},
+    FLASHINFER_BLACKWELL_BF16_FP4_KERNEL_SPECS
 }};
-
-#undef FLASHINFER_BF16_FP4_FOUR
 
 static_assert(kKernelSpecs.size() == 74, "the standalone bundle must expose 74 kernels");
 
