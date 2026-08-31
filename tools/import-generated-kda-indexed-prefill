@@ -40,7 +40,10 @@ from typing import Mapping
 CATALOG_KIND = "flashinfer.generated_kda_indexed_prefill.source_catalog"
 CATALOG_SCHEMA_VERSION = 2
 IMPORT_RECEIPT_KIND = "flashinfer.generated_kda_indexed_prefill.import_receipt"
-EXPECTED_MODULE_COUNT = 18
+EXPECTED_MODULE_COUNTS = {
+    "sm100a": 18,
+    "sm103a": 19,
+}
 EXPECTED_ROUTE_COUNT = 48
 TARGETS = {
     "sm100a": "sm_100a",
@@ -220,7 +223,7 @@ def _build_recipe_contract(
     except (ValueError, TypeError, json.JSONDecodeError) as error:
         raise ImportError(f"{target} build recipe units are invalid") from error
     _require(
-        isinstance(units, list) and len(units) == EXPECTED_MODULE_COUNT,
+        isinstance(units, list) and len(units) == EXPECTED_MODULE_COUNTS[target],
         f"{target} build recipe module denominator differs",
     )
     normalized: list[Mapping[str, object]] = []
@@ -295,7 +298,7 @@ def _validate_build_output_unit_closure(
     )
 
 
-def _dispatcher_module_ids(payload: bytes) -> tuple[str, ...]:
+def _dispatcher_module_ids(payload: bytes, *, target: str) -> tuple[str, ...]:
     try:
         module = ast.parse(
             payload.decode("utf-8"), filename="generated_kda_dispatcher.py"
@@ -321,7 +324,7 @@ def _dispatcher_module_ids(payload: bytes) -> tuple[str, ...]:
         ) from error
     _require(
         isinstance(value, tuple)
-        and len(value) == EXPECTED_MODULE_COUNT
+        and len(value) == EXPECTED_MODULE_COUNTS[target]
         and all(isinstance(item, str) and item for item in value),
         "generated dispatcher module inventory differs",
     )
@@ -447,7 +450,7 @@ def _load_fragment(
         f"{target} route denominator differs",
     )
     _require(
-        isinstance(modules, list) and len(modules) == EXPECTED_MODULE_COUNT,
+        isinstance(modules, list) and len(modules) == EXPECTED_MODULE_COUNTS[target],
         f"{target} module denominator differs",
     )
     _require(
@@ -456,7 +459,7 @@ def _load_fragment(
     )
     outputs = build.get("outputs")
     _require(
-        isinstance(outputs, list) and len(outputs) == EXPECTED_MODULE_COUNT,
+        isinstance(outputs, list) and len(outputs) == EXPECTED_MODULE_COUNTS[target],
         f"{target} build output denominator differs",
     )
     return fragment, payload
@@ -504,7 +507,7 @@ def _import_target(
         label=f"{target} dispatcher",
         expected_kind="python_source",
     )
-    module_ids = _dispatcher_module_ids(dispatcher)
+    module_ids = _dispatcher_module_ids(dispatcher, target=target)
 
     generated_root = PurePosixPath("generated") / target
     recipe_record = _write(
@@ -774,7 +777,7 @@ def main() -> None:
             {
                 "destination": str(destination),
                 "targets": list(TARGETS),
-                "modules_per_target": EXPECTED_MODULE_COUNT,
+                "modules_per_target": EXPECTED_MODULE_COUNTS,
                 "binary_files": 0,
             },
             sort_keys=True,

@@ -67,7 +67,7 @@ def _manifest(root: Path) -> list[dict[str, object]]:
 
 def _write_receipt(root: Path, catalog_payload: bytes) -> None:
     outputs = _manifest(root)
-    assert len(outputs) == 77
+    assert len(outputs) == 79
     receipt = {
         "kind": "flashinfer.generated_kda_indexed_prefill.import_receipt",
         "schema_version": 1,
@@ -90,7 +90,10 @@ def _write_receipt(root: Path, catalog_payload: bytes) -> None:
 def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
     targets = []
     for target, architecture in (("sm100a", "sm_100a"), ("sm103a", "sm_103a")):
-        module_ids = tuple(f"{target}-module-{index:03d}" for index in range(18))
+        module_ids = tuple(
+            f"{target}-module-{index:03d}"
+            for index in range(loader._EXPECTED_MODULE_COUNTS[target])
+        )
         dispatcher = (
             f"FLASHINFER_MODULE_IDS = {module_ids!r}\n"
             "def bind_loaded_modules(modules):\n"
@@ -173,7 +176,7 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
     )
     (root / "generated_kda_source_catalog.json").write_bytes(catalog_payload)
     _write_receipt(root, catalog_payload)
-    assert sum(path.is_file() for path in root.rglob("*")) == 78
+    assert sum(path.is_file() for path in root.rglob("*")) == 80
     return loader._read_catalog(root)
 
 
@@ -183,7 +186,7 @@ def test_source_catalog_verifies_complete_target_module_and_source_closure(
     targets = _catalog_tree(tmp_path)
 
     assert [target.target for target in targets] == ["sm100a", "sm103a"]
-    assert all(len(target.modules) == 18 for target in targets)
+    assert [len(target.modules) for target in targets] == [18, 19]
     assert all(
         module.cuda_source.path.name.startswith("generated_")
         and module.host_source.path.name.startswith("generated_")
@@ -239,6 +242,7 @@ def _archive_recipe_payload(
     target: str = "sm100a",
     architecture: str = "sm_100a",
 ) -> bytes:
+    module_count = loader._EXPECTED_MODULE_COUNTS[target]
     units = [
         {
             "id": f"cuda-module-cubin-{index:03d}",
@@ -254,7 +258,7 @@ def _archive_recipe_payload(
             "expected_cubin_sha256": f"{index + 101:064x}",
             "expected_cubin_size_bytes": index + 1,
         }
-        for index in range(18)
+        for index in range(module_count)
     ]
     embedded = json.dumps(units, sort_keys=True, separators=(",", ":"))
     return (
@@ -279,6 +283,12 @@ def test_importer_validates_embedded_build_recipe_identity_and_unit_closure() ->
 
     assert identity == _TOOLCHAIN_IDENTITY
     assert len(units) == 18
+    identity_103a, units_103a = importer["_build_recipe_contract"](
+        _archive_recipe_payload(target="sm103a", architecture="sm_103a"),
+        target="sm103a",
+    )
+    assert identity_103a == _TOOLCHAIN_IDENTITY
+    assert len(units_103a) == 19
     with pytest.raises(importer["ImportError"], match="identity differs"):
         importer["_build_recipe_contract"](
             _archive_recipe_payload(architecture="sm_103a"),

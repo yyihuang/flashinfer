@@ -45,7 +45,10 @@ GeneratedKDAIndexedTarget = Literal["sm100a", "sm103a"]
 _CATALOG_KIND = "flashinfer.generated_kda_indexed_prefill.source_catalog"
 _IMPORT_RECEIPT_KIND = "flashinfer.generated_kda_indexed_prefill.import_receipt"
 _CATALOG_SCHEMA_VERSION = 2
-_EXPECTED_MODULE_COUNT = 18
+_EXPECTED_MODULE_COUNTS = {
+    "sm100a": 18,
+    "sm103a": 19,
+}
 _TARGET_ARCHITECTURES = {
     "sm100a": "sm_100a",
     "sm103a": "sm_103a",
@@ -448,7 +451,7 @@ def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
         raw_modules = target["modules"]
         _require(
             isinstance(raw_modules, list)
-            and len(raw_modules) == _EXPECTED_MODULE_COUNT,
+            and len(raw_modules) == _EXPECTED_MODULE_COUNTS[target_name],
             f"{label}.modules denominator differs",
         )
         modules: list[_ModuleRecord] = []
