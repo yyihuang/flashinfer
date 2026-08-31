@@ -1298,8 +1298,37 @@ def _build_cuda_cubins(spec: PromotionTargetSpec) -> dict[str, bytes]:
         "exact CUDA build output envelope is invalid",
     )
     _require(
-        outputs == expected_outputs,
-        "exact CUDA build output order or closure differs from the manifest",
+        all(
+            isinstance(output, dict) and set(output) == _BUILD_OUTPUT_KEYS
+            for output in expected_outputs
+        ),
+        "CUDA manifest build output envelope is invalid",
+    )
+    output_by_id: dict[str, dict[str, object]] = {}
+    for output_index, output in enumerate(outputs):
+        assert isinstance(output, dict)
+        output_id = _safe_id(
+            output.get("id"), f"exact CUDA build output {output_index} id"
+        )
+        _require(
+            output_id not in output_by_id,
+            "exact CUDA build output ids repeat",
+        )
+        output_by_id[output_id] = output
+    expected_by_id: dict[str, dict[str, object]] = {}
+    for expected_index, expected in enumerate(expected_outputs):
+        assert isinstance(expected, dict)
+        output_id = _safe_id(
+            expected.get("id"), f"CUDA manifest build output {expected_index} id"
+        )
+        _require(
+            output_id not in expected_by_id,
+            "CUDA manifest build output ids repeat",
+        )
+        expected_by_id[output_id] = expected
+    _require(
+        output_by_id == expected_by_id,
+        "exact CUDA build output closure differs from the manifest",
     )
     cubins: dict[str, bytes] = {}
     for module in spec.modules:

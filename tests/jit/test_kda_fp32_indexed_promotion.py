@@ -886,7 +886,7 @@ def test_cuda_host_source_is_rehashed_immediately_before_compile(tmp_path, monke
         )
 
 
-def test_cuda_recipe_must_reproduce_exact_ordered_cubins(tmp_path, monkeypatch):
+def test_cuda_recipe_must_reproduce_exact_cubin_closure(tmp_path, monkeypatch):
     outputs = [
         {
             "id": "output-a",
@@ -910,9 +910,11 @@ p = argparse.ArgumentParser()
 p.add_argument('--source-root'); p.add_argument('--output-root')
 p.add_argument('--report'); p.add_argument('--include-dir', action='append')
 a = p.parse_args(); root = Path(a.output_root); root.mkdir(parents=True, exist_ok=True)
-outputs = json.loads(%r)
-for item, data in zip(outputs, (b'cubin-a', b'cubin-b'), strict=True):
+outputs = list(reversed(json.loads(%r)))
+for item, data in zip(outputs, (b'cubin-b', b'cubin-a'), strict=True):
     (root / item['path']).write_bytes(data)
+if (Path(a.source_root) / 'duplicate-output-id').exists():
+    outputs[1]['id'] = outputs[0]['id']
 Path(a.report).write_text(json.dumps({'kind': 'flashinfer.generated_program_cuda_build_report', 'outputs': outputs, 'passed': True, 'schema_version': 1, 'toolchain': {}, 'toolchain_identity': 'test'}))
 """
         % json.dumps(outputs),
@@ -970,6 +972,12 @@ Path(a.report).write_text(json.dumps({'kind': 'flashinfer.generated_program_cuda
         "module-a": b"cubin-a",
         "module-b": b"cubin-b",
     }
+    (tmp_path / "duplicate-output-id").touch()
+    with pytest.raises(
+        promotion.PromotionManifestError, match="build output ids repeat"
+    ):
+        promotion._build_cuda_cubins(spec)
+    (tmp_path / "duplicate-output-id").unlink()
     recipe_path.write_bytes(recipe_payload + b"# drift\n")
     with pytest.raises(
         promotion.PromotionManifestError, match="bytes drifted before use"
