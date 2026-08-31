@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Source-only loader for the generated FP32-indexed KDA portfolio.
+Source-only JIT registry for the generated FP32-indexed KDA portfolio.
 """
 
 from __future__ import annotations
@@ -38,12 +38,15 @@ from typing import Any, Literal, Optional, Protocol, cast
 import torch
 from filelock import FileLock
 
-from .utils import get_compute_capability
+from ..utils import get_compute_capability
 
 GeneratedKDAIndexedTarget = Literal["sm100a", "sm103a"]
 
 _CATALOG_KIND = "flashinfer.generated_kda_indexed_prefill.source_catalog"
 _IMPORT_RECEIPT_KIND = "flashinfer.generated_kda_indexed_prefill.import_receipt"
+_CATALOG_NAME = "flashkda_generated_indexed_variant_metadata.json"
+_RECEIPT_NAME = "flashkda_generated_indexed_generation_receipt.json"
+_SOURCE_PREFIX = "flashkda_generated_indexed_"
 _CATALOG_SCHEMA_VERSION = 2
 _EXPECTED_MODULE_COUNTS = {
     "sm100a": 18,
@@ -210,17 +213,17 @@ def _recipe_toolchain_identity(record: _SourceRecord, label: str) -> str:
 def _source_root() -> Path:
     """Locate imported sources in an installed package or source checkout."""
 
-    from .jit import env as jit_env
+    from . import env as jit_env
 
     candidates = (
-        jit_env.FLASHINFER_CSRC_DIR / "generated_kda_indexed_prefill",
-        Path(__file__).resolve().parents[1] / "csrc" / "generated_kda_indexed_prefill",
+        jit_env.FLASHINFER_CSRC_DIR / "kda",
+        Path(__file__).resolve().parents[2] / "csrc" / "kda",
     )
     for candidate in candidates:
         if candidate.is_dir() and not candidate.is_symlink():
             return candidate.resolve(strict=True)
     raise GeneratedKDAIndexedPrefillError(
-        "Generated KDA indexed-prefill source package is not installed"
+        "Generated indexed FlashKDA sources are not installed"
     )
 
 
@@ -236,8 +239,8 @@ def _safe_relative(value: object, label: str) -> PurePosixPath:
         f"{label} must be a normalized relative path",
     )
     _require(
-        relative.name.startswith("generated_"),
-        f"{label} basename must start with generated_",
+        len(relative.parts) == 1 and relative.name.startswith(_SOURCE_PREFIX),
+        f"{label} must be one semantic generated indexed-FlashKDA filename",
     )
     return relative
 
@@ -275,8 +278,7 @@ def _source_record(root: Path, value: object, label: str) -> _SourceRecord:
 
 def _installed_source_manifest(root: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    receipt_name = "generated_kda_import_receipt.json"
-    for path in sorted(root.rglob("*")):
+    for path in sorted(root.glob(f"{_SOURCE_PREFIX}*")):
         _require(
             not path.is_symlink(), "Generated KDA source closure contains a symlink"
         )
@@ -285,8 +287,8 @@ def _installed_source_manifest(root: Path) -> list[dict[str, object]]:
         _require(
             path.is_file(), "Generated KDA source closure contains a non-regular file"
         )
-        relative = path.relative_to(root).as_posix()
-        if relative == receipt_name:
+        relative = path.name
+        if relative == _RECEIPT_NAME:
             continue
         payload = path.read_bytes()
         records.append(
@@ -300,7 +302,7 @@ def _installed_source_manifest(root: Path) -> list[dict[str, object]]:
 
 
 def _verify_catalog_receipt(root: Path, catalog_payload: bytes) -> dict[str, str]:
-    receipt_path = root / "generated_kda_import_receipt.json"
+    receipt_path = root / _RECEIPT_NAME
     _require(
         receipt_path.is_file() and not receipt_path.is_symlink(),
         "Generated KDA import receipt is unavailable",
@@ -359,7 +361,7 @@ def _verify_catalog_receipt(root: Path, catalog_payload: bytes) -> dict[str, str
 
 def _read_catalog(root: Path) -> tuple[_TargetRecord, ...]:
     root = root.resolve(strict=True)
-    catalog_path = root / "generated_kda_source_catalog.json"
+    catalog_path = root / _CATALOG_NAME
     _require(
         catalog_path.is_file() and not catalog_path.is_symlink(),
         "Generated KDA source catalog is unavailable",
@@ -641,7 +643,7 @@ def _compile_exact_cubin(module: _ModuleRecord, target: _TargetRecord) -> bytes:
         and _sha256(source) == module.cuda_source.sha256,
         f"CUDA source drifted for {module.id}",
     )
-    worker = Path(__file__).with_name("generated_kda_nvrtc_worker.py")
+    worker = Path(__file__).with_name("flash_kda_indexed_nvrtc.py")
     _require(
         worker.is_file() and not worker.is_symlink(),
         "isolated Generated KDA NVRTC worker is unavailable",
@@ -704,7 +706,7 @@ def _compile_exact_cubin(module: _ModuleRecord, target: _TargetRecord) -> bytes:
 
 
 def _module_build_directory(module: _ModuleRecord, target: _TargetRecord) -> Path:
-    from .jit import env as jit_env
+    from . import env as jit_env
 
     identity = hashlib.sha256(
         (
@@ -834,7 +836,7 @@ def _load_dispatcher_source(record: _TargetRecord) -> dict[str, Callable[..., ob
 
 
 @functools.cache
-def get_generated_kda_indexed_prefill_dispatcher(
+def get_flash_kda_indexed_prefill_dispatcher(
     target: GeneratedKDAIndexedTarget,
 ) -> Mapping[str, Callable[..., object]]:
     """Bind one verified generated dispatcher to lazy source-built modules."""
@@ -842,7 +844,7 @@ def get_generated_kda_indexed_prefill_dispatcher(
     return MappingProxyType(_load_dispatcher_source(_target_record(target)))
 
 
-def generated_kda_indexed_prefill_is_eligible(
+def flash_kda_indexed_prefill_is_eligible(
     *,
     q: torch.Tensor,
     k: torch.Tensor,
@@ -971,7 +973,7 @@ def generated_kda_indexed_prefill_is_eligible(
     )
 
 
-def _run_generated_kda_indexed_prefill(
+def _run_flash_kda_indexed_prefill(
     *,
     q: torch.Tensor,
     k: torch.Tensor,
@@ -994,7 +996,7 @@ def _run_generated_kda_indexed_prefill(
         raise RuntimeError(
             "Generated KDA indexed prefill must be warmed and launched outside CUDA graph capture"
         )
-    from .kda_prefill import _check_output_does_not_overlap_inputs
+    from ..kda_prefill import _check_output_does_not_overlap_inputs
 
     if output is not None:
         _check_output_does_not_overlap_inputs(
@@ -1007,7 +1009,7 @@ def _run_generated_kda_indexed_prefill(
             initial_state=initial_state,
         )
     target = _target_for_device(q.device)
-    dispatcher = get_generated_kda_indexed_prefill_dispatcher(target)
+    dispatcher = get_flash_kda_indexed_prefill_dispatcher(target)
     out = torch.empty_like(q) if output is None else output
     prepared_object = dispatcher["prepare_fwd"](
         q=q,
@@ -1055,6 +1057,6 @@ def _run_generated_kda_indexed_prefill(
 
 __all__ = [
     "GeneratedKDAIndexedPrefillError",
-    "generated_kda_indexed_prefill_is_eligible",
-    "get_generated_kda_indexed_prefill_dispatcher",
+    "flash_kda_indexed_prefill_is_eligible",
+    "get_flash_kda_indexed_prefill_dispatcher",
 ]

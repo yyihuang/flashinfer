@@ -29,10 +29,10 @@ from typing import Literal, Optional
 
 import torch
 
-from . import generated_kda_indexed_prefill as _generated_kda_indexed_prefill
 from . import kda_decode as _kda_decode
 from . import kda_prefill as _kda_prefill
 from . import kda_prefill_cute as _kda_prefill_cute
+from .jit import flash_kda_indexed as _flash_kda_indexed
 from .api_logging import flashinfer_api
 from .kda_backward import (
     RecurrentKDABackwardWorkspace as RecurrentKDABackwardWorkspace,
@@ -342,7 +342,7 @@ def recurrent_kda(
     use_generated_indexed_prefill = (
         backend == "cake"
         and is_plain_prefill
-        and _generated_kda_indexed_prefill.generated_kda_indexed_prefill_is_eligible(
+        and _flash_kda_indexed.flash_kda_indexed_prefill_is_eligible(
             q=q,
             k=k,
             v=v,
@@ -375,7 +375,7 @@ def recurrent_kda(
         assert initial_state is not None
         assert ssm_state_indices is not None
         assert lower_bound is not None
-        return _generated_kda_indexed_prefill._run_generated_kda_indexed_prefill(
+        return _flash_kda_indexed._run_flash_kda_indexed_prefill(
             q=q,
             k=k,
             v=v,

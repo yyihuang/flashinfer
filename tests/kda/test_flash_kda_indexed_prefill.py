@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Tests for the source-only indexed Generated KDA loader.
+Tests for the source-only generated indexed FlashKDA registry.
 """
 
 from __future__ import annotations
@@ -21,15 +21,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import runpy
 import subprocess
 from pathlib import Path
 
 import pytest
 import torch
 
-import flashinfer.generated_kda_indexed_prefill as loader
 import flashinfer.kda as kda_api
+from flashinfer.jit import flash_kda_indexed as loader
 
 
 _TOOLCHAIN_IDENTITY = "sha256:" + "7" * 64
@@ -52,8 +51,8 @@ def _write_record(root: Path, relative: str, payload: bytes) -> dict[str, object
 
 def _manifest(root: Path) -> list[dict[str, object]]:
     records = []
-    for path in sorted(root.rglob("*")):
-        if path.is_file() and path.name != "generated_kda_import_receipt.json":
+    for path in sorted(root.glob("flashkda_generated_indexed_*")):
+        if path.is_file() and path.name != loader._RECEIPT_NAME:
             payload = path.read_bytes()
             records.append(
                 {
@@ -82,7 +81,7 @@ def _write_receipt(root: Path, catalog_payload: bytes) -> None:
         "outputs": outputs,
         "passed": True,
     }
-    (root / "generated_kda_import_receipt.json").write_text(
+    (root / loader._RECEIPT_NAME).write_text(
         json.dumps(receipt), encoding="utf-8"
     )
 
@@ -108,7 +107,7 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
         ).encode()
         dispatcher_record = _write_record(
             root,
-            f"generated/{target}/generated_kda_dispatcher.py",
+            f"flashkda_generated_indexed_{target}_dispatcher.py",
             dispatcher,
         )
         build_recipe = (
@@ -116,7 +115,7 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
         ).encode()
         build_recipe_record = _write_record(
             root,
-            f"generated/{target}/generated_kda_build_cuda.py",
+            f"flashkda_generated_indexed_{target}_build.py",
             build_recipe,
         )
         modules = []
@@ -135,14 +134,14 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
                     "use_pdl": False,
                     "cuda_source": _write_record(
                         root,
-                        f"generated/{target}/generated_kda_module_{index:03d}/"
-                        f"generated_kda_module_{index:03d}_kernel.cu",
+                        f"flashkda_generated_indexed_sealed_kda_"
+                        f"{target}_{index:03d}.cu",
                         cuda,
                     ),
                     "host_source": _write_record(
                         root,
-                        f"generated/{target}/generated_kda_module_{index:03d}/"
-                        f"generated_kda_module_{index:03d}_host.cpp",
+                        f"flashkda_generated_indexed_sealed_kda_"
+                        f"{target}_{index:03d}_binding.cpp",
                         host,
                     ),
                     "expected_cubin": {
@@ -174,7 +173,7 @@ def _catalog_tree(root: Path) -> tuple[loader._TargetRecord, ...]:
     catalog_payload = (
         json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode() + b"\n"
     )
-    (root / "generated_kda_source_catalog.json").write_bytes(catalog_payload)
+    (root / loader._CATALOG_NAME).write_bytes(catalog_payload)
     _write_receipt(root, catalog_payload)
     assert sum(path.is_file() for path in root.rglob("*")) == 80
     return loader._read_catalog(root)
@@ -188,8 +187,8 @@ def test_source_catalog_verifies_complete_target_module_and_source_closure(
     assert [target.target for target in targets] == ["sm100a", "sm103a"]
     assert [len(target.modules) for target in targets] == [18, 19]
     assert all(
-        module.cuda_source.path.name.startswith("generated_")
-        and module.host_source.path.name.startswith("generated_")
+        module.cuda_source.path.name.startswith("flashkda_generated_indexed_")
+        and module.host_source.path.name.startswith("flashkda_generated_indexed_")
         for target in targets
         for module in target.modules
     )
@@ -199,11 +198,35 @@ def test_source_catalog_verifies_complete_target_module_and_source_closure(
         loader._read_catalog(tmp_path)
 
 
+def test_checked_in_registry_uses_semantic_deduplicated_kda_layout() -> None:
+    root = loader._source_root()
+    targets = loader._read_catalog(root)
+    modules = [module for target in targets for module in target.modules]
+    cuda_paths = {module.cuda_source.path for module in modules}
+    host_paths = {module.host_source.path for module in modules}
+
+    assert root.name == "kda"
+    assert len(cuda_paths) == 21
+    assert len(host_paths) == 21
+    for module in modules:
+        semantic = module.module_ident.removeprefix("flashkda_")
+        assert module.cuda_source.path.name == (
+            f"flashkda_generated_indexed_{semantic}.cu"
+        )
+        assert module.host_source.path.name == (
+            f"flashkda_generated_indexed_{semantic}_binding.cpp"
+        )
+        assert "module_" not in module.cuda_source.path.name
+        assert "module_" not in module.host_source.path.name
+
+
 def test_source_catalog_rejects_files_outside_the_import_receipt(
     tmp_path: Path,
 ) -> None:
     _catalog_tree(tmp_path)
-    (tmp_path / "generated_unbound_source.cu").write_text("// unbound\n")
+    (tmp_path / "flashkda_generated_indexed_unbound_source.cu").write_text(
+        "// unbound\n"
+    )
 
     with pytest.raises(loader.GeneratedKDAIndexedPrefillError, match="source closure"):
         loader._read_catalog(tmp_path)
@@ -211,7 +234,7 @@ def test_source_catalog_rejects_files_outside_the_import_receipt(
 
 def test_source_catalog_rejects_path_capable_module_ident(tmp_path: Path) -> None:
     _catalog_tree(tmp_path)
-    catalog_path = tmp_path / "generated_kda_source_catalog.json"
+    catalog_path = tmp_path / loader._CATALOG_NAME
     catalog = json.loads(catalog_path.read_text())
     catalog["targets"][0]["modules"][0]["module_ident"] = "../escape"
     catalog_payload = (
@@ -226,7 +249,7 @@ def test_source_catalog_rejects_path_capable_module_ident(tmp_path: Path) -> Non
 
 def test_source_catalog_binds_each_archive_to_its_receipt(tmp_path: Path) -> None:
     _catalog_tree(tmp_path)
-    receipt_path = tmp_path / "generated_kda_import_receipt.json"
+    receipt_path = tmp_path / loader._RECEIPT_NAME
     receipt = json.loads(receipt_path.read_text())
     receipt["inputs"][0]["archive_sha256"] = "0" * 64
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
@@ -235,79 +258,6 @@ def test_source_catalog_binds_each_archive_to_its_receipt(tmp_path: Path) -> Non
         loader.GeneratedKDAIndexedPrefillError, match="differs from the import receipt"
     ):
         loader._read_catalog(tmp_path)
-
-
-def _archive_recipe_payload(
-    *,
-    target: str = "sm100a",
-    architecture: str = "sm_100a",
-) -> bytes:
-    module_count = loader._EXPECTED_MODULE_COUNTS[target]
-    units = [
-        {
-            "id": f"cuda-module-cubin-{index:03d}",
-            "source": (
-                f"generated_program/{target}/cuda/modules/module-{index:03d}/kernel.cu"
-            ),
-            "source_sha256": f"{index + 1:064x}",
-            "output": (
-                f"generated_program/{target}/cuda/modules/module-{index:03d}/kernel.cubin"
-            ),
-            "architecture": architecture,
-            "compile_options": ["--use_fast_math"],
-            "expected_cubin_sha256": f"{index + 101:064x}",
-            "expected_cubin_size_bytes": index + 1,
-        }
-        for index in range(module_count)
-    ]
-    embedded = json.dumps(units, sort_keys=True, separators=(",", ":"))
-    return (
-        "import json\n"
-        f"UNITS = json.loads({embedded!r})\n"
-        f"EXPECTED_TOOLCHAIN_IDENTITY = {_TOOLCHAIN_IDENTITY!r}\n"
-    ).encode()
-
-
-def test_importer_validates_embedded_build_recipe_identity_and_unit_closure() -> None:
-    importer = runpy.run_path(
-        str(
-            Path(__file__).resolve().parents[2]
-            / "tools/import-generated-kda-indexed-prefill"
-        )
-    )
-
-    identity, units = importer["_build_recipe_contract"](
-        _archive_recipe_payload(),
-        target="sm100a",
-    )
-
-    assert identity == _TOOLCHAIN_IDENTITY
-    assert len(units) == 18
-    identity_103a, units_103a = importer["_build_recipe_contract"](
-        _archive_recipe_payload(target="sm103a", architecture="sm_103a"),
-        target="sm103a",
-    )
-    assert identity_103a == _TOOLCHAIN_IDENTITY
-    assert len(units_103a) == 19
-    with pytest.raises(importer["ImportError"], match="identity differs"):
-        importer["_build_recipe_contract"](
-            _archive_recipe_payload(architecture="sm_103a"),
-            target="sm100a",
-        )
-
-    outputs = [{"artifact_id": unit["id"]} for unit in units]
-    importer["_validate_build_output_unit_closure"](
-        outputs,
-        {str(unit["id"]): unit for unit in units},
-        target="sm100a",
-    )
-    outputs[1] = outputs[0]
-    with pytest.raises(importer["ImportError"], match="one-to-one"):
-        importer["_validate_build_output_unit_closure"](
-            outputs,
-            {str(unit["id"]): unit for unit in units},
-            target="sm100a",
-        )
 
 
 def test_dispatcher_binding_keeps_module_loading_lazy(
@@ -367,7 +317,7 @@ def test_exact_cubin_compilation_uses_isolated_toolchain_checked_worker(
     assert loader._compile_exact_cubin(module, target) == b"exact cubin"
     command = observed["command"]
     assert command[1] == "-I"
-    assert Path(command[2]).name == "generated_kda_nvrtc_worker.py"
+    assert Path(command[2]).name == "flash_kda_indexed_nvrtc.py"
     assert command[command.index("--toolchain-identity") + 1] == _TOOLCHAIN_IDENTITY
     assert observed["kwargs"] == {
         "check": False,
@@ -398,13 +348,13 @@ def test_explicit_backend_routes_exact_indexed_prefill_before_legacy(
     sentinel = (object(), object())
     observed = {}
     monkeypatch.setattr(
-        kda_api._generated_kda_indexed_prefill,
-        "generated_kda_indexed_prefill_is_eligible",
+        kda_api._flash_kda_indexed,
+        "flash_kda_indexed_prefill_is_eligible",
         lambda **_kwargs: True,
     )
     monkeypatch.setattr(
-        kda_api._generated_kda_indexed_prefill,
-        "_run_generated_kda_indexed_prefill",
+        kda_api._flash_kda_indexed,
+        "_run_flash_kda_indexed_prefill",
         lambda **kwargs: observed.update(kwargs) or sentinel,
     )
     monkeypatch.setattr(
@@ -440,7 +390,7 @@ def test_source_backend_rejects_output_alias_before_dispatch(
     )
 
     with pytest.raises(ValueError, match="output must not overlap q"):
-        loader._run_generated_kda_indexed_prefill(
+        loader._run_flash_kda_indexed_prefill(
             q=tensors["q"],
             k=tensors["k"],
             v=tensors["v"],
