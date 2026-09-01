@@ -45,7 +45,7 @@ def test_cake_moe_finalize_jit_consumes_verified_compile_contract(
         name="cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1",
         module_ident="cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1",
         ffi_entry="run",
-        device_path=Path("cake_device.cu"),
+        device_path=Path("generated_device.cu"),
         binding_path=Path("cake_binding.cu"),
         closure_sha256="a" * 64,
         arg_plan=cake_finalize._ARG_PLAN,
