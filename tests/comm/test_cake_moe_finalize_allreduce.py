@@ -316,9 +316,7 @@ def test_cake_moe_finalize_allreduce(world_size: int, dtype: torch.dtype) -> Non
                 raise AssertionError(
                     f"rank {rank} did not finish within {PROCESS_JOIN_TIMEOUT_S}s"
                 )
-            assert process.exitcode == 0, (
-                f"rank {rank} exited with {process.exitcode}"
-            )
+            assert process.exitcode == 0, f"rank {rank} exited with {process.exitcode}"
     finally:
         for process in processes:
             if process.is_alive():
