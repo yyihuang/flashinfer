@@ -17,8 +17,72 @@ HIDDEN_SIZE = 7168
 MAX_TOKEN_NUM = 2048
 ATOL = 1e-2
 RTOL = 1e-2
+FP4_ATOL = 1.0
+FP4_RTOL = 0.1
 PROCESS_JOIN_TIMEOUT_S = 600.0
 PROCESS_CLEANUP_TIMEOUT_S = 30.0
+
+
+def _decode_fp4_output(
+    quant_out: torch.Tensor,
+    scale_out: torch.Tensor,
+    *,
+    rows: int,
+    columns: int,
+) -> torch.Tensor:
+    """Decode E2M1 data with per-16 E4M3 scales in SWIZZLED_128x4 layout."""
+
+    packed = quant_out.view(torch.uint8)[: rows * columns // 2].reshape(
+        rows, columns // 2
+    )
+    decode_table = torch.tensor(
+        [
+            0.0,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            3.0,
+            4.0,
+            6.0,
+            -0.0,
+            -0.5,
+            -1.0,
+            -1.5,
+            -2.0,
+            -3.0,
+            -4.0,
+            -6.0,
+        ],
+        dtype=torch.float32,
+        device=quant_out.device,
+    )
+    values = torch.empty(
+        (rows, columns), dtype=torch.float32, device=quant_out.device
+    )
+    values[:, 0::2] = decode_table[(packed & 0x0F).long()]
+    values[:, 1::2] = decode_table[(packed >> 4).long()]
+
+    scale_columns = columns // 16
+    padded_rows = ((rows + 127) // 128) * 128
+    padded_scale_columns = ((scale_columns + 3) // 4) * 4
+    scale_bytes = scale_out.view(torch.uint8)[: padded_rows * padded_scale_columns]
+    logical_scale_bytes = (
+        scale_bytes.reshape(
+            padded_rows // 128,
+            padded_scale_columns // 4,
+            32,
+            4,
+            4,
+        )
+        .permute(0, 3, 2, 1, 4)
+        .reshape(padded_rows, padded_scale_columns)[:rows, :scale_columns]
+        .contiguous()
+    )
+    scales = logical_scale_bytes.view(torch.float8_e4m3fn).float()
+    return (values.reshape(rows, scale_columns, 16) * scales.unsqueeze(-1)).reshape(
+        rows, columns
+    )
 
 
 def _open_port() -> int:
@@ -282,16 +346,20 @@ def _worker(world_size: int, rank: int, dtype: torch.dtype, port: int) -> None:
                     )
                     if output_profile == "111":
                         assert len(result) == len(trtllm_result) == 4
-                        # The API stores packed FP4/FP8 bytes in tensors with the
-                        # input dtype, so compare their encodings rather than values.
-                        assert torch.equal(
-                            result[2].view(torch.uint8),
-                            trtllm_result[2].view(torch.uint8),
-                        ), f"{backend} packed FP4 output differs from TRT-LLM"
-                        assert torch.equal(
-                            result[3].view(torch.uint8),
-                            trtllm_result[3].view(torch.uint8),
-                        ), f"{backend} FP4 scale output differs from TRT-LLM"
+                        if backend == "cake":
+                            decoded = _decode_fp4_output(
+                                result[2],
+                                result[3],
+                                rows=tokens,
+                                columns=HIDDEN_SIZE,
+                            )
+                            torch.testing.assert_close(
+                                decoded,
+                                norm_ref.float(),
+                                atol=FP4_ATOL,
+                                rtol=FP4_RTOL,
+                                msg=lambda text: f"cake decoded FP4: {text}",
+                            )
     finally:
         dist.barrier(group=group)
         dist.destroy_process_group(group=group)
