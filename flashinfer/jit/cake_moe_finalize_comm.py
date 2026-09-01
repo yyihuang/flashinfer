@@ -98,6 +98,17 @@ _ARG_PLAN = (
 
 
 @dataclass(frozen=True)
+class CakeMoeFinalizeLaunchGrid:
+    """Fixed non-X launch dimensions required by every generated binding."""
+
+    grid_y: Literal[1] = 1
+    grid_z: Literal[1] = 1
+
+
+_LAUNCH_GRID = CakeMoeFinalizeLaunchGrid()
+
+
+@dataclass(frozen=True)
 class CakeMoeFinalizeModuleSpec:
     """One verified generated module and its exact source closure."""
 
@@ -113,6 +124,7 @@ class CakeMoeFinalizeModuleSpec:
     binding_path: Path
     closure_sha256: str
     arg_plan: tuple[tuple[str, str], ...]
+    launch_grid: CakeMoeFinalizeLaunchGrid
 
 
 def _require_manifest(condition: bool, message: str) -> None:
@@ -504,6 +516,7 @@ def get_cake_moe_finalize_module_specs() -> tuple[CakeMoeFinalizeModuleSpec, ...
                 binding_path=inventory[binding_value],
                 closure_sha256=closure_sha256,
                 arg_plan=arg_plan,  # type: ignore[arg-type]
+                launch_grid=_LAUNCH_GRID,
             )
         )
 
@@ -854,6 +867,13 @@ def run_cake_moe_finalize(
     grid_x = min(sm_count, tokens * 4) // 4 * 4
     if grid_x <= 0:
         raise ValueError("Cake MoE finalize requires one complete four-CTA cluster")
+    spec = get_cake_moe_finalize_module_spec(
+        arch=arch,
+        dtype=dtype_name,
+        world_size=world_size,
+        output_profile=output_profile,
+        use_pdl=launch_with_pdl,
+    )
     values: dict[str, object] = {
         "allreduce_in": allreduce_in,
         "inverse_indices": expanded_idx_to_permuted_idx,
@@ -879,16 +899,9 @@ def run_cake_moe_finalize(
         "weight_bias": float(0.0 if weight_bias is None else weight_bias),
         "scale_factor": 1.0,
         "grid_x": grid_x,
-        "grid_y": 1,
-        "grid_z": 1,
+        "grid_y": spec.launch_grid.grid_y,
+        "grid_z": spec.launch_grid.grid_z,
     }
-    spec = get_cake_moe_finalize_module_spec(
-        arch=arch,
-        dtype=dtype_name,
-        world_size=world_size,
-        output_profile=output_profile,
-        use_pdl=launch_with_pdl,
-    )
     module = load_cake_moe_finalize_module(
         arch, dtype_name, world_size, output_profile, launch_with_pdl
     )
@@ -896,6 +909,7 @@ def run_cake_moe_finalize(
 
 
 __all__ = [
+    "CakeMoeFinalizeLaunchGrid",
     "CakeMoeFinalizeModuleSpec",
     "gen_cake_moe_finalize_module",
     "get_cake_moe_finalize_library_path",

@@ -1,7 +1,7 @@
 """Source-closure tests for the Cake MoE finalize JIT package."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_type_hints
 
 from flashinfer.jit import cake_moe_finalize_comm as cake_finalize
 
@@ -29,6 +29,15 @@ def test_cake_moe_finalize_manifest_exposes_exact_route_matrix() -> None:
     }
     assert len({spec.device_path for spec in specs}) == 24
     assert len({spec.binding_path for spec in specs}) == 48
+    assert get_type_hints(cake_finalize.CakeMoeFinalizeLaunchGrid) == {
+        "grid_y": Literal[1],
+        "grid_z": Literal[1],
+    }
+    expected_launch_grid = cake_finalize.CakeMoeFinalizeLaunchGrid(
+        grid_y=1,
+        grid_z=1,
+    )
+    assert all(spec.launch_grid == expected_launch_grid for spec in specs)
 
 
 def test_cake_moe_finalize_jit_consumes_verified_compile_contract(
@@ -49,6 +58,7 @@ def test_cake_moe_finalize_jit_consumes_verified_compile_contract(
         binding_path=Path("cake_binding.cu"),
         closure_sha256="a" * 64,
         arg_plan=cake_finalize._ARG_PLAN,
+        launch_grid=cake_finalize.CakeMoeFinalizeLaunchGrid(grid_y=1, grid_z=1),
     )
 
     def fake_gen_jit_spec(**kwargs):
