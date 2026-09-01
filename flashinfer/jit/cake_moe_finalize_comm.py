@@ -60,6 +60,7 @@ _CONTRACT = {
     "shared_expert": [False, True],
     "pdl": [False, True],
     "workspace_abi": "flashinfer_pointer_table",
+    "launch_grid": {"grid_y": 1, "grid_z": 1},
 }
 _BUILD_CONTRACT = {
     "translation_unit_model": "separate_device_and_binding",
@@ -159,6 +160,12 @@ def _source_dir() -> Path:
     )
 
 
+def get_cake_moe_finalize_manifest_path() -> Path:
+    """Return the verified source package's import-manifest path."""
+
+    return _source_dir() / _MANIFEST_NAME
+
+
 def _resolve_source_path(source_dir: Path, value: object, label: str) -> Path:
     _require_manifest(isinstance(value, str) and bool(value), f"{label} missing")
     assert isinstance(value, str)
@@ -230,7 +237,7 @@ def get_cake_moe_finalize_module_specs() -> tuple[CakeMoeFinalizeModuleSpec, ...
     """Load and verify the complete 48-module source-only export."""
 
     source_dir = _source_dir()
-    manifest_path = source_dir / _MANIFEST_NAME
+    manifest_path = get_cake_moe_finalize_manifest_path()
     _require_manifest(
         manifest_path.is_file() and not manifest_path.is_symlink(),
         f"missing {_MANIFEST_NAME}",

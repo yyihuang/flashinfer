@@ -267,10 +267,18 @@ def _worker(world_size: int, rank: int, dtype: torch.dtype, port: int) -> None:
                 trtllm_result = outputs["trtllm"]
                 for backend, result in outputs.items():
                     torch.testing.assert_close(
-                        result[0].float(), residual_ref.float(), atol=ATOL, rtol=RTOL
+                        result[0].float(),
+                        residual_ref.float(),
+                        atol=ATOL,
+                        rtol=RTOL,
+                        msg=lambda text, backend=backend: f"{backend} residual: {text}",
                     )
                     torch.testing.assert_close(
-                        result[1].float(), norm_ref.float(), atol=ATOL, rtol=RTOL
+                        result[1].float(),
+                        norm_ref.float(),
+                        atol=ATOL,
+                        rtol=RTOL,
+                        msg=lambda text, backend=backend: f"{backend} norm: {text}",
                     )
                     if output_profile == "111":
                         assert len(result) == len(trtllm_result) == 4

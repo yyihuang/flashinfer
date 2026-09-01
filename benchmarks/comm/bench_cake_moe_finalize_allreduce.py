@@ -578,7 +578,7 @@ def main() -> int:
 
         dist.barrier(group=group)
         if rank == 0:
-            manifest_path = cake_finalize._source_dir() / cake_finalize._MANIFEST_NAME
+            manifest_path = cake_finalize.get_cake_moe_finalize_manifest_path()
             report = {
                 "schema_version": 1,
                 "world_size": world_size,
