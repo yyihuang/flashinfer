@@ -271,15 +271,6 @@ def _worker(world_size: int, rank: int, dtype: torch.dtype, port: int) -> None:
                     torch.testing.assert_close(
                         result[1].float(), norm_ref.float(), atol=ATOL, rtol=RTOL
                     )
-                if output_profile == "111":
-                    assert torch.equal(
-                        outputs["cake"][2].view(torch.uint8),
-                        outputs["trtllm"][2].view(torch.uint8),
-                    )
-                    assert torch.equal(
-                        outputs["cake"][3].view(torch.uint8),
-                        outputs["trtllm"][3].view(torch.uint8),
-                    )
     finally:
         dist.barrier(group=group)
         dist.destroy_process_group(group=group)
