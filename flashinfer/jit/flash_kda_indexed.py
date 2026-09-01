@@ -52,7 +52,7 @@ _EXPECTED_MODULE_COUNTS = {
     "sm100a": 18,
     "sm103a": 19,
 }
-_EXPECTED_STATE_POOL_CAPACITY = 65
+_EXPECTED_STATE_POOL_CAPACITY = 257
 _TARGET_ARCHITECTURES: dict[GeneratedKDAIndexedTarget, str] = {
     "sm100a": "sm_100a",
     "sm103a": "sm_103a",
