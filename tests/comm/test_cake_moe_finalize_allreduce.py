@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import socket
+import time
 
 import pytest
 import torch
@@ -16,6 +17,8 @@ HIDDEN_SIZE = 7168
 MAX_TOKEN_NUM = 2048
 ATOL = 1e-2
 RTOL = 1e-2
+PROCESS_JOIN_TIMEOUT_S = 600.0
+PROCESS_CLEANUP_TIMEOUT_S = 30.0
 
 
 def _open_port() -> int:
@@ -261,13 +264,26 @@ def _worker(world_size: int, rank: int, dtype: torch.dtype, port: int) -> None:
                             handles, group=group
                         )
 
-                for _backend, result in outputs.items():
+                trtllm_result = outputs["trtllm"]
+                for backend, result in outputs.items():
                     torch.testing.assert_close(
                         result[0].float(), residual_ref.float(), atol=ATOL, rtol=RTOL
                     )
                     torch.testing.assert_close(
                         result[1].float(), norm_ref.float(), atol=ATOL, rtol=RTOL
                     )
+                    if output_profile == "111":
+                        assert len(result) == len(trtllm_result) == 4
+                        # The API stores packed FP4/FP8 bytes in tensors with the
+                        # input dtype, so compare their encodings rather than values.
+                        assert torch.equal(
+                            result[2].view(torch.uint8),
+                            trtllm_result[2].view(torch.uint8),
+                        ), f"{backend} packed FP4 output differs from TRT-LLM"
+                        assert torch.equal(
+                            result[3].view(torch.uint8),
+                            trtllm_result[3].view(torch.uint8),
+                        ), f"{backend} FP4 scale output differs from TRT-LLM"
     finally:
         dist.barrier(group=group)
         dist.destroy_process_group(group=group)
@@ -292,6 +308,23 @@ def test_cake_moe_finalize_allreduce(world_size: int, dtype: torch.dtype) -> Non
     ]
     for process in processes:
         process.start()
-    for rank, process in enumerate(processes):
-        process.join()
-        assert process.exitcode == 0, f"rank {rank} exited with {process.exitcode}"
+    deadline = time.monotonic() + PROCESS_JOIN_TIMEOUT_S
+    try:
+        for rank, process in enumerate(processes):
+            process.join(timeout=max(1.0, deadline - time.monotonic()))
+            if process.is_alive():
+                raise AssertionError(
+                    f"rank {rank} did not finish within {PROCESS_JOIN_TIMEOUT_S}s"
+                )
+            assert process.exitcode == 0, (
+                f"rank {rank} exited with {process.exitcode}"
+            )
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+        for process in processes:
+            process.join(timeout=PROCESS_CLEANUP_TIMEOUT_S)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=PROCESS_CLEANUP_TIMEOUT_S)
