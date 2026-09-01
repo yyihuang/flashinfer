@@ -57,9 +57,7 @@ def _decode_fp4_output(
         dtype=torch.float32,
         device=quant_out.device,
     )
-    values = torch.empty(
-        (rows, columns), dtype=torch.float32, device=quant_out.device
-    )
+    values = torch.empty((rows, columns), dtype=torch.float32, device=quant_out.device)
     values[:, 0::2] = decode_table[(packed & 0x0F).long()]
     values[:, 1::2] = decode_table[(packed >> 4).long()]
 
