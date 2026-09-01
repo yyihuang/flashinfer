@@ -31,7 +31,9 @@ def _arguments() -> dict[str, object]:
     }
 
 
-def test_default_backend_preserves_trtllm_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_backend_preserves_trtllm_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[dict[str, object]] = []
     module = SimpleNamespace(
         trtllm_moe_finalize_allreduce_fusion=lambda **kwargs: calls.append(kwargs)
@@ -45,7 +47,9 @@ def test_default_backend_preserves_trtllm_dispatch(monkeypatch: pytest.MonkeyPat
     assert calls[0]["workspace"] is arguments["workspace_ptrs"]
 
 
-def test_cake_backend_uses_isolated_source_loader(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cake_backend_uses_isolated_source_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         cake_moe_finalize_comm,

@@ -49,436 +49,436 @@
   },
   "files": [
     {
-      "bytes": 24455,
+      "bytes": 22300,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_device.cu",
-      "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
+      "sha256": "f87c5adc9784cefdbbeabe54db1f754f0d5440a66330d6ee27216edbc6809a32"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-      "sha256": "a53aa6f23d8b2e7ac19c51215cfffc40f0f8e2a12ca27729cde2a5e1dc4d3691"
+      "sha256": "30ae6afe9f1829532b67c6cdb75236db931b568367c8dd48bb6effb3a53a1074"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-      "sha256": "069cbce2de1c8ac912137d2561e88763ae99d30ec4074448e9122c76c30183e0"
+      "sha256": "766b36005e9eb532d27b49b07f61608f7f176a4ef8fd5fdbe319fea327525804"
     },
     {
-      "bytes": 28438,
+      "bytes": 26031,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_device.cu",
-      "sha256": "003e86821207c25e405ba6fb3e065a9b431f1fdca70ebc17ce0065f579e07f7d"
+      "sha256": "c00b23a32755878e31cfb1887ca89ab02dd01e064e57db655c079d1051997730"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-      "sha256": "cae6c07b3b92d3891c056b85a00e2aa3c1575a488359f8fbbbac171c814a4f7d"
+      "sha256": "d7dcb314eee097840b72f49806f7b57632eebeb6ed5a5dd6b17ff74a3487779b"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-      "sha256": "6aaf34518393783670c549e2a4fb604bc60d5b3e9df5de8f49c59d246451adec"
+      "sha256": "403c92429768c70202d798f3a2236dd0ccdd67b612bdbcad6f6c6a4f13a90401"
     },
     {
-      "bytes": 29053,
+      "bytes": 27012,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_device.cu",
-      "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
+      "sha256": "1ad0566406919e48e55cabb6c7085db608b9d0cef05e9644622cc075d4d6e1e3"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-      "sha256": "ea3cfa592fc4b42408ed963ccdcaebf0e36ca1233ffdbdf57961c50bee2511a1"
+      "sha256": "4a7ea0c512a9978b82b58e7251373b0bac5e5cfaa42963826696ea72f729b837"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-      "sha256": "cb411d909b040e40ea73dfcfb2c47ea23b1bb08f43f2d233dcca67bd6837bf0e"
+      "sha256": "5314a1ebd8a39cea221d27127f7ceadebb8c44094f7ee947f21cfb0a2ca8fad1"
     },
     {
-      "bytes": 33036,
+      "bytes": 30743,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_device.cu",
-      "sha256": "3f09ac76a0a9d5cbf37747c9841d0334109cb6e5f19777ee200fda013143d0e2"
+      "sha256": "38c030ac133d9b7f4ac63ab823addd9d60b9f72f80def54aa227fdcb9089663a"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-      "sha256": "376dd99c1891c5df31d066c9a7fa91d68b08f7279a74d0691ab251b00a7ac908"
+      "sha256": "1e053cbcce686131c5e328908d0d1899bfee5e36f21ca37390d81ec361e080d4"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-      "sha256": "77fc2fe6616bbfcdd9d37c50f9d4b8b0603ea57446466d1ead1a1cdf0d3a462e"
+      "sha256": "18da90e88dee3548b25a48a6ac33a7d22edb7826cc9bbc5585b9e898c6866543"
     },
     {
-      "bytes": 38274,
+      "bytes": 36461,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_device.cu",
-      "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
+      "sha256": "058b92cb97f656b44c2a5419483f65250dc9e0e175de6a2493eca3c9ddc28eae"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-      "sha256": "17d45ca13ad33a2c2f195c18831d334e74e141b90b20ce7893b554029c75aec0"
+      "sha256": "82ef6beba57a0ca33a6470758caf397b704f0ecca68e58d90d4035c830e9390d"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-      "sha256": "64aba442c98d848d20f07e70fbe05eacd26b6ad2dd74ee1ba186f594ab21f1b3"
+      "sha256": "9f55faf31f9f8a4188d184666c8f04dde22f72244c6495266062b118d08be34d"
     },
     {
-      "bytes": 42257,
+      "bytes": 40192,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_device.cu",
-      "sha256": "6cdb33342a236635c1ca528f9fa60003c96e2ae608f62a2f2822728101847fc4"
+      "sha256": "767b35aa95df0af1e25b461f668b3c56015c22fcf94a5e55157119d6d89fab40"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-      "sha256": "62d5ce18cacc73ce16589585427ea50261ec7b4a2ed710bb9e84c54039ac4dbf"
+      "sha256": "8a3ff21c9ccb7f6472bad6e33384600a8207e9c60e89e1bb327f95f36c217199"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-      "sha256": "8bb18a16b76e7105b498025690160a5351d0c8db074421d9636116f0774370c9"
+      "sha256": "87db4bc82816d62db8c342f8a62ef2c6db71d58cc7efea5bc557921adae33591"
     },
     {
-      "bytes": 26552,
+      "bytes": 23832,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_device.cu",
-      "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
+      "sha256": "5168e59d61bd2c38990acc69359efb9968bbf06cd1825735934b84b57c1647a0"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-      "sha256": "36a287172b0a506a2ca8c7a879ba78ec289f2ac0b8bbd2b76bf34a988b3a4c1f"
+      "sha256": "44a25c153b36888cc2face7f26ace178c99c13d33ebe827384790d041c07160d"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-      "sha256": "fb7b164a7d178c8e97bd856420c5fbf46a6114ff8475ef14c17b26539bae2a0b"
+      "sha256": "24b7b18ac02ff383d9f2cc04997c688b9e88a0dcc1d329bcd791f4bebf2f97a7"
     },
     {
-      "bytes": 30609,
+      "bytes": 27613,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_device.cu",
-      "sha256": "49283c70dea6be149f9bdb5276b597cf46aa6a26539e0a7c1feae6f8c8563bbe"
+      "sha256": "97816ba2fed28e6f5b5364925f63ea77e1dae9ddf902c41045afc0ecde7c9973"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-      "sha256": "fe11d07e171ed2dd01d7d3c5ed66864613efb1a5f5281a6b596c0d6878379af7"
+      "sha256": "1e06f4b3db132612a838899b1d983d2dc41e3028949f41a0f3be89328fe8fb37"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-      "sha256": "b59f66afc9dce867fe04d126e0e819cd73fd6b208124b05b98e1526a4a97cd26"
+      "sha256": "0da45822e673eb723fced3edad817dcbc81927dc3e2aa187cc6c89706407d06b"
     },
     {
-      "bytes": 31726,
+      "bytes": 29000,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_device.cu",
-      "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
+      "sha256": "baefd279ccadae78292e96b6145421a3632553fe1efa7eab112bed3862c01335"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-      "sha256": "e44cf5a9c326abcb69cf09e266f0c258b68e2fbea5776795758600b5512c20f7"
+      "sha256": "2b2aab310417827f69725aa8ac52f03ac2cdbafd0a22c0086c6f6c1c3ed82e18"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-      "sha256": "59b276d1084949643561d251fdd4d7efc6b6603dbccf7a217f0d0a065a6ad95d"
+      "sha256": "222ea5f6890f03953c55c01588168311ea9e9003a14e5ad64ec8f55973749b1e"
     },
     {
-      "bytes": 35783,
+      "bytes": 32781,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_device.cu",
-      "sha256": "e9dd14ca58b2973ea3f6b6964c46b300994aed74d9edd25768d0c2cbee894997"
+      "sha256": "91f721b1c95ac6d01dc40c4fd05ad529ed5696195d189cfcbce19e8312339ab5"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-      "sha256": "b8a854b009f2973bfc438aa8787aa81b4aff7cdad05183b1c1876a37a5ccb46f"
+      "sha256": "4128f6b7f46c5d4a3e9103d435c2d19dea0d49e814e57a82ad59f4e9ef347c1f"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-      "sha256": "f0cbefb1cc64f1912cfa2ad89d3e2a6772b2ffe69afa303b006e6c90b70ea532"
+      "sha256": "c132fee012f425dcbaf5b085ad5c6076abcf1dfef1c9f81378f9b973fdde1c67"
     },
     {
-      "bytes": 42089,
+      "bytes": 39351,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_device.cu",
-      "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
+      "sha256": "81ffa5b50f719b6f5d58ffb1dfad7dcaa48162e5f6748029235bdfc360ecd56c"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-      "sha256": "787da1614d53802721460fa60f5801edc56a1ef3be7480c206ee5ed4908f6fa8"
+      "sha256": "680da20a2d405c8fde750ddf414711e5c402031ece1154e5f3c960ec9e2606fd"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-      "sha256": "e235231bb4bf98c3f1046f0747bb5ecb1750d72e892e3b3551b5c6953d24758f"
+      "sha256": "82de3fe26f5d305da1929e9eb8ec972e54811166d0e7d4f31a9aac21fb9ad395"
     },
     {
-      "bytes": 46146,
+      "bytes": 43132,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_device.cu",
-      "sha256": "2cc1d4f6c3b20dea70d0c401adc2569a27eaba6413fd69ac257a91a20aed1b2c"
+      "sha256": "dd7f67f4833601dd9d5646ae33ec9666467c86f623013d7699e6ac2a57edaca4"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-      "sha256": "5ad7b0cf63e612145c01a760b26e0f71a709913975b47f259ac8b887781b2986"
+      "sha256": "ccffc342867444ca91a76d5cff9ed0d3940fe6add970a79b948ad0a0366bdc21"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-      "sha256": "892c276e8d735f7b9d9ed8a5cd43f0b08c41554b1045e0a10da3490d2816a3d5"
+      "sha256": "c992c9823a8fc069acfa6d2b0d90c5bff0d56dfc6da4fd038de42710837b7445"
     },
     {
-      "bytes": 24455,
+      "bytes": 22300,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_device.cu",
-      "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
+      "sha256": "f87c5adc9784cefdbbeabe54db1f754f0d5440a66330d6ee27216edbc6809a32"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-      "sha256": "a53aa6f23d8b2e7ac19c51215cfffc40f0f8e2a12ca27729cde2a5e1dc4d3691"
+      "sha256": "30ae6afe9f1829532b67c6cdb75236db931b568367c8dd48bb6effb3a53a1074"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-      "sha256": "069cbce2de1c8ac912137d2561e88763ae99d30ec4074448e9122c76c30183e0"
+      "sha256": "766b36005e9eb532d27b49b07f61608f7f176a4ef8fd5fdbe319fea327525804"
     },
     {
-      "bytes": 28438,
+      "bytes": 26031,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_device.cu",
-      "sha256": "003e86821207c25e405ba6fb3e065a9b431f1fdca70ebc17ce0065f579e07f7d"
+      "sha256": "c00b23a32755878e31cfb1887ca89ab02dd01e064e57db655c079d1051997730"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-      "sha256": "cae6c07b3b92d3891c056b85a00e2aa3c1575a488359f8fbbbac171c814a4f7d"
+      "sha256": "d7dcb314eee097840b72f49806f7b57632eebeb6ed5a5dd6b17ff74a3487779b"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-      "sha256": "6aaf34518393783670c549e2a4fb604bc60d5b3e9df5de8f49c59d246451adec"
+      "sha256": "403c92429768c70202d798f3a2236dd0ccdd67b612bdbcad6f6c6a4f13a90401"
     },
     {
-      "bytes": 29053,
+      "bytes": 27012,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_device.cu",
-      "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
+      "sha256": "1ad0566406919e48e55cabb6c7085db608b9d0cef05e9644622cc075d4d6e1e3"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-      "sha256": "ea3cfa592fc4b42408ed963ccdcaebf0e36ca1233ffdbdf57961c50bee2511a1"
+      "sha256": "4a7ea0c512a9978b82b58e7251373b0bac5e5cfaa42963826696ea72f729b837"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-      "sha256": "cb411d909b040e40ea73dfcfb2c47ea23b1bb08f43f2d233dcca67bd6837bf0e"
+      "sha256": "5314a1ebd8a39cea221d27127f7ceadebb8c44094f7ee947f21cfb0a2ca8fad1"
     },
     {
-      "bytes": 33036,
+      "bytes": 30743,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_device.cu",
-      "sha256": "3f09ac76a0a9d5cbf37747c9841d0334109cb6e5f19777ee200fda013143d0e2"
+      "sha256": "38c030ac133d9b7f4ac63ab823addd9d60b9f72f80def54aa227fdcb9089663a"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-      "sha256": "376dd99c1891c5df31d066c9a7fa91d68b08f7279a74d0691ab251b00a7ac908"
+      "sha256": "1e053cbcce686131c5e328908d0d1899bfee5e36f21ca37390d81ec361e080d4"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-      "sha256": "77fc2fe6616bbfcdd9d37c50f9d4b8b0603ea57446466d1ead1a1cdf0d3a462e"
+      "sha256": "18da90e88dee3548b25a48a6ac33a7d22edb7826cc9bbc5585b9e898c6866543"
     },
     {
-      "bytes": 38274,
+      "bytes": 36461,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_device.cu",
-      "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
+      "sha256": "058b92cb97f656b44c2a5419483f65250dc9e0e175de6a2493eca3c9ddc28eae"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-      "sha256": "17d45ca13ad33a2c2f195c18831d334e74e141b90b20ce7893b554029c75aec0"
+      "sha256": "82ef6beba57a0ca33a6470758caf397b704f0ecca68e58d90d4035c830e9390d"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-      "sha256": "64aba442c98d848d20f07e70fbe05eacd26b6ad2dd74ee1ba186f594ab21f1b3"
+      "sha256": "9f55faf31f9f8a4188d184666c8f04dde22f72244c6495266062b118d08be34d"
     },
     {
-      "bytes": 42257,
+      "bytes": 40192,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_device.cu",
-      "sha256": "6cdb33342a236635c1ca528f9fa60003c96e2ae608f62a2f2822728101847fc4"
+      "sha256": "767b35aa95df0af1e25b461f668b3c56015c22fcf94a5e55157119d6d89fab40"
     },
     {
-      "bytes": 11856,
+      "bytes": 12013,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-      "sha256": "62d5ce18cacc73ce16589585427ea50261ec7b4a2ed710bb9e84c54039ac4dbf"
+      "sha256": "8a3ff21c9ccb7f6472bad6e33384600a8207e9c60e89e1bb327f95f36c217199"
     },
     {
-      "bytes": 11990,
+      "bytes": 12147,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-      "sha256": "8bb18a16b76e7105b498025690160a5351d0c8db074421d9636116f0774370c9"
+      "sha256": "87db4bc82816d62db8c342f8a62ef2c6db71d58cc7efea5bc557921adae33591"
     },
     {
-      "bytes": 26552,
+      "bytes": 23832,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_device.cu",
-      "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
+      "sha256": "5168e59d61bd2c38990acc69359efb9968bbf06cd1825735934b84b57c1647a0"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-      "sha256": "36a287172b0a506a2ca8c7a879ba78ec289f2ac0b8bbd2b76bf34a988b3a4c1f"
+      "sha256": "44a25c153b36888cc2face7f26ace178c99c13d33ebe827384790d041c07160d"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-      "sha256": "fb7b164a7d178c8e97bd856420c5fbf46a6114ff8475ef14c17b26539bae2a0b"
+      "sha256": "24b7b18ac02ff383d9f2cc04997c688b9e88a0dcc1d329bcd791f4bebf2f97a7"
     },
     {
-      "bytes": 30609,
+      "bytes": 27613,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_device.cu",
-      "sha256": "49283c70dea6be149f9bdb5276b597cf46aa6a26539e0a7c1feae6f8c8563bbe"
+      "sha256": "97816ba2fed28e6f5b5364925f63ea77e1dae9ddf902c41045afc0ecde7c9973"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-      "sha256": "fe11d07e171ed2dd01d7d3c5ed66864613efb1a5f5281a6b596c0d6878379af7"
+      "sha256": "1e06f4b3db132612a838899b1d983d2dc41e3028949f41a0f3be89328fe8fb37"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-      "sha256": "b59f66afc9dce867fe04d126e0e819cd73fd6b208124b05b98e1526a4a97cd26"
+      "sha256": "0da45822e673eb723fced3edad817dcbc81927dc3e2aa187cc6c89706407d06b"
     },
     {
-      "bytes": 31726,
+      "bytes": 29000,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_device.cu",
-      "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
+      "sha256": "baefd279ccadae78292e96b6145421a3632553fe1efa7eab112bed3862c01335"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-      "sha256": "e44cf5a9c326abcb69cf09e266f0c258b68e2fbea5776795758600b5512c20f7"
+      "sha256": "2b2aab310417827f69725aa8ac52f03ac2cdbafd0a22c0086c6f6c1c3ed82e18"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-      "sha256": "59b276d1084949643561d251fdd4d7efc6b6603dbccf7a217f0d0a065a6ad95d"
+      "sha256": "222ea5f6890f03953c55c01588168311ea9e9003a14e5ad64ec8f55973749b1e"
     },
     {
-      "bytes": 35783,
+      "bytes": 32781,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_device.cu",
-      "sha256": "e9dd14ca58b2973ea3f6b6964c46b300994aed74d9edd25768d0c2cbee894997"
+      "sha256": "91f721b1c95ac6d01dc40c4fd05ad529ed5696195d189cfcbce19e8312339ab5"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-      "sha256": "b8a854b009f2973bfc438aa8787aa81b4aff7cdad05183b1c1876a37a5ccb46f"
+      "sha256": "4128f6b7f46c5d4a3e9103d435c2d19dea0d49e814e57a82ad59f4e9ef347c1f"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-      "sha256": "f0cbefb1cc64f1912cfa2ad89d3e2a6772b2ffe69afa303b006e6c90b70ea532"
+      "sha256": "c132fee012f425dcbaf5b085ad5c6076abcf1dfef1c9f81378f9b973fdde1c67"
     },
     {
-      "bytes": 42089,
+      "bytes": 39351,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_device.cu",
-      "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
+      "sha256": "81ffa5b50f719b6f5d58ffb1dfad7dcaa48162e5f6748029235bdfc360ecd56c"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-      "sha256": "787da1614d53802721460fa60f5801edc56a1ef3be7480c206ee5ed4908f6fa8"
+      "sha256": "680da20a2d405c8fde750ddf414711e5c402031ece1154e5f3c960ec9e2606fd"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-      "sha256": "e235231bb4bf98c3f1046f0747bb5ecb1750d72e892e3b3551b5c6953d24758f"
+      "sha256": "82de3fe26f5d305da1929e9eb8ec972e54811166d0e7d4f31a9aac21fb9ad395"
     },
     {
-      "bytes": 46146,
+      "bytes": 43132,
       "kind": "device_source",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_device.cu",
-      "sha256": "2cc1d4f6c3b20dea70d0c401adc2569a27eaba6413fd69ac257a91a20aed1b2c"
+      "sha256": "dd7f67f4833601dd9d5646ae33ec9666467c86f623013d7699e6ac2a57edaca4"
     },
     {
-      "bytes": 11852,
+      "bytes": 12009,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-      "sha256": "5ad7b0cf63e612145c01a760b26e0f71a709913975b47f259ac8b887781b2986"
+      "sha256": "ccffc342867444ca91a76d5cff9ed0d3940fe6add970a79b948ad0a0366bdc21"
     },
     {
-      "bytes": 11986,
+      "bytes": 12143,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-      "sha256": "892c276e8d735f7b9d9ed8a5cd43f0b08c41554b1045e0a10da3490d2816a3d5"
+      "sha256": "c992c9823a8fc069acfa6d2b0d90c5bff0d56dfc6da4fd038de42710837b7445"
     }
   ],
   "library": "flashinfer",
@@ -584,17 +584,17 @@
       },
       "closure": [
         {
-          "bytes": 24455,
+          "bytes": 22300,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_device.cu",
-          "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
+          "sha256": "f87c5adc9784cefdbbeabe54db1f754f0d5440a66330d6ee27216edbc6809a32"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-          "sha256": "a53aa6f23d8b2e7ac19c51215cfffc40f0f8e2a12ca27729cde2a5e1dc4d3691"
+          "sha256": "30ae6afe9f1829532b67c6cdb75236db931b568367c8dd48bb6effb3a53a1074"
         }
       ],
-      "closure_sha256": "46e08c1d2847eb99a8eace14d45196cb997a59dea8f944fa2ca5640933d4ecb8",
+      "closure_sha256": "d10510bf0b7a5a2cc4adedad4cc979f067d61a893724816fcab42d3296e27c32",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -734,17 +734,17 @@
       },
       "closure": [
         {
-          "bytes": 24455,
+          "bytes": 22300,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_device.cu",
-          "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
+          "sha256": "f87c5adc9784cefdbbeabe54db1f754f0d5440a66330d6ee27216edbc6809a32"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-          "sha256": "069cbce2de1c8ac912137d2561e88763ae99d30ec4074448e9122c76c30183e0"
+          "sha256": "766b36005e9eb532d27b49b07f61608f7f176a4ef8fd5fdbe319fea327525804"
         }
       ],
-      "closure_sha256": "98f844c3497a27744abf45f4062d75d50036a23f8c579543475148855ee1173a",
+      "closure_sha256": "c7ee976633324bf87dc02f4d7399a177356364b24106acca23d88f616e84c3f4",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -884,17 +884,17 @@
       },
       "closure": [
         {
-          "bytes": 28438,
+          "bytes": 26031,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_device.cu",
-          "sha256": "003e86821207c25e405ba6fb3e065a9b431f1fdca70ebc17ce0065f579e07f7d"
+          "sha256": "c00b23a32755878e31cfb1887ca89ab02dd01e064e57db655c079d1051997730"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-          "sha256": "cae6c07b3b92d3891c056b85a00e2aa3c1575a488359f8fbbbac171c814a4f7d"
+          "sha256": "d7dcb314eee097840b72f49806f7b57632eebeb6ed5a5dd6b17ff74a3487779b"
         }
       ],
-      "closure_sha256": "f07a0dbcaf83abab6e256d27959353bf77439977dd567dcdf3b246298b0a9d3b",
+      "closure_sha256": "02b948d5302f69d5c15a9ae30cb4e2e2b86be3a03ba78ad5c38effbcae4baa22",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1034,17 +1034,17 @@
       },
       "closure": [
         {
-          "bytes": 28438,
+          "bytes": 26031,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_device.cu",
-          "sha256": "003e86821207c25e405ba6fb3e065a9b431f1fdca70ebc17ce0065f579e07f7d"
+          "sha256": "c00b23a32755878e31cfb1887ca89ab02dd01e064e57db655c079d1051997730"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-          "sha256": "6aaf34518393783670c549e2a4fb604bc60d5b3e9df5de8f49c59d246451adec"
+          "sha256": "403c92429768c70202d798f3a2236dd0ccdd67b612bdbcad6f6c6a4f13a90401"
         }
       ],
-      "closure_sha256": "e41b98a8524f8683a979d501459846e865e040b50962f49df3c1fdd2cb548bfa",
+      "closure_sha256": "c3cd928cff5af610cc663663345c2e572a1e7611913681f7a8f55c2c77e5ef6f",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1184,17 +1184,17 @@
       },
       "closure": [
         {
-          "bytes": 29053,
+          "bytes": 27012,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_device.cu",
-          "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
+          "sha256": "1ad0566406919e48e55cabb6c7085db608b9d0cef05e9644622cc075d4d6e1e3"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-          "sha256": "ea3cfa592fc4b42408ed963ccdcaebf0e36ca1233ffdbdf57961c50bee2511a1"
+          "sha256": "4a7ea0c512a9978b82b58e7251373b0bac5e5cfaa42963826696ea72f729b837"
         }
       ],
-      "closure_sha256": "6779a3a099f0e2ed3d3e7f4ac08cd16c48d8f82aae5c0b92919ae933ec597f5e",
+      "closure_sha256": "fba0b90031fe5ec2082e0d130d5e5271a0e97a74c4ca8eab8646ec95819ca202",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1334,17 +1334,17 @@
       },
       "closure": [
         {
-          "bytes": 29053,
+          "bytes": 27012,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_device.cu",
-          "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
+          "sha256": "1ad0566406919e48e55cabb6c7085db608b9d0cef05e9644622cc075d4d6e1e3"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-          "sha256": "cb411d909b040e40ea73dfcfb2c47ea23b1bb08f43f2d233dcca67bd6837bf0e"
+          "sha256": "5314a1ebd8a39cea221d27127f7ceadebb8c44094f7ee947f21cfb0a2ca8fad1"
         }
       ],
-      "closure_sha256": "cb74066bce9fe41879cd9c92dac8d40eb3970ff2f64b52effc727cf3704b1248",
+      "closure_sha256": "b0cc0efc634bc0faeae25e801312522bb8b0b349a4cd7a8727a524184d409a9e",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1484,17 +1484,17 @@
       },
       "closure": [
         {
-          "bytes": 33036,
+          "bytes": 30743,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_device.cu",
-          "sha256": "3f09ac76a0a9d5cbf37747c9841d0334109cb6e5f19777ee200fda013143d0e2"
+          "sha256": "38c030ac133d9b7f4ac63ab823addd9d60b9f72f80def54aa227fdcb9089663a"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-          "sha256": "376dd99c1891c5df31d066c9a7fa91d68b08f7279a74d0691ab251b00a7ac908"
+          "sha256": "1e053cbcce686131c5e328908d0d1899bfee5e36f21ca37390d81ec361e080d4"
         }
       ],
-      "closure_sha256": "eef71ac7bb8a9072e7d5b6920f9dce1e942fc9ef5672b1affcb4aa2847888a7e",
+      "closure_sha256": "bf2f2aa6cce43eb495f656c90a381f2f1cc6649462def8585c0206b220b0b8a2",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1634,17 +1634,17 @@
       },
       "closure": [
         {
-          "bytes": 33036,
+          "bytes": 30743,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_device.cu",
-          "sha256": "3f09ac76a0a9d5cbf37747c9841d0334109cb6e5f19777ee200fda013143d0e2"
+          "sha256": "38c030ac133d9b7f4ac63ab823addd9d60b9f72f80def54aa227fdcb9089663a"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-          "sha256": "77fc2fe6616bbfcdd9d37c50f9d4b8b0603ea57446466d1ead1a1cdf0d3a462e"
+          "sha256": "18da90e88dee3548b25a48a6ac33a7d22edb7826cc9bbc5585b9e898c6866543"
         }
       ],
-      "closure_sha256": "c1a241d9370285f56e23dfc906bff5582e0da89d9f94327dcf8fceb7e7bc6409",
+      "closure_sha256": "89cd094acbfb04260d5e9db7b9a4d2fe27489fc2c58f593ef2a54722d42819ac",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1784,17 +1784,17 @@
       },
       "closure": [
         {
-          "bytes": 38274,
+          "bytes": 36461,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_device.cu",
-          "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
+          "sha256": "058b92cb97f656b44c2a5419483f65250dc9e0e175de6a2493eca3c9ddc28eae"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-          "sha256": "17d45ca13ad33a2c2f195c18831d334e74e141b90b20ce7893b554029c75aec0"
+          "sha256": "82ef6beba57a0ca33a6470758caf397b704f0ecca68e58d90d4035c830e9390d"
         }
       ],
-      "closure_sha256": "94281f48875d0785f16a411aa1c5420e8af887c5144c316b700db640a2557822",
+      "closure_sha256": "9cd381b1f3f872d6baf7fd09928adcab43ae9e86ac404d391a67f058e8824157",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1934,17 +1934,17 @@
       },
       "closure": [
         {
-          "bytes": 38274,
+          "bytes": 36461,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_device.cu",
-          "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
+          "sha256": "058b92cb97f656b44c2a5419483f65250dc9e0e175de6a2493eca3c9ddc28eae"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-          "sha256": "64aba442c98d848d20f07e70fbe05eacd26b6ad2dd74ee1ba186f594ab21f1b3"
+          "sha256": "9f55faf31f9f8a4188d184666c8f04dde22f72244c6495266062b118d08be34d"
         }
       ],
-      "closure_sha256": "f7d6e5b2b511a51e15d9ff4210da663a46f89da481846e11f0e7c4fe829d96b8",
+      "closure_sha256": "e7f36b09a122cff02295b0737098634d4d8d99c30801d80d5be4638c7c99f601",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2084,17 +2084,17 @@
       },
       "closure": [
         {
-          "bytes": 42257,
+          "bytes": 40192,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_device.cu",
-          "sha256": "6cdb33342a236635c1ca528f9fa60003c96e2ae608f62a2f2822728101847fc4"
+          "sha256": "767b35aa95df0af1e25b461f668b3c56015c22fcf94a5e55157119d6d89fab40"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-          "sha256": "62d5ce18cacc73ce16589585427ea50261ec7b4a2ed710bb9e84c54039ac4dbf"
+          "sha256": "8a3ff21c9ccb7f6472bad6e33384600a8207e9c60e89e1bb327f95f36c217199"
         }
       ],
-      "closure_sha256": "71ac5f7ca1de25ff3de2f0ef74186b07d4337d31343c4d79c812fbf308392374",
+      "closure_sha256": "9f82b5537b850b58ef797ce9719c597ec9cfdf0008a12cac8c969d96d4b2153a",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2234,17 +2234,17 @@
       },
       "closure": [
         {
-          "bytes": 42257,
+          "bytes": 40192,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_device.cu",
-          "sha256": "6cdb33342a236635c1ca528f9fa60003c96e2ae608f62a2f2822728101847fc4"
+          "sha256": "767b35aa95df0af1e25b461f668b3c56015c22fcf94a5e55157119d6d89fab40"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-          "sha256": "8bb18a16b76e7105b498025690160a5351d0c8db074421d9636116f0774370c9"
+          "sha256": "87db4bc82816d62db8c342f8a62ef2c6db71d58cc7efea5bc557921adae33591"
         }
       ],
-      "closure_sha256": "43c6f547d8baf403784eeaab39e8e7be8793e4a53a3f56b1dce3752bcb1f2588",
+      "closure_sha256": "2a40c3e5d04d8c3e9ad859e162aea292952069211ab5becabc6f23c44204db14",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2384,17 +2384,17 @@
       },
       "closure": [
         {
-          "bytes": 26552,
+          "bytes": 23832,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_device.cu",
-          "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
+          "sha256": "5168e59d61bd2c38990acc69359efb9968bbf06cd1825735934b84b57c1647a0"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-          "sha256": "36a287172b0a506a2ca8c7a879ba78ec289f2ac0b8bbd2b76bf34a988b3a4c1f"
+          "sha256": "44a25c153b36888cc2face7f26ace178c99c13d33ebe827384790d041c07160d"
         }
       ],
-      "closure_sha256": "f1f870ffab2fe9684940c757cb2bebbffda7d7af8e1259b9730e7c13635cdc24",
+      "closure_sha256": "82cc23c83e85c8d3c1c3673ab34eac1ced2108289128f396c417ecabd1728f03",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2534,17 +2534,17 @@
       },
       "closure": [
         {
-          "bytes": 26552,
+          "bytes": 23832,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_device.cu",
-          "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
+          "sha256": "5168e59d61bd2c38990acc69359efb9968bbf06cd1825735934b84b57c1647a0"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-          "sha256": "fb7b164a7d178c8e97bd856420c5fbf46a6114ff8475ef14c17b26539bae2a0b"
+          "sha256": "24b7b18ac02ff383d9f2cc04997c688b9e88a0dcc1d329bcd791f4bebf2f97a7"
         }
       ],
-      "closure_sha256": "5e2f1630777a9ab2a1988566c949b4c68295dc92a73461cc0e9f71193dae2847",
+      "closure_sha256": "dd64f08e79aac660929cde450c75d9da925c6e901af2ddd53554429dbf4c5e85",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2684,17 +2684,17 @@
       },
       "closure": [
         {
-          "bytes": 30609,
+          "bytes": 27613,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_device.cu",
-          "sha256": "49283c70dea6be149f9bdb5276b597cf46aa6a26539e0a7c1feae6f8c8563bbe"
+          "sha256": "97816ba2fed28e6f5b5364925f63ea77e1dae9ddf902c41045afc0ecde7c9973"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-          "sha256": "fe11d07e171ed2dd01d7d3c5ed66864613efb1a5f5281a6b596c0d6878379af7"
+          "sha256": "1e06f4b3db132612a838899b1d983d2dc41e3028949f41a0f3be89328fe8fb37"
         }
       ],
-      "closure_sha256": "62bc79d82595563d1bab02fcd615ab6ffc675cde7f56b56d06f0612de2ae25ca",
+      "closure_sha256": "a1da76fe8a6c14f0300c4851975975fc817c2a07de5df532eff6511269f8f75b",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2834,17 +2834,17 @@
       },
       "closure": [
         {
-          "bytes": 30609,
+          "bytes": 27613,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_device.cu",
-          "sha256": "49283c70dea6be149f9bdb5276b597cf46aa6a26539e0a7c1feae6f8c8563bbe"
+          "sha256": "97816ba2fed28e6f5b5364925f63ea77e1dae9ddf902c41045afc0ecde7c9973"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-          "sha256": "b59f66afc9dce867fe04d126e0e819cd73fd6b208124b05b98e1526a4a97cd26"
+          "sha256": "0da45822e673eb723fced3edad817dcbc81927dc3e2aa187cc6c89706407d06b"
         }
       ],
-      "closure_sha256": "a33d04d306f6e2a27800f87fdd84b99daf59b5d419b04b5149922a352b1a2b47",
+      "closure_sha256": "82693c6d24003633150a7e397ebb7eb10f33a33da1dd302e117c8f2936dea016",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2984,17 +2984,17 @@
       },
       "closure": [
         {
-          "bytes": 31726,
+          "bytes": 29000,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_device.cu",
-          "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
+          "sha256": "baefd279ccadae78292e96b6145421a3632553fe1efa7eab112bed3862c01335"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-          "sha256": "e44cf5a9c326abcb69cf09e266f0c258b68e2fbea5776795758600b5512c20f7"
+          "sha256": "2b2aab310417827f69725aa8ac52f03ac2cdbafd0a22c0086c6f6c1c3ed82e18"
         }
       ],
-      "closure_sha256": "b47548b634de0f2da91fd0877469d0ac6ffa5eaf318b4a15cbdd14000f26802e",
+      "closure_sha256": "d40b998d0e9d9ce2daa38f7272405ab1c50b43b93a8470e64044b69fcce82be5",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3134,17 +3134,17 @@
       },
       "closure": [
         {
-          "bytes": 31726,
+          "bytes": 29000,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_device.cu",
-          "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
+          "sha256": "baefd279ccadae78292e96b6145421a3632553fe1efa7eab112bed3862c01335"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-          "sha256": "59b276d1084949643561d251fdd4d7efc6b6603dbccf7a217f0d0a065a6ad95d"
+          "sha256": "222ea5f6890f03953c55c01588168311ea9e9003a14e5ad64ec8f55973749b1e"
         }
       ],
-      "closure_sha256": "0499aad71cf422ea79b925c735392500272bfdd72731fdb1a99c7ce1101393df",
+      "closure_sha256": "f45f863f52582a9e16c6836c0202c4f5d3a45c6b7852a46a63bf1d8fff820074",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3284,17 +3284,17 @@
       },
       "closure": [
         {
-          "bytes": 35783,
+          "bytes": 32781,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_device.cu",
-          "sha256": "e9dd14ca58b2973ea3f6b6964c46b300994aed74d9edd25768d0c2cbee894997"
+          "sha256": "91f721b1c95ac6d01dc40c4fd05ad529ed5696195d189cfcbce19e8312339ab5"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-          "sha256": "b8a854b009f2973bfc438aa8787aa81b4aff7cdad05183b1c1876a37a5ccb46f"
+          "sha256": "4128f6b7f46c5d4a3e9103d435c2d19dea0d49e814e57a82ad59f4e9ef347c1f"
         }
       ],
-      "closure_sha256": "54674e26b6799861ac76475cc0b0d0dbadef4af359fae7107ba465064a1f3d51",
+      "closure_sha256": "4d6b10845169e5acbf986c5fd9536a45ede35215f87be4f8c8e3a7764c6a2772",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3434,17 +3434,17 @@
       },
       "closure": [
         {
-          "bytes": 35783,
+          "bytes": 32781,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_device.cu",
-          "sha256": "e9dd14ca58b2973ea3f6b6964c46b300994aed74d9edd25768d0c2cbee894997"
+          "sha256": "91f721b1c95ac6d01dc40c4fd05ad529ed5696195d189cfcbce19e8312339ab5"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-          "sha256": "f0cbefb1cc64f1912cfa2ad89d3e2a6772b2ffe69afa303b006e6c90b70ea532"
+          "sha256": "c132fee012f425dcbaf5b085ad5c6076abcf1dfef1c9f81378f9b973fdde1c67"
         }
       ],
-      "closure_sha256": "e3a10e662bf9cd8f7375f03f4545142cf33d65353f5e0add9bf7488e0451b2a5",
+      "closure_sha256": "c97db7ac7e886e864c8a45fe2469dea32ca444b17f2ec569f01606c1e62f89e2",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3584,17 +3584,17 @@
       },
       "closure": [
         {
-          "bytes": 42089,
+          "bytes": 39351,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_device.cu",
-          "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
+          "sha256": "81ffa5b50f719b6f5d58ffb1dfad7dcaa48162e5f6748029235bdfc360ecd56c"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-          "sha256": "787da1614d53802721460fa60f5801edc56a1ef3be7480c206ee5ed4908f6fa8"
+          "sha256": "680da20a2d405c8fde750ddf414711e5c402031ece1154e5f3c960ec9e2606fd"
         }
       ],
-      "closure_sha256": "aaf40ca09cd72ab04003a187b4ecc204aea6365ad9da6982ac8b34480bfa22a6",
+      "closure_sha256": "2c8126f012a2bbf0e936b93327fe93b6c0686c75448ccd9910d326fe31c36ce9",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3734,17 +3734,17 @@
       },
       "closure": [
         {
-          "bytes": 42089,
+          "bytes": 39351,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_device.cu",
-          "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
+          "sha256": "81ffa5b50f719b6f5d58ffb1dfad7dcaa48162e5f6748029235bdfc360ecd56c"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-          "sha256": "e235231bb4bf98c3f1046f0747bb5ecb1750d72e892e3b3551b5c6953d24758f"
+          "sha256": "82de3fe26f5d305da1929e9eb8ec972e54811166d0e7d4f31a9aac21fb9ad395"
         }
       ],
-      "closure_sha256": "751187b778b46a76ac9418614973ebf47ec36e9a9711fdde2f0cdf2819ced074",
+      "closure_sha256": "3ee0c6da4dc25fe197ebe5a939864db078d8ad41026dc823352b63b4ea969bd4",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3884,17 +3884,17 @@
       },
       "closure": [
         {
-          "bytes": 46146,
+          "bytes": 43132,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_device.cu",
-          "sha256": "2cc1d4f6c3b20dea70d0c401adc2569a27eaba6413fd69ac257a91a20aed1b2c"
+          "sha256": "dd7f67f4833601dd9d5646ae33ec9666467c86f623013d7699e6ac2a57edaca4"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-          "sha256": "5ad7b0cf63e612145c01a760b26e0f71a709913975b47f259ac8b887781b2986"
+          "sha256": "ccffc342867444ca91a76d5cff9ed0d3940fe6add970a79b948ad0a0366bdc21"
         }
       ],
-      "closure_sha256": "3d14193d7957e4705af80bbd1ca45006ce8e7991c832f21e4be047a30d4d4c64",
+      "closure_sha256": "1e5e4745f0a7f206d785bc18366fb7f6e0faaacd46b08f30c949cac6b27470bd",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4034,17 +4034,17 @@
       },
       "closure": [
         {
-          "bytes": 46146,
+          "bytes": 43132,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_device.cu",
-          "sha256": "2cc1d4f6c3b20dea70d0c401adc2569a27eaba6413fd69ac257a91a20aed1b2c"
+          "sha256": "dd7f67f4833601dd9d5646ae33ec9666467c86f623013d7699e6ac2a57edaca4"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-          "sha256": "892c276e8d735f7b9d9ed8a5cd43f0b08c41554b1045e0a10da3490d2816a3d5"
+          "sha256": "c992c9823a8fc069acfa6d2b0d90c5bff0d56dfc6da4fd038de42710837b7445"
         }
       ],
-      "closure_sha256": "d3273d6a7140e96503d7d25403d0ec701a29a113b4382a173c7f75fe5a236667",
+      "closure_sha256": "5fe7878f2e2a1b66a074dbcc68809371a9734d490c06aecb3b20135fb28ce302",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4184,17 +4184,17 @@
       },
       "closure": [
         {
-          "bytes": 24455,
+          "bytes": 22300,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_device.cu",
-          "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
+          "sha256": "f87c5adc9784cefdbbeabe54db1f754f0d5440a66330d6ee27216edbc6809a32"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-          "sha256": "a53aa6f23d8b2e7ac19c51215cfffc40f0f8e2a12ca27729cde2a5e1dc4d3691"
+          "sha256": "30ae6afe9f1829532b67c6cdb75236db931b568367c8dd48bb6effb3a53a1074"
         }
       ],
-      "closure_sha256": "70b6be18c7c0087887dd114280294112fe63ddc20eb4e5d7ae71dc3fdefebaa3",
+      "closure_sha256": "7be2cae4c06fe90081da02e1f10a5b88f1c8f0d44f8be3923fd7702469b96fc5",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4334,17 +4334,17 @@
       },
       "closure": [
         {
-          "bytes": 24455,
+          "bytes": 22300,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_device.cu",
-          "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
+          "sha256": "f87c5adc9784cefdbbeabe54db1f754f0d5440a66330d6ee27216edbc6809a32"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-          "sha256": "069cbce2de1c8ac912137d2561e88763ae99d30ec4074448e9122c76c30183e0"
+          "sha256": "766b36005e9eb532d27b49b07f61608f7f176a4ef8fd5fdbe319fea327525804"
         }
       ],
-      "closure_sha256": "2f91ccefbad9349b5b99aaff04a305468a5498bb976b4a273dd3dc46aa7b6407",
+      "closure_sha256": "654e28b4bbb6ffdd8f7cc52364a6fa82dfe15035e08b7af3993536db432f9e35",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4484,17 +4484,17 @@
       },
       "closure": [
         {
-          "bytes": 28438,
+          "bytes": 26031,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_device.cu",
-          "sha256": "003e86821207c25e405ba6fb3e065a9b431f1fdca70ebc17ce0065f579e07f7d"
+          "sha256": "c00b23a32755878e31cfb1887ca89ab02dd01e064e57db655c079d1051997730"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-          "sha256": "cae6c07b3b92d3891c056b85a00e2aa3c1575a488359f8fbbbac171c814a4f7d"
+          "sha256": "d7dcb314eee097840b72f49806f7b57632eebeb6ed5a5dd6b17ff74a3487779b"
         }
       ],
-      "closure_sha256": "59c8bca0e6a399efd92ee2ac038e2d94601090ef66551e288f512776255430c4",
+      "closure_sha256": "3e2cd7b1ae7a2a21a56cc0144e90244af7d2cfa0a5a34dedfa1624bb4b5c88a2",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4634,17 +4634,17 @@
       },
       "closure": [
         {
-          "bytes": 28438,
+          "bytes": 26031,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_device.cu",
-          "sha256": "003e86821207c25e405ba6fb3e065a9b431f1fdca70ebc17ce0065f579e07f7d"
+          "sha256": "c00b23a32755878e31cfb1887ca89ab02dd01e064e57db655c079d1051997730"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-          "sha256": "6aaf34518393783670c549e2a4fb604bc60d5b3e9df5de8f49c59d246451adec"
+          "sha256": "403c92429768c70202d798f3a2236dd0ccdd67b612bdbcad6f6c6a4f13a90401"
         }
       ],
-      "closure_sha256": "15a63088653bcf0c816bd3c5e4f0794448c0f4e7a3cbdedcf287d9bbe360d33a",
+      "closure_sha256": "9336da4193121b39df5cbd061c885ef1d4b487291be5ce24f1a0198da242fbb0",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4784,17 +4784,17 @@
       },
       "closure": [
         {
-          "bytes": 29053,
+          "bytes": 27012,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_device.cu",
-          "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
+          "sha256": "1ad0566406919e48e55cabb6c7085db608b9d0cef05e9644622cc075d4d6e1e3"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-          "sha256": "ea3cfa592fc4b42408ed963ccdcaebf0e36ca1233ffdbdf57961c50bee2511a1"
+          "sha256": "4a7ea0c512a9978b82b58e7251373b0bac5e5cfaa42963826696ea72f729b837"
         }
       ],
-      "closure_sha256": "715534a7d15564094378fcf78ab768426e97afdb2e77a3d5a2a9e1749506e8f2",
+      "closure_sha256": "f375e12a8cd26f84eb30166524cc08059c8fd04713bc04802ee6569f55c28cad",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4934,17 +4934,17 @@
       },
       "closure": [
         {
-          "bytes": 29053,
+          "bytes": 27012,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_device.cu",
-          "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
+          "sha256": "1ad0566406919e48e55cabb6c7085db608b9d0cef05e9644622cc075d4d6e1e3"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-          "sha256": "cb411d909b040e40ea73dfcfb2c47ea23b1bb08f43f2d233dcca67bd6837bf0e"
+          "sha256": "5314a1ebd8a39cea221d27127f7ceadebb8c44094f7ee947f21cfb0a2ca8fad1"
         }
       ],
-      "closure_sha256": "f5d4b773c2dda6ffc6eacfb31155b4c5df60c244c52e9e68c17a7ed4129bb3fe",
+      "closure_sha256": "29c37bcbbdd1cd9f01b9f2cef78a72fa06fda75c8962f6c5675dcbc712db6fe2",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5084,17 +5084,17 @@
       },
       "closure": [
         {
-          "bytes": 33036,
+          "bytes": 30743,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_device.cu",
-          "sha256": "3f09ac76a0a9d5cbf37747c9841d0334109cb6e5f19777ee200fda013143d0e2"
+          "sha256": "38c030ac133d9b7f4ac63ab823addd9d60b9f72f80def54aa227fdcb9089663a"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-          "sha256": "376dd99c1891c5df31d066c9a7fa91d68b08f7279a74d0691ab251b00a7ac908"
+          "sha256": "1e053cbcce686131c5e328908d0d1899bfee5e36f21ca37390d81ec361e080d4"
         }
       ],
-      "closure_sha256": "9721a9e1ed4757548c02dc8ab2a2cbbf3b248c4de6cb1ad397c3c259da254177",
+      "closure_sha256": "eaf2104c901ac6ab30813fa2c20dad6466a575b5ad2861f99cbc025544d93e8c",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5234,17 +5234,17 @@
       },
       "closure": [
         {
-          "bytes": 33036,
+          "bytes": 30743,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_device.cu",
-          "sha256": "3f09ac76a0a9d5cbf37747c9841d0334109cb6e5f19777ee200fda013143d0e2"
+          "sha256": "38c030ac133d9b7f4ac63ab823addd9d60b9f72f80def54aa227fdcb9089663a"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-          "sha256": "77fc2fe6616bbfcdd9d37c50f9d4b8b0603ea57446466d1ead1a1cdf0d3a462e"
+          "sha256": "18da90e88dee3548b25a48a6ac33a7d22edb7826cc9bbc5585b9e898c6866543"
         }
       ],
-      "closure_sha256": "ad11b471cda871f425c2f9e692bda5d83003359a93a3983b2a01df9fc9351a6f",
+      "closure_sha256": "39c6f278db6a0c73fdf5579173dc73c0c3577381a29f1daeca453506bdd96804",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5384,17 +5384,17 @@
       },
       "closure": [
         {
-          "bytes": 38274,
+          "bytes": 36461,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_device.cu",
-          "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
+          "sha256": "058b92cb97f656b44c2a5419483f65250dc9e0e175de6a2493eca3c9ddc28eae"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-          "sha256": "17d45ca13ad33a2c2f195c18831d334e74e141b90b20ce7893b554029c75aec0"
+          "sha256": "82ef6beba57a0ca33a6470758caf397b704f0ecca68e58d90d4035c830e9390d"
         }
       ],
-      "closure_sha256": "1c857d2ea35f6b8b8ad4f4c65f82c0b21962683d6fae7c987c892be5aa3eb9cd",
+      "closure_sha256": "471db8ec92565ff41685fceb4e18cbeea4a02cb7b719fc39f7b9c487deadb606",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5534,17 +5534,17 @@
       },
       "closure": [
         {
-          "bytes": 38274,
+          "bytes": 36461,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_device.cu",
-          "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
+          "sha256": "058b92cb97f656b44c2a5419483f65250dc9e0e175de6a2493eca3c9ddc28eae"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-          "sha256": "64aba442c98d848d20f07e70fbe05eacd26b6ad2dd74ee1ba186f594ab21f1b3"
+          "sha256": "9f55faf31f9f8a4188d184666c8f04dde22f72244c6495266062b118d08be34d"
         }
       ],
-      "closure_sha256": "30fff48aceafa92be5fcd88077dca0d81682ca4d2fa1ecc591df60db0592517a",
+      "closure_sha256": "32c0bbdd0c49772e4adcb2bc3101feaffec02630fc9a33f8db78c18edcf734e9",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5684,17 +5684,17 @@
       },
       "closure": [
         {
-          "bytes": 42257,
+          "bytes": 40192,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_device.cu",
-          "sha256": "6cdb33342a236635c1ca528f9fa60003c96e2ae608f62a2f2822728101847fc4"
+          "sha256": "767b35aa95df0af1e25b461f668b3c56015c22fcf94a5e55157119d6d89fab40"
         },
         {
-          "bytes": 11856,
+          "bytes": 12013,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-          "sha256": "62d5ce18cacc73ce16589585427ea50261ec7b4a2ed710bb9e84c54039ac4dbf"
+          "sha256": "8a3ff21c9ccb7f6472bad6e33384600a8207e9c60e89e1bb327f95f36c217199"
         }
       ],
-      "closure_sha256": "ca2f5b0dbf9f02874cffaf95afc39256838755b302c09dee41e9a576f8fd6271",
+      "closure_sha256": "95bc9d5e00427bd9036014257037d85e5fca0da82b39c2f4706da60eed3adb69",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5834,17 +5834,17 @@
       },
       "closure": [
         {
-          "bytes": 42257,
+          "bytes": 40192,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_device.cu",
-          "sha256": "6cdb33342a236635c1ca528f9fa60003c96e2ae608f62a2f2822728101847fc4"
+          "sha256": "767b35aa95df0af1e25b461f668b3c56015c22fcf94a5e55157119d6d89fab40"
         },
         {
-          "bytes": 11990,
+          "bytes": 12147,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-          "sha256": "8bb18a16b76e7105b498025690160a5351d0c8db074421d9636116f0774370c9"
+          "sha256": "87db4bc82816d62db8c342f8a62ef2c6db71d58cc7efea5bc557921adae33591"
         }
       ],
-      "closure_sha256": "b821cc3f8ffd3543d4638108369853ce5bf4f857af84d941aa4d440d96991be7",
+      "closure_sha256": "f461047ca645e4b16429a95b8cf3e77ce11cc47eec4844b333e3fef857ad8eb2",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5984,17 +5984,17 @@
       },
       "closure": [
         {
-          "bytes": 26552,
+          "bytes": 23832,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_device.cu",
-          "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
+          "sha256": "5168e59d61bd2c38990acc69359efb9968bbf06cd1825735934b84b57c1647a0"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-          "sha256": "36a287172b0a506a2ca8c7a879ba78ec289f2ac0b8bbd2b76bf34a988b3a4c1f"
+          "sha256": "44a25c153b36888cc2face7f26ace178c99c13d33ebe827384790d041c07160d"
         }
       ],
-      "closure_sha256": "401a4205459985f463e89238129fc1855166915947227d39b44382c74ebc6d4b",
+      "closure_sha256": "2d9ccd77e78710ad8e1071d3d331c71ab7233ff084cd29829f38c42e04718fbb",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6134,17 +6134,17 @@
       },
       "closure": [
         {
-          "bytes": 26552,
+          "bytes": 23832,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_device.cu",
-          "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
+          "sha256": "5168e59d61bd2c38990acc69359efb9968bbf06cd1825735934b84b57c1647a0"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-          "sha256": "fb7b164a7d178c8e97bd856420c5fbf46a6114ff8475ef14c17b26539bae2a0b"
+          "sha256": "24b7b18ac02ff383d9f2cc04997c688b9e88a0dcc1d329bcd791f4bebf2f97a7"
         }
       ],
-      "closure_sha256": "ae3abe496f9f702be1e0ea7e9b5fa95de14072f676e90b2d2a14b49af52b41a1",
+      "closure_sha256": "7ba6f1ecb485d534ebac59d7882ba7b0004145aed12872fd612b1a4dcbb9d277",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6284,17 +6284,17 @@
       },
       "closure": [
         {
-          "bytes": 30609,
+          "bytes": 27613,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_device.cu",
-          "sha256": "49283c70dea6be149f9bdb5276b597cf46aa6a26539e0a7c1feae6f8c8563bbe"
+          "sha256": "97816ba2fed28e6f5b5364925f63ea77e1dae9ddf902c41045afc0ecde7c9973"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-          "sha256": "fe11d07e171ed2dd01d7d3c5ed66864613efb1a5f5281a6b596c0d6878379af7"
+          "sha256": "1e06f4b3db132612a838899b1d983d2dc41e3028949f41a0f3be89328fe8fb37"
         }
       ],
-      "closure_sha256": "81895e719ec5f65b4240da0c6d99cb7250dc1f2165c1c644239581a6d132b204",
+      "closure_sha256": "6020af82fb3592ca34f701ae6f617b54d4ba64e06c59ef88bb7d1185bfb10db2",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6434,17 +6434,17 @@
       },
       "closure": [
         {
-          "bytes": 30609,
+          "bytes": 27613,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_device.cu",
-          "sha256": "49283c70dea6be149f9bdb5276b597cf46aa6a26539e0a7c1feae6f8c8563bbe"
+          "sha256": "97816ba2fed28e6f5b5364925f63ea77e1dae9ddf902c41045afc0ecde7c9973"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-          "sha256": "b59f66afc9dce867fe04d126e0e819cd73fd6b208124b05b98e1526a4a97cd26"
+          "sha256": "0da45822e673eb723fced3edad817dcbc81927dc3e2aa187cc6c89706407d06b"
         }
       ],
-      "closure_sha256": "40bf83b776d9d84ebf7350effdc08f6f1acd7b02b32d440539c394c43588cc58",
+      "closure_sha256": "63b5e8e30d048c3ad4c3ef390d5bca1f409e1af2c3694dd19a526bec111edbaa",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6584,17 +6584,17 @@
       },
       "closure": [
         {
-          "bytes": 31726,
+          "bytes": 29000,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_device.cu",
-          "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
+          "sha256": "baefd279ccadae78292e96b6145421a3632553fe1efa7eab112bed3862c01335"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-          "sha256": "e44cf5a9c326abcb69cf09e266f0c258b68e2fbea5776795758600b5512c20f7"
+          "sha256": "2b2aab310417827f69725aa8ac52f03ac2cdbafd0a22c0086c6f6c1c3ed82e18"
         }
       ],
-      "closure_sha256": "4670bd54536d9add0ff63df70ce02e9e6b75a1bc4e2e1d17648c65cc7823e03e",
+      "closure_sha256": "4c47128329a1dfcaef54545552b0f9b83deea9a0cb461a443605b8c88754a45d",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6734,17 +6734,17 @@
       },
       "closure": [
         {
-          "bytes": 31726,
+          "bytes": 29000,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_device.cu",
-          "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
+          "sha256": "baefd279ccadae78292e96b6145421a3632553fe1efa7eab112bed3862c01335"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-          "sha256": "59b276d1084949643561d251fdd4d7efc6b6603dbccf7a217f0d0a065a6ad95d"
+          "sha256": "222ea5f6890f03953c55c01588168311ea9e9003a14e5ad64ec8f55973749b1e"
         }
       ],
-      "closure_sha256": "3b4ff90a9d2f214c3c35e7e6c8adb601553e2e7d254858cfce8577eb56b8e58b",
+      "closure_sha256": "4aed066ddb4e408a646cede78b78bff13ae9c155a9f5b9a2e9b7850583292fcb",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6884,17 +6884,17 @@
       },
       "closure": [
         {
-          "bytes": 35783,
+          "bytes": 32781,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_device.cu",
-          "sha256": "e9dd14ca58b2973ea3f6b6964c46b300994aed74d9edd25768d0c2cbee894997"
+          "sha256": "91f721b1c95ac6d01dc40c4fd05ad529ed5696195d189cfcbce19e8312339ab5"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-          "sha256": "b8a854b009f2973bfc438aa8787aa81b4aff7cdad05183b1c1876a37a5ccb46f"
+          "sha256": "4128f6b7f46c5d4a3e9103d435c2d19dea0d49e814e57a82ad59f4e9ef347c1f"
         }
       ],
-      "closure_sha256": "73b2e0a1bb75529fbc8cd334298f4f2616074d796a92706cdda6bcd043efca9e",
+      "closure_sha256": "ec3e677994b2f59de5f5cae8106284abc40cd88b74a6e38f3695165b64e70b76",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7034,17 +7034,17 @@
       },
       "closure": [
         {
-          "bytes": 35783,
+          "bytes": 32781,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_device.cu",
-          "sha256": "e9dd14ca58b2973ea3f6b6964c46b300994aed74d9edd25768d0c2cbee894997"
+          "sha256": "91f721b1c95ac6d01dc40c4fd05ad529ed5696195d189cfcbce19e8312339ab5"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-          "sha256": "f0cbefb1cc64f1912cfa2ad89d3e2a6772b2ffe69afa303b006e6c90b70ea532"
+          "sha256": "c132fee012f425dcbaf5b085ad5c6076abcf1dfef1c9f81378f9b973fdde1c67"
         }
       ],
-      "closure_sha256": "f4b1c077a5ae2470c663d10f9251ea5d65e0d0bb60dc46290c076a32ef9517d0",
+      "closure_sha256": "d50960a0a2e61d6b95a8e7b1c2f42b70d43ce0d7e795a9705ea9da3acc631bdf",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7184,17 +7184,17 @@
       },
       "closure": [
         {
-          "bytes": 42089,
+          "bytes": 39351,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_device.cu",
-          "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
+          "sha256": "81ffa5b50f719b6f5d58ffb1dfad7dcaa48162e5f6748029235bdfc360ecd56c"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-          "sha256": "787da1614d53802721460fa60f5801edc56a1ef3be7480c206ee5ed4908f6fa8"
+          "sha256": "680da20a2d405c8fde750ddf414711e5c402031ece1154e5f3c960ec9e2606fd"
         }
       ],
-      "closure_sha256": "aedb86d873fa19d50303ffeb893c1589a729f6606a87315796c0a0571ef1e240",
+      "closure_sha256": "64feac68f7e761998a035886a89cc2e9bb83412222be696a8700765ff2af36f8",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7334,17 +7334,17 @@
       },
       "closure": [
         {
-          "bytes": 42089,
+          "bytes": 39351,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_device.cu",
-          "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
+          "sha256": "81ffa5b50f719b6f5d58ffb1dfad7dcaa48162e5f6748029235bdfc360ecd56c"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-          "sha256": "e235231bb4bf98c3f1046f0747bb5ecb1750d72e892e3b3551b5c6953d24758f"
+          "sha256": "82de3fe26f5d305da1929e9eb8ec972e54811166d0e7d4f31a9aac21fb9ad395"
         }
       ],
-      "closure_sha256": "1e34586e781cb3b8d7bd7fb0f4e17c25c10a4328015babde857d55b69e5dbe0a",
+      "closure_sha256": "c2dcd2d018abcb96047fd6104b361554bf00edb39c8b30ff29ebd2fbe50d8bea",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7484,17 +7484,17 @@
       },
       "closure": [
         {
-          "bytes": 46146,
+          "bytes": 43132,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_device.cu",
-          "sha256": "2cc1d4f6c3b20dea70d0c401adc2569a27eaba6413fd69ac257a91a20aed1b2c"
+          "sha256": "dd7f67f4833601dd9d5646ae33ec9666467c86f623013d7699e6ac2a57edaca4"
         },
         {
-          "bytes": 11852,
+          "bytes": 12009,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-          "sha256": "5ad7b0cf63e612145c01a760b26e0f71a709913975b47f259ac8b887781b2986"
+          "sha256": "ccffc342867444ca91a76d5cff9ed0d3940fe6add970a79b948ad0a0366bdc21"
         }
       ],
-      "closure_sha256": "682c6df3764607cbb1ead839b892f90c5775dc277becf4989912734a877d4494",
+      "closure_sha256": "3e59f520875be0ea7eef474b373a6074208098301fb31c05745585cbf02d45e0",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7634,17 +7634,17 @@
       },
       "closure": [
         {
-          "bytes": 46146,
+          "bytes": 43132,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_device.cu",
-          "sha256": "2cc1d4f6c3b20dea70d0c401adc2569a27eaba6413fd69ac257a91a20aed1b2c"
+          "sha256": "dd7f67f4833601dd9d5646ae33ec9666467c86f623013d7699e6ac2a57edaca4"
         },
         {
-          "bytes": 11986,
+          "bytes": 12143,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-          "sha256": "892c276e8d735f7b9d9ed8a5cd43f0b08c41554b1045e0a10da3490d2816a3d5"
+          "sha256": "c992c9823a8fc069acfa6d2b0d90c5bff0d56dfc6da4fd038de42710837b7445"
         }
       ],
-      "closure_sha256": "43aeac0af0a822141b4fec194c28fbf5f8aec45badbd645a99d1c061d0832597",
+      "closure_sha256": "221f41b7aa794089b385e8000d626e5f64f82ed5f2c3255bafd16ad569da9f17",
       "compile_flags": [
         "--use_fast_math"
       ],

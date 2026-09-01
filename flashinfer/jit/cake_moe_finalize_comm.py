@@ -176,7 +176,8 @@ def _verify_file_record(
     _require_manifest(isinstance(record, dict), f"{label} must be an object")
     assert isinstance(record, dict)
     _require_manifest(
-        set(record) in ({"path", "sha256", "bytes"}, {"path", "kind", "sha256", "bytes"}),
+        set(record)
+        in ({"path", "sha256", "bytes"}, {"path", "kind", "sha256", "bytes"}),
         f"{label} keys mismatch",
     )
     path = _resolve_source_path(source_dir, record.get("path"), f"{label}.path")
@@ -251,7 +252,9 @@ def get_cake_moe_finalize_module_specs() -> tuple[CakeMoeFinalizeModuleSpec, ...
         "producer_revision must be omitted from the public source package",
     )
     _require_manifest(payload.get("artifact_kind") == "source_only", "artifact_kind")
-    _require_manifest(payload.get("build_contract") == _BUILD_CONTRACT, "build_contract")
+    _require_manifest(
+        payload.get("build_contract") == _BUILD_CONTRACT, "build_contract"
+    )
     _require_manifest(payload.get("library") == "flashinfer", "library")
     _require_manifest(payload.get("name") == _SOURCE_PACKAGE, "name")
     _require_manifest(payload.get("contract") == _CONTRACT, "contract")
@@ -340,7 +343,9 @@ def get_cake_moe_finalize_module_specs() -> tuple[CakeMoeFinalizeModuleSpec, ...
         assert isinstance(dtype, str) and isinstance(world_size, int)
         assert isinstance(output_profile, str) and isinstance(use_pdl, bool)
         route_key = (arch, dtype, world_size, output_profile, use_pdl)
-        _require_manifest(route_key not in observed_routes, f"duplicate route {route_key}")
+        _require_manifest(
+            route_key not in observed_routes, f"duplicate route {route_key}"
+        )
         observed_routes.add(route_key)
 
         kernel_stem = (
@@ -466,10 +471,7 @@ def get_cake_moe_finalize_module_specs() -> tuple[CakeMoeFinalizeModuleSpec, ...
             )
             _require_manifest(
                 record
-                == {
-                    key: inventory_record[key]
-                    for key in ("path", "sha256", "bytes")
-                },
+                == {key: inventory_record[key] for key in ("path", "sha256", "bytes")},
                 f"{label}.closure[{closure_index}] inventory mismatch",
             )
             closure_paths.append(path_value)
@@ -671,7 +673,9 @@ def validate_cake_moe_finalize_args(
     """Validate the frozen source route without synchronizing the device."""
 
     if world_size not in (2, 4, 8):
-        raise ValueError(f"Cake MoE finalize world_size must be 2, 4, or 8, got {world_size}")
+        raise ValueError(
+            f"Cake MoE finalize world_size must be 2, 4, or 8, got {world_size}"
+        )
     if type(world_rank) is not int or not 0 <= world_rank < world_size:
         raise ValueError(f"world_rank must be in [0, {world_size}), got {world_rank}")
     if type(launch_with_pdl) is not bool:
@@ -686,7 +690,11 @@ def validate_cake_moe_finalize_args(
         raise ValueError("Cake MoE finalize weight_bias must be None, 0.0, or 1.0")
 
     allreduce_in = _check_cuda_tensor(allreduce_in, "allreduce_in")
-    if allreduce_in.ndim != 2 or allreduce_in.shape[1] != 7168 or allreduce_in.shape[0] <= 0:
+    if (
+        allreduce_in.ndim != 2
+        or allreduce_in.shape[1] != 7168
+        or allreduce_in.shape[0] <= 0
+    ):
         raise ValueError(
             "allreduce_in must have shape [num_permuted_rows, 7168] with at least one row"
         )
@@ -702,14 +710,20 @@ def validate_cake_moe_finalize_args(
     tokens = residual_in.shape[0]
     if not 1 <= tokens <= 2048:
         raise ValueError(f"token_num must be in [1, 2048], got {tokens}")
-    _check_cuda_tensor(norm_weight, "norm_weight", device=device, dtype=dtype, shape=(7168,))
+    _check_cuda_tensor(
+        norm_weight, "norm_weight", device=device, dtype=dtype, shape=(7168,)
+    )
     indices = _check_cuda_tensor(
         expanded_idx_to_permuted_idx,
         "expanded_idx_to_permuted_idx",
         device=device,
         dtype=torch.int32,
     )
-    if indices.ndim != 2 or indices.shape[0] != tokens or indices.shape[1] not in (4, 8):
+    if (
+        indices.ndim != 2
+        or indices.shape[0] != tokens
+        or indices.shape[1] not in (4, 8)
+    ):
         raise ValueError(
             "expanded_idx_to_permuted_idx must have shape [token_num, top_k] with top_k 4 or 8"
         )
@@ -747,8 +761,12 @@ def validate_cake_moe_finalize_args(
     output_profile: CakeMoeFinalizeOutputProfile = "110"
     if quant_out is not None and scale_out is not None:
         output_profile = "111"
-        quant_out = _check_cuda_tensor(quant_out, "quant_out", device=device, dtype=dtype)
-        scale_out = _check_cuda_tensor(scale_out, "scale_out", device=device, dtype=dtype)
+        quant_out = _check_cuda_tensor(
+            quant_out, "quant_out", device=device, dtype=dtype
+        )
+        scale_out = _check_cuda_tensor(
+            scale_out, "scale_out", device=device, dtype=dtype
+        )
         required_quant_elements = tokens * 7168 // 4
         if quant_out.numel() < required_quant_elements:
             raise ValueError(

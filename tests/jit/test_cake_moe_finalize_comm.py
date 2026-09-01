@@ -70,9 +70,7 @@ def test_cake_moe_finalize_jit_consumes_verified_compile_contract(
 
     assert result is sentinel
     assert captured["sources"] == [spec.device_path, spec.binding_path]
-    assert "-gencode=arch=compute_103a,code=sm_103a" in captured[
-        "extra_cuda_cflags"
-    ]
+    assert "-gencode=arch=compute_103a,code=sm_103a" in captured["extra_cuda_cflags"]
     assert "--use_fast_math" in captured["extra_cuda_cflags"]
     assert captured["extra_include_paths"] == [Path("csrc")]
     cake_finalize.gen_cake_moe_finalize_module.cache_clear()

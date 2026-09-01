@@ -61,8 +61,7 @@ def _reference(
     local = torch.zeros_like(residual_in)
     for route in range(inverse_indices.shape[1]):
         contribution = (
-            gathered[:, route].float()
-            * expert_scales[:, route].float().unsqueeze(-1)
+            gathered[:, route].float() * expert_scales[:, route].float().unsqueeze(-1)
         ).to(local.dtype)
         local = (local.float() + contribution.float()).to(local.dtype)
     local = (local.float() * routed_scaling_factor).to(local.dtype)
@@ -225,9 +224,7 @@ def _worker(world_size: int, rank: int, dtype: torch.dtype, port: int) -> None:
                     expert_scales=expert_scales,
                     shared_expert_output=shared_expert_output,
                     routed_scaling_factor=(
-                        1.0
-                        if routed_scaling_factor is None
-                        else routed_scaling_factor
+                        1.0 if routed_scaling_factor is None else routed_scaling_factor
                     ),
                     eps=1e-5,
                     weight_bias=weight_bias,
@@ -264,7 +261,7 @@ def _worker(world_size: int, rank: int, dtype: torch.dtype, port: int) -> None:
                             handles, group=group
                         )
 
-                for backend, result in outputs.items():
+                for _backend, result in outputs.items():
                     torch.testing.assert_close(
                         result[0].float(), residual_ref.float(), atol=ATOL, rtol=RTOL
                     )

@@ -127,8 +127,7 @@ def _assert_distributed_close(
     dist.all_reduce(max_abs, op=dist.ReduceOp.MAX, group=group)
     if failure.item():
         raise AssertionError(
-            f"{label} failed: max_abs={max_abs.item():.6g}, "
-            f"atol={ATOL}, rtol={RTOL}"
+            f"{label} failed: max_abs={max_abs.item():.6g}, atol={ATOL}, rtol={RTOL}"
         )
     return float(max_abs.item())
 
@@ -164,9 +163,7 @@ def _make_case(
         generator=generator,
     )
     norm_weight = (
-        _bounded_rand(
-            (HIDDEN_SIZE,), dtype=dtype, device=device, generator=generator
-        )
+        _bounded_rand((HIDDEN_SIZE,), dtype=dtype, device=device, generator=generator)
         + 1
     ).contiguous()
     expert_scales = _bounded_rand(
@@ -193,8 +190,7 @@ def _make_case(
     local = torch.zeros_like(residual_in)
     for route in range(top_k):
         contribution = (
-            gathered[:, route].float()
-            * expert_scales[:, route].float().unsqueeze(-1)
+            gathered[:, route].float() * expert_scales[:, route].float().unsqueeze(-1)
         ).to(dtype)
         local = (local.float() + contribution.float()).to(dtype)
     local = (local.float() * routed).to(dtype)
@@ -214,9 +210,7 @@ def _make_case(
     quant_out = None
     scale_out = None
     if output_profile == "111":
-        quant_out = torch.zeros(
-            residual_in.numel() // 4, dtype=dtype, device=device
-        )
+        quant_out = torch.zeros(residual_in.numel() // 4, dtype=dtype, device=device)
         padded_rows = ((token_num + 127) // 128) * 128
         padded_columns = ((HIDDEN_SIZE // 16 + 3) // 4) * 4
         scale_out = torch.zeros(
@@ -363,9 +357,7 @@ def _comparisons(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             if row["backend"] == "trtllm"
         ]
         candidate = [
-            row["rank_max_median_ms"]
-            for row in group_rows
-            if row["backend"] == "cake"
+            row["rank_max_median_ms"] for row in group_rows if row["backend"] == "cake"
         ]
         if not baseline or not candidate:
             continue
