@@ -2820,6 +2820,25 @@ def _pair_packed_beta_tma_source(beta: torch.Tensor) -> Optional[torch.Tensor]:
     return beta_flat.view(total_tokens // 2, 24)
 
 
+def _generated_beta_tma_copy_required(
+    *,
+    beta: torch.Tensor,
+    beta_tma: torch.Tensor,
+    sequence_lengths: tuple[int, ...],
+    specialization: dict[str, object],
+) -> bool:
+    """Match the source runtime's per-launch padded-beta refresh predicate."""
+
+    if beta_tma.data_ptr() == beta.data_ptr():
+        return False
+    if bool(specialization.get("pair_packed_beta", False)) or bool(
+        specialization.get("scalar_beta", False)
+    ):
+        return False
+    chunk = int(specialization.get("chunk", _FLASH_KDA_M128_CHUNK))
+    return any(length >= chunk for length in sequence_lengths)
+
+
 def _small_bh_workspace(
     *,
     workspace: _RecurrentKDAPrefillWorkspaceBase,
@@ -4543,6 +4562,12 @@ def _run_generated_single_route(
         metadata, module = _get_flash_kda_generated_module(selector_key)
     except _GeneratedFlashKDASelectorNotFoundError:
         return False
+    beta_tma_copy_required = _generated_beta_tma_copy_required(
+        beta=beta,
+        beta_tma=beta_tma,
+        sequence_lengths=sequence_lengths,
+        specialization=specialization,
+    )
     signature_tensors = [q, k, v, g, beta_tma, out]
     if route == _FLASH_KDA_ROUTE_SMALL_BH_M128:
         assert packet_workspace is not None
@@ -4574,6 +4599,16 @@ def _run_generated_single_route(
     empty_u8 = _empty_cuda_tensor(q.device, torch.uint8)
     descriptor_u32 = descriptor_storage.view(torch.uint32)
     try:
+        if beta_tma_copy_required:
+            total_tokens = beta.numel() // num_heads
+            if beta.shape[0] == 1:
+                beta_flat = beta[0]
+            else:
+                beta_flat = beta.as_strided(
+                    (total_tokens, num_heads),
+                    (beta.stride(1), beta.stride(2)),
+                )
+            beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
         if route in (
             _FLASH_KDA_ROUTE_DIRECT_M128,
             _FLASH_KDA_ROUTE_DIRECT_M128_N16,

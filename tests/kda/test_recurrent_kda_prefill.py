@@ -3445,6 +3445,37 @@ def test_pair_packed_h12_beta_requires_an_even_dense_carrier(cuda_device):
     assert kda_prefill_api._pair_packed_beta_tma_source(odd) is None
 
 
+def test_generated_beta_tma_copy_matches_source_chunk_predicate():
+    beta = torch.empty((1, 120, 4), dtype=torch.bfloat16)
+    padded = torch.empty((120, 8), dtype=torch.bfloat16)
+    n16 = {"chunk": 16, "pair_packed_beta": False, "scalar_beta": False}
+
+    assert not kda_prefill_api._generated_beta_tma_copy_required(
+        beta=beta,
+        beta_tma=padded,
+        sequence_lengths=tuple(range(1, 16)),
+        specialization=n16,
+    )
+    assert kda_prefill_api._generated_beta_tma_copy_required(
+        beta=beta,
+        beta_tma=padded,
+        sequence_lengths=(16,),
+        specialization=n16,
+    )
+    assert not kda_prefill_api._generated_beta_tma_copy_required(
+        beta=beta,
+        beta_tma=padded,
+        sequence_lengths=(16,),
+        specialization={**n16, "scalar_beta": True},
+    )
+    assert not kda_prefill_api._generated_beta_tma_copy_required(
+        beta=beta,
+        beta_tma=beta[0],
+        sequence_lengths=(16,),
+        specialization=n16,
+    )
+
+
 @pytest.mark.parametrize(
     ("seq_lens", "expected_variant"),
     [

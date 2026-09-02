@@ -142,7 +142,6 @@ using flash_kda::CheckDtype;
 using flash_kda::CheckDynamicSmemCapacity;
 using flash_kda::CheckFlashKDATarget;
 using flash_kda::EncodeTmaPointers;
-using flash_kda::PackBetaForTmaIfNeeded;
 using flash_kda::ResolveAndCheckServingStatePoolForDtype;
 using flash_kda::TmaPointers;
 
@@ -256,9 +255,8 @@ inline PreparedCommonInputs PrepareCommonInputs(
   TVM_FFI_ICHECK(beta_token_stride == beta.stride(beta.ndim() - 2))
       << "beta_token_stride must match beta's physical token stride";
   const cudaStream_t stream = CheckedStream(cuda_stream);
-  if constexpr (!PairPackedBeta) {
-    PackBetaForTmaIfNeeded(beta, beta_tma, num_heads, beta_token_stride, stream);
-  }
+  // The generated Python adapter refreshes padded beta storage with the same
+  // chunk-aware copy predicate as the source runtime before entering FFI.
   TmaPointers tma = EncodeTmaPointers<ValueRows, ChunkTokens, PairPackedBeta,
                                       ValueRows, QkStyleValueTma>(
       q, k, v, g, beta_tma, out, descriptor_storage, prepare_descriptors,
