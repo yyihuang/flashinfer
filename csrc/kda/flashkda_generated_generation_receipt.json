@@ -48,10 +48,10 @@
   "runtime_source_contract_sha256": "0dad84e9a2cd6c09479ff8f279af0ba2f66fd1bf22f351f9df6b9435d54ba96b",
   "schema_version": 1,
   "source_closure_status": "passed",
-  "source_closure_table_sha256": "c33c55c1d527038dec23aa1ef403807637c37f2f489eba9bac77f67b7009f1c1",
+  "source_closure_table_sha256": "8ed7fe8038f480d4041efe49a49280ef77905f75f6089430577a8d2abb7a1c1a",
   "status": "passed",
   "total_file_count": 177,
   "unique_body_count": 59,
   "variant_count": 104,
-  "variant_metadata_sha256": "78916eae5d556d51d51f4b5cc127d376fff66f3d6dc0dac7d11aac4a932993c7"
+  "variant_metadata_sha256": "275acd4e90c6afeac2b839078be13ab3d92d2e48c3d66becb8caa33d4f758cad"
 }
