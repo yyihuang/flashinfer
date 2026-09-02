@@ -1,6 +1,8 @@
 /* Copyright (c) 2026, NVIDIA CORPORATION. Licensed under the Apache License, Version 2.0. */
 #pragma once
 
+#include <memory>
+
 #include "flashkda_generated_binding_common.cuh"
 
 namespace flashinfer::flash_kda_generated {
@@ -89,33 +91,79 @@ struct DirectM128Args {
   void *state_checkpoints_tma{}, *final_state_f32{};
 };
 
-inline void LaunchDirectM128(DirectM128Args args, const StatePointerSlots& state,
-                             dim3 grid, cudaStream_t stream) {
-  args.initial_state = state.initial_state;
-  args.final_state = state.final_state;
-  args.initial_state_f32 = state.initial_state_f32;
-  args.final_state_f32 = state.final_state_f32;
-  void* kernel_args[] = {
-      &args.q, &args.q_tma, &args.k, &args.k_tma, &args.v, &args.v_tma,
-      &args.g, &args.g_tma, &args.beta, &args.beta_tma, &args.a_log,
-      &args.dt_bias, &args.cu_seqlens, &args.seq_order, &args.initial_state,
-      &args.out, &args.out_tma, &args.final_state, &args.num_heads,
-      &args.use_initial_state, &args.store_final_state, &args.scale,
-      &args.lower_bound, &args.state_indices_addr, &args.state_checkpoints_addr,
-      &args.checkpoint_cu_starts_addr, &args.beta_token_stride,
-      &args.state_slot_stride, &args.use_state_indices,
-      &args.checkpoint_every_n_tokens, &args.cu_chunk_offsets, &args.chunk_state,
-      &args.state_checkpoint_needed, &args.tape_qd, &args.tape_kd, &args.tape_kr,
-      &args.tape_j, &args.tape_restore_factor, &args.tape_e, &args.tape_x,
-      &args.tape_r, &args.norm_inv_out, &args.decay_out, &args.beta_active_out,
-      &args.initial_state_f32, &args.zero_workspace, &args.zero_words,
-      &args.num_sequences, &args.state_checkpoints_tma, &args.final_state_f32};
-  CheckArgumentCount<50>(kernel_args);
-  ConfigureAndLaunch(FLASHKDA_GENERATED_KERNEL_ARGUMENT, grid,
-                     stream, kernel_args, "generated direct-M128 launch");
+struct PreparedDirectM128Launch {
+  DirectM128Args args{};
+  dim3 grid{};
+  cudaStream_t stream{};
+  int32_t device_id{};
+  void* kernel_args[50]{};
+
+  PreparedDirectM128Launch(DirectM128Args input,
+                           const StatePointerSlots& state, dim3 launch_grid,
+                           cudaStream_t launch_stream, int32_t launch_device)
+      : args(input),
+        grid(launch_grid),
+        stream(launch_stream),
+        device_id(launch_device) {
+    args.initial_state = state.initial_state;
+    args.final_state = state.final_state;
+    args.initial_state_f32 = state.initial_state_f32;
+    args.final_state_f32 = state.final_state_f32;
+    void* bound_args[] = {
+        &args.q, &args.q_tma, &args.k, &args.k_tma, &args.v, &args.v_tma,
+        &args.g, &args.g_tma, &args.beta, &args.beta_tma, &args.a_log,
+        &args.dt_bias, &args.cu_seqlens, &args.seq_order, &args.initial_state,
+        &args.out, &args.out_tma, &args.final_state, &args.num_heads,
+        &args.use_initial_state, &args.store_final_state, &args.scale,
+        &args.lower_bound, &args.state_indices_addr,
+        &args.state_checkpoints_addr, &args.checkpoint_cu_starts_addr,
+        &args.beta_token_stride, &args.state_slot_stride,
+        &args.use_state_indices, &args.checkpoint_every_n_tokens,
+        &args.cu_chunk_offsets, &args.chunk_state,
+        &args.state_checkpoint_needed, &args.tape_qd, &args.tape_kd,
+        &args.tape_kr, &args.tape_j, &args.tape_restore_factor, &args.tape_e,
+        &args.tape_x, &args.tape_r, &args.norm_inv_out, &args.decay_out,
+        &args.beta_active_out, &args.initial_state_f32, &args.zero_workspace,
+        &args.zero_words, &args.num_sequences, &args.state_checkpoints_tma,
+        &args.final_state_f32};
+    CheckArgumentCount<50>(bound_args);
+    for (int index = 0; index < 50; ++index) {
+      kernel_args[index] = bound_args[index];
+    }
+  }
+
+  PreparedDirectM128Launch(const PreparedDirectM128Launch&) = delete;
+  PreparedDirectM128Launch& operator=(const PreparedDirectM128Launch&) = delete;
+  PreparedDirectM128Launch(PreparedDirectM128Launch&&) = delete;
+  PreparedDirectM128Launch& operator=(PreparedDirectM128Launch&&) = delete;
+};
+
+inline void LaunchPreparedDirectM128(PreparedDirectM128Launch* prepared) {
+  ffi::CUDADeviceGuard device_guard(prepared->device_id);
+  ConfigureAndLaunch(FLASHKDA_GENERATED_KERNEL_ARGUMENT, prepared->grid,
+                     prepared->stream, prepared->kernel_args,
+                     "generated direct-M128 launch");
 }
 
-inline void RunDirectM128(
+inline int64_t DirectM128PreparedHandle(PreparedDirectM128Launch* prepared) {
+  return static_cast<int64_t>(reinterpret_cast<uintptr_t>(prepared));
+}
+
+inline PreparedDirectM128Launch* DirectM128PreparedPointer(int64_t handle) {
+  TVM_FFI_ICHECK(handle != 0) << "direct-M128 prepared handle must be nonzero";
+  return reinterpret_cast<PreparedDirectM128Launch*>(
+      static_cast<uintptr_t>(handle));
+}
+
+inline void LaunchPreparedDirectM128Handle(int64_t handle) {
+  LaunchPreparedDirectM128(DirectM128PreparedPointer(handle));
+}
+
+inline void DisposePreparedDirectM128Handle(int64_t handle) {
+  delete DirectM128PreparedPointer(handle);
+}
+
+inline int64_t PrepareDirectM128(
     TensorView q, TensorView k, TensorView v, TensorView g, TensorView beta,
     TensorView beta_tma, TensorView a_log, TensorView dt_bias,
     TensorView cu_seqlens, TensorView seq_order, TensorView state_indices,
@@ -294,7 +342,45 @@ inline void RunDirectM128(
     args.state_checkpoints_tma=CheckedDescriptorPointer(
         state_checkpoints_tma,"state_checkpoints_tma",prepared.device_id,prepared.tma.q);
   }
-  LaunchDirectM128(args,prepared.state,CheckedGrid(grid_x,grid_y,grid_z),prepared.stream);
+  auto launch = std::make_unique<PreparedDirectM128Launch>(
+      args, prepared.state, CheckedGrid(grid_x, grid_y, grid_z),
+      prepared.stream, prepared.device_id);
+  return DirectM128PreparedHandle(launch.release());
+}
+
+inline void RunDirectM128(
+    TensorView q, TensorView k, TensorView v, TensorView g, TensorView beta,
+    TensorView beta_tma, TensorView a_log, TensorView dt_bias,
+    TensorView cu_seqlens, TensorView seq_order, TensorView state_indices,
+    TensorView initial_state, TensorView out, TensorView final_state,
+    TensorView state_checkpoints, TensorView checkpoint_cu_starts,
+    TensorView cu_chunk_offsets, TensorView chunk_state,
+    TensorView state_checkpoint_needed, TensorView tape_qd, TensorView tape_kd,
+    TensorView tape_kr, TensorView tape_j, TensorView tape_restore_factor,
+    TensorView tape_e, TensorView tape_x, TensorView tape_r,
+    TensorView norm_inv_out, TensorView decay_out, TensorView beta_active_out,
+    TensorView zero_workspace, TensorView state_checkpoints_tma,
+    TensorView descriptor_storage, int64_t prepare_descriptors,
+    int64_t num_heads, int64_t beta_token_stride,
+    int64_t state_slot_stride, int64_t use_state_indices,
+    int64_t use_initial_state, int64_t store_final_state,
+    int64_t checkpoint_every_n_tokens, int64_t zero_words,
+    int64_t num_sequences, double scale, double lower_bound,
+    int64_t grid_x, int64_t grid_y, int64_t grid_z, int64_t cuda_stream) {
+  std::unique_ptr<PreparedDirectM128Launch> launch(DirectM128PreparedPointer(
+      PrepareDirectM128(
+          q, k, v, g, beta, beta_tma, a_log, dt_bias, cu_seqlens, seq_order,
+          state_indices, initial_state, out, final_state, state_checkpoints,
+          checkpoint_cu_starts, cu_chunk_offsets, chunk_state,
+          state_checkpoint_needed, tape_qd, tape_kd, tape_kr, tape_j,
+          tape_restore_factor, tape_e, tape_x, tape_r, norm_inv_out, decay_out,
+          beta_active_out, zero_workspace, state_checkpoints_tma,
+          descriptor_storage, prepare_descriptors, num_heads,
+          beta_token_stride, state_slot_stride, use_state_indices,
+          use_initial_state, store_final_state, checkpoint_every_n_tokens,
+          zero_words, num_sequences, scale, lower_bound, grid_x, grid_y,
+          grid_z, cuda_stream)));
+  LaunchPreparedDirectM128(launch.get());
 }
 
 #elif FLASHKDA_GENERATED_ABI_VARIANT == FLASHKDA_GENERATED_VARIANT_VTILE
@@ -366,6 +452,9 @@ inline void RunDirectM128Vtile(
 
 #if FLASHKDA_GENERATED_ABI_VARIANT == FLASHKDA_GENERATED_VARIANT_SERVING
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(run,flashinfer::flash_kda_generated::RunDirectM128);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(prepare_direct,flashinfer::flash_kda_generated::PrepareDirectM128);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(launch_direct,flashinfer::flash_kda_generated::LaunchPreparedDirectM128Handle);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(dispose_direct,flashinfer::flash_kda_generated::DisposePreparedDirectM128Handle);
 #else
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(run,flashinfer::flash_kda_generated::RunDirectM128Vtile);
 #endif

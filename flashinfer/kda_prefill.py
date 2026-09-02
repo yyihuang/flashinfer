@@ -4669,7 +4669,14 @@ def _run_generated_single_route(
             1,
             stream_ptr,
         )
+    prepared_direct_handle = None
     try:
+        if (
+            direct_run_args is not None
+            and beta_tma_copy_required
+            and checkpoint_every_n_tokens == 0
+        ):
+            prepared_direct_handle = module.prepare_direct(*direct_run_args)
         if beta_tma_copy_required:
             total_tokens = beta.numel() // num_heads
             if beta.shape[0] == 1:
@@ -4681,7 +4688,10 @@ def _run_generated_single_route(
                 )
             beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
         if direct_run_args is not None:
-            module.run(*direct_run_args)
+            if prepared_direct_handle is None:
+                module.run(*direct_run_args)
+            else:
+                module.launch_direct(prepared_direct_handle)
         elif route == _FLASH_KDA_ROUTE_SOURCE_VTILE_M128:
             worker_count = (
                 total_tasks
@@ -4945,6 +4955,9 @@ def _run_generated_single_route(
             prepared=prepare_descriptors,
         )
         raise
+    finally:
+        if prepared_direct_handle is not None:
+            module.dispose_direct(prepared_direct_handle)
     _record_generated_descriptor_signature(
         workspace=workspace,
         variant_id=metadata.variant_id,
