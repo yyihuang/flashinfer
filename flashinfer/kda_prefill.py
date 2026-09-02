@@ -4611,6 +4611,64 @@ def _run_generated_single_route(
     dummy_u32 = _dummy_u32(q.device)
     empty_u8 = _empty_cuda_tensor(q.device, torch.uint8)
     descriptor_u32 = descriptor_storage.view(torch.uint32)
+    direct_run_args = None
+    if route in (
+        _FLASH_KDA_ROUTE_DIRECT_M128,
+        _FLASH_KDA_ROUTE_DIRECT_M128_N16,
+    ):
+        # Match the prepared source launch interval: materialize the large FFI
+        # argument tuple before the optional beta copy starts the GPU DAG.
+        direct_run_args = (
+            q,
+            k,
+            v,
+            g,
+            beta,
+            beta_tma,
+            A_log,
+            dt_bias,
+            cu_seqlens,
+            seq_order,
+            state_indices,
+            initial_state,
+            out,
+            final_state,
+            state_checkpoints,
+            checkpoint_cu_starts,
+            checkpoint_cu_starts if checkpoint_every_n_tokens else dummy_i64,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            descriptor_u32 if checkpoint_every_n_tokens else dummy_u32,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            A_log,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            A_log,
+            state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
+            A_log,
+            descriptor_u32 if checkpoint_every_n_tokens else dummy_u32,
+            empty_u8,
+            descriptor_storage,
+            prepare_descriptors,
+            num_heads,
+            beta_token_stride,
+            state_slot_stride,
+            int(use_state_indices),
+            int(use_initial_state),
+            int(store_final_state),
+            checkpoint_every_n_tokens,
+            0,
+            len(sequence_lengths),
+            scale,
+            lower_bound,
+            total_tasks,
+            1,
+            1,
+            stream_ptr,
+        )
     try:
         if beta_tma_copy_required:
             total_tokens = beta.numel() // num_heads
@@ -4622,61 +4680,8 @@ def _run_generated_single_route(
                     (beta.stride(1), beta.stride(2)),
                 )
             beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
-        if route in (
-            _FLASH_KDA_ROUTE_DIRECT_M128,
-            _FLASH_KDA_ROUTE_DIRECT_M128_N16,
-        ):
-            module.run(
-                q,
-                k,
-                v,
-                g,
-                beta,
-                beta_tma,
-                A_log,
-                dt_bias,
-                cu_seqlens,
-                seq_order,
-                state_indices,
-                initial_state,
-                out,
-                final_state,
-                state_checkpoints,
-                checkpoint_cu_starts,
-                checkpoint_cu_starts if checkpoint_every_n_tokens else dummy_i64,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                descriptor_u32 if checkpoint_every_n_tokens else dummy_u32,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                A_log,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                A_log,
-                state_checkpoints if checkpoint_every_n_tokens else dummy_bf16,
-                A_log,
-                descriptor_u32 if checkpoint_every_n_tokens else dummy_u32,
-                empty_u8,
-                descriptor_storage,
-                prepare_descriptors,
-                num_heads,
-                beta_token_stride,
-                state_slot_stride,
-                int(use_state_indices),
-                int(use_initial_state),
-                int(store_final_state),
-                checkpoint_every_n_tokens,
-                0,
-                len(sequence_lengths),
-                scale,
-                lower_bound,
-                total_tasks,
-                1,
-                1,
-                stream_ptr,
-            )
+        if direct_run_args is not None:
+            module.run(*direct_run_args)
         elif route == _FLASH_KDA_ROUTE_SOURCE_VTILE_M128:
             worker_count = (
                 total_tasks
