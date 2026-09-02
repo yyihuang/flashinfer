@@ -2339,6 +2339,7 @@ def select_bf16_schedule_route(
     fixed_layout: bool,
     sequence_lengths: tuple[int, ...],
     num_heads: int,
+    state_dtype_is_fp32: bool = False,
     use_initial_state: bool = True,
     store_final_state: bool = True,
 ) -> str:
@@ -2372,6 +2373,17 @@ def select_bf16_schedule_route(
             num_heads=num_heads,
             sm_count=sm_count,
         )
+    # The source dispatcher tests its FP32 owner/helper capability before its
+    # BT16 capability.  Preserve that priority for the overlapping long-H1
+    # region; BF16 keeps the measured BT16-first route policy below.
+    if state_dtype_is_fp32 and _should_use_small_bh_owner_helper(
+        compute_capability=compute_capability,
+        sm_count=sm_count,
+        num_sequences=num_sequences,
+        num_heads=num_heads,
+        sequence_length=max(sequence_lengths),
+    ):
+        return _FLASH_KDA_ROUTE_SMALL_BH_M128
     return _select_bf16_route(
         compute_capability=compute_capability,
         sm_count=sm_count,
@@ -5858,6 +5870,13 @@ def _run_flash_kda_prefill(
             fixed_layout=fixed_layout,
             sequence_lengths=sequence_lengths,
             num_heads=num_heads,
+            state_dtype_is_fp32=(
+                lower_bound is not None
+                and initial_state is not None
+                and initial_state.dtype == torch.float32
+                and state_checkpoints is None
+                and checkpoint_cu_starts is None
+            ),
             use_initial_state=initial_state is not None,
             store_final_state=initial_state is not None or output_final_state,
         )

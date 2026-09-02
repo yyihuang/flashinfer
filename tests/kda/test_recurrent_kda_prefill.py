@@ -2678,6 +2678,32 @@ def test_bt16_route_policy_matches_measured_crossovers(
     )
 
 
+@pytest.mark.parametrize(
+    ("compute_capability", "sm_count"),
+    [((10, 0), 148), ((10, 3), 148)],
+)
+def test_fp32_small_bh_route_precedes_overlapping_bt16_policy(
+    compute_capability, sm_count
+):
+    route_args = {
+        "compute_capability": compute_capability,
+        "sm_count": sm_count,
+        "fixed_layout": False,
+        "sequence_lengths": (131_072,),
+        "num_heads": 1,
+    }
+    assert (
+        kda_prefill_api.select_bf16_schedule_route(**route_args)
+        == "bt16_prepare_chain_m64"
+    )
+    assert (
+        kda_prefill_api.select_bf16_schedule_route(
+            **route_args, state_dtype_is_fp32=True
+        )
+        == "small_bh_owner_helper_m128"
+    )
+
+
 def test_uniform_piece_bins_cover_tasks_and_match_h96_h64_bounds():
     for num_heads, expected_handoffs, expected_max in (
         (96, 32, 167),
