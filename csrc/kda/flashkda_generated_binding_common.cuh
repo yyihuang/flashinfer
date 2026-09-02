@@ -289,9 +289,6 @@ inline PreparedCommonInputs PrepareCommonInputsWithRawState(
   TVM_FFI_ICHECK(beta_token_stride == beta.stride(beta.ndim() - 2))
       << "beta_token_stride must match beta's physical token stride";
   const cudaStream_t stream = CheckedStream(cuda_stream);
-  if constexpr (!PairPackedBeta) {
-    PackBetaForTmaIfNeeded(beta, beta_tma, num_heads, beta_token_stride, stream);
-  }
   TmaPointers tma = EncodeTmaPointers<ValueRows, ChunkTokens, PairPackedBeta,
                                       ValueRows, QkStyleValueTma>(
       q, k, v, g, beta_tma, out, descriptor_storage, prepare_descriptors,

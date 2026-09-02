@@ -4957,6 +4957,7 @@ def _affine_padded_beta_tma(
         device=device,
         shape=(max(rows, _FLASH_KDA_M128_CHUNK), padded_heads),
         dtype=torch.bfloat16,
+        zero_on_allocate=True,
     )
 
 
@@ -5478,6 +5479,8 @@ def _run_generated_affine_route(
     main_state_stride = initial_state.stride(0)
     launch_observer = _generated_affine_launch_observer.get()
 
+    if main_beta_layout == "padded":
+        main_beta_tma[: beta_flat.shape[0], :num_heads].copy_(beta_flat)
     _run_generated_affine_direct_role(
         workspace=workspace,
         carriers=carriers,
@@ -5510,6 +5513,8 @@ def _run_generated_affine_route(
         stream_ptr=stream_ptr,
         capturing=capturing,
     )
+    if map_beta_layout == "padded":
+        map_beta_tma[: map_beta_flat.shape[0], :num_heads].copy_(map_beta_flat)
     _run_generated_affine_direct_role(
         workspace=workspace,
         carriers=carriers,
@@ -5556,6 +5561,10 @@ def _run_generated_affine_route(
         1,
         stream_ptr,
     )
+    if correction_beta_layout == "padded":
+        correction_beta_tma[: map_beta_flat.shape[0], :num_heads].copy_(
+            map_beta_flat
+        )
     _run_generated_affine_direct_role(
         workspace=workspace,
         carriers=carriers,

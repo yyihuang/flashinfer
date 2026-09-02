@@ -1964,9 +1964,12 @@ def test_generated_affine_module_bundle_resolves_cold_and_observes_hot(monkeypat
 def test_generated_affine_launch_plan_caches_only_workspace_views(monkeypatch):
     buffer_calls = []
     buffers = {}
+    zeroed_buffers = set()
 
-    def workspace_buffer(*, name, shape, dtype, **_kwargs):
+    def workspace_buffer(*, name, shape, dtype, zero_on_allocate=False, **_kwargs):
         buffer_calls.append((name, shape, dtype))
+        if zero_on_allocate:
+            zeroed_buffers.add(name)
         tensor = torch.zeros(shape, dtype=dtype)
         buffers[name] = tensor
         return tensor
@@ -2034,6 +2037,11 @@ def test_generated_affine_launch_plan_caches_only_workspace_views(monkeypatch):
         "correction_out",
         "state_indices_i64",
         "final_external",
+        "beta_tma_main",
+        "beta_tma_map",
+        "beta_tma_correction",
+    }
+    assert zeroed_buffers == {
         "beta_tma_main",
         "beta_tma_map",
         "beta_tma_correction",
