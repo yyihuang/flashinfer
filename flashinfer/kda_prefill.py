@@ -5747,7 +5747,11 @@ def _run_flash_kda_prefill(
             lower_bound=lower_bound,
         )
     use_exact_n16 = (
-        checkpoint_every_n_tokens != 0 and checkpoint_every_n_tokens % 32 != 0
+        checkpoint_every_n_tokens != 0
+        and (
+            checkpoint_every_n_tokens % _FLASH_KDA_M128_CHUNK != 0
+            or checkpoint_every_n_tokens == _FLASH_KDA_M128_CHUNK
+        )
     ) or _requires_exact_n16_recurrence(
         compute_capability=compute_capability,
         sm_count=sm_count,
