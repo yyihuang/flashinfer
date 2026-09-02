@@ -38,6 +38,7 @@ from typing import (
     Mapping,
     Optional,
     Protocol,
+    cast,
 )
 
 import torch
@@ -2847,7 +2848,9 @@ def _generated_beta_tma_copy_required(
         specialization.get("scalar_beta", False)
     ):
         return False
-    chunk = int(specialization.get("chunk", _FLASH_KDA_M128_CHUNK))
+    chunk = int(
+        cast(int, specialization.get("chunk", _FLASH_KDA_M128_CHUNK))
+    )
     return any(length >= chunk for length in sequence_lengths)
 
 
@@ -5609,9 +5612,7 @@ def _run_generated_affine_route(
         stream_ptr,
     )
     if correction_beta_layout == "padded":
-        correction_beta_tma[: map_beta_flat.shape[0], :num_heads].copy_(
-            map_beta_flat
-        )
+        correction_beta_tma[: map_beta_flat.shape[0], :num_heads].copy_(map_beta_flat)
     _run_generated_affine_direct_role(
         workspace=workspace,
         carriers=carriers,
