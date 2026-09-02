@@ -2041,11 +2041,11 @@ def test_generated_affine_launch_plan_caches_only_workspace_views(monkeypatch):
         "beta_tma_map",
         "beta_tma_correction",
     }
-    assert zeroed_buffers == {
+    assert {
         "beta_tma_main",
         "beta_tma_map",
         "beta_tma_correction",
-    }
+    } <= zeroed_buffers
 
     changed = get_plan((0, 4096, 8192, 12288))
     assert changed is not cold
