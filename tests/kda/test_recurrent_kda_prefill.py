@@ -2051,6 +2051,72 @@ def test_generated_affine_launch_plan_caches_only_workspace_views(monkeypatch):
     assert len(buffer_calls) == 28
 
 
+def test_generated_affine_state_indices_carrier_is_warmed_and_invalidated():
+    source = torch.tensor([2], dtype=torch.int32)
+    destination = torch.empty(1, dtype=torch.int64)
+    plan = SimpleNamespace(state_indices_i64=destination)
+    workspace = SimpleNamespace(
+        _generated_affine_state_indices_tensor=None,
+        _generated_affine_state_indices_version=None,
+        _generated_affine_state_indices_destination_ptr=None,
+    )
+
+    first = kda_prefill_api._generated_affine_state_indices_i64(
+        workspace=workspace,
+        plan=plan,
+        state_indices=source,
+        capturing=False,
+    )
+    assert first is destination
+    assert destination.tolist() == [2]
+
+    destination.fill_(7)
+    kda_prefill_api._generated_affine_state_indices_i64(
+        workspace=workspace,
+        plan=plan,
+        state_indices=source,
+        capturing=False,
+    )
+    assert destination.tolist() == [7]
+
+    source.fill_(3)
+    kda_prefill_api._generated_affine_state_indices_i64(
+        workspace=workspace,
+        plan=plan,
+        state_indices=source,
+        capturing=False,
+    )
+    assert destination.tolist() == [3]
+
+    destination.fill_(7)
+    kda_prefill_api._generated_affine_state_indices_i64(
+        workspace=workspace,
+        plan=plan,
+        state_indices=source,
+        capturing=True,
+    )
+    assert destination.tolist() == [3]
+
+    replacement = torch.tensor([4], dtype=torch.int32)
+    kda_prefill_api._generated_affine_state_indices_i64(
+        workspace=workspace,
+        plan=plan,
+        state_indices=replacement,
+        capturing=False,
+    )
+    assert destination.tolist() == [4]
+
+    replacement_destination = torch.empty(1, dtype=torch.int64)
+    replacement_plan = SimpleNamespace(state_indices_i64=replacement_destination)
+    kda_prefill_api._generated_affine_state_indices_i64(
+        workspace=workspace,
+        plan=replacement_plan,
+        state_indices=replacement,
+        capturing=False,
+    )
+    assert replacement_destination.tolist() == [4]
+
+
 def test_affine_route_skips_general_metadata_and_dummy_materialization(monkeypatch):
     q = torch.empty((1, 256, 4, 128), dtype=torch.bfloat16)
     beta = torch.empty((1, 256, 4), dtype=torch.bfloat16)

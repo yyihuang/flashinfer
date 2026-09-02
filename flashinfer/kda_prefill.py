@@ -512,6 +512,9 @@ class _RecurrentKDAPrefillWorkspaceBase:
             None
         )
         self._generated_affine_launch_plan: Optional[_GeneratedAffineLaunchPlan] = None
+        self._generated_affine_state_indices_tensor: Optional[torch.Tensor] = None
+        self._generated_affine_state_indices_version: Optional[int] = None
+        self._generated_affine_state_indices_destination_ptr: Optional[int] = None
         self._packed_metadata_lock = threading.Lock()
         self._packed_metadata_tensor: Optional[torch.Tensor] = None
         self._packed_metadata_signature: Optional[_PackedMetadataSignature] = None
@@ -5378,6 +5381,32 @@ def _run_generated_affine_direct_role(
         workspace._descriptor_signatures[signature_key] = signature
 
 
+def _generated_affine_state_indices_i64(
+    *,
+    workspace: _RecurrentKDAPrefillWorkspaceBase,
+    plan: _GeneratedAffineLaunchPlan,
+    state_indices: torch.Tensor,
+    capturing: bool,
+) -> torch.Tensor:
+    """Return the warmed int64 carrier used by the affine state scatter."""
+
+    source_version = int(state_indices._version)
+    destination_ptr = plan.state_indices_i64.data_ptr()
+    if not (
+        not capturing
+        and workspace._generated_affine_state_indices_tensor is state_indices
+        and workspace._generated_affine_state_indices_version == source_version
+        and workspace._generated_affine_state_indices_destination_ptr
+        == destination_ptr
+    ):
+        plan.state_indices_i64.copy_(state_indices)
+        if not capturing:
+            workspace._generated_affine_state_indices_tensor = state_indices
+            workspace._generated_affine_state_indices_version = source_version
+            workspace._generated_affine_state_indices_destination_ptr = destination_ptr
+    return plan.state_indices_i64
+
+
 def _run_generated_affine_route(
     *,
     workspace: _RecurrentKDAPrefillWorkspaceBase,
@@ -5566,14 +5595,18 @@ def _run_generated_affine_route(
         plan.correction_final[-1:],
         out=plan.final_compact,
     )
+    state_indices_i64 = _generated_affine_state_indices_i64(
+        workspace=workspace,
+        plan=plan,
+        state_indices=state_indices,
+        capturing=capturing,
+    )
     if final_state.dtype == torch.bfloat16:
         assert plan.final_external is not None
         plan.final_external.copy_(plan.final_compact)
-        plan.state_indices_i64.copy_(state_indices)
-        final_state.index_copy_(0, plan.state_indices_i64, plan.final_external)
+        final_state.index_copy_(0, state_indices_i64, plan.final_external)
     else:
-        plan.state_indices_i64.copy_(state_indices)
-        final_state.index_copy_(0, plan.state_indices_i64, plan.final_compact)
+        final_state.index_copy_(0, state_indices_i64, plan.final_compact)
 
 
 def _get_cake_kda_prefill_module(variant: "CakeKDAVariant", target: "CakeKDATarget"):
