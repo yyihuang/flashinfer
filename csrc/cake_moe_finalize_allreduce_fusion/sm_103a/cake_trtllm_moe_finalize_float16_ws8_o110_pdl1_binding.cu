@@ -206,15 +206,12 @@ void Run(TensorView arg_allreduce_in, TensorView arg_inverse_indices, TensorView
   dim3 block(224u, 1u, 1u);
 
   // Extended direct-source launch for a linked CUDA kernel symbol.
-  cudaLaunchAttribute attrs[3]{};
+  cudaLaunchAttribute attrs[2]{};
   int n = 0;
   attrs[n].id = cudaLaunchAttributeClusterDimension;
   attrs[n].val.clusterDim.x = 4u;
   attrs[n].val.clusterDim.y = 1u;
   attrs[n].val.clusterDim.z = 1u;
-  ++n;
-  attrs[n].id = cudaLaunchAttributeClusterSchedulingPolicyPreference;
-  attrs[n].val.clusterSchedulingPolicyPreference = cudaClusterSchedulingPolicySpread;
   ++n;
   attrs[n].id = cudaLaunchAttributeProgrammaticStreamSerialization;
   attrs[n].val.programmaticStreamSerializationAllowed = 1;

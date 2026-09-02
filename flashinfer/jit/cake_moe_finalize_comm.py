@@ -429,7 +429,7 @@ def get_cake_moe_finalize_module_specs() -> tuple[CakeMoeFinalizeModuleSpec, ...
             and launch.get("cluster") == [4, 1, 1]
             and launch.get("cooperative") is False
             and launch.get("use_pdl") is use_pdl
-            and launch.get("cluster_scheduling_policy") == "spread"
+            and launch.get("cluster_scheduling_policy") == "default"
             and set(launch)
             == {
                 "block",

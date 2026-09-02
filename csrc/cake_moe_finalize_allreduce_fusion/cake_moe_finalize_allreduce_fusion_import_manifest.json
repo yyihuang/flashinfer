@@ -59,16 +59,16 @@
       "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-      "sha256": "82802237d15c4decb306d8869ae92600a4871f28d44057441870cabb47145365"
+      "sha256": "46aedf8826357c925149da34059cb67bd83c2fb54f2231a9f1b05f2a8f08d74b"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-      "sha256": "fec0c6979251416ea6f9a68fac085e39f8b2a106f89d02e5d79c9fcc4de092a0"
+      "sha256": "c3730a5cc5c3b1dd074bb413cb4aa3051451d97a3fac3ca6df92a0e88756e125"
     },
     {
       "bytes": 28837,
@@ -77,16 +77,16 @@
       "sha256": "0be88cd7b7524f5768c3a19e2ff127c33de42b018a40b5d450850c406317fbea"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-      "sha256": "770c8b683a461375a8d6f1d173f5f64fb373e2f2d8ab7abb960286113d218806"
+      "sha256": "b7a46e50fecc05afcf52406ef5503a462a4c11f22e3eaf45265906fba30c0846"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-      "sha256": "60fed62f4c422f23142831c50552a89cb31b25e73ac54334bdc41d39c3d6943c"
+      "sha256": "8bbb8e42be40504c939f20d731aa594f51abffc1cfca098a438cbdfbbe76053d"
     },
     {
       "bytes": 29053,
@@ -95,16 +95,16 @@
       "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-      "sha256": "50a8f382eed5487126822b70831543ce621af0a86591cc22ddf657be585436f0"
+      "sha256": "2168510ebc8a1a916206560e7ebbcda7a50f052397fa7fef6e72c85d052de0cc"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-      "sha256": "21995596b16d9acaa78be2d22fa69f6e00fd0858489aa7683adc9e40d00032d8"
+      "sha256": "36d95461eb7cbde003f300cba8a285174aec53c279e9bfadd705d821c679dad6"
     },
     {
       "bytes": 33435,
@@ -113,16 +113,16 @@
       "sha256": "185803c2fa0afb77c6719d1b37d814c8b9ad12c4504ba1e8f467fa32b0d891df"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-      "sha256": "2289a0ece9f140bb6cefca416cd64b29358e51b1fefee7c896495f93793d2b3f"
+      "sha256": "ff50cdab2545bb6b2500c0dcc3f59573439339e9cfc25afccfb93245866209d6"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-      "sha256": "4567fc7b8927f4605864843503f50075894faf5dfb911f1f172f419118db594a"
+      "sha256": "e54a8ccfd94bd77905878ec9962f3a89e0ea41c7090ce8290b2730dafc19dbb9"
     },
     {
       "bytes": 38274,
@@ -131,16 +131,16 @@
       "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-      "sha256": "1df880f31a37eed94652641453af5f38db7985d90f86c7be44120096af28d816"
+      "sha256": "5338e1df656ec60624734e74746a6ced82291d43c0239b9ae4aa537275de4cc2"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-      "sha256": "07368a6b3da6df2cedd03eff41565ff5d859ad37a8c2c7ec397371b0c171e272"
+      "sha256": "9a2ddcf8541d65169eef0bca2c2e8ccec6fb4293ebc597c719ca08c8e5d77087"
     },
     {
       "bytes": 42656,
@@ -149,16 +149,16 @@
       "sha256": "954c9da8ba53bfb056cc1b9ac5c4c5e9072f3edc475a36369bd50ae24cfc71ec"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-      "sha256": "0536a98fa40ef950c193ccd1a44a3b62d369a5ea75e309c92ade15f3ca077f90"
+      "sha256": "13b5b987d12a10653c087cb5f2e84a2d6993b1fe0849e356168c8dfab8752a5d"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-      "sha256": "b9400298fa5f36625258e9c307b251bc8e87dd398bd2402b08cd57e5dd331396"
+      "sha256": "03967160b81f0cb6d77be04464da686f403e6f3fa6d7f709caa3eec6b824f8f0"
     },
     {
       "bytes": 26552,
@@ -167,16 +167,16 @@
       "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-      "sha256": "c5f47f1d42097b0094f55c5732c1f2b601a44a88b5398d6d653054d073f793f1"
+      "sha256": "41f53eb8a3ad9beac660ecf074772e1cb5b83883f4c00df3dc5cfcc848c3c626"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-      "sha256": "d74de008c968fc5b919ae08acf86e6bb9c15c0bb1d202df6e3dcd1815239bbfb"
+      "sha256": "11b483c489f917df346c4be32b4f05bc9bc6674fa96843bb43ed70ebe658b222"
     },
     {
       "bytes": 30990,
@@ -185,16 +185,16 @@
       "sha256": "06ada7dc4b4649b422c5ced9b04d5a8d84449c1d8cc4e4930dae88f5ad976b08"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-      "sha256": "3163b6305aff08fcfe3a12529d2c055fe96cbd0b4ff41fe63d1c2de8272a4bb7"
+      "sha256": "c23574525a575244434ae2901460dd35125d2b3a617bae74a02ade302fda5098"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-      "sha256": "0935cdc3aaf309f860b4af37f2aa96677ad3f70c073564873a57fad437fac568"
+      "sha256": "5f878b339198f6cff1b46026882dc9acc9052570039a4f08d49f8ffd2808b8f0"
     },
     {
       "bytes": 31726,
@@ -203,16 +203,16 @@
       "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-      "sha256": "3a37d2173e334b13c9480129f4a11721a558bdf1fe87fdb13983b648f9cac89a"
+      "sha256": "60b7e2d322e419c8ab827e47e67e4f39809bdd49b637b942d4a3e03afb5cf0f7"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-      "sha256": "84a322a2f386df3c9e23dcb216a4c5ae6cc50e72086fc60924af5f89583c25b2"
+      "sha256": "193d5d4dfc498d5302e646a1689675a210905793212f56e17b002a9d963622e1"
     },
     {
       "bytes": 36164,
@@ -221,16 +221,16 @@
       "sha256": "23d45568ede0f4074309b6b8116add269924793f7920e25127648746e8b5092f"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-      "sha256": "00470a25af65ab600e3f7684409df94e4387578253fa44a5b3e99422be36afa7"
+      "sha256": "ef77c362f689032d2916aed37bc5fba42106c3d46aa03805962318f6d6846e6e"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-      "sha256": "24907012b94517649f1b7665b8ee6777f6310c4872487b6a6769bf83c49281b5"
+      "sha256": "f14295326bd42b8eba016d79fb008eadfbf677007792e550481ad24ad99cb77a"
     },
     {
       "bytes": 42089,
@@ -239,16 +239,16 @@
       "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-      "sha256": "e22db35362e755c5d720f45601804b5b911d62377f6f0381b63ec83977e75f51"
+      "sha256": "ba7aad554a31d8a7a972b741638f19c03bd282cce9037b717d7573ec21e82098"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-      "sha256": "a40b6977fd9883d7cb0978cacbe0aa2398876077ba9be8354af0be183ce60f61"
+      "sha256": "11b19513736d6fbc94235d6428c3f30aee79205be330ff6b65267b846cf5d31a"
     },
     {
       "bytes": 46527,
@@ -257,16 +257,16 @@
       "sha256": "e097d5e9bf52ed8cc8cdafa5fc571dfea7d1ad814a2e58977cdd85ba986a80e7"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-      "sha256": "4b4561bc1743b0c66b0cb168e60a60604243c76fe1e24454c6f52c32ba215d76"
+      "sha256": "2a891842292f3468380375fed4bf37421a59899e9fcee48c1243623d5554b4cb"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-      "sha256": "35ae92e697ca709ac7650201cbf6770cc4ddbb864416b9a4d9b672ad64dcf23a"
+      "sha256": "d9cdc1a5a6155004ed047d454b40a9473e3eed8e84d6316796df0333e55099f4"
     },
     {
       "bytes": 24455,
@@ -275,16 +275,16 @@
       "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-      "sha256": "82802237d15c4decb306d8869ae92600a4871f28d44057441870cabb47145365"
+      "sha256": "46aedf8826357c925149da34059cb67bd83c2fb54f2231a9f1b05f2a8f08d74b"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-      "sha256": "fec0c6979251416ea6f9a68fac085e39f8b2a106f89d02e5d79c9fcc4de092a0"
+      "sha256": "c3730a5cc5c3b1dd074bb413cb4aa3051451d97a3fac3ca6df92a0e88756e125"
     },
     {
       "bytes": 28837,
@@ -293,16 +293,16 @@
       "sha256": "0be88cd7b7524f5768c3a19e2ff127c33de42b018a40b5d450850c406317fbea"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-      "sha256": "770c8b683a461375a8d6f1d173f5f64fb373e2f2d8ab7abb960286113d218806"
+      "sha256": "b7a46e50fecc05afcf52406ef5503a462a4c11f22e3eaf45265906fba30c0846"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-      "sha256": "60fed62f4c422f23142831c50552a89cb31b25e73ac54334bdc41d39c3d6943c"
+      "sha256": "8bbb8e42be40504c939f20d731aa594f51abffc1cfca098a438cbdfbbe76053d"
     },
     {
       "bytes": 29053,
@@ -311,16 +311,16 @@
       "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-      "sha256": "50a8f382eed5487126822b70831543ce621af0a86591cc22ddf657be585436f0"
+      "sha256": "2168510ebc8a1a916206560e7ebbcda7a50f052397fa7fef6e72c85d052de0cc"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-      "sha256": "21995596b16d9acaa78be2d22fa69f6e00fd0858489aa7683adc9e40d00032d8"
+      "sha256": "36d95461eb7cbde003f300cba8a285174aec53c279e9bfadd705d821c679dad6"
     },
     {
       "bytes": 33435,
@@ -329,16 +329,16 @@
       "sha256": "185803c2fa0afb77c6719d1b37d814c8b9ad12c4504ba1e8f467fa32b0d891df"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-      "sha256": "2289a0ece9f140bb6cefca416cd64b29358e51b1fefee7c896495f93793d2b3f"
+      "sha256": "ff50cdab2545bb6b2500c0dcc3f59573439339e9cfc25afccfb93245866209d6"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-      "sha256": "4567fc7b8927f4605864843503f50075894faf5dfb911f1f172f419118db594a"
+      "sha256": "e54a8ccfd94bd77905878ec9962f3a89e0ea41c7090ce8290b2730dafc19dbb9"
     },
     {
       "bytes": 38274,
@@ -347,16 +347,16 @@
       "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-      "sha256": "1df880f31a37eed94652641453af5f38db7985d90f86c7be44120096af28d816"
+      "sha256": "5338e1df656ec60624734e74746a6ced82291d43c0239b9ae4aa537275de4cc2"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-      "sha256": "07368a6b3da6df2cedd03eff41565ff5d859ad37a8c2c7ec397371b0c171e272"
+      "sha256": "9a2ddcf8541d65169eef0bca2c2e8ccec6fb4293ebc597c719ca08c8e5d77087"
     },
     {
       "bytes": 42656,
@@ -365,16 +365,16 @@
       "sha256": "954c9da8ba53bfb056cc1b9ac5c4c5e9072f3edc475a36369bd50ae24cfc71ec"
     },
     {
-      "bytes": 12068,
+      "bytes": 11905,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-      "sha256": "0536a98fa40ef950c193ccd1a44a3b62d369a5ea75e309c92ade15f3ca077f90"
+      "sha256": "13b5b987d12a10653c087cb5f2e84a2d6993b1fe0849e356168c8dfab8752a5d"
     },
     {
-      "bytes": 12202,
+      "bytes": 12039,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-      "sha256": "b9400298fa5f36625258e9c307b251bc8e87dd398bd2402b08cd57e5dd331396"
+      "sha256": "03967160b81f0cb6d77be04464da686f403e6f3fa6d7f709caa3eec6b824f8f0"
     },
     {
       "bytes": 26552,
@@ -383,16 +383,16 @@
       "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-      "sha256": "c5f47f1d42097b0094f55c5732c1f2b601a44a88b5398d6d653054d073f793f1"
+      "sha256": "41f53eb8a3ad9beac660ecf074772e1cb5b83883f4c00df3dc5cfcc848c3c626"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-      "sha256": "d74de008c968fc5b919ae08acf86e6bb9c15c0bb1d202df6e3dcd1815239bbfb"
+      "sha256": "11b483c489f917df346c4be32b4f05bc9bc6674fa96843bb43ed70ebe658b222"
     },
     {
       "bytes": 30990,
@@ -401,16 +401,16 @@
       "sha256": "06ada7dc4b4649b422c5ced9b04d5a8d84449c1d8cc4e4930dae88f5ad976b08"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-      "sha256": "3163b6305aff08fcfe3a12529d2c055fe96cbd0b4ff41fe63d1c2de8272a4bb7"
+      "sha256": "c23574525a575244434ae2901460dd35125d2b3a617bae74a02ade302fda5098"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-      "sha256": "0935cdc3aaf309f860b4af37f2aa96677ad3f70c073564873a57fad437fac568"
+      "sha256": "5f878b339198f6cff1b46026882dc9acc9052570039a4f08d49f8ffd2808b8f0"
     },
     {
       "bytes": 31726,
@@ -419,16 +419,16 @@
       "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-      "sha256": "3a37d2173e334b13c9480129f4a11721a558bdf1fe87fdb13983b648f9cac89a"
+      "sha256": "60b7e2d322e419c8ab827e47e67e4f39809bdd49b637b942d4a3e03afb5cf0f7"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-      "sha256": "84a322a2f386df3c9e23dcb216a4c5ae6cc50e72086fc60924af5f89583c25b2"
+      "sha256": "193d5d4dfc498d5302e646a1689675a210905793212f56e17b002a9d963622e1"
     },
     {
       "bytes": 36164,
@@ -437,16 +437,16 @@
       "sha256": "23d45568ede0f4074309b6b8116add269924793f7920e25127648746e8b5092f"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-      "sha256": "00470a25af65ab600e3f7684409df94e4387578253fa44a5b3e99422be36afa7"
+      "sha256": "ef77c362f689032d2916aed37bc5fba42106c3d46aa03805962318f6d6846e6e"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-      "sha256": "24907012b94517649f1b7665b8ee6777f6310c4872487b6a6769bf83c49281b5"
+      "sha256": "f14295326bd42b8eba016d79fb008eadfbf677007792e550481ad24ad99cb77a"
     },
     {
       "bytes": 42089,
@@ -455,16 +455,16 @@
       "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-      "sha256": "e22db35362e755c5d720f45601804b5b911d62377f6f0381b63ec83977e75f51"
+      "sha256": "ba7aad554a31d8a7a972b741638f19c03bd282cce9037b717d7573ec21e82098"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-      "sha256": "a40b6977fd9883d7cb0978cacbe0aa2398876077ba9be8354af0be183ce60f61"
+      "sha256": "11b19513736d6fbc94235d6428c3f30aee79205be330ff6b65267b846cf5d31a"
     },
     {
       "bytes": 46527,
@@ -473,16 +473,16 @@
       "sha256": "e097d5e9bf52ed8cc8cdafa5fc571dfea7d1ad814a2e58977cdd85ba986a80e7"
     },
     {
-      "bytes": 12064,
+      "bytes": 11901,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-      "sha256": "4b4561bc1743b0c66b0cb168e60a60604243c76fe1e24454c6f52c32ba215d76"
+      "sha256": "2a891842292f3468380375fed4bf37421a59899e9fcee48c1243623d5554b4cb"
     },
     {
-      "bytes": 12198,
+      "bytes": 12035,
       "kind": "tvm_ffi_binding",
       "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-      "sha256": "35ae92e697ca709ac7650201cbf6770cc4ddbb864416b9a4d9b672ad64dcf23a"
+      "sha256": "d9cdc1a5a6155004ed047d454b40a9473e3eed8e84d6316796df0333e55099f4"
     }
   ],
   "library": "flashinfer",
@@ -593,12 +593,12 @@
           "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-          "sha256": "82802237d15c4decb306d8869ae92600a4871f28d44057441870cabb47145365"
+          "sha256": "46aedf8826357c925149da34059cb67bd83c2fb54f2231a9f1b05f2a8f08d74b"
         }
       ],
-      "closure_sha256": "f3e37e9d9c885c0c9b4c54e00c584ae4161cfdb640b25abfd78a69960421a2a3",
+      "closure_sha256": "4baeb8edf28cad2879435086cf2b1c30afb0c11cfacf53223e56ceb0648ebd3c",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -615,7 +615,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -743,12 +743,12 @@
           "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-          "sha256": "fec0c6979251416ea6f9a68fac085e39f8b2a106f89d02e5d79c9fcc4de092a0"
+          "sha256": "c3730a5cc5c3b1dd074bb413cb4aa3051451d97a3fac3ca6df92a0e88756e125"
         }
       ],
-      "closure_sha256": "5146043baac89c87d99c9c8385167482756c783a7043c470397861e91472c5a3",
+      "closure_sha256": "e6e1c0e14d80dcbfd4d6cff88f3f9af65bdb70dcbefe29fe9953bbc602c11e5e",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -765,7 +765,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -893,12 +893,12 @@
           "sha256": "0be88cd7b7524f5768c3a19e2ff127c33de42b018a40b5d450850c406317fbea"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-          "sha256": "770c8b683a461375a8d6f1d173f5f64fb373e2f2d8ab7abb960286113d218806"
+          "sha256": "b7a46e50fecc05afcf52406ef5503a462a4c11f22e3eaf45265906fba30c0846"
         }
       ],
-      "closure_sha256": "d67892da5158b88a10cb410ffc3050132182d2e5e9c7c7fc87dab79aea6bc909",
+      "closure_sha256": "332c7dff4f519fe7892c5503a34f62842d36a3e45775e3ecd1e93abf0b1d30a5",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -915,7 +915,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -1043,12 +1043,12 @@
           "sha256": "0be88cd7b7524f5768c3a19e2ff127c33de42b018a40b5d450850c406317fbea"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-          "sha256": "60fed62f4c422f23142831c50552a89cb31b25e73ac54334bdc41d39c3d6943c"
+          "sha256": "8bbb8e42be40504c939f20d731aa594f51abffc1cfca098a438cbdfbbe76053d"
         }
       ],
-      "closure_sha256": "297078cbf517a76982ff872d9c96872688408717d42f83e1cdd5c6f1fc2b7b09",
+      "closure_sha256": "92d13395842f5e79dd69e9c5a4f3187132404bbd8770adc6fc87c457b1ef9303",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1065,7 +1065,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -1193,12 +1193,12 @@
           "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-          "sha256": "50a8f382eed5487126822b70831543ce621af0a86591cc22ddf657be585436f0"
+          "sha256": "2168510ebc8a1a916206560e7ebbcda7a50f052397fa7fef6e72c85d052de0cc"
         }
       ],
-      "closure_sha256": "9c5cd2ea1698267b940b4ba90043d5e4375d13e4af2390a2cbe64089db04ddf5",
+      "closure_sha256": "ecd1945bdd7dccde8d4a78226e0eb7b3ee44c64940b4f1fc8242f7ff55d9f403",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1215,7 +1215,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -1343,12 +1343,12 @@
           "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-          "sha256": "21995596b16d9acaa78be2d22fa69f6e00fd0858489aa7683adc9e40d00032d8"
+          "sha256": "36d95461eb7cbde003f300cba8a285174aec53c279e9bfadd705d821c679dad6"
         }
       ],
-      "closure_sha256": "c1b1b66e86c0feab94dcdffc8b5d888fc0ffe159ba6bee21535c6e4eec080893",
+      "closure_sha256": "3ad478f12e62908c8e5071ca80c9c9888c4c0255a6ff530c040e529c856c1f24",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1365,7 +1365,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -1493,12 +1493,12 @@
           "sha256": "185803c2fa0afb77c6719d1b37d814c8b9ad12c4504ba1e8f467fa32b0d891df"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-          "sha256": "2289a0ece9f140bb6cefca416cd64b29358e51b1fefee7c896495f93793d2b3f"
+          "sha256": "ff50cdab2545bb6b2500c0dcc3f59573439339e9cfc25afccfb93245866209d6"
         }
       ],
-      "closure_sha256": "0626f563761cb83647934a825f949f1f72964646077e35b3fde583feedbbb7c3",
+      "closure_sha256": "5fd8aab367c393e9d0cae70b9c2fefcb7aa737ee8e2d5a4e3a1181fb403f0eb9",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1515,7 +1515,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -1643,12 +1643,12 @@
           "sha256": "185803c2fa0afb77c6719d1b37d814c8b9ad12c4504ba1e8f467fa32b0d891df"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-          "sha256": "4567fc7b8927f4605864843503f50075894faf5dfb911f1f172f419118db594a"
+          "sha256": "e54a8ccfd94bd77905878ec9962f3a89e0ea41c7090ce8290b2730dafc19dbb9"
         }
       ],
-      "closure_sha256": "8d6ae2bd7b23cbedbc44d36540237a68d68035b67a5ac3762e844dbabeff3c22",
+      "closure_sha256": "84dcd4cd873079287e4b57073e0c6e5a949777ee074cf12903d4e21e0ff416de",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1665,7 +1665,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -1793,12 +1793,12 @@
           "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-          "sha256": "1df880f31a37eed94652641453af5f38db7985d90f86c7be44120096af28d816"
+          "sha256": "5338e1df656ec60624734e74746a6ced82291d43c0239b9ae4aa537275de4cc2"
         }
       ],
-      "closure_sha256": "f89a1a59efea23db3e57a650f40760be19c985e49acd533e9b9ac5ed40bb325f",
+      "closure_sha256": "829388913d8117b87de7b94fb20a2b83a32c02330aa5f7800c6cf80943491533",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1815,7 +1815,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -1943,12 +1943,12 @@
           "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-          "sha256": "07368a6b3da6df2cedd03eff41565ff5d859ad37a8c2c7ec397371b0c171e272"
+          "sha256": "9a2ddcf8541d65169eef0bca2c2e8ccec6fb4293ebc597c719ca08c8e5d77087"
         }
       ],
-      "closure_sha256": "0bbd60bc1064013a4f69714143e1adbedcb219514b95ccbe6dc7f444d8a2e25f",
+      "closure_sha256": "6a917af067633ed2e291f5fd7e204b636836cff4368f0d0f3c0a4e07d10cc6f2",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -1965,7 +1965,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -2093,12 +2093,12 @@
           "sha256": "954c9da8ba53bfb056cc1b9ac5c4c5e9072f3edc475a36369bd50ae24cfc71ec"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-          "sha256": "0536a98fa40ef950c193ccd1a44a3b62d369a5ea75e309c92ade15f3ca077f90"
+          "sha256": "13b5b987d12a10653c087cb5f2e84a2d6993b1fe0849e356168c8dfab8752a5d"
         }
       ],
-      "closure_sha256": "392a25b7ef9eeff84d719bb805372b5c22c6731f18df0da95a0fa956958ce679",
+      "closure_sha256": "b49ffe0b5cdec9e25eee55443cfb71fffc6aa501f48e0fffec309c6b15e8da5a",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2115,7 +2115,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -2243,12 +2243,12 @@
           "sha256": "954c9da8ba53bfb056cc1b9ac5c4c5e9072f3edc475a36369bd50ae24cfc71ec"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-          "sha256": "b9400298fa5f36625258e9c307b251bc8e87dd398bd2402b08cd57e5dd331396"
+          "sha256": "03967160b81f0cb6d77be04464da686f403e6f3fa6d7f709caa3eec6b824f8f0"
         }
       ],
-      "closure_sha256": "70a566892d125edfe93bda61cc63d64dffcc213fcad523b1d9c88257e4e6ee8a",
+      "closure_sha256": "28b13d32c4c5993f9240a76942bef3c810d3b6b4e37745480ae7acff316b3348",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2265,7 +2265,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -2393,12 +2393,12 @@
           "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-          "sha256": "c5f47f1d42097b0094f55c5732c1f2b601a44a88b5398d6d653054d073f793f1"
+          "sha256": "41f53eb8a3ad9beac660ecf074772e1cb5b83883f4c00df3dc5cfcc848c3c626"
         }
       ],
-      "closure_sha256": "a04fc0accbe8375cb079a78e23262ffbff95e2e7cb64b959c347d6af48fcc306",
+      "closure_sha256": "70a647d2d95568c1dfbbd76e090cbc5500463c5853cb9c40cf82998f5bb476f1",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2415,7 +2415,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -2543,12 +2543,12 @@
           "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-          "sha256": "d74de008c968fc5b919ae08acf86e6bb9c15c0bb1d202df6e3dcd1815239bbfb"
+          "sha256": "11b483c489f917df346c4be32b4f05bc9bc6674fa96843bb43ed70ebe658b222"
         }
       ],
-      "closure_sha256": "f908faef5a6b0d478dda7ec1c3f3abb8d470cb0105792bf78fd24df600a71d76",
+      "closure_sha256": "1ee4e258ae8586ebfa48eb7d0767b292d9f636447916b44cb29936e183fdf89b",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2565,7 +2565,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -2693,12 +2693,12 @@
           "sha256": "06ada7dc4b4649b422c5ced9b04d5a8d84449c1d8cc4e4930dae88f5ad976b08"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-          "sha256": "3163b6305aff08fcfe3a12529d2c055fe96cbd0b4ff41fe63d1c2de8272a4bb7"
+          "sha256": "c23574525a575244434ae2901460dd35125d2b3a617bae74a02ade302fda5098"
         }
       ],
-      "closure_sha256": "055683d353eb6efbf7e200406a5f4267c0dc6e513904e0f25c158520188a5560",
+      "closure_sha256": "a6850b30f2b50274fa28a98ce0eb2ef99f70721a7c0a7e0f4bcb75b03279ac27",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2715,7 +2715,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -2843,12 +2843,12 @@
           "sha256": "06ada7dc4b4649b422c5ced9b04d5a8d84449c1d8cc4e4930dae88f5ad976b08"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-          "sha256": "0935cdc3aaf309f860b4af37f2aa96677ad3f70c073564873a57fad437fac568"
+          "sha256": "5f878b339198f6cff1b46026882dc9acc9052570039a4f08d49f8ffd2808b8f0"
         }
       ],
-      "closure_sha256": "732c3848c3c2e6afb053cc75b4735302140fc13584d897aa976de52c66585a6b",
+      "closure_sha256": "e7952a415fa1b023323172e9473209c499666fce0779e9bcce5c7a017f74332b",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -2865,7 +2865,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -2993,12 +2993,12 @@
           "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-          "sha256": "3a37d2173e334b13c9480129f4a11721a558bdf1fe87fdb13983b648f9cac89a"
+          "sha256": "60b7e2d322e419c8ab827e47e67e4f39809bdd49b637b942d4a3e03afb5cf0f7"
         }
       ],
-      "closure_sha256": "f6ce1e7bc36109a3410ae997772946e12bc9026f04ac981f47f7735fb4c18d55",
+      "closure_sha256": "5f9d3640098dffed852f594b32c010888f126b8807b4bc41f2cff62b3f794f7c",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3015,7 +3015,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -3143,12 +3143,12 @@
           "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-          "sha256": "84a322a2f386df3c9e23dcb216a4c5ae6cc50e72086fc60924af5f89583c25b2"
+          "sha256": "193d5d4dfc498d5302e646a1689675a210905793212f56e17b002a9d963622e1"
         }
       ],
-      "closure_sha256": "9889410f8177bd84fc2df8969c103887408dac0634dd9d4b2929918024ec6a01",
+      "closure_sha256": "7f4f58e1585bc067d6f26df9639ec72cd6419ee49d6c8137e1f71e6611643c91",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3165,7 +3165,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -3293,12 +3293,12 @@
           "sha256": "23d45568ede0f4074309b6b8116add269924793f7920e25127648746e8b5092f"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-          "sha256": "00470a25af65ab600e3f7684409df94e4387578253fa44a5b3e99422be36afa7"
+          "sha256": "ef77c362f689032d2916aed37bc5fba42106c3d46aa03805962318f6d6846e6e"
         }
       ],
-      "closure_sha256": "b21a03d18532cdb9b37009b2df2905791da71dbfe42c96424442fd3c296ce289",
+      "closure_sha256": "d9b576efa4a020829d33d4c70b704da427510372822c850dfb05189b94fdc929",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3315,7 +3315,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -3443,12 +3443,12 @@
           "sha256": "23d45568ede0f4074309b6b8116add269924793f7920e25127648746e8b5092f"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-          "sha256": "24907012b94517649f1b7665b8ee6777f6310c4872487b6a6769bf83c49281b5"
+          "sha256": "f14295326bd42b8eba016d79fb008eadfbf677007792e550481ad24ad99cb77a"
         }
       ],
-      "closure_sha256": "fcb5b548b41e69ebf0888234d214bb1e038d2ec2c2c33918b9840643f60bda86",
+      "closure_sha256": "4720f18d64bd2099f10da9c4c60cf36751f0872f0f34f2e7e533731a1e611c64",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3465,7 +3465,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -3593,12 +3593,12 @@
           "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-          "sha256": "e22db35362e755c5d720f45601804b5b911d62377f6f0381b63ec83977e75f51"
+          "sha256": "ba7aad554a31d8a7a972b741638f19c03bd282cce9037b717d7573ec21e82098"
         }
       ],
-      "closure_sha256": "03666dae125520c1d49faad5f0377b457040319692de0d9261e9b8695259b052",
+      "closure_sha256": "86052d97c5a1aba4c283bc8ed7290244e444cfc7cd5584a95ebb85b92d7f3643",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3615,7 +3615,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -3743,12 +3743,12 @@
           "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-          "sha256": "a40b6977fd9883d7cb0978cacbe0aa2398876077ba9be8354af0be183ce60f61"
+          "sha256": "11b19513736d6fbc94235d6428c3f30aee79205be330ff6b65267b846cf5d31a"
         }
       ],
-      "closure_sha256": "eb67a528a351dd0e868c0b9412691397db45ed43d626414cad9416380fbf2123",
+      "closure_sha256": "81a7e1831f22ec88ed89bbf855765d533c6fc6049e0c3d41c427b1d07b1ac5e7",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3765,7 +3765,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -3893,12 +3893,12 @@
           "sha256": "e097d5e9bf52ed8cc8cdafa5fc571dfea7d1ad814a2e58977cdd85ba986a80e7"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-          "sha256": "4b4561bc1743b0c66b0cb168e60a60604243c76fe1e24454c6f52c32ba215d76"
+          "sha256": "2a891842292f3468380375fed4bf37421a59899e9fcee48c1243623d5554b4cb"
         }
       ],
-      "closure_sha256": "43c5e83f41acd967a93cba6b746bab1b9d9d06c595102c6a3130fec5a3cac22c",
+      "closure_sha256": "402c05f17603904416a9415e2e68cf710fe37a04a5fcd07876361eee02e1463f",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -3915,7 +3915,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -4043,12 +4043,12 @@
           "sha256": "e097d5e9bf52ed8cc8cdafa5fc571dfea7d1ad814a2e58977cdd85ba986a80e7"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_100a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-          "sha256": "35ae92e697ca709ac7650201cbf6770cc4ddbb864416b9a4d9b672ad64dcf23a"
+          "sha256": "d9cdc1a5a6155004ed047d454b40a9473e3eed8e84d6316796df0333e55099f4"
         }
       ],
-      "closure_sha256": "dfba3a837ab57a8cce440ae00a116423718ed28cf6f51c5fbac58ac16e7f165c",
+      "closure_sha256": "b208116ac0a8ec6a655ec6296b3afdbfbda12e171d2ba3e756d351ef46c3ecfb",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4065,7 +4065,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -4193,12 +4193,12 @@
           "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl0_binding.cu",
-          "sha256": "82802237d15c4decb306d8869ae92600a4871f28d44057441870cabb47145365"
+          "sha256": "46aedf8826357c925149da34059cb67bd83c2fb54f2231a9f1b05f2a8f08d74b"
         }
       ],
-      "closure_sha256": "9b5484625deead84745a2ce8b450caed62ae0a6bdcdbdb2f15f7a1e0dd24cf0e",
+      "closure_sha256": "b88aa6d81e51e59a9fb47a70ba912c412fa8564a4bb631e36b15e22bb4939cff",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4215,7 +4215,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -4343,12 +4343,12 @@
           "sha256": "c0f5db9fdcdf2cdb357df51b22b2f09233b8235b5e610ca7ba2936769d65da92"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o110_pdl1_binding.cu",
-          "sha256": "fec0c6979251416ea6f9a68fac085e39f8b2a106f89d02e5d79c9fcc4de092a0"
+          "sha256": "c3730a5cc5c3b1dd074bb413cb4aa3051451d97a3fac3ca6df92a0e88756e125"
         }
       ],
-      "closure_sha256": "b516b0e80d8c74b51ea9ea9f2f0ed7e88d637ac22b6393afbef8fcac956ef988",
+      "closure_sha256": "958e2ae812fe1ab8dfad75b4349d28000ba013f180802e618a26079fd095b9a7",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4365,7 +4365,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -4493,12 +4493,12 @@
           "sha256": "0be88cd7b7524f5768c3a19e2ff127c33de42b018a40b5d450850c406317fbea"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl0_binding.cu",
-          "sha256": "770c8b683a461375a8d6f1d173f5f64fb373e2f2d8ab7abb960286113d218806"
+          "sha256": "b7a46e50fecc05afcf52406ef5503a462a4c11f22e3eaf45265906fba30c0846"
         }
       ],
-      "closure_sha256": "f99985c5ecf5eec1512fdcf909c53b8b60af6943555ffb4e461e96e99723e0d7",
+      "closure_sha256": "5f3952be03f75e406c3feade8d0105b36d6a1da4de166c5e07b28732dde464af",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4515,7 +4515,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -4643,12 +4643,12 @@
           "sha256": "0be88cd7b7524f5768c3a19e2ff127c33de42b018a40b5d450850c406317fbea"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws2_o111_pdl1_binding.cu",
-          "sha256": "60fed62f4c422f23142831c50552a89cb31b25e73ac54334bdc41d39c3d6943c"
+          "sha256": "8bbb8e42be40504c939f20d731aa594f51abffc1cfca098a438cbdfbbe76053d"
         }
       ],
-      "closure_sha256": "45fe02c63811b2d172d2e59a2ae98bd99443545c5bfd961e914ad3a350cfd5d0",
+      "closure_sha256": "b6dd3a2c516afe5b083d6377bc75a49474002f3a4080597beba96e38b327da68",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4665,7 +4665,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -4793,12 +4793,12 @@
           "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl0_binding.cu",
-          "sha256": "50a8f382eed5487126822b70831543ce621af0a86591cc22ddf657be585436f0"
+          "sha256": "2168510ebc8a1a916206560e7ebbcda7a50f052397fa7fef6e72c85d052de0cc"
         }
       ],
-      "closure_sha256": "ce2327522ce6c69bc1b025b0aa882a32328564ca95ba1e048ba5062387fc123d",
+      "closure_sha256": "878e07b3fe4392f6e0f906ae4f7d4e6d42bc77c6b207a61094e906713aee855b",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4815,7 +4815,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -4943,12 +4943,12 @@
           "sha256": "02f8cc265441f257979e1f2115333bd95236e04bbcb0a9cbaabb724cdabde4f8"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o110_pdl1_binding.cu",
-          "sha256": "21995596b16d9acaa78be2d22fa69f6e00fd0858489aa7683adc9e40d00032d8"
+          "sha256": "36d95461eb7cbde003f300cba8a285174aec53c279e9bfadd705d821c679dad6"
         }
       ],
-      "closure_sha256": "301cf6f40ca42e0e1b9e26fdcf92ad4415e5fd9f3e7ae7e3cf943a0e45e7a37d",
+      "closure_sha256": "015d8746aaf60ec699b7380ed9e9d683d0a0d1fb86f78e724637d77f2aeb1769",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -4965,7 +4965,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -5093,12 +5093,12 @@
           "sha256": "185803c2fa0afb77c6719d1b37d814c8b9ad12c4504ba1e8f467fa32b0d891df"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl0_binding.cu",
-          "sha256": "2289a0ece9f140bb6cefca416cd64b29358e51b1fefee7c896495f93793d2b3f"
+          "sha256": "ff50cdab2545bb6b2500c0dcc3f59573439339e9cfc25afccfb93245866209d6"
         }
       ],
-      "closure_sha256": "c02934bb4337b24bca00e48b713fc7248df80bd46efc3d8689bf4657dfa4bb26",
+      "closure_sha256": "d7e2c8ae4ed623d79c489e8197f1d285cad37fb885362f9bd625e0ebd0c464f7",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5115,7 +5115,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -5243,12 +5243,12 @@
           "sha256": "185803c2fa0afb77c6719d1b37d814c8b9ad12c4504ba1e8f467fa32b0d891df"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws4_o111_pdl1_binding.cu",
-          "sha256": "4567fc7b8927f4605864843503f50075894faf5dfb911f1f172f419118db594a"
+          "sha256": "e54a8ccfd94bd77905878ec9962f3a89e0ea41c7090ce8290b2730dafc19dbb9"
         }
       ],
-      "closure_sha256": "b1236842cd8ad6547fb34a8e17085d834b1f091b0429819d4eb92bf27c6e6042",
+      "closure_sha256": "44a24898d0d0b07848ef1842c874b2745f21d368cbb8062acbeebcfe4ed3d39a",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5265,7 +5265,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -5393,12 +5393,12 @@
           "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl0_binding.cu",
-          "sha256": "1df880f31a37eed94652641453af5f38db7985d90f86c7be44120096af28d816"
+          "sha256": "5338e1df656ec60624734e74746a6ced82291d43c0239b9ae4aa537275de4cc2"
         }
       ],
-      "closure_sha256": "60893bbe3624c5b1dd9603cb873c3477b083f891d5134e2c3a308750734240fd",
+      "closure_sha256": "189bc0632a5491d87fc803a3c24aafaa592748ab5751012541563eaff4bee48e",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5415,7 +5415,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -5543,12 +5543,12 @@
           "sha256": "d9e88a6ff2b64bee8f0732b3d17d130d2a4dcf484b44111bf28bd8c1fbc2840c"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o110_pdl1_binding.cu",
-          "sha256": "07368a6b3da6df2cedd03eff41565ff5d859ad37a8c2c7ec397371b0c171e272"
+          "sha256": "9a2ddcf8541d65169eef0bca2c2e8ccec6fb4293ebc597c719ca08c8e5d77087"
         }
       ],
-      "closure_sha256": "85bd21b72a527830d1c830bff727bbe1255b8766b58a2ee3e29726bb4a6bb23f",
+      "closure_sha256": "37d519ed9c0c53e63f7cd8e819a945cb96983e8f15b07ceb6a2e1d9cb00b2f94",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5565,7 +5565,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -5693,12 +5693,12 @@
           "sha256": "954c9da8ba53bfb056cc1b9ac5c4c5e9072f3edc475a36369bd50ae24cfc71ec"
         },
         {
-          "bytes": 12068,
+          "bytes": 11905,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl0_binding.cu",
-          "sha256": "0536a98fa40ef950c193ccd1a44a3b62d369a5ea75e309c92ade15f3ca077f90"
+          "sha256": "13b5b987d12a10653c087cb5f2e84a2d6993b1fe0849e356168c8dfab8752a5d"
         }
       ],
-      "closure_sha256": "ee5ca132460d7beef62a085b8c4bf7dc714a68414fd6ad249a2cba755f3d623d",
+      "closure_sha256": "5c0b9afe425ca927ede6669a32bf5a5574132ac8263c2e6861208fd68c57a84a",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5715,7 +5715,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -5843,12 +5843,12 @@
           "sha256": "954c9da8ba53bfb056cc1b9ac5c4c5e9072f3edc475a36369bd50ae24cfc71ec"
         },
         {
-          "bytes": 12202,
+          "bytes": 12039,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_bfloat16_ws8_o111_pdl1_binding.cu",
-          "sha256": "b9400298fa5f36625258e9c307b251bc8e87dd398bd2402b08cd57e5dd331396"
+          "sha256": "03967160b81f0cb6d77be04464da686f403e6f3fa6d7f709caa3eec6b824f8f0"
         }
       ],
-      "closure_sha256": "03f7f0fe2b26a73b081503669659d7bd7085a539ecd556f93da468e16e7cf68c",
+      "closure_sha256": "b20a29b929396108b40b1a4350421a6f7490474b32ed9870b7ee3a999c4db45a",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -5865,7 +5865,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -5993,12 +5993,12 @@
           "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl0_binding.cu",
-          "sha256": "c5f47f1d42097b0094f55c5732c1f2b601a44a88b5398d6d653054d073f793f1"
+          "sha256": "41f53eb8a3ad9beac660ecf074772e1cb5b83883f4c00df3dc5cfcc848c3c626"
         }
       ],
-      "closure_sha256": "e43b77022688ff74c956bf70a05f7a9d634717a2add1dd8a9fec6cabcaf35603",
+      "closure_sha256": "390ec5b51c79ec6aff575fa6593519834118be7ff87340128bfca850e1d43187",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6015,7 +6015,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -6143,12 +6143,12 @@
           "sha256": "f5aaecc99c7521110bde5d52b824a819cb54db9ba3878e2fab1ebea543f18f3e"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o110_pdl1_binding.cu",
-          "sha256": "d74de008c968fc5b919ae08acf86e6bb9c15c0bb1d202df6e3dcd1815239bbfb"
+          "sha256": "11b483c489f917df346c4be32b4f05bc9bc6674fa96843bb43ed70ebe658b222"
         }
       ],
-      "closure_sha256": "cc51e75ef67a46e888a6dac7cf8855b4f0947382bedb821a2f0c7bdcddcc32e9",
+      "closure_sha256": "811e1b532f1276b582e88b0bd37db7aa94b956517005929db851637ce2cc9293",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6165,7 +6165,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -6293,12 +6293,12 @@
           "sha256": "06ada7dc4b4649b422c5ced9b04d5a8d84449c1d8cc4e4930dae88f5ad976b08"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl0_binding.cu",
-          "sha256": "3163b6305aff08fcfe3a12529d2c055fe96cbd0b4ff41fe63d1c2de8272a4bb7"
+          "sha256": "c23574525a575244434ae2901460dd35125d2b3a617bae74a02ade302fda5098"
         }
       ],
-      "closure_sha256": "a09976ef3c9198095d60a4800be2555fa98b7e0bd792f9e5fda89f58b537fc90",
+      "closure_sha256": "df640fb9dd25fe7cf18b5c28ee773de0f99f8cb9c552af2049e568b3aa0f711d",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6315,7 +6315,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -6443,12 +6443,12 @@
           "sha256": "06ada7dc4b4649b422c5ced9b04d5a8d84449c1d8cc4e4930dae88f5ad976b08"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws2_o111_pdl1_binding.cu",
-          "sha256": "0935cdc3aaf309f860b4af37f2aa96677ad3f70c073564873a57fad437fac568"
+          "sha256": "5f878b339198f6cff1b46026882dc9acc9052570039a4f08d49f8ffd2808b8f0"
         }
       ],
-      "closure_sha256": "be7ad9163049d662bc4759936b60d5b7446a4c0027d69f35836144fba8ccb683",
+      "closure_sha256": "939d9eb2286f0db791f0021104fdeffbebcdda1c6cd489224d04cce669a1c217",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6465,7 +6465,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -6593,12 +6593,12 @@
           "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl0_binding.cu",
-          "sha256": "3a37d2173e334b13c9480129f4a11721a558bdf1fe87fdb13983b648f9cac89a"
+          "sha256": "60b7e2d322e419c8ab827e47e67e4f39809bdd49b637b942d4a3e03afb5cf0f7"
         }
       ],
-      "closure_sha256": "3acd665d8da494db4a52a3b3bc1031f7f3586d4cb650d2ad525888893a9a945b",
+      "closure_sha256": "cec1ff714a301280a16fceba950f3763ba54aedaa1a52f35811ec6305e64db83",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6615,7 +6615,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -6743,12 +6743,12 @@
           "sha256": "f58bd888defca403412c1aed17e8eb6a8af8e7c27630a83239b65649316df6c6"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o110_pdl1_binding.cu",
-          "sha256": "84a322a2f386df3c9e23dcb216a4c5ae6cc50e72086fc60924af5f89583c25b2"
+          "sha256": "193d5d4dfc498d5302e646a1689675a210905793212f56e17b002a9d963622e1"
         }
       ],
-      "closure_sha256": "b74bf56c7e09b5bd71e1931f83cfa61041ba905daf0a364ac802c51dfb8a258a",
+      "closure_sha256": "583e5a33326247aae3681f41bef126d25399dea8bdc39212f3d739409555bc42",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6765,7 +6765,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -6893,12 +6893,12 @@
           "sha256": "23d45568ede0f4074309b6b8116add269924793f7920e25127648746e8b5092f"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl0_binding.cu",
-          "sha256": "00470a25af65ab600e3f7684409df94e4387578253fa44a5b3e99422be36afa7"
+          "sha256": "ef77c362f689032d2916aed37bc5fba42106c3d46aa03805962318f6d6846e6e"
         }
       ],
-      "closure_sha256": "d76980ee8711c560018dfa8181def380724e95da1e1f63becc6a609d71d00d94",
+      "closure_sha256": "9b9ef3111fe8b72ba61b55b6ef9ef4871100089f59606dc530028888b7500c71",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -6915,7 +6915,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -7043,12 +7043,12 @@
           "sha256": "23d45568ede0f4074309b6b8116add269924793f7920e25127648746e8b5092f"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws4_o111_pdl1_binding.cu",
-          "sha256": "24907012b94517649f1b7665b8ee6777f6310c4872487b6a6769bf83c49281b5"
+          "sha256": "f14295326bd42b8eba016d79fb008eadfbf677007792e550481ad24ad99cb77a"
         }
       ],
-      "closure_sha256": "dface778945c32d534dbadf057e3e10e5492b874497fd1a071102cae413bc122",
+      "closure_sha256": "77c959c82d62d53713d010c64e8687c508b9bb0ec2cdbd5fac3ba57d80695cd3",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7065,7 +7065,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -7193,12 +7193,12 @@
           "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl0_binding.cu",
-          "sha256": "e22db35362e755c5d720f45601804b5b911d62377f6f0381b63ec83977e75f51"
+          "sha256": "ba7aad554a31d8a7a972b741638f19c03bd282cce9037b717d7573ec21e82098"
         }
       ],
-      "closure_sha256": "46551ffd0e388deceb17b8a350e697a2c8db287ac0584ad5cc56ff547cb9e74b",
+      "closure_sha256": "ea3a3a42f6da0f6e68ce72e624a17b8b03f4ef04d8e09bfb100f566c77db96b0",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7215,7 +7215,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -7343,12 +7343,12 @@
           "sha256": "830fccd4a61932111b6a8aed0e32923e0d18471b021f22a2c0265965b89e1c64"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o110_pdl1_binding.cu",
-          "sha256": "a40b6977fd9883d7cb0978cacbe0aa2398876077ba9be8354af0be183ce60f61"
+          "sha256": "11b19513736d6fbc94235d6428c3f30aee79205be330ff6b65267b846cf5d31a"
         }
       ],
-      "closure_sha256": "ae5882f456cf07a86536118b77bcbd889fbe95d93ee172c8948b067ca0c2968a",
+      "closure_sha256": "f8d7c23697cc4aeb73f42711c82de75061915d9eeb4842f6f680be74f31c7f97",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7365,7 +7365,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
@@ -7493,12 +7493,12 @@
           "sha256": "e097d5e9bf52ed8cc8cdafa5fc571dfea7d1ad814a2e58977cdd85ba986a80e7"
         },
         {
-          "bytes": 12064,
+          "bytes": 11901,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl0_binding.cu",
-          "sha256": "4b4561bc1743b0c66b0cb168e60a60604243c76fe1e24454c6f52c32ba215d76"
+          "sha256": "2a891842292f3468380375fed4bf37421a59899e9fcee48c1243623d5554b4cb"
         }
       ],
-      "closure_sha256": "ef81421bcedcb757e41221091cb05668d94d0b69406acca39a5a3024e788fb2a",
+      "closure_sha256": "8f52939827590d4119c1cb2b750a53d9fc5f6a6817e08b0d38b26ed689fe5063",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7515,7 +7515,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": false
@@ -7643,12 +7643,12 @@
           "sha256": "e097d5e9bf52ed8cc8cdafa5fc571dfea7d1ad814a2e58977cdd85ba986a80e7"
         },
         {
-          "bytes": 12198,
+          "bytes": 12035,
           "path": "csrc/cake_moe_finalize_allreduce_fusion/sm_103a/cake_trtllm_moe_finalize_float16_ws8_o111_pdl1_binding.cu",
-          "sha256": "35ae92e697ca709ac7650201cbf6770cc4ddbb864416b9a4d9b672ad64dcf23a"
+          "sha256": "d9cdc1a5a6155004ed047d454b40a9473e3eed8e84d6316796df0333e55099f4"
         }
       ],
-      "closure_sha256": "8151cf15092afd9919946c8ed3d1f779760c5ac60ff2acda5b7cb7ce4ddf09dd",
+      "closure_sha256": "7a0431af4b90140716adf0c298f0480d3c27b21565e2340cfaa616d283c0d7f4",
       "compile_flags": [
         "--use_fast_math"
       ],
@@ -7665,7 +7665,7 @@
           1,
           1
         ],
-        "cluster_scheduling_policy": "spread",
+        "cluster_scheduling_policy": "default",
         "cooperative": false,
         "dynamic_smem_bytes": 256,
         "use_pdl": true
