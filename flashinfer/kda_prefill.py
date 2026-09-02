@@ -5396,8 +5396,7 @@ def _generated_affine_state_indices_i64(
         not capturing
         and workspace._generated_affine_state_indices_tensor is state_indices
         and workspace._generated_affine_state_indices_version == source_version
-        and workspace._generated_affine_state_indices_destination_ptr
-        == destination_ptr
+        and workspace._generated_affine_state_indices_destination_ptr == destination_ptr
     ):
         plan.state_indices_i64.copy_(state_indices)
         if not capturing:
