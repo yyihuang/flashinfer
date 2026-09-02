@@ -19,7 +19,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_chain_m64_c68ffebac9.cu",
       "body_sha256": "ba892d049bc3b202af6a2f5283748c7cb461a9328aec678c39ed59eaef05004f",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "e0d81b4a89",
+      "cache_ident": "6ddcf932a6",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_chain_m64",
       "launch_contract": {
@@ -110,7 +110,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -123,7 +123,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "e0d81b4a89369ccc7fc4dab48993c4016b3ff86807e54edef8f7fa609d475864",
+      "source_closure_sha256": "6ddcf932a61da440edb51a3d941d05b4c50deb037a0b4d2a482f3a0241131731",
       "state_mode": "bf16",
       "threads": 512,
       "tma_abi": "pointer",
@@ -141,7 +141,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_chain_m64_d3d65ffa34.cu",
       "body_sha256": "f403f11f60cda3b87c5b47c238a8ee17e36c1342f0e5288db383cd7d2ff0fc41",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5a2ceea326",
+      "cache_ident": "fd0155a552",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_chain_m64",
       "launch_contract": {
@@ -232,7 +232,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -245,7 +245,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5a2ceea32621d840aedd9eeff8e2821ded57aec68868bb01d35cbdcd697e581f",
+      "source_closure_sha256": "fd0155a5529024392c4e213a9ada87aaf5b02e47482311ab126aed1892fe5133",
       "state_mode": "fp32",
       "threads": 512,
       "tma_abi": "pointer",
@@ -263,7 +263,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_chain_m64_fb049064fe.cu",
       "body_sha256": "0c8ad09802763fa97ac620d3d43c1e59d114071b366443976043992ab599eeb7",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "7035173d39",
+      "cache_ident": "778f4ff962",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_chain_m64",
       "launch_contract": {
@@ -354,7 +354,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -367,7 +367,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "7035173d39ab0256feeec0d1a28de72b7858cd27949f2ae021c8fda53031afa4",
+      "source_closure_sha256": "778f4ff962268ed2c5d955e36153657fdd33956fa94601982a05578d1c5666e1",
       "state_mode": "bf16",
       "threads": 512,
       "tma_abi": "pointer",
@@ -385,7 +385,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_prepare_0d8e6c8011.cu",
       "body_sha256": "ebda19e8971a744b1034d9e0ad02fec7ce5412c01fba26fceb6cb7f55d9f1a54",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "893eb6003f",
+      "cache_ident": "84d8e6950f",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_prepare",
       "launch_contract": {
@@ -459,7 +459,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -472,7 +472,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "893eb6003f84535ac2b41d51e36582722091973df5c3d60ea7616ffbc4f7cdf2",
+      "source_closure_sha256": "84d8e6950f73514ff5926fb56be4a075b8441372a8d47e021218ddab6130b29d",
       "state_mode": "none",
       "threads": 128,
       "tma_abi": "pointer",
@@ -490,7 +490,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_1911ee41ee.cu",
       "body_sha256": "115cd8aa949dce7c80a364f4cf0feba8f3d4690d9571e899de68fea41016b3fc",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "fbad7f6eaf",
+      "cache_ident": "50b7538384",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -646,7 +646,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -659,7 +659,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "fbad7f6eafa4ecf04c4d41f5c621bd3aea439c65f66f98f6b63e6b5a8385566a",
+      "source_closure_sha256": "50b753838412df78863b80bce7202aac4e4c3a19603d6568593f320d0bae594a",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -677,7 +677,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_1958795cd0.cu",
       "body_sha256": "a2dac46eb3a7321c31e6d2c8b912ca7b315743d594a9421fa8e4ddbee0d52b87",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "fff06bfff7",
+      "cache_ident": "1a07b7124a",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -833,7 +833,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -846,7 +846,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "fff06bfff7e93b3463c3f26db2a4b606fdcfe84387825a25b0e60254ed45f5c1",
+      "source_closure_sha256": "1a07b7124a5055da56a2bcf45fe728b5b1e7b7dc410c4663106effa53d9d638e",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -864,7 +864,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_238ed63928.cu",
       "body_sha256": "04341ac5056b6a361d85fae5bbac07ee9dc43c84091e4a0298564e2fae78a01f",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "2fadac2070",
+      "cache_ident": "2e92da4201",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -1020,7 +1020,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -1033,7 +1033,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "2fadac2070fc3bcecd6848b85955c19a908760731cd188b215f11220f6fa9025",
+      "source_closure_sha256": "2e92da420170f29762cc7e040cf007a6f2b1f95f6f5674c07f6f8950423ff564",
       "state_mode": "bf16",
       "threads": 864,
       "tma_abi": "pointer",
@@ -1051,7 +1051,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_28f9a8a79e.cu",
       "body_sha256": "17889deb0163859073c4ff9680270b2e939bf25d01f72d3e8d4bc733db00b33d",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "3309f5ae2b",
+      "cache_ident": "4c0d63d6cc",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -1207,7 +1207,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -1220,7 +1220,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "3309f5ae2b9644cac08bdb9f6e35f65d5c90540b6ff59334264c5993e2ed085a",
+      "source_closure_sha256": "4c0d63d6cc85feffa158512587356274d4c5926553ed22ce1cee396fd4b1b729",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -1238,7 +1238,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_3b858569ea.cu",
       "body_sha256": "bf01ea3c5aeaf9de9d0be7739baa2b098beb68a994110ee93e865dd44b8180f0",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "a0d04ed830",
+      "cache_ident": "62f728f05d",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -1394,7 +1394,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -1407,7 +1407,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "a0d04ed830eb9720bc5f1f3c5f0859c63f5eb793ad0ad92c4fcc65d398b9bc5b",
+      "source_closure_sha256": "62f728f05d26bafd7169e31655342e201bc3e1b26cf00e83ec8d5d5b5a4a6930",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -1425,7 +1425,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_43c4df0716.cu",
       "body_sha256": "120f8d99530c8afb13f7576453126ef584a7d83063798af28507e5f749126e63",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "b3f9cffea5",
+      "cache_ident": "0b742f6c63",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -1581,7 +1581,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -1594,7 +1594,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "b3f9cffea5969e1ebbf244045dddcf8e6f44da58e157207779e2b08fa19723e2",
+      "source_closure_sha256": "0b742f6c63f06efdd734347a2809e6fe458cfc8f54fc0ce12a49c1209201b3c7",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -1612,7 +1612,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_46d409052b.cu",
       "body_sha256": "ede46d67d122ad3d5dc918aca72ffca785b92ee603f6dd016e8630ac066607bc",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "9b63358def",
+      "cache_ident": "a076456e59",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -1768,7 +1768,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -1781,7 +1781,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "9b63358def5cf152bfccd92ec6ae39041646e96c4af083273c024008b7c7609b",
+      "source_closure_sha256": "a076456e59e2ffd86913f788255de24abb7058f510ffeeb03746490f1b5074d9",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -1799,7 +1799,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_47d37072a8.cu",
       "body_sha256": "11512dadb67f13eeb17e471fe6b6a235d719b9853ad793330aa34d688688288c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "6b19b9f83d",
+      "cache_ident": "ba1238c5f3",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -1955,7 +1955,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -1968,7 +1968,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "6b19b9f83d5f4b253e99ab9165723264bd65b45db1066db46fc1aa91fa11adef",
+      "source_closure_sha256": "ba1238c5f369ac94327dbf5837a9d8baaba5313996166639d5b49817d94e219d",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -1986,7 +1986,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_55d1d32d26.cu",
       "body_sha256": "0bbcf39c5581168168476cd1fc9d30427b5dac26ba946f261b9fef94ec73ed15",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "b192e59aac",
+      "cache_ident": "69b31d1aa4",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -2142,7 +2142,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -2155,7 +2155,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "b192e59aac380d3721479a97679b2f4e1ad96a999e6a8223e195879c54b231b1",
+      "source_closure_sha256": "69b31d1aa4ac8d53ea099db6bce480a6df869add645a09d5a665408b0cde45e8",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -2173,7 +2173,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_56abbe7691.cu",
       "body_sha256": "73b44d9dc3bc9dfd11b147d4366cc662a93ce112539dd2effafebc5f7a97fdb1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "1a49c089d3",
+      "cache_ident": "9e91cb2666",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -2329,7 +2329,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -2342,7 +2342,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "1a49c089d34c007afa8d2dc3a818f82819674e6e06cd29b6f0866b982269f947",
+      "source_closure_sha256": "9e91cb2666ce24ab626e2e114a15e975d7f6962618908d263c826c073d1314b3",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -2360,7 +2360,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_5ae1699f79.cu",
       "body_sha256": "02d71288ac6e959eb087ae716d59dd59d81f42f6c38405f5d1fbb8ce16b244ae",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "b90cd08fac",
+      "cache_ident": "d99052ffd3",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -2471,7 +2471,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -2484,7 +2484,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "b90cd08fac05136d1a64b59aa51b75cde59de9c1e4721189c3038a199dd041e5",
+      "source_closure_sha256": "d99052ffd39249fdd19a68e7f7f1756834ce95c82788999bd6a97661d67d14d5",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -2502,7 +2502,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_5c3c67a77b.cu",
       "body_sha256": "39478b73c020cb840b59cfcaf69e7c4b0fd0bfc6d73b56db6fb498ff4fd0af88",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "fd84e3ec95",
+      "cache_ident": "f1bf4ab2d5",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -2658,7 +2658,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -2671,7 +2671,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "fd84e3ec958a5e398d26a7166857e181ef24fa2624a6139e1bc1a9dd916fe70d",
+      "source_closure_sha256": "f1bf4ab2d5b6614fe33e292e35921c4330773b067652ae23787d3bc11a2d0afe",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -2689,7 +2689,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_5e5566137f.cu",
       "body_sha256": "a47042ac045d76e12b9482077fc6ade535af752dec649b51e50a8852d88f20b5",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "dc15e3af39",
+      "cache_ident": "1dbf989b27",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -2845,7 +2845,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -2858,7 +2858,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "dc15e3af39b08975244e675ed49f8fcd4c96af79b4b50b07fd14e4b5bc4f5e6b",
+      "source_closure_sha256": "1dbf989b272e71144cb80f065700aa887fd8588db6c3baaf1e1b67b039919f07",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -2876,7 +2876,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_70f79eeed3.cu",
       "body_sha256": "a7a09c3ce4d5bd46f3b8709fe02405ef4b7a51e3e5adf1c3888063112347ee3b",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "dd15c79fe7",
+      "cache_ident": "11f45aa657",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -3032,7 +3032,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -3045,7 +3045,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "dd15c79fe759419fef5a90cee63721ec17c3509e8dbae7b12afcab640b2666ec",
+      "source_closure_sha256": "11f45aa6576713ae67ea9145c7fb9e25604468bfb66dc84d64e373475fd998c4",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -3063,7 +3063,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_72857a9eaf.cu",
       "body_sha256": "63272867d56f953a002b963fef4cba095ee2212c1b374e29bc2eb61bea693052",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "e15db5d73a",
+      "cache_ident": "3adc1f6879",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -3219,7 +3219,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -3232,7 +3232,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "e15db5d73ac7b42b59c89329c9b0bfbc7ea409a7714c1f4b9b4f984f936efa1e",
+      "source_closure_sha256": "3adc1f6879e42e28d05135495be8011120d60957e61a3fe4ac99f385e5fd708c",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -3250,7 +3250,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_774027cb32.cu",
       "body_sha256": "52cb5754d87a58ab568112f9dd2ff73187709d5b9b245c38faa7ebb5bdb4868f",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "c005675803",
+      "cache_ident": "1051b0634f",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -3406,7 +3406,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -3419,7 +3419,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "c0056758039fc0f84303f80c21ef2ad1ec2745fe91a36f499e449249e40c06d0",
+      "source_closure_sha256": "1051b0634fcb7b07259f315024aefefae81da9f524c8c8deef7ad9dd915cc602",
       "state_mode": "bf16_f32_dependency",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -3437,7 +3437,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_79d0e71824.cu",
       "body_sha256": "4d9a558e736046cc04f58302b83d4eef69de540ade141131da625a31f19c39ac",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "895b199e22",
+      "cache_ident": "d83f8aae59",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -3548,7 +3548,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -3561,7 +3561,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "895b199e221eb0163f8ed9554a64239ac8002f9b024b181a659c2aca5cdf11e1",
+      "source_closure_sha256": "d83f8aae5997a3482ee673346f2eabee23464cc5728f78c74ca9a73235f2efe3",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -3579,7 +3579,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_7c0223cea8.cu",
       "body_sha256": "6bb867f1f46da0315da5f419ae12b55326c2f60e09e5534f82a02d92821ccb34",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "6af49ec5d0",
+      "cache_ident": "4b39ff8b15",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -3690,7 +3690,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -3703,7 +3703,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "6af49ec5d074f4c59b44a780b426cf0cf9e5fa40506121a6b13faac5e739f575",
+      "source_closure_sha256": "4b39ff8b15ed1228fffd3cc21716b81dc46135a78b35523bb5784abc1a1a872b",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -3721,7 +3721,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_7c208337d1.cu",
       "body_sha256": "5fe690f99aa7ad352484abd0221d73545047220a62857e2f9d27b50a301b3ba0",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "e6f4a3b9fb",
+      "cache_ident": "c3b9b01f44",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -3877,7 +3877,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -3890,7 +3890,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "e6f4a3b9fbcfaf6b1a823af1e0350c80f5a3505bac0e23ad6dd79975df2c1e70",
+      "source_closure_sha256": "c3b9b01f4489400fcad20ae48d7edde746742e6bd7a1533f82678bac057375ea",
       "state_mode": "fp32",
       "threads": 864,
       "tma_abi": "pointer",
@@ -3908,7 +3908,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_7ec1d7bda4.cu",
       "body_sha256": "348f3d3ac2064029831b149ace249a8d921e9fecc11966adf599cdb34c820efd",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "bbd10a9fed",
+      "cache_ident": "5bf0719937",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -4064,7 +4064,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -4077,7 +4077,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "bbd10a9fed570bd06a10a4897ed902d997ee839289fc5c37083240524484d827",
+      "source_closure_sha256": "5bf071993744f4febf794aa5f59794f720a47d9f25d20ecf294653355125ce2a",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -4095,7 +4095,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_853cfdda38.cu",
       "body_sha256": "3f64bf32ad0b099361bd44b890a8fc0471951a9aa46a0c8929bcc771067d42a3",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5c7080a310",
+      "cache_ident": "0a070644dd",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -4251,7 +4251,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -4264,7 +4264,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5c7080a310826a96ca0bc1017aabe52e20ec860edba1607e05ccbd42ec1ac34f",
+      "source_closure_sha256": "0a070644dd648c0ff68401b188278ce310475fabb98bbb62b9017c8b3371ff25",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -4282,7 +4282,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_a3a4f21be7.cu",
       "body_sha256": "b78dd0afb7cbcc75723ce330c53e52021063ffc8e7ba445b7a635e6c3120fd0b",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "4cce46db67",
+      "cache_ident": "db912a5855",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -4438,7 +4438,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -4451,7 +4451,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "4cce46db674bf824c3441c421ae9e959deae52c418a5d1c5daa2bccea357007d",
+      "source_closure_sha256": "db912a585531a1ff8ab7d838f397d425ccfe1cbc06d4ab65d4cb1377bc793c50",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -4469,7 +4469,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ae1498fea5.cu",
       "body_sha256": "4c7d2b8dbf811d240f004bf0b06f3228247c14938bff8d3d4fd67b621b125519",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "f4d5c203ea",
+      "cache_ident": "60c92a6589",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -4625,7 +4625,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -4638,7 +4638,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "f4d5c203ea5824e2ceba3f8d020ec4b0c7312bb2dead5af52a919a53547f7186",
+      "source_closure_sha256": "60c92a65893fe5da320c8bf660ea2249786bc4e813bbf856abad8946ec98ace4",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -4656,7 +4656,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ae4f1aefcb.cu",
       "body_sha256": "1c50eac4f96c66d75977e4d30f1eab8626d2a026c4c0a7a08963f4fe42d152e1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "449e41a2ec",
+      "cache_ident": "b369ab065f",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -4812,7 +4812,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -4825,7 +4825,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "449e41a2ecf3857133eedee86912707e8713b645694f5fa0748776d4512886ae",
+      "source_closure_sha256": "b369ab065f319ecc12b496b5e3f2a678cbbad099f32be40537f4d9144bb94389",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -4843,7 +4843,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_c587d58abd.cu",
       "body_sha256": "1e1f1abdf79b20413ff31c17f0da1fcae5c742e5cbdb9fc6245edb9e31fccdb8",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "abb5dd09e0",
+      "cache_ident": "6b9d9251a9",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -4999,7 +4999,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -5012,7 +5012,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "abb5dd09e00ebc9959f5698831a7d7fb968afd1e70d32bb45d3b9a24a13478bf",
+      "source_closure_sha256": "6b9d9251a9bf7457a84f0a05226c2e11b9a6c5443414c5b711e72929ca7e46c3",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -5030,7 +5030,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_c6d8fdfe70.cu",
       "body_sha256": "06aceb55ce1d4226f9dcfae7bf97d86ba2b9ff25c8f8bcc71c38f2c5244e45c6",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "b02d5b365a",
+      "cache_ident": "8f602f55cb",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -5186,7 +5186,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -5199,7 +5199,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "b02d5b365a7ce7fb040371502b0eb5711345d95f7430393a37d557f434179fc2",
+      "source_closure_sha256": "8f602f55cb4dad6235dfc0584d154f9d316198bf1e592202fe25f478f7857736",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -5217,7 +5217,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_c8af151b6d.cu",
       "body_sha256": "1896bf39a0351090df84902e7f64bcc4cd06d8ea8dda9226fa2a3e4385b35f76",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "ae60e10b55",
+      "cache_ident": "44beda9e6e",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -5328,7 +5328,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -5341,7 +5341,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "ae60e10b5563f12f24c5af072335a40b99c019e10abba48b6ff4195da166fe79",
+      "source_closure_sha256": "44beda9e6e242a053208038131f1ef8407966d90561876925faa9972914897ee",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -5359,7 +5359,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ce63b5d638.cu",
       "body_sha256": "f75eb97e0393272fcb28912d51e633a7258e6ed0e411173d41cdafd4403e7bd5",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "710becdeb3",
+      "cache_ident": "3ea2b3485f",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -5515,7 +5515,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -5528,7 +5528,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "710becdeb3aaad3df8b4e383a5e8de86d3fc0ab3c99f60589762bcddd1a95da9",
+      "source_closure_sha256": "3ea2b3485f78a46941bf5a984efaa066032a6699993334a62cf71540cbf5e5f2",
       "state_mode": "bf16",
       "threads": 864,
       "tma_abi": "pointer",
@@ -5546,7 +5546,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_d860c5a53e.cu",
       "body_sha256": "4d69720d41fd802ad1f91c6d92d6f5c07baa916da8bfa74ef9132fe32ea23d0a",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "995c063bad",
+      "cache_ident": "be075a6ba5",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -5702,7 +5702,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -5715,7 +5715,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "995c063bad3b1bc5709101383d4c1ed5e2200aca425d7755fe603e916d73a297",
+      "source_closure_sha256": "be075a6ba5dc14eb1082d33f1bd37d4241945ec171acfb20be821b9f9bcfab8f",
       "state_mode": "bf16_f32_dependency",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -5733,7 +5733,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_dc01198745.cu",
       "body_sha256": "10d1eecbd633156f2dde8ec2ee0da4f87afa16152d927cb7967b5bc0ab32de93",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "1e67ab8670",
+      "cache_ident": "8c8084163a",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -5889,7 +5889,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -5902,7 +5902,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "1e67ab86709295f8bd9095ff0fea95df0505df723233cd1469289a4139659598",
+      "source_closure_sha256": "8c8084163a9bf47aca7b6b8597d36294be445c54321eb314dde77b7786facd01",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -5920,7 +5920,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_e2c9d7c101.cu",
       "body_sha256": "a7c6a9edfc915d7b0298a6c46c07e7f6cb92625865ffbe466a1fedf7e5266b5b",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "b90b37133b",
+      "cache_ident": "6bd0a2028f",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -6076,7 +6076,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -6089,7 +6089,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "b90b37133b20f7fc8609a0b95aa3eadb71bb7af36afe3732bca25788dbb2f7ba",
+      "source_closure_sha256": "6bd0a2028fbf9137258fc39943097cc9ec79f250c3dd5ea9a8e42a6ba8ba8eb4",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -6107,7 +6107,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ef2d32976c.cu",
       "body_sha256": "7b8244d8c057b148a43ab141a35bcdd2e94ba89cfb8dd48669f28270331ffe9c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "0774842d01",
+      "cache_ident": "7287b75b05",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -6263,7 +6263,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -6276,7 +6276,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "0774842d01464e54a1d05984aab0dfb99f0d0ae1ab4f7b93db6a99aee8b16888",
+      "source_closure_sha256": "7287b75b05f09a1ebbdef43aa9d1f241c97be7053f43a6e3b39625a90c190875",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -6294,7 +6294,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_2eb7864cd4.cu",
       "body_sha256": "cc1abae1202a1e6ce409e90eb830a91e3036d8f3f2380b82df29f2d1044cb1e1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "25452d1d5f",
+      "cache_ident": "146137ffe6",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -6405,7 +6405,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -6418,7 +6418,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "25452d1d5f39ec1c87d70fbf49955ae304111f2a50e7380c67baf97f9905af88",
+      "source_closure_sha256": "146137ffe6b8f6d8ae13111d8c13d63a40413cc1a5c9599b81360d55dbfab763",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -6436,7 +6436,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_5eb5b5da39.cu",
       "body_sha256": "022f45c5a52a801c050ef1a0abb1fa50a3f3c8230d6497b9cab37575397b3e3e",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "c6a22f1f1c",
+      "cache_ident": "887895081a",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -6547,7 +6547,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -6560,7 +6560,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "c6a22f1f1c337d454c9bc04de6850fa27fda7748b8b28d6f83218dae54ccddef",
+      "source_closure_sha256": "887895081af5a9246f7d7ebdd66892db64192d70dcbaa6d6b7c3bfcb314d3535",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -6578,7 +6578,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_9f7512076a.cu",
       "body_sha256": "cd8b441cacde8adf74f9f2e1a9a14e7e2394e26d6d4e928871d990bac2b8d131",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "13cc34bd6f",
+      "cache_ident": "bb53695ff3",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -6689,7 +6689,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -6702,7 +6702,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "13cc34bd6f416ec987a44e59ad4580be9366111f8ad8445e13dd00342b33d851",
+      "source_closure_sha256": "bb53695ff38913932d2f2288b7441e8a3297693c6868d6cfe59cfe293eea3ce9",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -6720,7 +6720,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_c2b2a382bb.cu",
       "body_sha256": "faef481510ad0d8713a5343d1c40579b68735d72f46eb30eb3c04306d6eb659c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "8121873cb1",
+      "cache_ident": "a620000bdf",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -6831,7 +6831,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -6844,7 +6844,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "8121873cb19887d0f27af62abb511a176773c74a447c190ce7865a3b50f7bfb0",
+      "source_closure_sha256": "a620000bdf49030d28310104223c188a348aa5c2c0840bd198e759bc1d03cf72",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -6862,7 +6862,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_persistent_m128_47722a5d98.cu",
       "body_sha256": "ab4db84ca1d1a4c57a42c46975d211372e599fe9ffa49d24abe1ab0b2909ec4a",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "30a2ce16d1",
+      "cache_ident": "0793593aef",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_persistent_m128",
       "launch_contract": {
@@ -6948,7 +6948,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -6961,7 +6961,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "30a2ce16d195c63aa74d31871c9f9a4190350f2feba4fe895dec37a3de763202",
+      "source_closure_sha256": "0793593aef758f4263913e555c367bbba98af8821cbcea7cb047ba1efe24bb52",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -6979,7 +6979,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_persistent_m128_4b0769bf08.cu",
       "body_sha256": "dff22664db2081c5eeca01ff1042ebdf22f3160185c0111fd485df9404b5ced7",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "82f74b4d80",
+      "cache_ident": "248b424555",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_persistent_m128",
       "launch_contract": {
@@ -7091,7 +7091,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7104,7 +7104,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "82f74b4d801c6561775542393b5333bf8e400ee4993cdc9cd6f1b9af1c0d3906",
+      "source_closure_sha256": "248b42455598c1d3a9f2f3cd6a4ca492c4c34a14349c4cd61ba9ced0eb22ef43",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -7122,7 +7122,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_persistent_m128_c258a6e650.cu",
       "body_sha256": "a75edc27072c70595fdfabe0d0fa70d53d24c3a48af54be020de8abacd0731c1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "d62215bc34",
+      "cache_ident": "649f3bd1fc",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_persistent_m128",
       "launch_contract": {
@@ -7234,7 +7234,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7247,7 +7247,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "d62215bc343382811cffbea06139c842baacf448415c715768d1797851d084bb",
+      "source_closure_sha256": "649f3bd1fcbd6d5e1790675a64ca397f436033e792310eb15e3886911459bf8e",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -7265,7 +7265,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_persistent_m128_ddb5283bd6.cu",
       "body_sha256": "fbcd228ae3a6c5c8d7c54af657821c7a60b5cbd4aa42f63df491b22090200549",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "9248b2180a",
+      "cache_ident": "1dbce2ebe3",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_persistent_m128",
       "launch_contract": {
@@ -7351,7 +7351,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7364,7 +7364,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "9248b2180a0e768020e44131481e2b3214a417c239906712196f4023015f87a1",
+      "source_closure_sha256": "1dbce2ebe3e89b5d4fa16f87c8a82b27527789192b4f7bdd9bc0afe802f69ff6",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -7382,7 +7382,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_small_bh_m128_9f0e93e17e.cu",
       "body_sha256": "9a8f5e5abef71f3736595364a038098d38209f4963d8ffd690b386a53dcc22af",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "65c0cf956f",
+      "cache_ident": "1bc3755f50",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_small_bh_m128",
       "launch_contract": {
@@ -7468,7 +7468,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7481,7 +7481,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "65c0cf956fe7fff5503953da81ac6340223734562a63eb5c920d55ed6d687f2b",
+      "source_closure_sha256": "1bc3755f502a71ae9a8ebc0ccd2166f9c63262ee4976ecfeb08076fd331053dc",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -7499,7 +7499,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_small_bh_m128_cdac8305c9.cu",
       "body_sha256": "f0ccd59e52283dac025f6856a5995ea57c22f010843b29fc34606d48cd33178a",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "7e80ec4dc4",
+      "cache_ident": "5a6d3ef955",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_small_bh_m128",
       "launch_contract": {
@@ -7585,7 +7585,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7598,7 +7598,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "7e80ec4dc4d9740c1af3411cec5cd5cf62eb91ed75a451432de5e41c896d45b0",
+      "source_closure_sha256": "5a6d3ef955555cc4a5d83288dd2b4f10ac00e0d7a330647d04a313f211deada9",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -7616,7 +7616,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_split_scan_bf16_m128_3263b0aaf3.cu",
       "body_sha256": "6fa5a69c3b149fe705c421b29b4a401f970ccd15f08a057059f8673dcaeee1a1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "11bd54d05e",
+      "cache_ident": "6241b7e5f4",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_split_scan_bf16_m128",
       "launch_contract": {
@@ -7697,7 +7697,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7710,7 +7710,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "11bd54d05ed2b3d153fff0d9713f7a5ab0b9fd1df7f011e70797249f8a6935f7",
+      "source_closure_sha256": "6241b7e5f4e30c245d081d4a8b8caf307466693976d9bf9bd278863965e9e12d",
       "state_mode": "none",
       "threads": 128,
       "tma_abi": "pointer",
@@ -7728,7 +7728,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_chain_m64_c68ffebac9.cu",
       "body_sha256": "ba892d049bc3b202af6a2f5283748c7cb461a9328aec678c39ed59eaef05004f",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "ad16a25eee",
+      "cache_ident": "50e168e564",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_chain_m64",
       "launch_contract": {
@@ -7819,7 +7819,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7832,7 +7832,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "ad16a25eeec707ff4578c19c68771192ebbf2f41e3fea1de149c0897548beade",
+      "source_closure_sha256": "50e168e564f0bcaddcdb554d347adced7b96b74892f24062df2a9fa4cc3bf4f6",
       "state_mode": "bf16",
       "threads": 512,
       "tma_abi": "pointer",
@@ -7850,7 +7850,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_chain_m64_d3d65ffa34.cu",
       "body_sha256": "f403f11f60cda3b87c5b47c238a8ee17e36c1342f0e5288db383cd7d2ff0fc41",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "3f24870b88",
+      "cache_ident": "778cb21ff2",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_chain_m64",
       "launch_contract": {
@@ -7941,7 +7941,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -7954,7 +7954,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "3f24870b88bf5e5eea960ef1dfbd67fb017c99de46972009bbd5346298e849e4",
+      "source_closure_sha256": "778cb21ff2aef075a8bcf31715702dd876076382d4042452379f062ca993e584",
       "state_mode": "fp32",
       "threads": 512,
       "tma_abi": "pointer",
@@ -7972,7 +7972,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_chain_m64_fb049064fe.cu",
       "body_sha256": "0c8ad09802763fa97ac620d3d43c1e59d114071b366443976043992ab599eeb7",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "d231d299a3",
+      "cache_ident": "8b47cb3ccb",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_chain_m64",
       "launch_contract": {
@@ -8063,7 +8063,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -8076,7 +8076,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "d231d299a3e2dfdcdec1f7bd1d56d862bd7c7ddf570dfb54499e8aa83c8af364",
+      "source_closure_sha256": "8b47cb3ccb60ee23946f0a24d594f22ab201905169cb22657a020ea717fc0fa1",
       "state_mode": "bf16",
       "threads": 512,
       "tma_abi": "pointer",
@@ -8094,7 +8094,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_bt16_prepare_0d8e6c8011.cu",
       "body_sha256": "ebda19e8971a744b1034d9e0ad02fec7ce5412c01fba26fceb6cb7f55d9f1a54",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "6b040f0b70",
+      "cache_ident": "74f6409a09",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_bt16_prepare",
       "launch_contract": {
@@ -8168,7 +8168,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -8181,7 +8181,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "6b040f0b705c0c4db9dcef59b67a4bd2b15bfdf6889fd706331cf5cd4fddc17a",
+      "source_closure_sha256": "74f6409a09a16fc6637a823c5f8811d9c9c707354d196460e7c7b826460d4127",
       "state_mode": "none",
       "threads": 128,
       "tma_abi": "pointer",
@@ -8199,7 +8199,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_048e872a57.cu",
       "body_sha256": "3fe5d6d57d0e9b197df44e9d30c518b4e186f2518938b0eac58f216e074e30e7",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "711d6e1830",
+      "cache_ident": "583b55a46b",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -8355,7 +8355,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -8368,7 +8368,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "711d6e1830e21b3e64f84ca93030d097d4bad404d18df04fcf2de5b2d7c3fd99",
+      "source_closure_sha256": "583b55a46bb0f7f0ebfcc998c96b8fc9f3cc5e24ce4703b5b13fe4350fe7bfc0",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -8386,7 +8386,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_1911ee41ee.cu",
       "body_sha256": "115cd8aa949dce7c80a364f4cf0feba8f3d4690d9571e899de68fea41016b3fc",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "329e9d2b2f",
+      "cache_ident": "828626e86a",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -8542,7 +8542,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -8555,7 +8555,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "329e9d2b2f0dc50af54442daa19230aa326a51a14571e237af5a370b79d29dab",
+      "source_closure_sha256": "828626e86a4d1e4e65b7650da3e9186db5884d4c20278813c40a6f8a0e14de1c",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -8573,7 +8573,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_1958795cd0.cu",
       "body_sha256": "a2dac46eb3a7321c31e6d2c8b912ca7b315743d594a9421fa8e4ddbee0d52b87",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "76e0ed7c8c",
+      "cache_ident": "787ae0e4ef",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -8729,7 +8729,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -8742,7 +8742,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "76e0ed7c8c5dad7b48eaa18c6d5028172a40b753619b194c1ebe9186e1dc428d",
+      "source_closure_sha256": "787ae0e4ef73318dc0f8911ea872934472849df201fa7df448ad7f73e02cf1d0",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -8760,7 +8760,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_238ed63928.cu",
       "body_sha256": "04341ac5056b6a361d85fae5bbac07ee9dc43c84091e4a0298564e2fae78a01f",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "9006a0ba9b",
+      "cache_ident": "c84bf5f2c2",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -8916,7 +8916,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -8929,7 +8929,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "9006a0ba9bd12d43fc43647515e1b1cbff59dce22bce951f7db381f9df63ec2c",
+      "source_closure_sha256": "c84bf5f2c21fe716c7bc13fcba909e82aa767d7a8d43ffd55539cafbcbb46d84",
       "state_mode": "bf16",
       "threads": 864,
       "tma_abi": "pointer",
@@ -8947,7 +8947,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_28f9a8a79e.cu",
       "body_sha256": "17889deb0163859073c4ff9680270b2e939bf25d01f72d3e8d4bc733db00b33d",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "d2b6ec1126",
+      "cache_ident": "786aa6ab3b",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -9103,7 +9103,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -9116,7 +9116,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "d2b6ec112619cfb175e8c0929180380de81614d846da228a8c2a1472d9ed4ee9",
+      "source_closure_sha256": "786aa6ab3b41d7e0c43a46b7c9509ae18f9de25cc8d97f39e117b37b08cff1de",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -9134,7 +9134,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_29898d6f0d.cu",
       "body_sha256": "0d0ebcef27af3fbb46e6b1d9b1bce91e44687cf2edc9aa211bfd9c8e81464c31",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "e7e3a6f920",
+      "cache_ident": "c3783fbc73",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -9290,7 +9290,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -9303,7 +9303,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "e7e3a6f920dfb56960696813de96d3936c181cb8ec784956189c0a6ce01e79be",
+      "source_closure_sha256": "c3783fbc73d4dba41c17f04981f9916e86315b61754e5cfa8a660cb20be4344a",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -9321,7 +9321,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_3b858569ea.cu",
       "body_sha256": "bf01ea3c5aeaf9de9d0be7739baa2b098beb68a994110ee93e865dd44b8180f0",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "8e864d5f80",
+      "cache_ident": "4275245276",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -9477,7 +9477,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -9490,7 +9490,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "8e864d5f80cd3bedfff5a6079d718233a94ddeaef9b868c9f6456b71c991bd9b",
+      "source_closure_sha256": "4275245276151cc6c2ccc37d96acff5fd4981e3ce1745ac98fa68f166cd318f9",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -9508,7 +9508,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_43c4df0716.cu",
       "body_sha256": "120f8d99530c8afb13f7576453126ef584a7d83063798af28507e5f749126e63",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "53717a19ef",
+      "cache_ident": "c12be521d5",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -9664,7 +9664,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -9677,7 +9677,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "53717a19ef1f746bee6b15778437e2ce0f96fb6fde2b94a83b490440812ffb2b",
+      "source_closure_sha256": "c12be521d5e357268939568952663cb4cabb778c845aba69e1a350f2db2ddd03",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -9695,7 +9695,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_46d409052b.cu",
       "body_sha256": "ede46d67d122ad3d5dc918aca72ffca785b92ee603f6dd016e8630ac066607bc",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5a66eac3a4",
+      "cache_ident": "236645a85c",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -9851,7 +9851,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -9864,7 +9864,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5a66eac3a4b2884b4990a13207f5c8af6374d34e8fffadd5627d32e3180f09f9",
+      "source_closure_sha256": "236645a85cfb174f4dbcdf036f4ec994198422b4c9b678087e4fdcd34dd3aafd",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -9882,7 +9882,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_47d37072a8.cu",
       "body_sha256": "11512dadb67f13eeb17e471fe6b6a235d719b9853ad793330aa34d688688288c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "f99428b48c",
+      "cache_ident": "1aa324f4f9",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -10038,7 +10038,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -10051,7 +10051,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "f99428b48cc0db24efcf35e3c7df99e484243eccfdfc41de060dc738ca67947f",
+      "source_closure_sha256": "1aa324f4f95bcc6c245834e29bebc629de7aee824bc7acaef1f2cb107d50216d",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -10069,7 +10069,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_4dd0821068.cu",
       "body_sha256": "84e8d7745b78bd6cf8cf2682e1555aa69d8d46d25c7e8f269ecaf9240fca6376",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "830357624e",
+      "cache_ident": "92acd2ab65",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -10225,7 +10225,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -10238,7 +10238,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "830357624e12ed92a5a4b7b086bab1ef563cd7196982217f69f326ca758c22b6",
+      "source_closure_sha256": "92acd2ab653a78d1dd4f9801ae2a0bc56baaaf1ae31ca52549ac50d0b53f8d24",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -10256,7 +10256,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_55d1d32d26.cu",
       "body_sha256": "0bbcf39c5581168168476cd1fc9d30427b5dac26ba946f261b9fef94ec73ed15",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "525f89decc",
+      "cache_ident": "6567468e61",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -10412,7 +10412,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -10425,7 +10425,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "525f89decc8f689e5e98f920fc61ae21f365d3926ccff18735d9ece31ca5b45a",
+      "source_closure_sha256": "6567468e61c736ad6faf6bc89240acd62b8a6fb9a99325f0982dbea7bef47a61",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -10443,7 +10443,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_56abbe7691.cu",
       "body_sha256": "73b44d9dc3bc9dfd11b147d4366cc662a93ce112539dd2effafebc5f7a97fdb1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "757f94cad4",
+      "cache_ident": "de08ad8087",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -10599,7 +10599,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -10612,7 +10612,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "757f94cad458a767923a68361539cba2dbf54919a4db1cc9929856a39cf7de43",
+      "source_closure_sha256": "de08ad808736b8d2791ea06d660f38537d2ffae8ee84b5767797fb85bde3166e",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -10630,7 +10630,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_5ae1699f79.cu",
       "body_sha256": "02d71288ac6e959eb087ae716d59dd59d81f42f6c38405f5d1fbb8ce16b244ae",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "d64b20b32e",
+      "cache_ident": "5cff03c60e",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -10741,7 +10741,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -10754,7 +10754,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "d64b20b32eb34219cdeb294f7ef41174e209836027ba4364f63fb76315b02449",
+      "source_closure_sha256": "5cff03c60e2474bf3e00af79daeb3a87422f99c12f3dff29f9ad40d7ff58310b",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -10772,7 +10772,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_5c3c67a77b.cu",
       "body_sha256": "39478b73c020cb840b59cfcaf69e7c4b0fd0bfc6d73b56db6fb498ff4fd0af88",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "b237c69e1d",
+      "cache_ident": "2d0601714d",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -10928,7 +10928,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -10941,7 +10941,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "b237c69e1d13f8b267b8986ad7c360457a4d8ea5ed5de32a31d57ba54d90e839",
+      "source_closure_sha256": "2d0601714dbdeac3985379e7e3cb003e3026ef97df6037eb55fbc7cc7a0236bb",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -10959,7 +10959,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_5e5566137f.cu",
       "body_sha256": "a47042ac045d76e12b9482077fc6ade535af752dec649b51e50a8852d88f20b5",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5ba0633167",
+      "cache_ident": "bcb92a79f9",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -11115,7 +11115,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -11128,7 +11128,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5ba0633167435341c81ba6cebd0d907323e6ac5cf796d501a2379600ca6e989b",
+      "source_closure_sha256": "bcb92a79f984bc5fd2bbbed151047b4125e02397004f1e35b8375d4da862fc82",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -11146,7 +11146,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_70f79eeed3.cu",
       "body_sha256": "a7a09c3ce4d5bd46f3b8709fe02405ef4b7a51e3e5adf1c3888063112347ee3b",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "130d47e596",
+      "cache_ident": "8c49858840",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -11302,7 +11302,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -11315,7 +11315,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "130d47e5966eee7e1b28d7a00e16dbb8f918405d2d6dab3149237144059886f6",
+      "source_closure_sha256": "8c498588402a9428222675d51bfd7ffd96340482a2847b5c5716369cbb33ad63",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -11333,7 +11333,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_72857a9eaf.cu",
       "body_sha256": "63272867d56f953a002b963fef4cba095ee2212c1b374e29bc2eb61bea693052",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "2a28040a9d",
+      "cache_ident": "4fa3f37949",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -11489,7 +11489,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -11502,7 +11502,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "2a28040a9dc0547d8a5ca6fb884b23db0aaf2619a7431e01d4db46f3508dac54",
+      "source_closure_sha256": "4fa3f37949d42098ddbc8f2270e75459ca69a66439a57407ce389eb84dd603f8",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -11520,7 +11520,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_774027cb32.cu",
       "body_sha256": "52cb5754d87a58ab568112f9dd2ff73187709d5b9b245c38faa7ebb5bdb4868f",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "89760fbef4",
+      "cache_ident": "dd75497d6a",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -11676,7 +11676,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -11689,7 +11689,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "89760fbef47393a3e04c9d76eeb28a41c5cf00e570d642aab1d1e8f7d9a8fa20",
+      "source_closure_sha256": "dd75497d6a9ac534eae45f34f32b5079f4c12c774abbdaf5760c7fd36247ee01",
       "state_mode": "bf16_f32_dependency",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -11707,7 +11707,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_79d0e71824.cu",
       "body_sha256": "4d9a558e736046cc04f58302b83d4eef69de540ade141131da625a31f19c39ac",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "519e01177d",
+      "cache_ident": "88818c7f29",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -11818,7 +11818,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -11831,7 +11831,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "519e01177dcb4b825aa843b0d55af271b82e8694d59ef2828a798345956f74f7",
+      "source_closure_sha256": "88818c7f29f48866e37629590439c33fc7837e82111eae63dec157ee22e7214d",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -11849,7 +11849,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_7c0223cea8.cu",
       "body_sha256": "6bb867f1f46da0315da5f419ae12b55326c2f60e09e5534f82a02d92821ccb34",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "ff2e78961f",
+      "cache_ident": "2fad1a5e73",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -11960,7 +11960,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -11973,7 +11973,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "ff2e78961fa6c663b71496908eb78dffe1c237646f309f2e8e89373b3cdab0f0",
+      "source_closure_sha256": "2fad1a5e730455f4f4ad74c4bf7de12b54dca9fe1ac434dc58e48830e3fe4359",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -11991,7 +11991,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_7c208337d1.cu",
       "body_sha256": "5fe690f99aa7ad352484abd0221d73545047220a62857e2f9d27b50a301b3ba0",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "37feb835fa",
+      "cache_ident": "e40ce01556",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -12147,7 +12147,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -12160,7 +12160,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "37feb835fa7977d2e5611fa26afcc053fab384c8c1713d1985dcc3fab565bbec",
+      "source_closure_sha256": "e40ce01556c1a93f246bb6796948a94972f43f74ac543c08368013976dee5968",
       "state_mode": "fp32",
       "threads": 864,
       "tma_abi": "pointer",
@@ -12178,7 +12178,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_7ec1d7bda4.cu",
       "body_sha256": "348f3d3ac2064029831b149ace249a8d921e9fecc11966adf599cdb34c820efd",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5772f07ea0",
+      "cache_ident": "5fe704a673",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -12334,7 +12334,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -12347,7 +12347,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5772f07ea076d7c30df974edd0cbe038067fa0c9a65384d06b96691f89cd749e",
+      "source_closure_sha256": "5fe704a67306ac06bef5d13cef1e79c2d053f70293258c916b82f3d84f35a338",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -12365,7 +12365,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_853cfdda38.cu",
       "body_sha256": "3f64bf32ad0b099361bd44b890a8fc0471951a9aa46a0c8929bcc771067d42a3",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "590c6e0677",
+      "cache_ident": "674649bb1f",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -12521,7 +12521,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -12534,7 +12534,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "590c6e067707a457d06e7d2d15da2c8bbd2b67493e114ad07816b473887dbe96",
+      "source_closure_sha256": "674649bb1fc6794892e6781aa61421bec6c44ed5461e851950f44428c7aba8b2",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -12552,7 +12552,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_a3a4f21be7.cu",
       "body_sha256": "b78dd0afb7cbcc75723ce330c53e52021063ffc8e7ba445b7a635e6c3120fd0b",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "938303ab7f",
+      "cache_ident": "11bcfe8c28",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -12708,7 +12708,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -12721,7 +12721,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "938303ab7f3eacb502ecef435cababa067fc1c629da7b1dcf26db347b5736e2f",
+      "source_closure_sha256": "11bcfe8c285995bc5574ce342b3f26970a462a75b662457303d9856830489825",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -12739,7 +12739,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_a754a98a1c.cu",
       "body_sha256": "36a05f9a4583dc1bdbaf1b0f11d45510c88656e279fe00cad73cc88e5ed56b04",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "114ebdb75d",
+      "cache_ident": "6cb51bb948",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -12895,7 +12895,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -12908,7 +12908,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "114ebdb75d5014f56f3f6050e48b462894e859722763dfa6a641bf160cf3d7fe",
+      "source_closure_sha256": "6cb51bb948deef2bad528ee72fb17262d2cb565c0124e3d467cab29aa830c12c",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -12926,7 +12926,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_a9282d2030.cu",
       "body_sha256": "7cc5086285306fd974c273e93b79ddef7b6a7213b1e76544e547b22e061cfd87",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "6bf26559ea",
+      "cache_ident": "3ce420b644",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -13082,7 +13082,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -13095,7 +13095,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "6bf26559eaee61b56c4c6ae5029cec4531d5a813c14eaee41f896e6dcf2c4dd6",
+      "source_closure_sha256": "3ce420b6445b4b23dacda7c0895a86717134032cf896f6391b7343ce6c05ab21",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -13113,7 +13113,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ae1498fea5.cu",
       "body_sha256": "4c7d2b8dbf811d240f004bf0b06f3228247c14938bff8d3d4fd67b621b125519",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "63d952aea1",
+      "cache_ident": "838d475e99",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -13269,7 +13269,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -13282,7 +13282,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "63d952aea1c189f9977271b0dd8872023d6206063afe711895e70b8c0d984d36",
+      "source_closure_sha256": "838d475e993c2d1c4eaf64974b7883a7968e39625ed6a0b857944fb9a336f59d",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -13300,7 +13300,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ae4f1aefcb.cu",
       "body_sha256": "1c50eac4f96c66d75977e4d30f1eab8626d2a026c4c0a7a08963f4fe42d152e1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5b78fd3c52",
+      "cache_ident": "b3040a83cb",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -13456,7 +13456,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -13469,7 +13469,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5b78fd3c52af255e62d90e205fd2af21cb1fbf76df7312538bfe2ae1ca8bca47",
+      "source_closure_sha256": "b3040a83cbb4ee36e6c8a9dbdda446f013e39c7316caf01f53eca95b968386c0",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -13487,7 +13487,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_c587d58abd.cu",
       "body_sha256": "1e1f1abdf79b20413ff31c17f0da1fcae5c742e5cbdb9fc6245edb9e31fccdb8",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "342396d4e4",
+      "cache_ident": "e4eae8f515",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -13643,7 +13643,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -13656,7 +13656,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "342396d4e430cc0c7ee13e6324fa2dd688cb301dae2eee4e808695aa531956ad",
+      "source_closure_sha256": "e4eae8f5159c5c57e8ffd398b6dd6551a3a588ccec36abcb46d868f2df205df4",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -13674,7 +13674,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_c6d8fdfe70.cu",
       "body_sha256": "06aceb55ce1d4226f9dcfae7bf97d86ba2b9ff25c8f8bcc71c38f2c5244e45c6",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "3f2a7302ce",
+      "cache_ident": "f11045d335",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -13830,7 +13830,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -13843,7 +13843,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "3f2a7302ce1ce6837f8ceece9c476e1e2935339d0515ae2b830bcfd574c4d709",
+      "source_closure_sha256": "f11045d335b6eaef2460922575c608f03a3765c6c307567d404255e9709ba2b2",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -13861,7 +13861,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_c8af151b6d.cu",
       "body_sha256": "1896bf39a0351090df84902e7f64bcc4cd06d8ea8dda9226fa2a3e4385b35f76",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "fa34e82b97",
+      "cache_ident": "920adc9389",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -13972,7 +13972,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -13985,7 +13985,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "fa34e82b97ff385b980399b452d665a57c0c8c43cac5bfaa17b7221de4a8f6db",
+      "source_closure_sha256": "920adc93891ee69753dab561351711989f4e36990a408c18320a37384ec37dd0",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -14003,7 +14003,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ce63b5d638.cu",
       "body_sha256": "f75eb97e0393272fcb28912d51e633a7258e6ed0e411173d41cdafd4403e7bd5",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "48e22e0b61",
+      "cache_ident": "48eb4fb09d",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -14159,7 +14159,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -14172,7 +14172,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "48e22e0b614d601615c07db32defb2770fc03c58020d11eb64245f69f0efbaac",
+      "source_closure_sha256": "48eb4fb09d87e47a6510fbea984808ef546598141060e00c43ddf8301b08cf1c",
       "state_mode": "bf16",
       "threads": 864,
       "tma_abi": "pointer",
@@ -14190,7 +14190,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_d860c5a53e.cu",
       "body_sha256": "4d69720d41fd802ad1f91c6d92d6f5c07baa916da8bfa74ef9132fe32ea23d0a",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "ad149c83c6",
+      "cache_ident": "392b5a9bd6",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -14346,7 +14346,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -14359,7 +14359,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "ad149c83c61e728b94170abeb30ef55187fcc31a8126a341772adb540ec90e1e",
+      "source_closure_sha256": "392b5a9bd649b2e35c16a6780c26859d77fc04d5f6cb95792ae14c9631293120",
       "state_mode": "bf16_f32_dependency",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -14377,7 +14377,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_dc01198745.cu",
       "body_sha256": "10d1eecbd633156f2dde8ec2ee0da4f87afa16152d927cb7967b5bc0ab32de93",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "4a2106901d",
+      "cache_ident": "e97cd4d538",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -14533,7 +14533,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -14546,7 +14546,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "4a2106901dd8b6a92fa9ab4733966197f1766ff70c10216219ca3aacc542f855",
+      "source_closure_sha256": "e97cd4d53815ed63708c7a91be056378156be0a116c45dedb2ea496a6d202613",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -14564,7 +14564,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_e2c9d7c101.cu",
       "body_sha256": "a7c6a9edfc915d7b0298a6c46c07e7f6cb92625865ffbe466a1fedf7e5266b5b",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5fe052cfc2",
+      "cache_ident": "3b97209d1e",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -14720,7 +14720,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -14733,7 +14733,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5fe052cfc2ca14eb02e600b87719754b95e85e87b243756f7ae915d5ccc8fa17",
+      "source_closure_sha256": "3b97209d1e3eec4db94db0edfc239383df16a256467f694ce539bc0e672ae201",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -14751,7 +14751,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_ef2d32976c.cu",
       "body_sha256": "7b8244d8c057b148a43ab141a35bcdd2e94ba89cfb8dd48669f28270331ffe9c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "2dd6b2ea88",
+      "cache_ident": "2f150a9d22",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -14907,7 +14907,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -14920,7 +14920,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "2dd6b2ea8841a83db2bc189c8e8b89c0e9b296a344462b8923611501c68bc441",
+      "source_closure_sha256": "2f150a9d2282b74406384c73c8bcf678088adb5766cdfac23e873f9d136492bc",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -14938,7 +14938,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_f0eacae1c2.cu",
       "body_sha256": "192e027419aaa1cf5dd748b385ffd2383579272fb19da13ed00ed8e59b29720e",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "c861fe23d0",
+      "cache_ident": "b3fdae8c94",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128",
       "launch_contract": {
@@ -15094,7 +15094,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -15107,7 +15107,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "c861fe23d089068f6a42f2abaf21f355cfecc5633a320dde9de51392dc99f91b",
+      "source_closure_sha256": "b3fdae8c94e850e2b11274935eb3278263e6e8fbf76a8feb5d5c1c7be584abbf",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -15125,7 +15125,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_vtile_11bf731116.cu",
       "body_sha256": "5d2e3ce26fab1abcba296d261738e6425ce690751a15c2ad3cab81040be5d335",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "6b8a67053f",
+      "cache_ident": "e2316d920b",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128_vtile",
       "launch_contract": {
@@ -15251,7 +15251,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -15264,7 +15264,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "6b8a67053fabaa079b36d71e93fdcd4730bd7fdf125f7d00c4f6f56a7b67d707",
+      "source_closure_sha256": "e2316d920bf0b906a2d0cd2a3200e4d3b4864e2c0b8aca600e5403380bb646f7",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -15282,7 +15282,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_vtile_4b7d3b6523.cu",
       "body_sha256": "d658c80fe803d70b98986cff63d6c71796e60c3e81d97fcdedd542df2b5b1e70",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "286a8dc6ad",
+      "cache_ident": "4786548002",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128_vtile",
       "launch_contract": {
@@ -15408,7 +15408,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -15421,7 +15421,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "286a8dc6ad31672473d967fcad5fd2d505ae57dc70cf2d63b642be2219e61ebc",
+      "source_closure_sha256": "4786548002d8955b28eed7069720b87f562d9774374f6af7fbb97845f6bf2ffd",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -15439,7 +15439,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_vtile_603e2d906d.cu",
       "body_sha256": "5764d78a8852b5937fa1a40937d74e60e05d1d81b34620707377dfb99b07f56c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "adee8aba93",
+      "cache_ident": "3fc37fbdbc",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128_vtile",
       "launch_contract": {
@@ -15565,7 +15565,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -15578,7 +15578,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "adee8aba938d68ffe12a8b96beb1c4bd9136b21397045b116e65adecfbefa86c",
+      "source_closure_sha256": "3fc37fbdbc70f3841b4263472978fc5601de30ad5d5133d500b403b36ebcfb15",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -15596,7 +15596,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_vtile_a8f9b5a463.cu",
       "body_sha256": "49dc86e1b37348f16ee545a9db9e699089b6aec1e454701ffdc8d5ec32a52601",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "9d47af0313",
+      "cache_ident": "e2acb8f074",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128_vtile",
       "launch_contract": {
@@ -15722,7 +15722,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -15735,7 +15735,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "9d47af0313b2dcdfed7679e86201e2819ed7d806a40bf975e35ea41b97e6a328",
+      "source_closure_sha256": "e2acb8f074215f6bdf1c5137ca2acb542908260b7f654ea68a7d261d003f8822",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -15753,7 +15753,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_vtile_b784466ef6.cu",
       "body_sha256": "a08e29c936013620e16fb7d88e55ee7b42a67f0b83c051179db203cd80ab814a",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "bc5c152c12",
+      "cache_ident": "4e4d120adc",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128_vtile",
       "launch_contract": {
@@ -15879,7 +15879,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -15892,7 +15892,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "bc5c152c12173fc4d0df6d0d9220ab2c80806140f871d2d5ec36183910c54085",
+      "source_closure_sha256": "4e4d120adc79b8841049f08dc7942d052b3843f5dd71d8309f1fdf1355b4b7e1",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -15910,7 +15910,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m128_vtile_d589dad375.cu",
       "body_sha256": "aa6ec727b1daa0e51d8cd43ac5665ec4ea09f062f41521971c191d147fb1237c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5700aa615a",
+      "cache_ident": "cebc564d9b",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m128_vtile",
       "launch_contract": {
@@ -16036,7 +16036,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16049,7 +16049,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5700aa615aa6441bb49c9089e39cce39c07c2aede0fde4af70cb96876b392c36",
+      "source_closure_sha256": "cebc564d9b261aefec26170d3ca174ac8bcaa4f10e27e1ba710e70c7e882f36e",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16067,7 +16067,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_2eb7864cd4.cu",
       "body_sha256": "cc1abae1202a1e6ce409e90eb830a91e3036d8f3f2380b82df29f2d1044cb1e1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "5c7c565a84",
+      "cache_ident": "8b09a8d1af",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -16178,7 +16178,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16191,7 +16191,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "5c7c565a84e413986e0ed1ec3aff4567142e390a7d3fccec15b07d7642c97794",
+      "source_closure_sha256": "8b09a8d1afd34b4d1da7386e6a27a6ec69a0850422aa59283a1e0727a14320ae",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16209,7 +16209,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_5eb5b5da39.cu",
       "body_sha256": "022f45c5a52a801c050ef1a0abb1fa50a3f3c8230d6497b9cab37575397b3e3e",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "80fc17e85d",
+      "cache_ident": "964d45b166",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -16320,7 +16320,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16333,7 +16333,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "80fc17e85d25c58149df951b00e1808d3384df061dedb57350200e138ec58fbe",
+      "source_closure_sha256": "964d45b166eacfe50b0c102361ebdc44a6993d5d5d0babf4fc166b2a4c6f099e",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16351,7 +16351,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_9f7512076a.cu",
       "body_sha256": "cd8b441cacde8adf74f9f2e1a9a14e7e2394e26d6d4e928871d990bac2b8d131",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "fcdcf9015b",
+      "cache_ident": "2bfb99943b",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -16462,7 +16462,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16475,7 +16475,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "fcdcf9015bdec24a87073784ef15c78c0755c1cfe30c91db5fc88d44fca5e967",
+      "source_closure_sha256": "2bfb99943bef829df8fde7d0acd2f64f25ff646e37d7ac772e99cd7127bef92f",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16493,7 +16493,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_fused_m64_c2b2a382bb.cu",
       "body_sha256": "faef481510ad0d8713a5343d1c40579b68735d72f46eb30eb3c04306d6eb659c",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "7b63553a95",
+      "cache_ident": "d97bcd3ef4",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_fused_m64",
       "launch_contract": {
@@ -16604,7 +16604,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16617,7 +16617,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "7b63553a95f3890b30692206941a30cbbf15ba99776d08dcbcb2a90c9dd56dc2",
+      "source_closure_sha256": "d97bcd3ef45f00aad818995d1fb9355b9785c343fb2a622af04d4b5422a4d51a",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16635,7 +16635,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_persistent_m128_47722a5d98.cu",
       "body_sha256": "ab4db84ca1d1a4c57a42c46975d211372e599fe9ffa49d24abe1ab0b2909ec4a",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "d7e04a3ebf",
+      "cache_ident": "ed33a8cedd",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_persistent_m128",
       "launch_contract": {
@@ -16721,7 +16721,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16734,7 +16734,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "d7e04a3ebf889f9669572debe9f5936f5034d403340176d8f80413aa8203e799",
+      "source_closure_sha256": "ed33a8cedd9008b15e681b93a0aba0b9418ddf173a6c17bf4f23b6f1f2a25012",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16752,7 +16752,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_persistent_m128_ddb5283bd6.cu",
       "body_sha256": "fbcd228ae3a6c5c8d7c54af657821c7a60b5cbd4aa42f63df491b22090200549",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "039f777d64",
+      "cache_ident": "6847c2a1ec",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_persistent_m128",
       "launch_contract": {
@@ -16838,7 +16838,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16851,7 +16851,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "039f777d64adefdcec02f7dc24162c4c7b42fe4be44648a5b546c3a24569de6c",
+      "source_closure_sha256": "6847c2a1ec79c233af457a815eb70339e0020a4941d947c3cf04b9e9e923b97d",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16869,7 +16869,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_small_bh_m128_9f0e93e17e.cu",
       "body_sha256": "9a8f5e5abef71f3736595364a038098d38209f4963d8ffd690b386a53dcc22af",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "56c79180c1",
+      "cache_ident": "3e5af81ed8",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_small_bh_m128",
       "launch_contract": {
@@ -16955,7 +16955,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -16968,7 +16968,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "56c79180c13aa345cfb16235e2f03d965c42287100a12c6cb40c6b65878376a1",
+      "source_closure_sha256": "3e5af81ed8be9a693b68fcaab369875757321b623bf5f57b3b8f5a8b9df0af7b",
       "state_mode": "fp32",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -16986,7 +16986,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_bf16_small_bh_m128_cdac8305c9.cu",
       "body_sha256": "f0ccd59e52283dac025f6856a5995ea57c22f010843b29fc34606d48cd33178a",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "3c300b19c3",
+      "cache_ident": "dfc907216a",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_bf16_small_bh_m128",
       "launch_contract": {
@@ -17072,7 +17072,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -17085,7 +17085,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "3c300b19c310655e850b549e22ec0ea7dbc31c9ac4b9200447ddfe510e7bfb3d",
+      "source_closure_sha256": "dfc907216a62c77438c95db1bd6933935478d0558b9f9abb2afc8db9eee8ee5e",
       "state_mode": "bf16",
       "threads": 1024,
       "tma_abi": "pointer",
@@ -17103,7 +17103,7 @@
       "body_relpath": "csrc/kda/flashkda_generated_split_scan_bf16_m128_3263b0aaf3.cu",
       "body_sha256": "6fa5a69c3b149fe705c421b29b4a401f970ccd15f08a057059f8673dcaeee1a1",
       "bt16_descriptor_common_relpath": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
-      "cache_ident": "acb1e5616c",
+      "cache_ident": "5e27b09fa7",
       "generated_common_wrapper_relpath": "csrc/kda/flashkda_generated_binding_common.cuh",
       "kernel_name": "kernel_flashkda_split_scan_bf16_m128",
       "launch_contract": {
@@ -17184,7 +17184,7 @@
         {
           "path": "csrc/kda/flashkda_generated_binding_common.cuh",
           "role": "generated_common_wrapper",
-          "sha256": "4fc017acf9c94495928ef546f31f9b585f6670511710ac7dc4c75f513f6ecdb0"
+          "sha256": "36eae747a60b1af2d027e0e0874797ebd15f3b1c29c9a0f872324aa0e801a24a"
         },
         {
           "path": "csrc/kda/flashkda_generated_bt16_descriptor_common.cuh",
@@ -17197,7 +17197,7 @@
           "sha256": "00e224cfacbba7b11eb94cf145892f3b5e0b13bcabc8263bd236cd103ff56042"
         }
       ],
-      "source_closure_sha256": "acb1e5616cd4c62fc15382f9d6fb7669413b0ff4023a688184ec5d0072519344",
+      "source_closure_sha256": "5e27b09fa7ba8a9fa1970aeb2d6a40b50d99119c8a88816a1a57dae3f20d11be",
       "state_mode": "none",
       "threads": 128,
       "tma_abi": "pointer",
