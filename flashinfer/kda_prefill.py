@@ -2848,9 +2848,7 @@ def _generated_beta_tma_copy_required(
         specialization.get("scalar_beta", False)
     ):
         return False
-    chunk = int(
-        cast(int, specialization.get("chunk", _FLASH_KDA_M128_CHUNK))
-    )
+    chunk = int(cast(int, specialization.get("chunk", _FLASH_KDA_M128_CHUNK)))
     return any(length >= chunk for length in sequence_lengths)
 
 
