@@ -6078,6 +6078,21 @@ def _run_flash_kda_prefill(
         if initial_state is not None and initial_state.ndim == 4
         else num_heads * _FLASH_KDA_HEAD_DIM * _FLASH_KDA_HEAD_DIM
     )
+    launch_state_indices = state_indices
+    if (
+        launch_state_indices is None
+        and initial_state is not None
+        and state_slot_stride
+        != num_heads * _FLASH_KDA_HEAD_DIM * _FLASH_KDA_HEAD_DIM
+    ):
+        # The serving-native ABI represents every non-compact slot stride with
+        # an explicit slot map.  Preserve compact caller semantics by supplying
+        # the identity map internally.
+        launch_state_indices = _identity_seq_order(
+            device=q.device,
+            num_sequences=num_sequences,
+        )
+    use_state_indices = launch_state_indices is not None
 
     scale_value = _FLASH_KDA_DEFAULT_SCALE if scale is None else float(scale)
     if not math.isfinite(scale_value):
@@ -6237,8 +6252,8 @@ def _run_flash_kda_prefill(
                     cu_seqlens=cu_seqlens_i64,
                     seq_order=seq_order_i32,
                     state_indices=(
-                        state_indices
-                        if state_indices is not None
+                        launch_state_indices
+                        if launch_state_indices is not None
                         else _dummy_i32(q.device)
                     ),
                     initial_state=initial_state_arg,
@@ -6335,7 +6350,9 @@ def _run_flash_kda_prefill(
                 cu_seqlens=cu_seqlens_i64,
                 seq_order=seq_order_i32,
                 state_indices=(
-                    state_indices if state_indices is not None else _dummy_i32(q.device)
+                    launch_state_indices
+                    if launch_state_indices is not None
+                    else _dummy_i32(q.device)
                 ),
                 initial_state=initial_state_arg,
                 out=out_buf,
@@ -6568,7 +6585,11 @@ def _run_flash_kda_prefill(
                     dt_bias,
                     cu_seqlens_i64,
                     seq_order_i32,
-                    state_indices if state_indices is not None else dummy_i32,
+                    (
+                        launch_state_indices
+                        if launch_state_indices is not None
+                        else dummy_i32
+                    ),
                     initial_state_arg,
                     out_buf,
                     final_state_arg,
