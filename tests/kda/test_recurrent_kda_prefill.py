@@ -4821,6 +4821,86 @@ def test_frozen_bt16_scalar_prepare_subgroup_heads_matches_direct_control(
     )
 
 
+def test_frozen_bt16_policy_routes_padded_compact_state_to_direct(
+    flash_kda_device,
+    monkeypatch,
+):
+    inputs = _make_inputs(
+        seq_lens=[32],
+        num_heads=4,
+        packed=False,
+        initial_state=True,
+        seed=2051,
+    )
+    initial_state_seed = inputs["initial_state"].clone()
+    slot_numel = 4 * 128 * 128
+    state_storage = torch.empty(
+        (1, slot_numel + 64),
+        dtype=torch.bfloat16,
+        device=flash_kda_device,
+    )
+    state_pool = state_storage.as_strided(
+        (1, 4, 128, 128),
+        (state_storage.stride(0), 128 * 128, 128, 1),
+    )
+    state_pool.copy_(initial_state_seed)
+    state_storage[:, slot_numel:].fill_(3.25)
+    padding_seed = state_storage[:, slot_numel:].clone()
+    inputs["initial_state"] = state_pool
+
+    routes = []
+    run_generated = kda_prefill_api._run_generated_single_route
+
+    def recording_run_generated(*args, **kwargs):
+        routes.append(kwargs["route"])
+        return run_generated(*args, **kwargs)
+
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_run_generated_single_route",
+        recording_run_generated,
+    )
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_should_use_bt16_prepare_chain",
+        lambda **kwargs: True,
+    )
+    actual_output, actual_state = recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=torch.empty_like(inputs["q"]),
+        output_final_state=True,
+        backend="cake",
+    )
+    actual_output = actual_output.clone()
+    actual_state = actual_state.clone()
+
+    inputs["initial_state"] = initial_state_seed.clone()
+    monkeypatch.setattr(
+        kda_prefill_api,
+        "_should_use_bt16_prepare_chain",
+        lambda **kwargs: False,
+    )
+    expected_output, expected_state = recurrent_kda(
+        **_strict_prefill_kwargs(inputs),
+        output=torch.empty_like(inputs["q"]),
+        output_final_state=True,
+        backend="cake",
+    )
+
+    assert routes[0] == kda_prefill_api._direct_m128_route(
+        num_heads=4,
+        max_sequence_length=32,
+    )
+    assert routes[0] != kda_prefill_api._FLASH_KDA_ROUTE_BT16_M64
+    torch.testing.assert_close(
+        actual_output.float(), expected_output.float(), atol=1e-2, rtol=1e-2
+    )
+    torch.testing.assert_close(
+        actual_state.float(), expected_state.float(), atol=1e-2, rtol=1e-2
+    )
+    torch.testing.assert_close(state_storage[:, slot_numel:], padding_seed)
+
+
 def test_frozen_bt16_combined_h12_fixed512_matches_cute(flash_kda_device):
     inputs = _make_inputs(
         seq_lens=[512],

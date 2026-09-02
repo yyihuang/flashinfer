@@ -5782,12 +5782,17 @@ def _run_flash_kda_prefill(
             store_final_state=initial_state is not None or output_final_state,
         )
         # The receipt portfolio has no serving-native BF16 BT16-chain or
-        # small-BH module.  Indexed BF16 calls therefore stay on the exact
-        # direct family unless the affine split route is selected below.
+        # small-BH module.  Indexed or padded-slot BF16 calls therefore stay
+        # on the exact direct family unless the affine split route is selected
+        # below.
         if (
-            state_indices is not None
-            and initial_state is not None
+            initial_state is not None
             and initial_state.dtype == torch.bfloat16
+            and (
+                state_indices is not None
+                or initial_state.stride(0)
+                != num_heads * _FLASH_KDA_HEAD_DIM * _FLASH_KDA_HEAD_DIM
+            )
             and route in (_FLASH_KDA_ROUTE_BT16_M64, _FLASH_KDA_ROUTE_SMALL_BH_M128)
         ):
             route = _direct_m128_route(
@@ -6262,6 +6267,8 @@ def _run_flash_kda_prefill(
                 if (
                     use_state_indices
                     or checkpoint_every_n_tokens
+                    or state_slot_stride
+                    != num_heads * _FLASH_KDA_HEAD_DIM * _FLASH_KDA_HEAD_DIM
                     or (
                         initial_state is not None
                         and initial_state.dtype == torch.float32
