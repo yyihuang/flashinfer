@@ -194,8 +194,8 @@ _FLASH_KDA_MODULE_IDENTS = {
     "m64": "535ed3e2ce",
     "m128": "ec6d5fdb56",
     "m128_tensor_state_decay": "9614ba2d29",
-    "m128_h12_short": "47c46019cc",
-    "m128_h12_long": "b813a7edd3",
+    "m128_h12_short": "9785247a2b",
+    "m128_h12_long": "5661b2772b",
     "m128_n16": "a00baf7312",
     # Generated body, binding, and shared binding header, separated by NUL
     # bytes without a trailing separator. Keep this route's cache key tied to

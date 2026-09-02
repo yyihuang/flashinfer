@@ -27,7 +27,7 @@ from flashinfer.jit import flash_kda
 _H12_CASES = (
     (
         "m128_h12_short",
-        "47c46019cc",
+        "9785247a2b",
         "d25044154d",
         "-DFLASHINFER_FLASH_KDA_H12_SHORT=1",
         "cake_flashkda_bf16_fused_m128_h12_short.cu",
@@ -35,7 +35,7 @@ _H12_CASES = (
     ),
     (
         "m128_h12_long",
-        "b813a7edd3",
+        "5661b2772b",
         "88cedfb168",
         "-DFLASHINFER_FLASH_KDA_H12_LONG=1",
         "cake_flashkda_bf16_fused_m128_h12_long.cu",
