@@ -6086,8 +6086,7 @@ def _run_flash_kda_prefill(
     if (
         launch_state_indices is None
         and initial_state is not None
-        and state_slot_stride
-        != num_heads * _FLASH_KDA_HEAD_DIM * _FLASH_KDA_HEAD_DIM
+        and state_slot_stride != num_heads * _FLASH_KDA_HEAD_DIM * _FLASH_KDA_HEAD_DIM
     ):
         # The serving-native ABI represents every non-compact slot stride with
         # an explicit slot map.  Preserve compact caller semantics by supplying
