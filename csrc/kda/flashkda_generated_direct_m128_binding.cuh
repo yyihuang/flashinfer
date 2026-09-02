@@ -263,6 +263,10 @@ inline void RunDirectM128(
     args.state_checkpoints_tma =
         descriptor_bytes + 6 * sizeof(CUtensorMap);
     if (prepare_descriptors != 0) {
+#if FLASHKDA_GENERATED_TMA_TILE_TOKENS == 16
+      // Only the checkpoint-specialized N16 kernel expects V through the
+      // four-dimensional, 128-byte-swizzled descriptor.  N32 kernels retain
+      // the three-dimensional descriptor prepared by PrepareCommonInputs.
       const CUtensorMap value_map = EncodeGeneratedCheckpointValueTma(v);
       GeneratedCheckpointMapWords value_words{};
       std::memcpy(value_words.words, &value_map, sizeof(value_map));
@@ -273,6 +277,7 @@ inline void RunDirectM128(
           value_words);
       CheckCuda(cudaGetLastError(),
                 "PublishGeneratedCheckpointValueMap launch");
+#endif
       const CUtensorMap checkpoint_map =
           EncodeGeneratedCheckpointTma(state_checkpoints);
       GeneratedCheckpointMapWords checkpoint_words{};
