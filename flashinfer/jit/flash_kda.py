@@ -830,7 +830,10 @@ def _load_flash_kda_generated_direct_raw_launcher(variant_id: str):
     import ctypes
 
     module = load_flash_kda_generated_module(variant_id)
-    launch_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int64)
+    # The raw entry point only enqueues one asynchronous kernel launch.  Keep
+    # the GIL across that short call so releasing and reacquiring it cannot
+    # become a host-side gap behind the preceding beta-pack launch.
+    launch_type = ctypes.PYFUNCTYPE(ctypes.c_int, ctypes.c_int64)
     launch = launch_type(module.direct_raw_launch_address())
     return module, launch
 
