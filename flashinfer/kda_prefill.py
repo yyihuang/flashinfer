@@ -4703,11 +4703,14 @@ def _run_generated_single_route(
                             (total_tokens, num_heads),
                             (beta.stride(1), beta.stride(2)),
                         )
-                    beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
+                    if prepared_direct_handle is None:
+                        beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
                 if prepared_direct_handle is None:
                     module.run(*direct_run_args)
                 else:
-                    prepared_direct_launch()
+                    prepared_direct_launch(
+                        beta_tma[:total_tokens, :num_heads], beta_flat
+                    )
         else:
             if beta_tma_copy_required:
                 total_tokens = beta.numel() // num_heads

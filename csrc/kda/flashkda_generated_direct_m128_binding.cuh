@@ -184,12 +184,26 @@ inline constexpr char kDirectM128PythonCapsuleName[] =
     "flashinfer.flash_kda_generated.PreparedDirectM128Launch";
 
 static inline PyObject* LaunchPreparedDirectM128Python(
-    PyObject* capsule, PyObject* /*unused*/) {
+    PyObject* capsule, PyObject* arguments) {
   void* pointer =
       PyCapsule_GetPointer(capsule, kDirectM128PythonCapsuleName);
   if (pointer == nullptr) {
     return nullptr;
   }
+  PyObject* destination = nullptr;
+  PyObject* source = nullptr;
+  if (!PyArg_ParseTuple(arguments, "OO:_launch_direct_m128_prepared",
+                        &destination, &source)) {
+    return nullptr;
+  }
+  // Preserve PyTorch's exact copy kernel while keeping the dependent prepared
+  // launch in this native call, so no Python evaluation occurs in the GPU gap.
+  PyObject* copy_result =
+      PyObject_CallMethod(destination, "copy_", "O", source);
+  if (copy_result == nullptr) {
+    return nullptr;
+  }
+  Py_DECREF(copy_result);
   try {
     LaunchPreparedDirectM128(
         static_cast<PreparedDirectM128Launch*>(pointer));
@@ -223,7 +237,7 @@ static inline ffi::ObjectRef MakeDirectM128PythonLauncher(int64_t handle) {
   static PyMethodDef method = {
       "_launch_direct_m128_prepared",
       LaunchPreparedDirectM128Python,
-      METH_NOARGS,
+      METH_VARARGS,
       nullptr,
   };
   PyObject* callable = PyCFunction_NewEx(&method, capsule, nullptr);

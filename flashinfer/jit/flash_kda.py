@@ -830,8 +830,9 @@ def _load_flash_kda_generated_direct_python_factory(variant_id: str):
     module = load_flash_kda_generated_module(variant_id)
     factory = module.make_direct_python_launcher
     # The factory calls the CPython C API and therefore must retain the GIL.
-    # It runs before the optional beta copy and returns a native METH_NOARGS
-    # callable for the only operation left in the copy-to-kernel gap.
+    # It runs before the optional beta copy and returns a native callable that
+    # submits the exact PyTorch copy and prepared kernel without returning to
+    # Python between the two GPU launches.
     factory.release_gil = False
     return module, factory
 
