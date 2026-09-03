@@ -287,13 +287,10 @@ def test_generated_prefill_registry_is_receipt_closed_and_exact_targeted():
             assert gencode in spec.extra_cuda_cflags
             assert target_define in spec.extra_cuda_cflags
             direct_source = (
-                module.abi_family == "direct_m128"
-                and module.abi_variant == "serving"
+                module.abi_family == "direct_m128" and module.abi_variant == "serving"
             )
             if direct_source:
-                assert spec.name.endswith(
-                    f"{module.cache_ident}_direct_source_v1"
-                )
+                assert spec.name.endswith(f"{module.cache_ident}_direct_source_v1")
                 assert (
                     "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1"
                     not in spec.extra_cuda_cflags
@@ -308,18 +305,14 @@ def test_generated_prefill_registry_is_receipt_closed_and_exact_targeted():
                 )
                 assert "-UPy_LIMITED_API" in spec.extra_cuda_cflags
                 assert (
-                    "-DFLASHKDA_GENERATED_DIRECT_SOURCE_ABI=1"
-                    in spec.extra_cuda_cflags
+                    "-DFLASHKDA_GENERATED_DIRECT_SOURCE_ABI=1" in spec.extra_cuda_cflags
                 )
                 assert spec.extra_ldflags is not None
                 assert "-ltorch_python" in spec.extra_ldflags
                 assert spec.embedded_cubin_factory is None
             else:
                 assert spec.name.endswith(module.cache_ident)
-                assert (
-                    "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1"
-                    in spec.extra_cuda_cflags
-                )
+                assert "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1" in spec.extra_cuda_cflags
                 assert (
                     "-DTVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API=1"
                     in spec.extra_cuda_cflags

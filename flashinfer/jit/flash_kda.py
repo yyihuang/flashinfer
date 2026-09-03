@@ -850,9 +850,7 @@ def gen_flash_kda_generated_module(variant_id: str) -> JitSpec:
                 selector_path=_resolve_generated_source(
                     csrc_dir, module.binding_relpath
                 ),
-                body_path=_resolve_generated_source(
-                    csrc_dir, module.body_relpath
-                ),
+                body_path=_resolve_generated_source(csrc_dir, module.body_relpath),
                 module_ident=module.module_ident,
                 target=module.target,
             )
