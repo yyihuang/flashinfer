@@ -823,6 +823,18 @@ def load_flash_kda_generated_module(variant_id: str):
     return gen_flash_kda_generated_module(variant_id).build_and_load()
 
 
+@functools.cache
+def _load_flash_kda_generated_direct_raw_launcher(variant_id: str):
+    """Resolve the raw launch from the exact loaded physical module."""
+
+    import ctypes
+
+    module = load_flash_kda_generated_module(variant_id)
+    launch_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int64)
+    launch = launch_type(module.direct_raw_launch_address())
+    return module, launch
+
+
 def get_flash_kda_uri(variant: FlashKDAVariant, target: FlashKDATarget) -> str:
     """Return the target-specific JIT/AOT key for one schedule."""
 

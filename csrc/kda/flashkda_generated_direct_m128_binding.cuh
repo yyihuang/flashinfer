@@ -173,6 +173,31 @@ inline void LaunchPreparedDirectM128Handle(int64_t handle) {
   LaunchPreparedDirectM128(DirectM128PreparedPointer(handle));
 }
 
+// The prepared launch is deliberately also exposed as one minimal C ABI call.
+// Python resolves this symbol before submitting the optional beta copy, so
+// the dependent kernel can follow that copy without tvm-ffi argument dispatch
+// in the GPU-visible gap.  The ordinary typed entry point remains the checked
+// fallback and owns preparation/disposal.
+extern "C" __attribute__((visibility("default")))
+int FlashKdaGeneratedLaunchDirectRaw(int64_t handle) noexcept {
+  if (handle == 0) {
+    return -1;
+  }
+  try {
+    LaunchPreparedDirectM128(
+        reinterpret_cast<PreparedDirectM128Launch*>(
+            static_cast<uintptr_t>(handle)));
+    return 0;
+  } catch (...) {
+    return -2;
+  }
+}
+
+inline int64_t DirectM128RawLaunchAddress() {
+  return static_cast<int64_t>(reinterpret_cast<uintptr_t>(
+      &FlashKdaGeneratedLaunchDirectRaw));
+}
+
 inline void DisposePreparedDirectM128Handle(int64_t handle) {
   delete DirectM128PreparedPointer(handle);
 }
@@ -469,6 +494,7 @@ TVM_FFI_DLL_EXPORT_TYPED_FUNC(run,flashinfer::flash_kda_generated::RunDirectM128
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(prepare_direct,flashinfer::flash_kda_generated::PrepareDirectM128);
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(launch_direct,flashinfer::flash_kda_generated::LaunchPreparedDirectM128Handle);
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(dispose_direct,flashinfer::flash_kda_generated::DisposePreparedDirectM128Handle);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(direct_raw_launch_address,flashinfer::flash_kda_generated::DirectM128RawLaunchAddress);
 #else
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(run,flashinfer::flash_kda_generated::RunDirectM128Vtile);
 #endif
