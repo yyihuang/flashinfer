@@ -44,6 +44,8 @@ from .api import (  # noqa: F401
     CutlassNvfp4Config,
     CutlassW4A16Config,
     CutlassW4A8Config,
+    CuTileBf16Config,
+    CuTileNvfp4Config,
     ExecutionConfig,
     ExpertConfig,
     MoEActivationPack,
@@ -77,6 +79,8 @@ from .runners import (  # noqa: F401
     CutlassNvfp4Runner,
     CutlassW4A16Runner,
     CutlassW4A8Runner,
+    CuTileBf16Runner,
+    CuTileNvfp4Runner,
     CuteDslRunner,
     TrtllmBf16RoutedRunner,
     TrtllmFp4RoutedRunner,
@@ -172,6 +176,8 @@ try:
         CuteDslMxfp8Mxfp4MoEWrapper,
         b12x_fused_moe,
         B12xMoEWrapper,
+        cute_dsl_fused_moe_bf16,
+        CuteDslBf16MoEWrapper,
     )
 
     _cute_dsl_available = True
@@ -228,6 +234,10 @@ __all__ = [
     "CutlassW4A16Runner",
     "CutlassW4A8Config",
     "CutlassW4A8Runner",
+    "CuTileBf16Config",
+    "CuTileBf16Runner",
+    "CuTileNvfp4Config",
+    "CuTileNvfp4Runner",
     "ExecutionConfig",
     "ExpertConfig",
     "CuteDslRunner",
@@ -317,4 +327,6 @@ if _cute_dsl_available:
         "CuteDslMxfp8Mxfp4MoEWrapper",
         "b12x_fused_moe",
         "B12xMoEWrapper",
+        "cute_dsl_fused_moe_bf16",
+        "CuteDslBf16MoEWrapper",
     ]
