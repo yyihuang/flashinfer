@@ -284,16 +284,44 @@ def test_generated_prefill_registry_is_receipt_closed_and_exact_targeted():
                 flash_kda._resolve_generated_source(csrc_dir, module.binding_relpath)
             ]
             assert spec.name == flash_kda.get_flash_kda_generated_uri(variant_id)
-            assert spec.name.endswith(module.cache_ident)
             assert gencode in spec.extra_cuda_cflags
             assert target_define in spec.extra_cuda_cflags
-            assert "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1" in spec.extra_cuda_cflags
-            assert "-DTVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API=1" in spec.extra_cuda_cflags
-            assert (
-                f"-DFLASHKDA_GENERATED_CUBIN_IDENT={module.module_ident}"
-                in spec.extra_cuda_cflags
+            direct_source = (
+                module.abi_family == "direct_m128"
+                and module.abi_variant == "serving"
             )
-            assert spec.embedded_cubin_factory is not None
+            if direct_source:
+                assert spec.name.endswith(
+                    f"{module.cache_ident}_direct_source_v1"
+                )
+                assert (
+                    "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1"
+                    not in spec.extra_cuda_cflags
+                )
+                assert (
+                    "-DTVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API=1"
+                    not in spec.extra_cuda_cflags
+                )
+                assert not any(
+                    flag.startswith("-DFLASHKDA_GENERATED_CUBIN_IDENT=")
+                    for flag in spec.extra_cuda_cflags
+                )
+                assert spec.embedded_cubin_factory is None
+            else:
+                assert spec.name.endswith(module.cache_ident)
+                assert (
+                    "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1"
+                    in spec.extra_cuda_cflags
+                )
+                assert (
+                    "-DTVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API=1"
+                    in spec.extra_cuda_cflags
+                )
+                assert (
+                    f"-DFLASHKDA_GENERATED_CUBIN_IDENT={module.module_ident}"
+                    in spec.extra_cuda_cflags
+                )
+                assert spec.embedded_cubin_factory is not None
             assert all("sm100f" not in flag for flag in spec.extra_cuda_cflags)
             assert all("_o1" not in flag.lower() for flag in spec.extra_cuda_cflags)
 
