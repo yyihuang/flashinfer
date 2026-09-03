@@ -4709,7 +4709,7 @@ def _run_generated_single_route(
                     module.run(*direct_run_args)
                 else:
                     prepared_direct_launch(
-                        beta_tma[:total_tokens, :num_heads].copy_, beta_flat
+                        beta_tma[:total_tokens, :num_heads], beta_flat
                     )
         else:
             if beta_tma_copy_required:

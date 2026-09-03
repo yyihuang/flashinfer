@@ -306,6 +306,9 @@ def test_generated_prefill_registry_is_receipt_closed_and_exact_targeted():
                     flag.startswith("-DFLASHKDA_GENERATED_CUBIN_IDENT=")
                     for flag in spec.extra_cuda_cflags
                 )
+                assert "-UPy_LIMITED_API" in spec.extra_cuda_cflags
+                assert spec.extra_ldflags is not None
+                assert "-ltorch_python" in spec.extra_ldflags
                 assert spec.embedded_cubin_factory is None
             else:
                 assert spec.name.endswith(module.cache_ident)
@@ -321,6 +324,8 @@ def test_generated_prefill_registry_is_receipt_closed_and_exact_targeted():
                     f"-DFLASHKDA_GENERATED_CUBIN_IDENT={module.module_ident}"
                     in spec.extra_cuda_cflags
                 )
+                assert "-UPy_LIMITED_API" not in spec.extra_cuda_cflags
+                assert spec.extra_ldflags is None
                 assert spec.embedded_cubin_factory is not None
             assert all("sm100f" not in flag for flag in spec.extra_cuda_cflags)
             assert all("_o1" not in flag.lower() for flag in spec.extra_cuda_cflags)

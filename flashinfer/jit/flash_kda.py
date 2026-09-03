@@ -795,6 +795,21 @@ def gen_flash_kda_generated_module(variant_id: str) -> JitSpec:
     direct_source = (
         module.abi_family == "direct_m128" and module.abi_variant == "serving"
     )
+    torch_include_paths: list[Path] = []
+    torch_ldflags: list[str] | None = None
+    if direct_source:
+        from torch.utils.cpp_extension import include_paths, library_paths
+
+        torch_include_paths = [Path(path) for path in include_paths()]
+        torch_ldflags = [
+            *(f"-L{path}" for path in library_paths()),
+            "-lc10",
+            "-lc10_cuda",
+            "-ltorch_cpu",
+            "-ltorch_cuda",
+            "-ltorch",
+            "-ltorch_python",
+        ]
     embedded_flags = (
         []
         if direct_source
@@ -811,12 +826,15 @@ def gen_flash_kda_generated_module(variant_id: str) -> JitSpec:
             *_FLASH_KDA_GENERATED_NVCC_FLAGS[module.target],
             _FLASH_KDA_GENERATED_TARGET_DEFINE[module.target],
             *embedded_flags,
+            *(["-UPy_LIMITED_API"] if direct_source else []),
         ],
         extra_include_paths=[
             csrc_dir,
             csrc_dir.parent,
             _get_flash_kda_include_dir(),
+            *torch_include_paths,
         ],
+        extra_ldflags=torch_ldflags,
         embedded_cubin_factory=(
             None
             if direct_source

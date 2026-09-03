@@ -3,6 +3,9 @@
 
 #include <Python.h>
 
+#include <ATen/ATen.h>
+#include <torch/csrc/autograd/python_variable.h>
+
 #include <exception>
 #include <memory>
 
@@ -190,25 +193,29 @@ static inline PyObject* LaunchPreparedDirectM128Python(
   if (pointer == nullptr) {
     return nullptr;
   }
-  PyObject* copy_method = nullptr;
+  PyObject* destination = nullptr;
   PyObject* source = nullptr;
   if (!PyArg_ParseTuple(arguments, "OO:_launch_direct_m128_prepared",
-                        &copy_method, &source)) {
+                        &destination, &source)) {
     return nullptr;
   }
-  // Resolve the bound PyTorch copy method before this native call starts the
-  // GPU DAG.  Keep only the exact copy dispatch and prepared kernel launch in
-  // the inter-kernel interval.
-  PyObject* copy_result =
-      PyObject_CallFunctionObjArgs(
-          copy_method, source, static_cast<PyObject*>(nullptr));
-  if (copy_result == nullptr) {
+  if (!THPVariable_Check(destination) || !THPVariable_Check(source)) {
+    PyErr_SetString(PyExc_TypeError,
+                    "direct-M128 beta pack operands must be tensors");
     return nullptr;
   }
-  Py_DECREF(copy_result);
   try {
+    // Enter the same aten::copy_ dispatcher as Tensor.copy_ without another
+    // Python call between the copy activity and the dependent kernel launch.
+    // The argument tuple owns both tensors for the duration of this callback.
+    at::Tensor destination_tensor = THPVariable_Unpack(destination);
+    at::Tensor source_tensor = THPVariable_Unpack(source);
+    destination_tensor.copy_(source_tensor, /*non_blocking=*/false);
     LaunchPreparedDirectM128(
         static_cast<PreparedDirectM128Launch*>(pointer));
+  } catch (const c10::Error& error) {
+    PyErr_SetString(PyExc_RuntimeError, error.what());
+    return nullptr;
   } catch (const std::exception& error) {
     PyErr_SetString(PyExc_RuntimeError, error.what());
     return nullptr;
