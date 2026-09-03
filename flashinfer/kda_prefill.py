@@ -4921,7 +4921,7 @@ def _run_generated_single_route(
                 1,
                 stream_ptr,
             )
-        else:
+        elif direct_run_args is None:
             assert route == _FLASH_KDA_ROUTE_SMALL_BH_M128
             assert packet_workspace is not None
             assert packet_ready is not None
