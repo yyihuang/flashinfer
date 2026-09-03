@@ -23,13 +23,12 @@ import torch
 import torch.distributed as dist
 
 import flashinfer.comm as comm
-from flashinfer.comm.trtllm_ar import get_trtllm_comm_module
+from flashinfer.comm.trtllm_ar import MAX_COMM_SIZE, get_trtllm_comm_module
 from flashinfer.jit import cake_moe_finalize_comm as cake_finalize
 from flashinfer.testing.utils import bench_gpu_time
 
 
 HIDDEN_SIZE = 7168
-MAX_TOKEN_NUM = 2048
 ATOL = 1e-2
 RTOL = 1e-2
 MAX_BENCHMARK_LEGS = 384
@@ -406,8 +405,6 @@ def _parse_args() -> tuple[argparse.ArgumentParser, argparse.Namespace]:
     _require_choices(parser, "--backends", args.backends, {"trtllm", "cake"})
     if any(top_k not in (4, 8) for top_k in args.top_k):
         parser.error("--top-k supports only 4 and 8")
-    if max(args.tokens) > MAX_TOKEN_NUM:
-        parser.error(f"--tokens supports at most {MAX_TOKEN_NUM}")
     if args.dry_run_iters <= 0 or args.repeat_iters <= 0:
         parser.error("iteration counts must be positive")
     if not {"trtllm", "cake"}.issubset(args.backends):
@@ -453,6 +450,18 @@ def main() -> int:
         parser.error("world size must be 2, 4, or 8")
     if local_world_size != world_size:
         parser.error("benchmark requires a single node")
+    for dtype_name in args.dtypes:
+        dtype = _DTYPES[dtype_name]
+        for token_num in args.tokens:
+            required_lamport_comm_size = (
+                token_num * HIDDEN_SIZE * dtype.itemsize * world_size
+            )
+            if required_lamport_comm_size > MAX_COMM_SIZE:
+                parser.error(
+                    f"tokens={token_num}, dtype={dtype_name}, and TP{world_size} "
+                    f"require {required_lamport_comm_size} Lamport bytes, above "
+                    f"MAX_COMM_SIZE={MAX_COMM_SIZE}"
+                )
     if local_rank >= torch.cuda.device_count():
         parser.error(f"local rank {local_rank} has no visible CUDA device")
 

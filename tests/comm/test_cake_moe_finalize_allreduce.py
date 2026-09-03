@@ -14,7 +14,7 @@ import flashinfer.comm as comm
 
 
 HIDDEN_SIZE = 7168
-MAX_TOKEN_NUM = 2048
+WORKSPACE_TOKEN_CAPACITY = 16
 ATOL = 1e-2
 RTOL = 1e-2
 FP4_ATOL = 1.0
@@ -149,7 +149,7 @@ def _workspace(
     result = comm.trtllm_create_ipc_workspace_for_all_reduce_fusion(
         rank,
         world_size,
-        MAX_TOKEN_NUM,
+        WORKSPACE_TOKEN_CAPACITY,
         HIDDEN_SIZE,
         group=group,
     )

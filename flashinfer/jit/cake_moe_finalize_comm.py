@@ -48,13 +48,14 @@ _DTYPE_NAME = {
     torch.float16: "float16",
     torch.bfloat16: "bfloat16",
 }
+_MAX_COMM_SIZE = 2147483647 & ~((1 << 21) - 1)
 _CONTRACT = {
     "operator": "trtllm_moe_finalize_allreduce_fusion",
     "architectures": ["sm_100a", "sm_103a"],
     "dtypes": ["float16", "bfloat16"],
     "world_sizes": [2, 4, 8],
     "hidden_dim": 7168,
-    "max_tokens": 2048,
+    "max_lamport_comm_bytes": _MAX_COMM_SIZE,
     "top_k": [4, 8],
     "output_profiles": ["110", "111"],
     "shared_expert": [False, True],
@@ -670,6 +671,15 @@ def _fp4_scale_storage_elements(tokens: int, hidden_dim: int) -> int:
     return padded_rows * padded_columns
 
 
+def _lamport_comm_size_bytes(
+    tokens: int,
+    hidden_dim: int,
+    element_size: int,
+    world_size: int,
+) -> int:
+    return tokens * hidden_dim * element_size * world_size
+
+
 def validate_cake_moe_finalize_args(
     *,
     allreduce_in: torch.Tensor,
@@ -728,8 +738,19 @@ def validate_cake_moe_finalize_args(
     if residual_in.ndim != 2 or residual_in.shape[1] != 7168:
         raise ValueError("residual_in must have shape [token_num, 7168]")
     tokens = residual_in.shape[0]
-    if not 1 <= tokens <= 2048:
-        raise ValueError(f"token_num must be in [1, 2048], got {tokens}")
+    if tokens < 1:
+        raise ValueError(f"token_num must be positive, got {tokens}")
+    required_lamport_comm_size = _lamport_comm_size_bytes(
+        tokens,
+        7168,
+        residual_in.element_size(),
+        world_size,
+    )
+    if required_lamport_comm_size > _MAX_COMM_SIZE:
+        raise ValueError(
+            f"required_lamport_comm_size {required_lamport_comm_size} is greater "
+            f"than MAX_COMM_SIZE {_MAX_COMM_SIZE}"
+        )
     _check_cuda_tensor(
         norm_weight, "norm_weight", device=device, dtype=dtype, shape=(7168,)
     )

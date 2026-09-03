@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any, Literal, get_type_hints
 
+from flashinfer.comm import trtllm_ar
 from flashinfer.jit import cake_moe_finalize_comm as cake_finalize
 
 
@@ -38,6 +39,31 @@ def test_cake_moe_finalize_manifest_exposes_exact_route_matrix() -> None:
         grid_z=1,
     )
     assert all(spec.launch_grid == expected_launch_grid for spec in specs)
+    assert cake_finalize._MAX_COMM_SIZE == trtllm_ar.MAX_COMM_SIZE
+    assert cake_finalize._CONTRACT["max_lamport_comm_bytes"] == 2_145_386_496
+    assert "max_tokens" not in cake_finalize._CONTRACT
+
+
+def test_cake_moe_finalize_lamport_size_matches_trtllm_limit() -> None:
+    for world_size, max_tokens in ((2, 74825), (4, 37412), (8, 18706)):
+        assert (
+            cake_finalize._lamport_comm_size_bytes(
+                max_tokens,
+                7168,
+                2,
+                world_size,
+            )
+            <= cake_finalize._MAX_COMM_SIZE
+        )
+        assert (
+            cake_finalize._lamport_comm_size_bytes(
+                max_tokens + 1,
+                7168,
+                2,
+                world_size,
+            )
+            > cake_finalize._MAX_COMM_SIZE
+        )
 
 
 def test_cake_moe_finalize_jit_consumes_verified_compile_contract(
