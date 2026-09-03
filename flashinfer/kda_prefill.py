@@ -4673,31 +4673,42 @@ def _run_generated_single_route(
     prepared_direct_launch = None
     prepared_direct_dispose = None
     try:
-        if (
-            direct_run_args is not None
-            and beta_tma_copy_required
-            and checkpoint_every_n_tokens == 0
-        ):
-            prepare_direct = module.prepare_direct
-            prepared_direct_launch = module.launch_direct
-            prepared_direct_dispose = module.dispose_direct
-            prepared_direct_handle = prepare_direct(*direct_run_args)
-        if beta_tma_copy_required:
-            total_tokens = beta.numel() // num_heads
-            if beta.shape[0] == 1:
-                beta_flat = beta[0]
-            else:
-                beta_flat = beta.as_strided(
-                    (total_tokens, num_heads),
-                    (beta.stride(1), beta.stride(2)),
-                )
-            beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
         if direct_run_args is not None:
-            if prepared_direct_handle is None:
-                module.run(*direct_run_args)
-            else:
-                prepared_direct_launch(prepared_direct_handle)
-        elif route == _FLASH_KDA_ROUTE_SOURCE_VTILE_M128:
+            # Keep the prepared handle, beta pack, and launch on one current
+            # device. All launch setup completes before the copy starts the
+            # measured GPU DAG.
+            with torch.cuda.device(q.device):
+                if beta_tma_copy_required and checkpoint_every_n_tokens == 0:
+                    prepare_direct = module.prepare_direct
+                    prepared_direct_launch = module.launch_direct
+                    prepared_direct_dispose = module.dispose_direct
+                    prepared_direct_handle = prepare_direct(*direct_run_args)
+                if beta_tma_copy_required:
+                    total_tokens = beta.numel() // num_heads
+                    if beta.shape[0] == 1:
+                        beta_flat = beta[0]
+                    else:
+                        beta_flat = beta.as_strided(
+                            (total_tokens, num_heads),
+                            (beta.stride(1), beta.stride(2)),
+                        )
+                    beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
+                if prepared_direct_handle is None:
+                    module.run(*direct_run_args)
+                else:
+                    prepared_direct_launch(prepared_direct_handle)
+        else:
+            if beta_tma_copy_required:
+                total_tokens = beta.numel() // num_heads
+                if beta.shape[0] == 1:
+                    beta_flat = beta[0]
+                else:
+                    beta_flat = beta.as_strided(
+                        (total_tokens, num_heads),
+                        (beta.stride(1), beta.stride(2)),
+                    )
+                beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
+        if direct_run_args is None and route == _FLASH_KDA_ROUTE_SOURCE_VTILE_M128:
             worker_count = (
                 total_tasks
                 if fixed_layout

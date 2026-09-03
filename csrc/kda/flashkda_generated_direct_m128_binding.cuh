@@ -140,6 +140,11 @@ struct PreparedDirectM128Launch {
     for (int index = 0; index < 50; ++index) {
       kernel_args[index] = bound_args[index];
     }
+    // The optional beta pack is submitted after this object is constructed.
+    // Finish device and dynamic-smem setup here so the later launch-only FFI
+    // call can enqueue the dependent kernel without CUDA setup in between.
+    ConfigureGeneratedKernelForDevice(FLASHKDA_GENERATED_KERNEL_ARGUMENT,
+                                      device_id);
   }
 
   PreparedDirectM128Launch(const PreparedDirectM128Launch&) = delete;
@@ -149,10 +154,9 @@ struct PreparedDirectM128Launch {
 };
 
 inline void LaunchPreparedDirectM128(PreparedDirectM128Launch* prepared) {
-  ffi::CUDADeviceGuard device_guard(prepared->device_id);
-  ConfigureAndLaunch(FLASHKDA_GENERATED_KERNEL_ARGUMENT, prepared->grid,
-                     prepared->stream, prepared->kernel_args,
-                     "generated direct-M128 launch");
+  LaunchConfiguredGeneratedKernel(
+      FLASHKDA_GENERATED_KERNEL_ARGUMENT, prepared->grid, prepared->stream,
+      prepared->kernel_args, "generated direct-M128 launch");
 }
 
 inline int64_t DirectM128PreparedHandle(PreparedDirectM128Launch* prepared) {

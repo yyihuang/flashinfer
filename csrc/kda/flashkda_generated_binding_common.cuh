@@ -330,18 +330,20 @@ constexpr void CheckArgumentCount(void* (&)[Actual]) {
   static_assert(Expected == Actual, "generated kernel ABI argument count changed");
 }
 
-static inline void ConfigureAndLaunch(const void* kernel, dim3 grid,
-                                      cudaStream_t stream, void** args,
-                                      const char* launch_name) {
-  TVM_FFI_ICHECK(grid.x > 0 && grid.y > 0 && grid.z > 0)
-      << "generated kernel grid dimensions must be positive";
-  int32_t device_id = 0;
-  CheckCuda(cudaGetDevice(&device_id), "cudaGetDevice");
 #if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
-  (void)kernel;
+static inline auto& GeneratedEmbeddedKernel() {
   static auto embedded_kernel = FLASHKDA_GENERATED_GET_KERNEL(
       FLASHKDA_GENERATED_CUBIN_IDENT,
       FLASHKDA_GENERATED_STRINGIFY(FLASHKDA_GENERATED_KERNEL));
+  return embedded_kernel;
+}
+#endif
+
+static inline void ConfigureGeneratedKernelForDevice(const void* kernel,
+                                                     int32_t device_id) {
+#if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
+  (void)kernel;
+  auto& embedded_kernel = GeneratedEmbeddedKernel();
   namespace cuda_api = tvm::ffi::cuda_api;
 #endif
   // The CUDA current device is host-thread local.  Configure this generated
@@ -365,7 +367,18 @@ static inline void ConfigureAndLaunch(const void* kernel, dim3 grid,
 #endif
     configured_device_id = device_id;
   }
+}
+
+static inline void LaunchConfiguredGeneratedKernel(const void* kernel, dim3 grid,
+                                                   cudaStream_t stream,
+                                                   void** args,
+                                                   const char* launch_name) {
+  TVM_FFI_ICHECK(grid.x > 0 && grid.y > 0 && grid.z > 0)
+      << "generated kernel grid dimensions must be positive";
 #if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
+  (void)kernel;
+  auto& embedded_kernel = GeneratedEmbeddedKernel();
+  namespace cuda_api = tvm::ffi::cuda_api;
 #if FLASHKDA_GENERATED_USE_PDL
   cuda_api::LaunchConfig config{};
 #if TVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API
@@ -418,6 +431,15 @@ static inline void ConfigureAndLaunch(const void* kernel, dim3 grid,
             launch_name);
 #endif
 #endif
+}
+
+static inline void ConfigureAndLaunch(const void* kernel, dim3 grid,
+                                      cudaStream_t stream, void** args,
+                                      const char* launch_name) {
+  int32_t device_id = 0;
+  CheckCuda(cudaGetDevice(&device_id), "cudaGetDevice");
+  ConfigureGeneratedKernelForDevice(kernel, device_id);
+  LaunchConfiguredGeneratedKernel(kernel, grid, stream, args, launch_name);
 }
 
 inline cudaStream_t CheckedStream(int64_t cuda_stream) {
