@@ -3122,7 +3122,17 @@ def test_h96_uniform_n128_keeps_n16_on_148_sm():
                 num_sequences=128,
                 num_heads=96,
                 uniform_sequences=True,
+                checkpoint_every_n_tokens=0,
             ) is (sm_count == 148)
+            assert not kda_prefill_api._requires_exact_n16_recurrence(
+                compute_capability=compute_capability,
+                sm_count=sm_count,
+                fixed_layout=False,
+                num_sequences=128,
+                num_heads=96,
+                uniform_sequences=True,
+                checkpoint_every_n_tokens=64,
+            )
 
 
 class _RecorderModule:

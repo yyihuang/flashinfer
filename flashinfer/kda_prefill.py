@@ -1672,6 +1672,7 @@ def _select_flash_kda_bf16_route(
         num_sequences=num_sequences,
         num_heads=num_heads,
         uniform_sequences=uniform_sequences,
+        checkpoint_every_n_tokens=0,
     ):
         return _FLASH_KDA_ROUTE_DIRECT_M128_N16
     if (
@@ -1744,11 +1745,13 @@ def _requires_exact_n16_recurrence(
     num_sequences: int,
     num_heads: int,
     uniform_sequences: bool,
+    checkpoint_every_n_tokens: int,
 ) -> bool:
-    """Retain the N16 accuracy fallback for the 148-SM H96/N128 row."""
+    """Retain the non-checkpoint N16 accuracy fallback for 148-SM H96/N128."""
 
     return (
-        sm_count == 148
+        checkpoint_every_n_tokens == 0
+        and sm_count == 148
         and not fixed_layout
         and num_sequences == 128
         and num_heads == 96
@@ -2277,6 +2280,7 @@ def _select_bf16_route(
         num_sequences=num_sequences,
         num_heads=num_heads,
         uniform_sequences=uniform_sequences,
+        checkpoint_every_n_tokens=0,
     ):
         return _FLASH_KDA_ROUTE_DIRECT_M128_N16
     if _should_use_independent_dvsplit(
@@ -5895,6 +5899,7 @@ def _run_flash_kda_prefill(
         num_sequences=num_sequences,
         num_heads=num_heads,
         uniform_sequences=uniform_sequences,
+        checkpoint_every_n_tokens=checkpoint_every_n_tokens,
     )
     if affine_token_offsets is not None:
         route = _FLASH_KDA_ROUTE_AFFINE_M128
