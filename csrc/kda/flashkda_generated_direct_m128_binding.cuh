@@ -201,7 +201,9 @@ inline PyObject* LaunchPreparedDirectM128Python(PyObject* capsule,
 }
 
 inline void DecrefDirectM128PythonObject(void* object) {
+  const PyGILState_STATE gil_state = PyGILState_Ensure();
   Py_DECREF(static_cast<PyObject*>(object));
+  PyGILState_Release(gil_state);
 }
 
 inline ffi::ObjectRef MakeDirectM128PythonLauncher(int64_t handle) {
