@@ -824,18 +824,16 @@ def load_flash_kda_generated_module(variant_id: str):
 
 
 @functools.cache
-def _load_flash_kda_generated_direct_raw_launcher(variant_id: str):
-    """Resolve the raw launch from the exact loaded physical module."""
-
-    import ctypes
+def _load_flash_kda_generated_direct_python_factory(variant_id: str):
+    """Resolve the native prepared-launch factory from the exact loaded module."""
 
     module = load_flash_kda_generated_module(variant_id)
-    # The raw entry point only enqueues one asynchronous kernel launch.  Keep
-    # the GIL across that short call so releasing and reacquiring it cannot
-    # become a host-side gap behind the preceding beta-pack launch.
-    launch_type = ctypes.PYFUNCTYPE(ctypes.c_int, ctypes.c_int64)
-    launch = launch_type(module.direct_raw_launch_address())
-    return module, launch
+    factory = module.make_direct_python_launcher
+    # The factory calls the CPython C API and therefore must retain the GIL.
+    # It runs before the optional beta copy and returns a native METH_NOARGS
+    # callable for the only operation left in the copy-to-kernel gap.
+    factory.release_gil = False
+    return module, factory
 
 
 def get_flash_kda_uri(variant: FlashKDAVariant, target: FlashKDATarget) -> str:

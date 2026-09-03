@@ -1,6 +1,9 @@
 /* Copyright (c) 2026, NVIDIA CORPORATION. Licensed under the Apache License, Version 2.0. */
 #pragma once
 
+#include <Python.h>
+
+#include <exception>
 #include <memory>
 
 // The authoritative direct launcher uses the CUDA Runtime API.  Select the
@@ -173,29 +176,70 @@ inline void LaunchPreparedDirectM128Handle(int64_t handle) {
   LaunchPreparedDirectM128(DirectM128PreparedPointer(handle));
 }
 
-// The prepared launch is deliberately also exposed as one minimal C ABI call.
-// Python resolves this symbol before submitting the optional beta copy, so
-// the dependent kernel can follow that copy without tvm-ffi argument dispatch
-// in the GPU-visible gap.  The ordinary typed entry point remains the checked
-// fallback and owns preparation/disposal.
-extern "C" __attribute__((visibility("default")))
-int FlashKdaGeneratedLaunchDirectRaw(int64_t handle) noexcept {
-  if (handle == 0) {
-    return -1;
+inline constexpr char kDirectM128PythonCapsuleName[] =
+    "flashinfer.flash_kda_generated.PreparedDirectM128Launch";
+
+inline PyObject* LaunchPreparedDirectM128Python(PyObject* capsule,
+                                                PyObject* /*unused*/) {
+  void* pointer =
+      PyCapsule_GetPointer(capsule, kDirectM128PythonCapsuleName);
+  if (pointer == nullptr) {
+    return nullptr;
   }
   try {
     LaunchPreparedDirectM128(
-        reinterpret_cast<PreparedDirectM128Launch*>(
-            static_cast<uintptr_t>(handle)));
-    return 0;
+        static_cast<PreparedDirectM128Launch*>(pointer));
+  } catch (const std::exception& error) {
+    PyErr_SetString(PyExc_RuntimeError, error.what());
+    return nullptr;
   } catch (...) {
-    return -2;
+    PyErr_SetString(PyExc_RuntimeError,
+                    "generated direct-M128 launch failed");
+    return nullptr;
   }
+  Py_RETURN_NONE;
 }
 
-inline int64_t DirectM128RawLaunchAddress() {
-  return static_cast<int64_t>(reinterpret_cast<uintptr_t>(
-      &FlashKdaGeneratedLaunchDirectRaw));
+inline void DecrefDirectM128PythonObject(void* object) {
+  Py_DECREF(static_cast<PyObject*>(object));
+}
+
+inline ffi::ObjectRef MakeDirectM128PythonLauncher(int64_t handle) {
+  auto* prepared = DirectM128PreparedPointer(handle);
+  PyObject* capsule =
+      PyCapsule_New(prepared, kDirectM128PythonCapsuleName, nullptr);
+  if (capsule == nullptr) {
+    PyErr_Clear();
+  }
+  TVM_FFI_ICHECK(capsule != nullptr)
+      << "failed to create direct-M128 launch capsule";
+
+  static PyMethodDef method = {
+      "_launch_direct_m128_prepared",
+      LaunchPreparedDirectM128Python,
+      METH_NOARGS,
+      nullptr,
+  };
+  PyObject* callable = PyCFunction_NewEx(&method, capsule, nullptr);
+  Py_DECREF(capsule);
+  if (callable == nullptr) {
+    PyErr_Clear();
+  }
+  TVM_FFI_ICHECK(callable != nullptr)
+      << "failed to create direct-M128 native launcher";
+
+  TVMFFIObjectHandle opaque_handle = nullptr;
+  const int status = TVMFFIObjectCreateOpaque(
+      callable, kTVMFFIOpaquePyObject, DecrefDirectM128PythonObject,
+      &opaque_handle);
+  if (status != 0 || opaque_handle == nullptr) {
+    Py_DECREF(callable);
+  }
+  TVM_FFI_ICHECK(status == 0 && opaque_handle != nullptr)
+      << "failed to wrap direct-M128 native launcher";
+  return ffi::ObjectRef(
+      ffi::details::ObjectUnsafe::ObjectPtrFromOwned<ffi::Object>(
+          reinterpret_cast<TVMFFIObject*>(opaque_handle)));
 }
 
 inline void DisposePreparedDirectM128Handle(int64_t handle) {
@@ -494,7 +538,7 @@ TVM_FFI_DLL_EXPORT_TYPED_FUNC(run,flashinfer::flash_kda_generated::RunDirectM128
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(prepare_direct,flashinfer::flash_kda_generated::PrepareDirectM128);
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(launch_direct,flashinfer::flash_kda_generated::LaunchPreparedDirectM128Handle);
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(dispose_direct,flashinfer::flash_kda_generated::DisposePreparedDirectM128Handle);
-TVM_FFI_DLL_EXPORT_TYPED_FUNC(direct_raw_launch_address,flashinfer::flash_kda_generated::DirectM128RawLaunchAddress);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(make_direct_python_launcher,flashinfer::flash_kda_generated::MakeDirectM128PythonLauncher);
 #else
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(run,flashinfer::flash_kda_generated::RunDirectM128Vtile);
 #endif

@@ -4670,7 +4670,7 @@ def _run_generated_single_route(
             stream_ptr,
         )
     prepared_direct_handle = None
-    prepared_direct_raw_launch = None
+    prepared_direct_launch = None
     prepared_direct_dispose = None
     try:
         if direct_run_args is not None:
@@ -4680,17 +4680,20 @@ def _run_generated_single_route(
             with torch.cuda.device(q.device):
                 if beta_tma_copy_required and checkpoint_every_n_tokens == 0:
                     from .jit.flash_kda import (
-                        _load_flash_kda_generated_direct_raw_launcher,
+                        _load_flash_kda_generated_direct_python_factory,
                     )
 
                     prepare_direct = module.prepare_direct
-                    _, prepared_direct_raw_launch = (
-                        _load_flash_kda_generated_direct_raw_launcher(
+                    _, make_direct_python_launcher = (
+                        _load_flash_kda_generated_direct_python_factory(
                             metadata.variant_id
                         )
                     )
                     prepared_direct_dispose = module.dispose_direct
                     prepared_direct_handle = prepare_direct(*direct_run_args)
+                    prepared_direct_launch = make_direct_python_launcher(
+                        prepared_direct_handle
+                    )
                 if beta_tma_copy_required:
                     total_tokens = beta.numel() // num_heads
                     if beta.shape[0] == 1:
@@ -4704,14 +4707,7 @@ def _run_generated_single_route(
                 if prepared_direct_handle is None:
                     module.run(*direct_run_args)
                 else:
-                    launch_status = prepared_direct_raw_launch(
-                        prepared_direct_handle
-                    )
-                    if launch_status != 0:
-                        raise RuntimeError(
-                            "generated direct-M128 raw launch failed with "
-                            f"status {launch_status}"
-                        )
+                    prepared_direct_launch()
         else:
             if beta_tma_copy_required:
                 total_tokens = beta.numel() // num_heads
@@ -4987,6 +4983,7 @@ def _run_generated_single_route(
         )
         raise
     finally:
+        prepared_direct_launch = None
         if prepared_direct_handle is not None:
             prepared_direct_dispose(prepared_direct_handle)
     _record_generated_descriptor_signature(
