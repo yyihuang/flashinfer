@@ -503,9 +503,6 @@ class _RecurrentKDAPrefillWorkspaceBase:
         # exact architecture, not from a coarse route name.
         self._generated_descriptor_storages: dict[str, torch.Tensor] = {}
         self._descriptor_signatures: dict[str, tuple] = {}
-        self._generated_direct_cuda_graphs: dict[
-            str, tuple[tuple, torch.cuda.CUDAGraph, torch.cuda.Stream]
-        ] = {}
         self._generated_scalar_schedules: dict[
             tuple, tuple[torch.Tensor, torch.Tensor, int]
         ] = {}
@@ -3088,17 +3085,6 @@ def _tensor_descriptor_signature(tensor: torch.Tensor) -> tuple:
     )
 
 
-def _generated_direct_graph_signature(arguments: tuple[object, ...]) -> tuple:
-    """Identify every pointer and scalar captured by a direct CUDA graph."""
-
-    return tuple(
-        ("tensor", _tensor_descriptor_signature(argument))
-        if isinstance(argument, torch.Tensor)
-        else ("value", argument)
-        for argument in arguments
-    )
-
-
 def _descriptor_signature(
     *,
     q: torch.Tensor,
@@ -4692,68 +4678,25 @@ def _run_generated_single_route(
             # device. All launch setup completes before the copy starts the
             # measured GPU DAG.
             with torch.cuda.device(q.device):
-                prepare_direct = module.prepare_direct
-                prepared_direct_launch = module.launch_direct
-                prepared_direct_dispose = module.dispose_direct
-                use_internal_graph = (
-                    beta_tma_copy_required
-                    and checkpoint_every_n_tokens == 0
-                    and not capturing
-                    and prepare_descriptors == 0
-                    and isinstance(workspace, _FlashKDAStreamWorkspace)
-                )
-                graph_replayed = False
-                if use_internal_graph:
-                    graph_signature = _generated_direct_graph_signature(
-                        direct_run_args
-                    )
-                    cached_graph = workspace._generated_direct_cuda_graphs.get(
-                        metadata.variant_id
-                    )
-                    if cached_graph is None or cached_graph[0] != graph_signature:
-                        current_stream = torch.cuda.current_stream(q.device)
-                        capture_stream = torch.cuda.Stream(device=q.device)
-                        capture_stream.wait_stream(current_stream)
-                        capture_stream.synchronize()
-                        capture_args = direct_run_args[:-1] + (
-                            capture_stream.cuda_stream,
-                        )
-                        prepared_direct_handle = prepare_direct(*capture_args)
-                        graph = torch.cuda.CUDAGraph()
-                        with torch.cuda.graph(graph, stream=capture_stream):
-                            total_tokens = beta.numel() // num_heads
-                            if beta.shape[0] == 1:
-                                beta_flat = beta[0]
-                            else:
-                                beta_flat = beta.as_strided(
-                                    (total_tokens, num_heads),
-                                    (beta.stride(1), beta.stride(2)),
-                                )
-                            beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
-                            prepared_direct_launch(prepared_direct_handle)
-                        workspace._generated_direct_cuda_graphs[
-                            metadata.variant_id
-                        ] = (graph_signature, graph, capture_stream)
-                        cached_graph = (graph_signature, graph, capture_stream)
-                    cached_graph[1].replay()
-                    graph_replayed = True
-                if not graph_replayed:
-                    if beta_tma_copy_required and checkpoint_every_n_tokens == 0:
-                        prepared_direct_handle = prepare_direct(*direct_run_args)
-                    if beta_tma_copy_required:
-                        total_tokens = beta.numel() // num_heads
-                        if beta.shape[0] == 1:
-                            beta_flat = beta[0]
-                        else:
-                            beta_flat = beta.as_strided(
-                                (total_tokens, num_heads),
-                                (beta.stride(1), beta.stride(2)),
-                            )
-                        beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
-                    if prepared_direct_handle is None:
-                        module.run(*direct_run_args)
+                if beta_tma_copy_required and checkpoint_every_n_tokens == 0:
+                    prepare_direct = module.prepare_direct
+                    prepared_direct_launch = module.launch_direct
+                    prepared_direct_dispose = module.dispose_direct
+                    prepared_direct_handle = prepare_direct(*direct_run_args)
+                if beta_tma_copy_required:
+                    total_tokens = beta.numel() // num_heads
+                    if beta.shape[0] == 1:
+                        beta_flat = beta[0]
                     else:
-                        prepared_direct_launch(prepared_direct_handle)
+                        beta_flat = beta.as_strided(
+                            (total_tokens, num_heads),
+                            (beta.stride(1), beta.stride(2)),
+                        )
+                    beta_tma[:total_tokens, :num_heads].copy_(beta_flat)
+                if prepared_direct_handle is None:
+                    module.run(*direct_run_args)
+                else:
+                    prepared_direct_launch(prepared_direct_handle)
         else:
             if beta_tma_copy_required:
                 total_tokens = beta.numel() // num_heads
