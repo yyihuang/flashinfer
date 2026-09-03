@@ -199,7 +199,8 @@ static inline PyObject* LaunchPreparedDirectM128Python(
   // Resolve the bound PyTorch copy method before this native call starts the
   // GPU DAG.  Keep only the exact copy dispatch and prepared kernel launch in
   // the inter-kernel interval.
-  PyObject* copy_result = PyObject_CallOneArg(copy_method, source);
+  PyObject* copy_result =
+      PyObject_CallFunctionObjArgs(copy_method, source, nullptr);
   if (copy_result == nullptr) {
     return nullptr;
   }
