@@ -3,6 +3,14 @@
 
 #include <memory>
 
+// The authoritative direct launcher uses the CUDA Runtime API.  Select the
+// same cubin-launch backend so the exported copy-to-kernel submission path is
+// identical while retaining the audited embedded kernel image.
+#if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN) && \
+    !defined(TVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API)
+#define TVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API 0
+#endif
+
 #include "flashkda_generated_binding_common.cuh"
 
 namespace flashinfer::flash_kda_generated {
