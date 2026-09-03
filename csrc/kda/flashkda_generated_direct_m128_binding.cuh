@@ -190,16 +190,16 @@ static inline PyObject* LaunchPreparedDirectM128Python(
   if (pointer == nullptr) {
     return nullptr;
   }
-  PyObject* destination = nullptr;
+  PyObject* copy_method = nullptr;
   PyObject* source = nullptr;
   if (!PyArg_ParseTuple(arguments, "OO:_launch_direct_m128_prepared",
-                        &destination, &source)) {
+                        &copy_method, &source)) {
     return nullptr;
   }
-  // Preserve PyTorch's exact copy kernel while keeping the dependent prepared
-  // launch in this native call, so no Python evaluation occurs in the GPU gap.
-  PyObject* copy_result =
-      PyObject_CallMethod(destination, "copy_", "O", source);
+  // Resolve the bound PyTorch copy method before this native call starts the
+  // GPU DAG.  Keep only the exact copy dispatch and prepared kernel launch in
+  // the inter-kernel interval.
+  PyObject* copy_result = PyObject_CallOneArg(copy_method, source);
   if (copy_result == nullptr) {
     return nullptr;
   }
