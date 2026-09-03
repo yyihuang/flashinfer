@@ -768,10 +768,17 @@ def get_flash_kda_generated_uri(variant_id: str) -> str:
         raise ValueError(
             f"unsupported generated FlashKDA variant: {variant_id}"
         ) from error
-    return (
+    uri = (
         f"flash_kda_generated_{module.target}_{module.module_ident}_"
         f"{module.cache_ident}"
     )
+    if module.abi_family == "direct_m128" and module.abi_variant == "serving":
+        # Serving direct-M128 links the audited body into its selector DSO so
+        # the dependent runtime launch has the same direct kernel-symbol path
+        # as the source implementation. Keep it distinct from older embedded
+        # cubin artifacts in the process-wide JIT cache.
+        uri += "_direct_source_v1"
+    return uri
 
 
 @functools.cache
@@ -785,27 +792,45 @@ def gen_flash_kda_generated_module(variant_id: str) -> JitSpec:
             f"unsupported generated FlashKDA variant: {variant_id}"
         ) from error
     csrc_dir = _get_flash_kda_csrc_dir()
+    direct_source = (
+        module.abi_family == "direct_m128" and module.abi_variant == "serving"
+    )
+    embedded_flags = (
+        []
+        if direct_source
+        else [
+            "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1",
+            "-DTVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API=1",
+            f"-DFLASHKDA_GENERATED_CUBIN_IDENT={module.module_ident}",
+        ]
+    )
     spec = gen_jit_spec(
         name=get_flash_kda_generated_uri(variant_id),
         sources=[_resolve_generated_source(csrc_dir, module.binding_relpath)],
         extra_cuda_cflags=[
             *_FLASH_KDA_GENERATED_NVCC_FLAGS[module.target],
             _FLASH_KDA_GENERATED_TARGET_DEFINE[module.target],
-            "-DFLASHKDA_GENERATED_EMBEDDED_CUBIN=1",
-            "-DTVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API=1",
-            f"-DFLASHKDA_GENERATED_CUBIN_IDENT={module.module_ident}",
+            *embedded_flags,
         ],
         extra_include_paths=[
             csrc_dir,
             csrc_dir.parent,
             _get_flash_kda_include_dir(),
         ],
-        embedded_cubin_factory=functools.partial(
-            prepare_generated_flash_kda_cubin,
-            selector_path=_resolve_generated_source(csrc_dir, module.binding_relpath),
-            body_path=_resolve_generated_source(csrc_dir, module.body_relpath),
-            module_ident=module.module_ident,
-            target=module.target,
+        embedded_cubin_factory=(
+            None
+            if direct_source
+            else functools.partial(
+                prepare_generated_flash_kda_cubin,
+                selector_path=_resolve_generated_source(
+                    csrc_dir, module.binding_relpath
+                ),
+                body_path=_resolve_generated_source(
+                    csrc_dir, module.body_relpath
+                ),
+                module_ident=module.module_ident,
+                target=module.target,
+            )
         ),
     )
     logger.info(
