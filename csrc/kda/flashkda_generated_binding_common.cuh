@@ -337,16 +337,35 @@ static inline void ConfigureAndLaunch(const void* kernel, dim3 grid,
       << "generated kernel grid dimensions must be positive";
   int32_t device_id = 0;
   CheckCuda(cudaGetDevice(&device_id), "cudaGetDevice");
-  CheckDynamicSmemCapacity(device_id, FLASHKDA_GENERATED_SMEM_BYTES);
 #if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
   (void)kernel;
   static auto embedded_kernel = FLASHKDA_GENERATED_GET_KERNEL(
       FLASHKDA_GENERATED_CUBIN_IDENT,
       FLASHKDA_GENERATED_STRINGIFY(FLASHKDA_GENERATED_KERNEL));
   namespace cuda_api = tvm::ffi::cuda_api;
-  auto device = cuda_api::GetDeviceHandle(device_id);
-  TVM_FFI_CHECK_CUBIN_LAUNCHER_CUDA_ERROR(cuda_api::SetKernelMaxDynamicSharedMem(
-      embedded_kernel.GetHandle(), FLASHKDA_GENERATED_SMEM_BYTES, device));
+#endif
+  // The CUDA current device is host-thread local.  Configure this generated
+  // module once for each device observed by the calling thread instead of
+  // inserting repeated attribute/device queries between dependent launches.
+  static thread_local int32_t configured_device_id = -1;
+  if (configured_device_id != device_id) {
+    CheckDynamicSmemCapacity(device_id, FLASHKDA_GENERATED_SMEM_BYTES);
+#if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
+    auto device = cuda_api::GetDeviceHandle(device_id);
+    TVM_FFI_CHECK_CUBIN_LAUNCHER_CUDA_ERROR(
+        cuda_api::SetKernelMaxDynamicSharedMem(
+            embedded_kernel.GetHandle(), FLASHKDA_GENERATED_SMEM_BYTES,
+            device));
+#else
+    CheckCuda(
+        cudaFuncSetAttribute(kernel,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize,
+                             FLASHKDA_GENERATED_SMEM_BYTES),
+        "cudaFuncSetAttribute(generated FlashKDA kernel)");
+#endif
+    configured_device_id = device_id;
+  }
+#if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
 #if FLASHKDA_GENERATED_USE_PDL
   cuda_api::LaunchConfig config{};
 #if TVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API
@@ -381,9 +400,6 @@ static inline void ConfigureAndLaunch(const void* kernel, dim3 grid,
       FLASHKDA_GENERATED_SMEM_BYTES));
 #endif
 #else
-  CheckCuda(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                 FLASHKDA_GENERATED_SMEM_BYTES),
-            "cudaFuncSetAttribute(generated FlashKDA kernel)");
 #if FLASHKDA_GENERATED_USE_PDL
   cudaLaunchAttribute attribute{};
   attribute.id = cudaLaunchAttributeProgrammaticStreamSerialization;
