@@ -43,9 +43,7 @@ _CLC_ROUTE = "bf16_clc_packed_affine_full_tile_mask_bmm2_one_v1"
 _GENERIC_BF16_ROUTE = "bf16_full_abi_runtime_tail_one_launch_v1"
 _GENERIC_FP8_ROUTE = "fp8_full_abi_runtime_tail_one_launch_v1"
 _FP8_P32_QK_L2_ROUTE = "fp8_p32_q2_kv1024_qk_l2_resident_v1"
-_FP8_PAGE64_ROUTE = (
-    "fp8_page64_native_pdl_sequence_unified_v_leader_consumer_v1"
-)
+_FP8_PAGE64_ROUTE = "fp8_page64_native_pdl_sequence_unified_v_leader_consumer_v1"
 _NATIVE_BF16_ROUTE = "v32_15stage_page_native_sink_pdl_runtime_v4_full_tmem_scrub"
 
 ROUTE_TO_DOMAIN = {
@@ -274,9 +272,7 @@ def _aligned_state(inputs: dict[str, Any]) -> dict[str, Any]:
         state.update(
             {
                 "row_page_table": table,
-                "kv_half_pages": inputs["KV_cache"].reshape(
-                    -1, 32, _ALIGNED_QK_DIM
-                ),
+                "kv_half_pages": inputs["KV_cache"].reshape(-1, 32, _ALIGNED_QK_DIM),
                 "q_rows": inputs["Q"].reshape(-1, _ALIGNED_QK_DIM),
                 "o_rows": inputs["O"].reshape(-1, _ALIGNED_VALUE_DIM),
                 "num_sms": int(inputs["num_sms"]),
@@ -409,11 +405,7 @@ def _select_route(meta: _BlackwellDispatchMetadata) -> str:
             "TRT-LLM MLA Blackwell generic tail supports max_seq_len <= "
             f"{_MAX_GENERIC_TOKENS}"
         )
-    return (
-        _GENERIC_BF16_ROUTE
-        if meta.dtype == torch.bfloat16
-        else _GENERIC_FP8_ROUTE
-    )
+    return _GENERIC_BF16_ROUTE if meta.dtype == torch.bfloat16 else _GENERIC_FP8_ROUTE
 
 
 def _aligned_launch(inputs: dict[str, Any], route: str):
@@ -464,9 +456,7 @@ def _native_launch(inputs: dict[str, Any]):
     state = _aligned_state(inputs)
     num_split = 8
     total_work_items = state["num_rows"] * num_split
-    grid_x = min(
-        total_work_items, state["num_sms"] // _CLUSTER_SIZE
-    ) * _CLUSTER_SIZE
+    grid_x = min(total_work_items, state["num_sms"] // _CLUSTER_SIZE) * _CLUSTER_SIZE
     tensors = (
         state["q_rows"],
         state["kv_half_pages"],
@@ -576,10 +566,7 @@ def _pick_num_split(work_items: int, tiles: list[int], num_sms: int) -> int:
     blocks = (min_tiles + split - 1) // split
     split = (min_tiles + blocks - 1) // blocks
     while split > 1:
-        if all(
-            (split - 1) * ((count + split - 1) // split) < count
-            for count in tiles
-        ):
+        if all((split - 1) * ((count + split - 1) // split) < count for count in tiles):
             break
         split -= 1
     return split
@@ -598,7 +585,9 @@ def _page64_launch(inputs: dict[str, Any]):
     tiles = [(length + 127) // 128 for length in causal_lengths]
     num_split = _pick_num_split(work_items, tiles, int(inputs["num_sms"]))
     if num_split <= 1:
-        raise ValueError("TRT-LLM MLA Blackwell page-64 PDL domain requires split-K reduction")
+        raise ValueError(
+            "TRT-LLM MLA Blackwell page-64 PDL domain requires split-K reduction"
+        )
     reduce_ctas = min(
         64,
         max(1, (int(inputs["num_sms"]) * 2) // max(1, work_items * 2)),
@@ -635,7 +624,9 @@ def _prepare(inputs: dict[str, Any], route: str):
     elif route == _FP8_PAGE64_ROUTE:
         tensors, scalars = _page64_launch(inputs)
     else:
-        raise ValueError(f"route is outside the TRT-LLM MLA Blackwell export inventory: {route!r}")
+        raise ValueError(
+            f"route is outside the TRT-LLM MLA Blackwell export inventory: {route!r}"
+        )
     return ROUTE_TO_DOMAIN[route], tensors, scalars
 
 
@@ -737,7 +728,9 @@ def trtllm_mla_blackwell_decode(
     if enable_dcp:
         raise ValueError("TRT-LLM MLA Blackwell does not support DCP")
     if multi_ctas_kv_counter_buffer is not None:
-        raise ValueError("TRT-LLM MLA Blackwell does not use a multi-CTA counter buffer")
+        raise ValueError(
+            "TRT-LLM MLA Blackwell does not use a multi-CTA counter buffer"
+        )
     if sparse_mla_top_k_lens is not None:
         raise ValueError("TRT-LLM MLA Blackwell does not accept sparse_mla_top_k_lens")
     if seq_lens is None:
@@ -774,7 +767,9 @@ def trtllm_mla_blackwell_decode(
         if cum_seq_lens_q.ndim != 1 or cum_seq_lens_q.numel() < 2:
             raise ValueError("cum_seq_lens_q must have shape [batch_size + 1]")
         if max_q_len is None or max_q_len <= 0:
-            raise ValueError("max_q_len is required for compact TRT-LLM MLA Blackwell queries")
+            raise ValueError(
+                "max_q_len is required for compact TRT-LLM MLA Blackwell queries"
+            )
         batch_size = int(cum_seq_lens_q.numel() - 1)
         q_len = int(max_q_len)
         total_q = int(query.shape[0])
@@ -783,7 +778,9 @@ def trtllm_mla_blackwell_decode(
         q_len = int(query.shape[1])
         total_q = batch_size * q_len
     if batch_size <= 0 or q_len <= 0 or total_q <= 0:
-        raise ValueError("TRT-LLM MLA Blackwell requires nonempty batch and query dimensions")
+        raise ValueError(
+            "TRT-LLM MLA Blackwell requires nonempty batch and query dimensions"
+        )
 
     _check_tensor(seq_lens, name="seq_lens", dtype=torch.int32, device=device)
     if tuple(seq_lens.shape) != (batch_size,):
@@ -794,9 +791,7 @@ def trtllm_mla_blackwell_decode(
             raise ValueError("cum_seq_lens_q must start at 0 and end at total_q")
         q_lens = tuple(
             right - left
-            for left, right in zip(
-                q_indptr_host[:-1], q_indptr_host[1:], strict=True
-            )
+            for left, right in zip(q_indptr_host[:-1], q_indptr_host[1:], strict=True)
         )
         if any(q <= 0 for q in q_lens) or max(q_lens) > q_len:
             raise ValueError("cum_seq_lens_q contains an invalid query length")
@@ -804,15 +799,12 @@ def trtllm_mla_blackwell_decode(
         q_lens = (q_len,) * batch_size
     kv_lens = _host_int_tuple(seq_lens)
     if len(q_lens) != len(kv_lens) or any(
-        q <= 0 or kv <= 0 or q > kv
-        for q, kv in zip(q_lens, kv_lens, strict=True)
+        q <= 0 or kv <= 0 or q > kv for q, kv in zip(q_lens, kv_lens, strict=True)
     ):
         raise ValueError("every TRT-LLM MLA Blackwell row requires 0 < q_len <= kv_len")
     if max_seq_len <= 0 or max(kv_lens) > max_seq_len:
         raise ValueError("max_seq_len must cover every runtime KV length")
-    _check_tensor(
-        block_tables, name="block_tables", dtype=torch.int32, device=device
-    )
+    _check_tensor(block_tables, name="block_tables", dtype=torch.int32, device=device)
     if sparse_mla_top_k > 0:
         expected_table_shape = (
             (total_q, sparse_mla_top_k)
@@ -820,7 +812,9 @@ def trtllm_mla_blackwell_decode(
             else (batch_size, q_len, sparse_mla_top_k)
         )
         if tuple(block_tables.shape) != expected_table_shape:
-            raise ValueError(f"sparse block_tables must have shape {expected_table_shape}")
+            raise ValueError(
+                f"sparse block_tables must have shape {expected_table_shape}"
+            )
     else:
         expected_ndim = 2 if uses_shared_paged_kv_idx else 3
         if block_tables.ndim != expected_ndim or block_tables.shape[0] != batch_size:

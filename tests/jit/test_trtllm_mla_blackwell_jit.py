@@ -109,10 +109,7 @@ def test_catalog_accepts_exact_ordered_four_target_nine_domain_eighteen_source_t
     }
     for target in trtllm_mla_blackwell._TARGET_ORDER:
         assert (
-            sum(
-                len(profile["device_sources"][target])
-                for profile in domains.values()
-            )
+            sum(len(profile["device_sources"][target]) for profile in domains.values())
             == 18
         )
         assert [
@@ -331,9 +328,7 @@ def test_get_domain_module_rejects_unsupported_runtime_target(
     monkeypatch.setattr(
         trtllm_mla_blackwell.torch.cuda,
         "get_device_properties",
-        lambda device: SimpleNamespace(
-            multi_processor_count=multi_processor_count
-        ),
+        lambda device: SimpleNamespace(multi_processor_count=multi_processor_count),
     )
 
     with pytest.raises(
@@ -387,9 +382,7 @@ def test_get_domain_module_compiles_and_embeds_exact_domain_cubin_set_once(
         return loaded_module
 
     monkeypatch.setattr(trtllm_mla_blackwell, "_source_dir", lambda: tmp_path)
-    monkeypatch.setattr(
-        trtllm_mla_blackwell.jit_env, "FLASHINFER_JIT_DIR", build_root
-    )
+    monkeypatch.setattr(trtllm_mla_blackwell.jit_env, "FLASHINFER_JIT_DIR", build_root)
     monkeypatch.setattr(
         trtllm_mla_blackwell, "_nvcc", lambda: Path("/opt/cuda/bin/nvcc")
     )
@@ -429,9 +422,7 @@ def test_get_domain_module_compiles_and_embeds_exact_domain_cubin_set_once(
     assert len(commands) == 8
     assert all(f"-arch={arch}" in command for command in commands)
     assert all("--use_fast_math" in command for command in commands)
-    assert all(
-        Path(command[-3]).parent.name == target for command in commands
-    )
+    assert all(Path(command[-3]).parent.name == target for command in commands)
     other_arch = "sm_103a" if arch == "sm_100a" else "sm_100a"
     assert all(f"-arch={other_arch}" not in command for command in commands)
     assert len(locks) == 1

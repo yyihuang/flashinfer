@@ -1823,7 +1823,9 @@ def test_trtllm_mla_blackwell_rejects_non_scalar_or_nonfinite_scales() -> None:
         _normalize_scale(float("inf"), "bmm2_scale")
 
 
-def test_trtllm_mla_blackwell_caches_host_lengths_until_tensor_version_changes() -> None:
+def test_trtllm_mla_blackwell_caches_host_lengths_until_tensor_version_changes() -> (
+    None
+):
     from flashinfer.mla.trtllm_mla_blackwell import (
         _HOST_METADATA_CACHE,
         _host_int_tuple,

@@ -88,7 +88,9 @@ def _source_record(
     if kind == "device_source":
         expected_keys.update({"module_ident", "compile_flags"})
     if not isinstance(value, dict) or set(value) != expected_keys:
-        raise RuntimeError(f"TRT-LLM MLA Blackwell catalog {location} schema is invalid")
+        raise RuntimeError(
+            f"TRT-LLM MLA Blackwell catalog {location} schema is invalid"
+        )
 
     relative = value["path"]
     sha256 = value["sha256"]
@@ -108,7 +110,9 @@ def _source_record(
             f"TRT-LLM MLA Blackwell catalog {location} path is noncanonical: {relative!r}"
         )
     if not isinstance(sha256, str) or _HEX_SHA256.fullmatch(sha256) is None:
-        raise RuntimeError(f"TRT-LLM MLA Blackwell catalog {location} sha256 is invalid")
+        raise RuntimeError(
+            f"TRT-LLM MLA Blackwell catalog {location} sha256 is invalid"
+        )
 
     if kind == "device_source":
         module_ident = value["module_ident"]
@@ -150,7 +154,9 @@ def _source_catalog() -> Mapping[str, object]:
         "domain_order",
         "domains",
     }:
-        raise RuntimeError("TRT-LLM MLA Blackwell generated-source catalog schema is invalid")
+        raise RuntimeError(
+            "TRT-LLM MLA Blackwell generated-source catalog schema is invalid"
+        )
     expected_targets = {
         target: {"arch": arch, "multi_processor_count": multi_processor_count}
         for target, (arch, multi_processor_count) in _TARGETS.items()
@@ -185,17 +191,14 @@ def _source_catalog() -> Mapping[str, object]:
             raise RuntimeError(
                 f"TRT-LLM MLA Blackwell catalog domain {domain!r} schema is invalid"
             )
-        host = _source_record(
-            profile["host_source"], domain=domain, kind="host_source"
-        )
+        host = _source_record(profile["host_source"], domain=domain, kind="host_source")
         devices_by_target = profile["device_sources"]
         if (
             not isinstance(devices_by_target, dict)
             or tuple(devices_by_target) != _TARGET_ORDER
         ):
             raise RuntimeError(
-                f"TRT-LLM MLA catalog domain {domain!r} target "
-                "inventory is invalid"
+                f"TRT-LLM MLA catalog domain {domain!r} target inventory is invalid"
             )
         host_path = str(host["path"])
         if host_path != f"host/{domain}.cpp" or host_path in source_paths:
@@ -222,8 +225,7 @@ def _source_catalog() -> Mapping[str, object]:
             idents = tuple(str(record["module_ident"]) for record in records)
             if len(set(idents)) != len(idents):
                 raise RuntimeError(
-                    "TRT-LLM MLA catalog contains duplicate device module "
-                    "identities"
+                    "TRT-LLM MLA catalog contains duplicate device module identities"
                 )
             if expected_idents is None:
                 expected_idents = idents
@@ -327,7 +329,9 @@ def _nvcc() -> Path:
             if path.is_file():
                 candidate = str(path)
     if candidate is None:
-        raise RuntimeError("nvcc is required to build the TRT-LLM MLA Blackwell backend")
+        raise RuntimeError(
+            "nvcc is required to build the TRT-LLM MLA Blackwell backend"
+        )
     return Path(candidate).resolve()
 
 
@@ -421,15 +425,11 @@ def _load_domain_module(domain: str, target: str):
             extra_ldflags=["-lcuda"],
             build_directory=str(build_dir),
         )
-    logger.info(
-        "Loaded TRT-LLM MLA domain %s for target %s (%s)", domain, target, arch
-    )
+    logger.info("Loaded TRT-LLM MLA domain %s for target %s (%s)", domain, target, arch)
     return module
 
 
-def get_domain_module(
-    domain: str, device: torch.device | int | str | None = None
-):
+def get_domain_module(domain: str, device: torch.device | int | str | None = None):
     """Return the cached source-built module for one exact public domain."""
 
     if domain not in _DOMAIN_DEVICE_COUNTS:
