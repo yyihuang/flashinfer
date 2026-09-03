@@ -3,8 +3,10 @@
 
 #include <Python.h>
 
+#if defined(FLASHKDA_GENERATED_DIRECT_SOURCE_ABI)
 #include <ATen/ATen.h>
 #include <torch/csrc/autograd/python_variable.h>
+#endif
 
 #include <exception>
 #include <memory>

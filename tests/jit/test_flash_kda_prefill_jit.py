@@ -307,6 +307,10 @@ def test_generated_prefill_registry_is_receipt_closed_and_exact_targeted():
                     for flag in spec.extra_cuda_cflags
                 )
                 assert "-UPy_LIMITED_API" in spec.extra_cuda_cflags
+                assert (
+                    "-DFLASHKDA_GENERATED_DIRECT_SOURCE_ABI=1"
+                    in spec.extra_cuda_cflags
+                )
                 assert spec.extra_ldflags is not None
                 assert "-ltorch_python" in spec.extra_ldflags
                 assert spec.embedded_cubin_factory is None
@@ -325,6 +329,10 @@ def test_generated_prefill_registry_is_receipt_closed_and_exact_targeted():
                     in spec.extra_cuda_cflags
                 )
                 assert "-UPy_LIMITED_API" not in spec.extra_cuda_cflags
+                assert (
+                    "-DFLASHKDA_GENERATED_DIRECT_SOURCE_ABI=1"
+                    not in spec.extra_cuda_cflags
+                )
                 assert spec.extra_ldflags is None
                 assert spec.embedded_cubin_factory is not None
             assert all("sm100f" not in flag for flag in spec.extra_cuda_cflags)

@@ -826,7 +826,14 @@ def gen_flash_kda_generated_module(variant_id: str) -> JitSpec:
             *_FLASH_KDA_GENERATED_NVCC_FLAGS[module.target],
             _FLASH_KDA_GENERATED_TARGET_DEFINE[module.target],
             *embedded_flags,
-            *(["-UPy_LIMITED_API"] if direct_source else []),
+            *(
+                [
+                    "-DFLASHKDA_GENERATED_DIRECT_SOURCE_ABI=1",
+                    "-UPy_LIMITED_API",
+                ]
+                if direct_source
+                else []
+            ),
         ],
         extra_include_paths=[
             csrc_dir,
