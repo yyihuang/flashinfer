@@ -156,7 +156,11 @@ struct PreparedDirectM128Launch {
   PreparedDirectM128Launch& operator=(PreparedDirectM128Launch&&) = delete;
 };
 
-inline void LaunchPreparedDirectM128(PreparedDirectM128Launch* prepared) {
+// Keep the native callback chain DSO-local.  Each generated selector DSO
+// embeds a different kernel, so coalescing these inline functions or the
+// PyMethodDef below could route a later selector through the first loaded DSO.
+static inline void LaunchPreparedDirectM128(
+    PreparedDirectM128Launch* prepared) {
   LaunchConfiguredGeneratedKernel(
       FLASHKDA_GENERATED_KERNEL_ARGUMENT, prepared->grid, prepared->stream,
       prepared->kernel_args, "generated direct-M128 launch");
@@ -179,8 +183,8 @@ inline void LaunchPreparedDirectM128Handle(int64_t handle) {
 inline constexpr char kDirectM128PythonCapsuleName[] =
     "flashinfer.flash_kda_generated.PreparedDirectM128Launch";
 
-inline PyObject* LaunchPreparedDirectM128Python(PyObject* capsule,
-                                                PyObject* /*unused*/) {
+static inline PyObject* LaunchPreparedDirectM128Python(
+    PyObject* capsule, PyObject* /*unused*/) {
   void* pointer =
       PyCapsule_GetPointer(capsule, kDirectM128PythonCapsuleName);
   if (pointer == nullptr) {
@@ -200,13 +204,13 @@ inline PyObject* LaunchPreparedDirectM128Python(PyObject* capsule,
   Py_RETURN_NONE;
 }
 
-inline void DecrefDirectM128PythonObject(void* object) {
+static inline void DecrefDirectM128PythonObject(void* object) {
   const PyGILState_STATE gil_state = PyGILState_Ensure();
   Py_DECREF(static_cast<PyObject*>(object));
   PyGILState_Release(gil_state);
 }
 
-inline ffi::ObjectRef MakeDirectM128PythonLauncher(int64_t handle) {
+static inline ffi::ObjectRef MakeDirectM128PythonLauncher(int64_t handle) {
   auto* prepared = DirectM128PreparedPointer(handle);
   PyObject* capsule =
       PyCapsule_New(prepared, kDirectM128PythonCapsuleName, nullptr);
