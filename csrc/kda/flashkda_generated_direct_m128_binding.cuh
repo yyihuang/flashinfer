@@ -2,7 +2,6 @@
 #pragma once
 
 #include <memory>
-#include <utility>
 
 #include "flashkda_generated_binding_common.cuh"
 
@@ -97,31 +96,15 @@ struct PreparedDirectM128Launch {
   dim3 grid{};
   cudaStream_t stream{};
   int32_t device_id{};
-  std::unique_ptr<ffi::CUDADeviceGuard> device_guard;
   void* kernel_args[50]{};
-#if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
-  tvm::ffi::cuda_api::KernelHandle kernel{};
-#if FLASHKDA_GENERATED_USE_PDL
-  tvm::ffi::cuda_api::LaunchConfig launch_config{};
-  tvm::ffi::cuda_api::LaunchAttrType launch_attribute{};
-#endif
-#else
-  const void* kernel{};
-#if FLASHKDA_GENERATED_USE_PDL
-  cudaLaunchConfig_t launch_config{};
-  cudaLaunchAttribute launch_attribute{};
-#endif
-#endif
 
   PreparedDirectM128Launch(DirectM128Args input,
                            const StatePointerSlots& state, dim3 launch_grid,
-                           cudaStream_t launch_stream, int32_t launch_device,
-                           std::unique_ptr<ffi::CUDADeviceGuard> launch_device_guard)
+                           cudaStream_t launch_stream, int32_t launch_device)
       : args(input),
         grid(launch_grid),
         stream(launch_stream),
-        device_id(launch_device),
-        device_guard(std::move(launch_device_guard)) {
+        device_id(launch_device) {
     args.initial_state = state.initial_state;
     args.final_state = state.final_state;
     args.initial_state_f32 = state.initial_state_f32;
@@ -147,57 +130,6 @@ struct PreparedDirectM128Launch {
     for (int index = 0; index < 50; ++index) {
       kernel_args[index] = bound_args[index];
     }
-    CheckDynamicSmemCapacity(device_id, FLASHKDA_GENERATED_SMEM_BYTES);
-#if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
-    static auto embedded_kernel = FLASHKDA_GENERATED_GET_KERNEL(
-        FLASHKDA_GENERATED_CUBIN_IDENT,
-        FLASHKDA_GENERATED_STRINGIFY(FLASHKDA_GENERATED_KERNEL));
-    kernel = embedded_kernel.GetHandle();
-    namespace cuda_api = tvm::ffi::cuda_api;
-    const auto device = cuda_api::GetDeviceHandle(device_id);
-    TVM_FFI_CHECK_CUBIN_LAUNCHER_CUDA_ERROR(
-        cuda_api::SetKernelMaxDynamicSharedMem(
-            kernel, FLASHKDA_GENERATED_SMEM_BYTES, device));
-#if FLASHKDA_GENERATED_USE_PDL
-#if TVM_FFI_CUBIN_LAUNCHER_USE_DRIVER_API
-    launch_attribute.id = CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION;
-    launch_attribute.value.programmaticStreamSerializationAllowed = 1;
-    launch_config.gridDimX = grid.x;
-    launch_config.gridDimY = grid.y;
-    launch_config.gridDimZ = grid.z;
-    launch_config.blockDimX = FLASHKDA_GENERATED_THREADS;
-    launch_config.blockDimY = 1;
-    launch_config.blockDimZ = 1;
-    launch_config.sharedMemBytes = FLASHKDA_GENERATED_SMEM_BYTES;
-    launch_config.hStream = stream;
-#else
-    launch_attribute.id = cudaLaunchAttributeProgrammaticStreamSerialization;
-    launch_attribute.val.programmaticStreamSerializationAllowed = 1;
-    launch_config.gridDim = grid;
-    launch_config.blockDim = dim3(FLASHKDA_GENERATED_THREADS, 1, 1);
-    launch_config.dynamicSmemBytes = FLASHKDA_GENERATED_SMEM_BYTES;
-    launch_config.stream = stream;
-#endif
-    launch_config.attrs = &launch_attribute;
-    launch_config.numAttrs = 1;
-#endif
-#else
-    kernel = FLASHKDA_GENERATED_KERNEL_ARGUMENT;
-    CheckCuda(cudaFuncSetAttribute(
-                  kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                  FLASHKDA_GENERATED_SMEM_BYTES),
-              "cudaFuncSetAttribute(generated FlashKDA kernel)");
-#if FLASHKDA_GENERATED_USE_PDL
-    launch_attribute.id = cudaLaunchAttributeProgrammaticStreamSerialization;
-    launch_attribute.val.programmaticStreamSerializationAllowed = 1;
-    launch_config.gridDim = grid;
-    launch_config.blockDim = dim3(FLASHKDA_GENERATED_THREADS, 1, 1);
-    launch_config.dynamicSmemBytes = FLASHKDA_GENERATED_SMEM_BYTES;
-    launch_config.stream = stream;
-    launch_config.attrs = &launch_attribute;
-    launch_config.numAttrs = 1;
-#endif
-#endif
   }
 
   PreparedDirectM128Launch(const PreparedDirectM128Launch&) = delete;
@@ -207,31 +139,10 @@ struct PreparedDirectM128Launch {
 };
 
 inline void LaunchPreparedDirectM128(PreparedDirectM128Launch* prepared) {
-#if defined(FLASHKDA_GENERATED_EMBEDDED_CUBIN)
-  namespace cuda_api = tvm::ffi::cuda_api;
-#if FLASHKDA_GENERATED_USE_PDL
-  TVM_FFI_CHECK_CUBIN_LAUNCHER_CUDA_ERROR(cuda_api::LaunchKernelEx(
-      prepared->kernel, prepared->kernel_args, prepared->launch_config));
-#else
-  TVM_FFI_CHECK_CUBIN_LAUNCHER_CUDA_ERROR(cuda_api::LaunchKernel(
-      prepared->kernel, prepared->kernel_args,
-      tvm::ffi::dim3(prepared->grid.x, prepared->grid.y, prepared->grid.z),
-      tvm::ffi::dim3(FLASHKDA_GENERATED_THREADS, 1, 1), prepared->stream,
-      FLASHKDA_GENERATED_SMEM_BYTES));
-#endif
-#else
-#if FLASHKDA_GENERATED_USE_PDL
-  CheckCuda(cudaLaunchKernelExC(&prepared->launch_config, prepared->kernel,
-                                prepared->kernel_args),
-            "generated direct-M128 launch");
-#else
-  CheckCuda(cudaLaunchKernel(
-                prepared->kernel, prepared->grid,
-                dim3(FLASHKDA_GENERATED_THREADS, 1, 1), prepared->kernel_args,
-                FLASHKDA_GENERATED_SMEM_BYTES, prepared->stream),
-            "generated direct-M128 launch");
-#endif
-#endif
+  ffi::CUDADeviceGuard device_guard(prepared->device_id);
+  ConfigureAndLaunch(FLASHKDA_GENERATED_KERNEL_ARGUMENT, prepared->grid,
+                     prepared->stream, prepared->kernel_args,
+                     "generated direct-M128 launch");
 }
 
 inline int64_t DirectM128PreparedHandle(PreparedDirectM128Launch* prepared) {
@@ -272,8 +183,7 @@ inline int64_t PrepareDirectM128(
     int64_t num_sequences, double scale, double lower_bound,
     int64_t grid_x, int64_t grid_y, int64_t grid_z, int64_t cuda_stream) {
   TVM_FFI_ICHECK(q.device().device_type == kDLCUDA);
-  auto device_guard =
-      std::make_unique<ffi::CUDADeviceGuard>(q.device().device_id);
+  ffi::CUDADeviceGuard device_guard(q.device().device_id);
   const auto prepared = [&]() {
 #if FLASHKDA_GENERATED_AFFINE_DEPENDENCY == \
     FLASHKDA_GENERATED_AFFINE_BF16_INDEXED_INITIAL_FP32_FINAL
@@ -434,7 +344,7 @@ inline int64_t PrepareDirectM128(
   }
   auto launch = std::make_unique<PreparedDirectM128Launch>(
       args, prepared.state, CheckedGrid(grid_x, grid_y, grid_z),
-      prepared.stream, prepared.device_id, std::move(device_guard));
+      prepared.stream, prepared.device_id);
   return DirectM128PreparedHandle(launch.release());
 }
 
