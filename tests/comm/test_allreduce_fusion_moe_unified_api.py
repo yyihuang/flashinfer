@@ -21,9 +21,11 @@ import torch.distributed as dist
 
 from flashinfer.comm import (
     AllReduceFusionPattern,
+    MNNVLAllReduceFusionWorkspace,
     TRTLLMAllReduceFusionWorkspace,
     allreduce_fusion,
 )
+from flashinfer.comm.workspace_base import AllReduceFusionWorkspace
 
 MAX_TOKEN_NUM = 2048
 HIDDEN_SIZE = 7168
@@ -74,6 +76,26 @@ def multi_process_parallel(
 # ============================================================================
 # MOE Finalize via unified API
 # ============================================================================
+
+
+def test_cake_finalize_rejects_non_trtllm_workspace() -> None:
+    workspace = object.__new__(MNNVLAllReduceFusionWorkspace)
+    AllReduceFusionWorkspace.__init__(workspace, world_size=2, rank=0)
+    workspace._destroyed = True
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "moe_finalize_backend='cake' requires a "
+            "TRTLLMAllReduceFusionWorkspace"
+        ),
+    ):
+        allreduce_fusion(
+            input=torch.empty((1, HIDDEN_SIZE), dtype=torch.float16),
+            workspace=workspace,
+            pattern=AllReduceFusionPattern.kMoEFinalizeARResidualRMSNorm,
+            moe_finalize_backend="cake",
+        )
 
 
 def _run_moe_finalize_unified_worker(

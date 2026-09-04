@@ -1,12 +1,17 @@
 """CPU-only dispatch tests for the Cake MoE finalize backend selector."""
 
+import importlib
 from types import SimpleNamespace
 
 import pytest
 import torch
 
+from flashinfer.comm import AllReduceFusionPattern, TRTLLMAllReduceFusionWorkspace
 from flashinfer.comm import trtllm_ar
+from flashinfer.comm.workspace_base import AllReduceFusionWorkspace
 from flashinfer.jit import cake_moe_finalize_comm
+
+allreduce_module = importlib.import_module("flashinfer.comm.allreduce")
 
 
 def _arguments() -> dict[str, object]:
@@ -93,3 +98,77 @@ def test_unknown_backend_fails_before_loading_a_module(
             **_arguments(),
             backend="unknown",
         )
+
+
+@pytest.mark.parametrize(
+    ("backend_kwargs", "expected_backend"),
+    [({}, "trtllm"), ({"moe_finalize_backend": "cake"}, "cake")],
+)
+def test_unified_finalize_forwards_selected_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_kwargs: dict[str, str],
+    expected_backend: str,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        allreduce_module,
+        "trtllm_moe_finalize_allreduce_fusion",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    workspace = object.__new__(TRTLLMAllReduceFusionWorkspace)
+    AllReduceFusionWorkspace.__init__(workspace, world_size=2, rank=0)
+    workspace.mem_handles = []
+    workspace.workspace_tensor = torch.empty((7,), dtype=torch.int64)
+    workspace._destroyed = True
+
+    arguments = _arguments()
+    norm_out = arguments["norm_out"]
+    result = allreduce_module.allreduce_fusion(
+        input=arguments["allreduce_in"],
+        workspace=workspace,
+        pattern=AllReduceFusionPattern.kMoEFinalizeARResidualRMSNorm,
+        residual_in=arguments["residual_in"],
+        rms_gamma=arguments["norm_weight"],
+        expanded_idx_to_permuted_idx=arguments[
+            "expanded_idx_to_permuted_idx"
+        ],
+        norm_out=norm_out,
+        residual_out=arguments["residual_out"],
+        expert_scale_factor=arguments["expert_scale_factor"],
+        **backend_kwargs,
+    )
+
+    assert result is norm_out
+    assert len(calls) == 1
+    assert calls[0]["backend"] == expected_backend
+
+
+def test_unified_selector_is_not_forwarded_to_other_patterns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        allreduce_module,
+        "trtllm_allreduce_fusion",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    workspace = object.__new__(TRTLLMAllReduceFusionWorkspace)
+    AllReduceFusionWorkspace.__init__(workspace, world_size=2, rank=0)
+    workspace.mem_handles = []
+    workspace.workspace_tensor = torch.empty((7,), dtype=torch.int64)
+    workspace.metadata = {}
+    workspace._destroyed = True
+    input = torch.empty((1, 16), dtype=torch.float16)
+    output = torch.empty_like(input)
+
+    result = allreduce_module.allreduce_fusion(
+        input=input,
+        workspace=workspace,
+        pattern=AllReduceFusionPattern.kAllReduce,
+        output=output,
+        moe_finalize_backend="cake",
+    )
+
+    assert result is output
+    assert len(calls) == 1
+    assert "backend" not in calls[0]
