@@ -634,8 +634,8 @@ def allreduce_fusion(
         dynamic FP8 patterns (10-11). Packed group quant patterns remain
         TRT-LLM only.
 
-        ``kMoEFinalizeARResidualRMSNorm`` is available through TRT-LLM and
-        the explicit MNNVL CuTe DSL backend.
+        ``kMoEFinalizeARResidualRMSNorm`` is available through TRT-LLM,
+        Cake on a TRT-LLM workspace, and the explicit MNNVL CuTe DSL backend.
     launch_with_pdl : bool
         Use Programmatic Dependent Launch. MNNVL CuTe DSL presets determine
         their compiled PDL mode and warn when it differs from this value.
@@ -752,8 +752,7 @@ def allreduce_fusion(
         workspace, TRTLLMAllReduceFusionWorkspace
     ):
         raise ValueError(
-            "moe_finalize_backend='cake' requires a "
-            "TRTLLMAllReduceFusionWorkspace"
+            "moe_finalize_backend='cake' requires a TRTLLMAllReduceFusionWorkspace"
         )
 
     # Dispatch based on workspace type

@@ -129,9 +129,7 @@ def test_unified_finalize_forwards_selected_backend(
         pattern=AllReduceFusionPattern.kMoEFinalizeARResidualRMSNorm,
         residual_in=arguments["residual_in"],
         rms_gamma=arguments["norm_weight"],
-        expanded_idx_to_permuted_idx=arguments[
-            "expanded_idx_to_permuted_idx"
-        ],
+        expanded_idx_to_permuted_idx=arguments["expanded_idx_to_permuted_idx"],
         norm_out=norm_out,
         residual_out=arguments["residual_out"],
         expert_scale_factor=arguments["expert_scale_factor"],
