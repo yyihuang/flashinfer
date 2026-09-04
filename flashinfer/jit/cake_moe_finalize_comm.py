@@ -769,7 +769,7 @@ def validate_cake_moe_finalize_args(
             "expanded_idx_to_permuted_idx must have shape [token_num, top_k] with top_k 4 or 8"
         )
     if expert_scale_factor is None:
-        raise ValueError("expert_scale_factor is required for the Cake backend")
+        raise ValueError('expert_scale_factor is required when backend="cake"')
     _check_cuda_tensor(
         expert_scale_factor,
         "expert_scale_factor",
@@ -786,7 +786,7 @@ def validate_cake_moe_finalize_args(
             shape=tuple(residual_in.shape),
         )
     if norm_out is None or residual_out is None:
-        raise ValueError("norm_out and residual_out are required for the Cake backend")
+        raise ValueError('norm_out and residual_out are required when backend="cake"')
     _check_cuda_tensor(
         norm_out, "norm_out", device=device, dtype=dtype, shape=tuple(residual_in.shape)
     )
