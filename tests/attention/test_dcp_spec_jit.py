@@ -142,8 +142,7 @@ def test_dcp_workspace_and_counter_sizes_are_caller_owned_exact_views() -> None:
     assert get_dcp_spec_workspace_size_bytes(8, 4, 64, 6) == rows * (128 * 2 + 4)
     assert get_dcp_spec_counter_bytes(8, 4, 8) == 8 * 4 * 8 * 4
     assert (
-        cake_dcp.get_dcp_spec_workspace_size_bytes
-        is get_dcp_spec_workspace_size_bytes
+        cake_dcp.get_dcp_spec_workspace_size_bytes is get_dcp_spec_workspace_size_bytes
     )
     assert cake_dcp.get_dcp_spec_counter_bytes is get_dcp_spec_counter_bytes
 

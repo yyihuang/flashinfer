@@ -3327,9 +3327,7 @@ def trtllm_batch_decode_with_kv_cache(
         with dtype ``torch.float32``.
     """
     if causal_seqlens_kv_global is not None and enable_pdl is True:
-        raise ValueError(
-            "DCP speculative decode does not support enable_pdl=True"
-        )
+        raise ValueError("DCP speculative decode does not support enable_pdl=True")
     enable_pdl = device_support_pdl(query.device) if enable_pdl is None else enable_pdl
 
     if isinstance(kv_cache, tuple):

@@ -1679,9 +1679,7 @@ def test_cake_fmha_context_hd256_route_requires_exact_workspace(
     exact = torch.empty(required_workspace_bytes, dtype=torch.uint8)
     assert select(exact) is not None
     assert select(torch.empty(required_workspace_bytes - 1, dtype=torch.uint8)) is None
-    noncontiguous = torch.empty(
-        required_workspace_bytes * 2, dtype=torch.uint8
-    )[::2]
+    noncontiguous = torch.empty(required_workspace_bytes * 2, dtype=torch.uint8)[::2]
     assert select(noncontiguous) is None
     assert select(torch.empty(required_workspace_bytes, device="meta")) is None
     misaligned = torch.empty(required_workspace_bytes + 1, dtype=torch.uint8)[1:]
@@ -1889,9 +1887,7 @@ def test_cake_public_decode_route_miss_canonicalizes_only_pinned_noop_skip(
         observed["args"] = args
 
     def select_route(_device, **kwargs):
-        observed["selector_skip"] = kwargs[
-            "skip_softmax_threshold_scale_factor"
-        ]
+        observed["selector_skip"] = kwargs["skip_softmax_threshold_scale_factor"]
         return None
 
     compat_module = SimpleNamespace(cake_paged_attention_decode=run)
@@ -2353,9 +2349,7 @@ def test_cake_decode_fully_masked_row_returns_zero() -> None:
         pytest.skip("Cake FMHA requires SM100 or SM103")
 
     query = torch.zeros((1, 4, 128), dtype=torch.bfloat16, device=device)
-    kv_cache = torch.zeros(
-        (1, 2, 2, 16, 128), dtype=torch.bfloat16, device=device
-    )
+    kv_cache = torch.zeros((1, 2, 2, 16, 128), dtype=torch.bfloat16, device=device)
     actual = cake_api.cake_batch_decode_with_kv_cache(
         query,
         kv_cache,
