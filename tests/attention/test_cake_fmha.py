@@ -976,6 +976,11 @@ def test_cake_fmha_decode_route_is_optimized_only_on_exact_bf16_domain(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(cake_api, "_cake_fmha_target", lambda device: "sm100a")
+    monkeypatch.setattr(
+        cake_api,
+        "_is_cake_fmha_decode_native_bf16_available",
+        lambda *args, **kwargs: True,
+    )
     query = torch.empty((2, 4, 128), dtype=torch.bfloat16)
     key = torch.empty((4, 2, 16, 128), dtype=torch.bfloat16)
     value = torch.empty_like(key)
