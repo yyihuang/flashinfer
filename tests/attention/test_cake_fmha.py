@@ -2439,7 +2439,11 @@ def test_cake_fmha_aot_registers_each_exact_blackwell_target(monkeypatch) -> Non
     }
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="Cake FMHA requires SM100 or SM103",
+)
 def test_cake_decode_bf16_matches_flashinfer_reference() -> None:
     from tests.attention.test_trtllm_gen_attention_decode import (
         _test_trtllm_batch_decode,
@@ -2634,7 +2638,11 @@ def test_cake_decode_exact_sink_matches_independent_reference() -> None:
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="Cake FMHA requires SM100 or SM103",
+)
 def test_cake_decode_fp16_nhd_matches_flashinfer_reference() -> None:
     from tests.attention.test_trtllm_gen_attention_decode import (
         _test_trtllm_batch_decode,
@@ -2660,7 +2668,11 @@ def test_cake_decode_fp16_nhd_matches_flashinfer_reference() -> None:
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="Cake FMHA requires SM100 or SM103",
+)
 def test_cake_decode_fp16_hd512_matches_flashinfer_reference() -> None:
     from tests.attention.test_trtllm_gen_attention_decode import (
         _test_trtllm_batch_decode,
