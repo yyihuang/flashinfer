@@ -946,6 +946,46 @@ def _context_pack_g(
     return group if packed < unpacked else 1
 
 
+def _context_hd256_workspace_supported(
+    workspace_buffer: torch.Tensor | None,
+    query: torch.Tensor,
+    *,
+    batch_size: int,
+    max_q_len: int,
+    max_kv_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    fp8: bool,
+) -> bool:
+    """Mirror the HD256 binding's packed Q/K/V/O and metadata arena."""
+
+    if (
+        workspace_buffer is None
+        or not workspace_buffer.is_contiguous()
+        or workspace_buffer.device != query.device
+        or workspace_buffer.data_ptr() % 16
+    ):
+        return False
+
+    padded_q = ((max_q_len + 127) // 128) * 128
+    max_micro_pages = (max_kv_len + 15) // 16
+    total_q_rows = batch_size * num_q_heads * padded_q
+    total_micro_pages = batch_size * num_kv_heads * max_micro_pages
+    input_bytes = 256 if fp8 else 512
+
+    cursor = total_q_rows * input_bytes
+    cursor = (cursor + 15) // 16 * 16
+    cursor += total_micro_pages * 16 * input_bytes
+    cursor = (cursor + 15) // 16 * 16
+    cursor += total_micro_pages * 16 * input_bytes
+    cursor = (cursor + 15) // 16 * 16
+    cursor += total_q_rows * 512
+    cursor = (cursor + 15) // 16 * 16
+    cursor += 3 * batch_size * num_q_heads * 4
+    cursor += total_micro_pages * 4
+    return workspace_buffer.numel() * workspace_buffer.element_size() >= cursor
+
+
 def _context_nvfp4_workspace_supported(
     workspace_buffer: torch.Tensor | None,
     key_cache: torch.Tensor,
@@ -1270,6 +1310,19 @@ def select_cake_fmha_context_route(
         batch_size=batch_size,
         num_q_heads=num_q_heads,
         pack_g=pack_g,
+    ):
+        return None
+    if component in ("context_fp16_hd256", "context_fp8_hd256") and not (
+        _context_hd256_workspace_supported(
+            workspace_buffer,
+            query,
+            batch_size=batch_size,
+            max_q_len=max_q_len,
+            max_kv_len=max_kv_len,
+            num_q_heads=num_q_heads,
+            num_kv_heads=num_kv_heads,
+            fp8=component == "context_fp8_hd256",
+        )
     ):
         return None
     return CakeFmhaContextRoute(

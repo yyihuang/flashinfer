@@ -1532,7 +1532,7 @@ def test_cake_fmha_context_candidate_selection_for_adapter_families(
         shared,
         causal,
         scales=None,
-        workspace_bytes=1 << 20,
+        workspace_bytes=2 << 20,
     ):
         return cake_api.select_cake_fmha_context_route(
             query.device,
@@ -1628,6 +1628,64 @@ def test_cake_fmha_context_candidate_selection_for_adapter_families(
     for route in (fp16_route, fp8_hd256_route):
         assert cake_api.cake_fmha_route_is_optimized(route)
     assert cake_api.cake_fmha_route_is_optimized(nvfp4_route)
+
+
+@pytest.mark.parametrize(
+    ("query_dtype", "out_dtype", "causal", "required_workspace_bytes"),
+    [
+        (torch.float16, torch.float16, False, 1_114_224),
+        (torch.float8_e4m3fn, torch.bfloat16, True, 819_312),
+    ],
+)
+def test_cake_fmha_context_hd256_route_requires_exact_workspace(
+    monkeypatch,
+    query_dtype,
+    out_dtype,
+    causal,
+    required_workspace_bytes,
+) -> None:
+    monkeypatch.setattr(cake_api, "_cake_fmha_target", lambda device: "sm103a")
+    query = torch.empty((16, 4, 256), dtype=query_dtype)
+    key = torch.empty((4, 2, 16, 256), dtype=query_dtype)
+
+    def select(workspace_buffer):
+        return cake_api.select_cake_fmha_context_route(
+            query.device,
+            query=query,
+            key_cache=key,
+            value_cache=torch.empty_like(key),
+            out=torch.empty_like(query, dtype=out_dtype),
+            block_tables=torch.zeros((2, 2, 2), dtype=torch.int32),
+            seq_lens=torch.tensor([16, 16], dtype=torch.int32),
+            batch_size=2,
+            max_q_len=8,
+            max_kv_len=16,
+            window_left=-1,
+            bmm1_scale=0.125,
+            bmm2_scale=1.0,
+            sinks=None,
+            uses_shared_paged_kv_idx=False,
+            cum_seq_lens_q=torch.tensor([0, 8, 16], dtype=torch.int32),
+            cum_seq_lens_kv=torch.tensor([0, 16, 32], dtype=torch.int32),
+            key_block_scales=None,
+            value_block_scales=None,
+            skip_softmax_threshold_scale_factor=None,
+            is_causal=causal,
+            lse=None,
+            kv_layout="NHD",
+            workspace_buffer=workspace_buffer,
+        )
+
+    exact = torch.empty(required_workspace_bytes, dtype=torch.uint8)
+    assert select(exact) is not None
+    assert select(torch.empty(required_workspace_bytes - 1, dtype=torch.uint8)) is None
+    noncontiguous = torch.empty(
+        required_workspace_bytes * 2, dtype=torch.uint8
+    )[::2]
+    assert select(noncontiguous) is None
+    assert select(torch.empty(required_workspace_bytes, device="meta")) is None
+    misaligned = torch.empty(required_workspace_bytes + 1, dtype=torch.uint8)[1:]
+    assert select(misaligned) is None
 
 
 def test_cake_fmha_context_bf16_exact_route_loads_exact_member(monkeypatch) -> None:
