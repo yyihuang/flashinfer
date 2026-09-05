@@ -95,6 +95,7 @@ struct TmaDeviceArena {
   std::vector<cudaEvent_t> events;
   std::vector<TmaDeviceSlotState> slots;
   std::unordered_map<std::string, size_t> pinned_slots;
+  unsigned long long context_id = 0;
   size_t reusable_slots = 0;
   size_t pinned_count = 0;
   size_t cursor = 0;
@@ -161,6 +162,10 @@ TmaDeviceSlotLease TmaDeviceSlot(const CUtensorMap& tm, int device_id, cudaStrea
   result = cuCtxGetDevice(&current_device);
   TVM_FFI_ICHECK(result == CUDA_SUCCESS && current_device == device_id)
       << "Cake FMHA TMA descriptor device mismatch";
+  unsigned long long current_context_id = 0;
+  result = cuCtxGetId(current_context, &current_context_id);
+  TVM_FFI_ICHECK_EQ(result, CUDA_SUCCESS)
+      << "failed to resolve Cake FMHA CUDA context identity";
 
   CUstreamCaptureStatus capture_status = CU_STREAM_CAPTURE_STATUS_NONE;
   result = cuStreamIsCapturing(reinterpret_cast<CUstream>(stream), &capture_status);
@@ -168,7 +173,14 @@ TmaDeviceSlotLease TmaDeviceSlot(const CUtensorMap& tm, int device_id, cudaStrea
 
   std::string key(reinterpret_cast<const char*>(&tm), sizeof(CUtensorMap));
   std::lock_guard<std::mutex> lock(TmaDeviceSlotMutex());
-  TmaDeviceArena& arena = TmaDeviceArenas()[current_context];
+  auto& arenas = TmaDeviceArenas();
+  auto arena_it = arenas.find(current_context);
+  if (arena_it != arenas.end() &&
+      arena_it->second.context_id != current_context_id) {
+    arenas.erase(arena_it);
+  }
+  TmaDeviceArena& arena = arenas[current_context];
+  arena.context_id = current_context_id;
   auto pinned = arena.pinned_slots.find(key);
   if (pinned != arena.pinned_slots.end()) {
     CUdeviceptr pointer = arena.slots[pinned->second].pointer;
@@ -250,46 +262,27 @@ TmaDeviceSlotLease TmaDeviceSlot(const CUtensorMap& tm, int device_id, cudaStrea
 
 void RecordTmaDeviceSlotUses(std::initializer_list<TmaDeviceSlotLease> leases,
                              cudaStream_t stream) {
-  CUcontext context = nullptr;
-  for (const auto& lease : leases) {
-    if (lease.track_completion) {
-      context = lease.context;
-      break;
-    }
-  }
-  if (context == nullptr) return;
-
   std::lock_guard<std::mutex> lock(TmaDeviceSlotMutex());
-  auto arena_it = TmaDeviceArenas().find(context);
-  TVM_FFI_ICHECK(arena_it != TmaDeviceArenas().end());
-  auto& arena = arena_it->second;
-  cudaEvent_t completion = nullptr;
   for (const auto& lease : leases) {
     if (!lease.track_completion) continue;
-    TVM_FFI_ICHECK_EQ(lease.context, context);
-    TVM_FFI_ICHECK_LT(lease.slot_index, arena.slots.size());
+    auto arena_it = TmaDeviceArenas().find(lease.context);
+    TVM_FFI_ICHECK(arena_it != TmaDeviceArenas().end())
+        << "Cake FMHA TMA descriptor arena disappeared before completion";
+    auto& arena = arena_it->second;
+    TVM_FFI_ICHECK_LT(lease.slot_index, arena.slots.size())
+        << "Cake FMHA TMA descriptor lease index is out of range";
     auto& slot = arena.slots[lease.slot_index];
     if (slot.pinned) {
       slot.reserved = false;
-    } else if (completion == nullptr) {
-      completion = slot.completion;
+      continue;
     }
-  }
-  if (completion == nullptr) return;
-
-  cudaError_t status = cudaEventRecord(completion, stream);
-  TVM_FFI_ICHECK_EQ(status, cudaSuccess)
-      << "failed to record Cake FMHA TMA descriptor completion: "
-      << cudaGetErrorString(status);
-  for (const auto& lease : leases) {
-    if (!lease.track_completion) continue;
-    auto& slot = arena.slots[lease.slot_index];
+    cudaError_t status = cudaEventRecord(slot.completion, stream);
+    TVM_FFI_ICHECK_EQ(status, cudaSuccess)
+        << "failed to record Cake FMHA TMA descriptor completion: "
+        << cudaGetErrorString(status);
+    slot.has_completion = true;
+    slot.last_stream = stream;
     slot.reserved = false;
-    if (!slot.pinned) {
-      slot.completion = completion;
-      slot.has_completion = true;
-      slot.last_stream = stream;
-    }
   }
 }
 
@@ -501,7 +494,7 @@ void cake_paged_attention_context(
 
   TVM_FFI_ICHECK_EQ(seq_lens.ndim(), 1);
   TVM_FFI_ICHECK_EQ(seq_lens.size(0), batch_size);
-  TVM_FFI_ICHECK(seq_lens.dtype() == dl_int32 || seq_lens.dtype() == dl_uint32);
+  TVM_FFI_ICHECK_EQ(seq_lens.dtype(), dl_int32);
   TVM_FFI_ICHECK(seq_lens.IsContiguous());
   TVM_FFI_ICHECK_EQ(cum_seq_lens_q.ndim(), 1);
   TVM_FFI_ICHECK_EQ(cum_seq_lens_q.size(0), batch_size + 1);

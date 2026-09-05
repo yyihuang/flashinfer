@@ -45,6 +45,7 @@ from flashinfer.jit.cake_fmha import (
 from tests.test_helpers.cake_fmha_capability import (
     PINNED_FLASHINFER_REVISION,
     replay_selectors,
+    select_case,
 )
 
 
@@ -132,6 +133,35 @@ def test_cake_fmha_high_level_selectors_match_pinned_capability_corpus(
     assert report.digest == (
         "d47bf01c2d27409c6a39759d02e30bb9df65e98c353f53d7335081dd26b3f3a8"
     )
+
+
+def test_cake_fmha_capability_replay_covers_q257_exact_context_profile(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(cake_api, "_cake_fmha_target", lambda device: "sm100a")
+    case = {
+        "mode": "context",
+        "batch_size": 4,
+        "q_len": 257,
+        "kv_len": 1024,
+        "page_size": 1024,
+        "num_kv_heads": 2,
+        "num_qo_heads": 10,
+        "window_left": -1,
+        "q_dtype": "bf16",
+        "kv_dtype": "bf16",
+        "o_dtype": "bf16",
+        "enable_pdl": None,
+        "enable_sink": False,
+        "head_dim": 128,
+        "non_contiguous_query": False,
+        "skip_softmax": False,
+        "uses_shared_paged_kv_idx": False,
+        "kv_layout": "HND",
+        "causal": True,
+    }
+
+    assert select_case(case) == "ctx_bf16_hnd_hd128_hgpack_03df_v2"
 
 
 def test_cake_fmha_jit_spec_uses_versioned_standalone_sources(monkeypatch) -> None:
@@ -800,6 +830,22 @@ def test_cake_fmha_context_adapters_match_public_feature_abi(
 
 
 @pytest.mark.parametrize(
+    "relative_path",
+    [
+        "jit/cake_fmha_context_bf16_jit_binding.cu",
+        "jit/cake_fmha_context_fp8_jit_binding.cu",
+        "jit/cake_fmha_context_hd256_jit_binding.cu",
+    ],
+)
+def test_cake_fmha_optimized_context_adapters_require_signed_seq_lens(
+    relative_path,
+) -> None:
+    adapter = (get_cake_fmha_csrc_dir() / relative_path).read_text(encoding="utf-8")
+    assert "TVM_FFI_ICHECK_EQ(seq_lens.dtype(), dl_int32);" in adapter
+    assert "seq_lens.dtype() == dl_uint32" not in adapter
+
+
+@pytest.mark.parametrize(
     ("relative_path", "descriptor_count"),
     [
         ("jit/cake_fmha_context_bf16_jit_binding.cu", 3),
@@ -820,6 +866,67 @@ def test_cake_fmha_typed_launch_adapters_use_typed_tensor_maps(
     assert adapter.count("reinterpret_cast<CakeFmhaTensorMap const*>") == (
         descriptor_count
     )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "expected_records"),
+    [
+        (
+            "jit/cake_fmha_context_bf16_jit_binding.cu",
+            ("{q_slot, k_slot, v_slot}",),
+        ),
+        (
+            "jit/cake_fmha_context_fp8_jit_binding.cu",
+            (
+                "{q_slot, k_slot, v_slot, ksf_slot, vsf_slot}",
+                "{q_slot, k_slot, v_slot}",
+            ),
+        ),
+        (
+            "jit/cake_fmha_context_hd256_jit_binding.cu",
+            ("{q_slot, k_slot, v_slot}",),
+        ),
+        (
+            "jit/cake_fmha_decode_native_bf16_jit_binding.cu",
+            ("{q_slot, k_slot, v_slot}",),
+        ),
+        (
+            "jit/cake_fmha_decode_native_fp16_hd512_jit_binding.cu",
+            ("{q_slot, k_slot, v_slot}",),
+        ),
+        (
+            "jit/cake_fmha_decode_native_fp16_nhd_jit_binding.cu",
+            ("{q_slot, k_slot, v_slot}",),
+        ),
+        (
+            "jit/cake_fmha_decode_quant_bf16q_jit_binding.cu",
+            ("{k_slot, v_slot}",),
+        ),
+        (
+            "jit/cake_fmha_decode_quant_fp8_jit_binding.cu",
+            (
+                "{q_slot, k_slot, v_slot, ksf_slot, vsf_slot}",
+                "{q_slot, k_slot, v_slot}",
+            ),
+        ),
+    ],
+)
+def test_cake_fmha_tma_adapters_track_descriptor_completion(
+    relative_path,
+    expected_records,
+) -> None:
+    adapter = (get_cake_fmha_csrc_dir() / relative_path).read_text(encoding="utf-8")
+    normalized = " ".join(adapter.split())
+    assert "TmaDeviceSlotLease" in adapter
+    assert "cudaEventQuery" in adapter
+    assert "cudaEventRecord" in adapter
+    assert "cuCtxGetId" in adapter
+    assert "size_t used = 0" not in adapter
+    assert "++arena.used" not in adapter
+    for leases in expected_records:
+        assert f"RecordTmaDeviceSlotUses( {leases}, stream);" in normalized or (
+            f"RecordTmaDeviceSlotUses({leases}, stream);" in normalized
+        )
 
 
 @pytest.mark.parametrize(
@@ -2052,6 +2159,16 @@ def test_cake_fmha_context_route_is_optimized_only_on_exact_bf16_domain(
         enable_sink=False,
     )
     assert cake_api.cake_fmha_route_is_optimized(route)
+    assert (
+        cake_api.select_cake_fmha_context_route(
+            query.device,
+            **{
+                **kwargs,
+                "seq_lens": kwargs["seq_lens"].to(torch.uint32),
+            },
+        )
+        is None
+    )
     assert (
         cake_api.select_cake_fmha_context_route(
             query.device,

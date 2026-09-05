@@ -1134,7 +1134,7 @@ def select_cake_fmha_context_route(
         return None
     if seq_lens.ndim != 1 or seq_lens.shape[0] != batch_size:
         return None
-    if seq_lens.dtype not in (torch.int32, torch.uint32):
+    if seq_lens.dtype != torch.int32:
         return None
     if not seq_lens.is_contiguous():
         return None

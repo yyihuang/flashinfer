@@ -470,7 +470,16 @@ def select_case(case: dict[str, Any]) -> str:
             lse=None,
         )
     else:
-        indptr = _tensor((batch_size + 1,), torch.int32)
+        q_indptr = _tensor(
+            (batch_size + 1,),
+            torch.int32,
+            values=tuple(index * q_len for index in range(batch_size + 1)),
+        )
+        kv_indptr = _tensor(
+            (batch_size + 1,),
+            torch.int32,
+            values=tuple(index * kv_len for index in range(batch_size + 1)),
+        )
         route = cake_api.select_cake_fmha_context_route(
             query.device,
             query=query,
@@ -487,8 +496,8 @@ def select_case(case: dict[str, Any]) -> str:
             bmm2_scale=scale,
             sinks=sinks,
             uses_shared_paged_kv_idx=shared,
-            cum_seq_lens_q=indptr,
-            cum_seq_lens_kv=indptr,
+            cum_seq_lens_q=q_indptr,
+            cum_seq_lens_kv=kv_indptr,
             key_block_scales=key_scales,
             value_block_scales=value_scales,
             skip_softmax_threshold_scale_factor=skip_threshold,
