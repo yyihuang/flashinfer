@@ -3101,10 +3101,10 @@ def trtllm_batch_decode_with_kv_cache(
     bmm1_scale_log2: Optional[torch.Tensor] = None,
     multi_ctas_kv_counter_buffer: Optional[torch.Tensor] = None,
     enable_block_sparse_attention: bool = False,
-    bf16q_fp8kv_transform_mode: Optional[Literal["k_only", "separate_kv"]] = None,
     cp_world: int = 1,
     cp_rank: int = 0,
     causal_seqlens_kv_global: Optional[torch.Tensor] = None,
+    bf16q_fp8kv_transform_mode: Optional[Literal["k_only", "separate_kv"]] = None,
 ) -> Union[
     torch.Tensor, FP4Tensor, Tuple[Union[torch.Tensor, FP4Tensor], torch.Tensor]
 ]:
@@ -3278,12 +3278,6 @@ def trtllm_batch_decode_with_kv_cache(
         Not compatible with sliding window (``window_left != -1``),
         ``skip_softmax_threshold_scale_factor``, or ``uses_shared_paged_kv_idx=False``.
 
-    bf16q_fp8kv_transform_mode : Optional[Literal["k_only", "separate_kv"]] = None
-        Transform mode for BF16 query + FP8 E4M3 KV decode. ``None`` selects the
-        default separate transformed-K/V cubins and is ignored by other paths.
-        ``"k_only"`` selects the optimized K-only transform cubins, and
-        ``"separate_kv"`` selects the separate transformed-K/V cubins.
-
     cp_world : int = 1
         Decode-context-parallel world size. The DCP speculative path is enabled
         only when :attr:`causal_seqlens_kv_global` is provided. Supported values
@@ -3318,6 +3312,12 @@ def trtllm_batch_decode_with_kv_cache(
         split1--4 and short-shard K/V retention in its JIT cache key. Prewarm a
         fixed tensor/layout binding before CUDA Graph capture.
 
+    bf16q_fp8kv_transform_mode : Optional[Literal["k_only", "separate_kv"]] = None
+        Transform mode for BF16 query + FP8 E4M3 KV decode. ``None`` selects the
+        default separate transformed-K/V cubins and is ignored by other paths.
+        ``"k_only"`` selects the optimized K-only transform cubins, and
+        ``"separate_kv"`` selects the separate transformed-K/V cubins.
+
     Returns
     -------
     out : Union[torch.Tensor, FP4Tensor]
@@ -3326,6 +3326,10 @@ def trtllm_batch_decode_with_kv_cache(
         Only returned when ``return_lse`` is True. Shape ``[num_tokens, num_qo_heads]``
         with dtype ``torch.float32``.
     """
+    if causal_seqlens_kv_global is not None and enable_pdl is True:
+        raise ValueError(
+            "DCP speculative decode does not support enable_pdl=True"
+        )
     enable_pdl = device_support_pdl(query.device) if enable_pdl is None else enable_pdl
 
     if isinstance(kv_cache, tuple):

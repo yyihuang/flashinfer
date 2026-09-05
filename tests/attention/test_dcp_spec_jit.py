@@ -114,6 +114,26 @@ def test_public_decode_api_adds_optional_dcp_arguments() -> None:
     assert parameters["cp_world"].default == 1
     assert parameters["cp_rank"].default == 0
     assert parameters["causal_seqlens_kv_global"].default is None
+    assert list(parameters).index("bf16q_fp8kv_transform_mode") > list(
+        parameters
+    ).index("causal_seqlens_kv_global")
+
+
+def test_public_decode_api_rejects_pdl_for_dcp() -> None:
+    with pytest.raises(ValueError, match="does not support enable_pdl=True"):
+        trtllm_batch_decode_with_kv_cache(
+            query=torch.empty((1, 8, 128), dtype=torch.bfloat16),
+            kv_cache=(
+                torch.empty((1, 8, 16, 128), dtype=torch.bfloat16),
+                torch.empty((1, 8, 16, 128), dtype=torch.bfloat16),
+            ),
+            workspace_buffer=torch.empty(1, dtype=torch.uint8),
+            block_tables=torch.zeros((1, 1), dtype=torch.int32),
+            seq_lens=torch.zeros((1,), dtype=torch.int32),
+            max_seq_len=0,
+            enable_pdl=True,
+            causal_seqlens_kv_global=torch.zeros((1,), dtype=torch.int32),
+        )
 
 
 def test_dcp_workspace_and_counter_sizes_are_caller_owned_exact_views() -> None:
