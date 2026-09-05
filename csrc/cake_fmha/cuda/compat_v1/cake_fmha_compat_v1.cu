@@ -271,7 +271,9 @@ extern "C" __global__ __launch_bounds__(256) void kernel_cake_fmha_compat_v1(
     final_max = row_max;
   }
   __syncthreads();
-  const float normalized = tid < head_dim ? output_acc / final_sum / o_scale : 0.0f;
+  const float normalized = tid < head_dim && final_sum > 0.0f
+      ? output_acc / final_sum / o_scale
+      : 0.0f;
   if (o_dtype != 3) {
     if (tid < head_dim) {
       store_scalar(

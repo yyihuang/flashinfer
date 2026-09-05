@@ -349,6 +349,11 @@ def run_dcp_spec_decode(
     if q_len_per_req <= 0 or query.shape[0] % q_len_per_req != 0:
         raise ValueError("query token count must be divisible by q_len_per_req")
     batch_size = query.shape[0] // q_len_per_req
+    if batch_size <= 0:
+        raise ValueError(
+            "DCP speculative FMHA requires a non-empty batch, got "
+            f"query.shape[0]={query.shape[0]}"
+        )
     num_qo_heads, num_kv_heads, profile, page_size = _validate_core_inputs(
         query,
         k_cache,

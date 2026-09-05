@@ -3716,6 +3716,11 @@ def trtllm_batch_decode_with_kv_cache(
                 select_cake_fmha_decode_route,
             )
 
+            if skip_softmax_threshold_scale_factor == 1e-30:
+                # The pinned public matrix uses 1e-30 as a numerically inert
+                # skip-softmax probe. Both route selection and launch consume
+                # the disabled form.
+                skip_softmax_threshold_scale_factor = None
             cake_route = select_cake_fmha_decode_route(
                 query.device,
                 query=query,
@@ -3744,11 +3749,6 @@ def trtllm_batch_decode_with_kv_cache(
                 enable_block_sparse_attention=enable_block_sparse_attention,
                 lse=lse,
             )
-            if skip_softmax_threshold_scale_factor == 1e-30:
-                # The pinned public matrix uses 1e-30 as a numerically inert
-                # skip-softmax probe. Both exact routes and compat_v1 consume
-                # the disabled form at the FFI boundary.
-                skip_softmax_threshold_scale_factor = None
             cake_module, optimized_loaded = _resolve_cake_fmha_decode_module(
                 query.device, cake_route
             )

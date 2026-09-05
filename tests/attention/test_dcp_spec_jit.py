@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+import flashinfer.cake_dcp as cake_dcp
+
 from flashinfer.dcp import (
     _select_fp8_num_split,
     _select_num_split,
@@ -119,6 +121,33 @@ def test_dcp_workspace_and_counter_sizes_are_caller_owned_exact_views() -> None:
     rows = 8 * 4 * 64 * 6
     assert get_dcp_spec_workspace_size_bytes(8, 4, 64, 6) == rows * (128 * 2 + 4)
     assert get_dcp_spec_counter_bytes(8, 4, 8) == 8 * 4 * 8 * 4
+    assert (
+        cake_dcp.get_dcp_spec_workspace_size_bytes
+        is get_dcp_spec_workspace_size_bytes
+    )
+    assert cake_dcp.get_dcp_spec_counter_bytes is get_dcp_spec_counter_bytes
+
+
+def test_dcp_decode_rejects_an_empty_batch_before_split_selection() -> None:
+    with pytest.raises(ValueError, match="non-empty batch"):
+        run_dcp_spec_decode(
+            query=torch.empty((0, 8, 128), dtype=torch.bfloat16),
+            k_cache=torch.empty((1, 8, 16, 128), dtype=torch.bfloat16),
+            v_cache=torch.empty((1, 8, 16, 128), dtype=torch.bfloat16),
+            workspace_buffer=torch.empty(1, dtype=torch.uint8),
+            block_tables=torch.empty((0, 1), dtype=torch.int32),
+            seq_lens=torch.empty((0,), dtype=torch.int32),
+            causal_seqlens_kv_global=torch.empty((0,), dtype=torch.int32),
+            max_local_seq_len=1,
+            bmm1_scale=1.0,
+            bmm2_scale=1.0,
+            cp_world=1,
+            cp_rank=0,
+            q_len_per_req=1,
+            out=torch.empty((0, 8, 128), dtype=torch.bfloat16),
+            lse=torch.empty((0, 8), dtype=torch.float32),
+            completion_buffer=None,
+        )
 
 
 def test_dcp_split_selector_matches_promoted_policy() -> None:

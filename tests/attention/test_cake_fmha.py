@@ -1830,11 +1830,18 @@ def test_cake_public_decode_route_miss_canonicalizes_only_pinned_noop_skip(
     def run(*args):
         observed["args"] = args
 
+    def select_route(_device, **kwargs):
+        observed["selector_skip"] = kwargs[
+            "skip_softmax_threshold_scale_factor"
+        ]
+        return None
+
     compat_module = SimpleNamespace(cake_paged_attention_decode=run)
     monkeypatch.setattr(cake_api, "_cake_fmha_target", lambda device: "sm100a")
     monkeypatch.setattr(
         cake_api, "load_cake_fmha_compat_module", lambda target: compat_module
     )
+    monkeypatch.setattr(cake_api, "select_cake_fmha_decode_route", select_route)
     monkeypatch.setattr(decode, "get_device_sm_count", lambda device: 1)
 
     query = torch.empty((2, 4, 256), dtype=torch.bfloat16)
@@ -1852,6 +1859,7 @@ def test_cake_public_decode_route_miss_canonicalizes_only_pinned_noop_skip(
     )
 
     assert result.shape == query.shape
+    assert observed["selector_skip"] == expected_ffi_value
     assert len(observed["args"]) == 33
     assert observed["args"][26] == expected_ffi_value
 
@@ -2278,6 +2286,29 @@ def test_cake_decode_bf16_matches_flashinfer_reference() -> None:
         max_in_kv_len=31,
         head_dim=128,
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
+def test_cake_decode_fully_masked_row_returns_zero() -> None:
+    device = torch.device("cuda")
+    if torch.cuda.get_device_capability(device) not in ((10, 0), (10, 3)):
+        pytest.skip("Cake FMHA requires SM100 or SM103")
+
+    query = torch.zeros((1, 4, 128), dtype=torch.bfloat16, device=device)
+    kv_cache = torch.zeros(
+        (1, 2, 2, 16, 128), dtype=torch.bfloat16, device=device
+    )
+    actual = cake_api.cake_batch_decode_with_kv_cache(
+        query,
+        kv_cache,
+        torch.empty(1024 * 1024, dtype=torch.uint8, device=device),
+        torch.zeros((1, 1), dtype=torch.int32, device=device),
+        torch.zeros((1,), dtype=torch.int32, device=device),
+        1,
+    )
+
+    assert torch.isfinite(actual).all()
+    torch.testing.assert_close(actual, torch.zeros_like(actual))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
