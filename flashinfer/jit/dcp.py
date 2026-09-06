@@ -47,9 +47,14 @@ _DCP_JIT_BINDINGS = {
     "dcp_spec_bf16_v1": "jit/cake_fmha_dcp_spec_bf16_v1_jit_binding.cu",
     "dcp_spec_bf16_v4": "jit/cake_fmha_dcp_spec_bf16_v4_jit_binding.cu",
     "dcp_spec_bf16_fp8": "jit/cake_fmha_dcp_spec_bf16_fp8_jit_binding.cu",
+    "dcp_spec_bf16_fp8_d256": (
+        "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+    ),
 }
 _SUPPORTED_Q_LENS = (1, 2, 3, 4, 5, 6, 8)
 _FP8_SUPPORTED_Q_LENS = (1, 2, 3, 4, 5, 6, 8)
+_FP8_D256_SUPPORTED_Q_LENS = (1, 2, 3, 4, 5, 6, 7, 8)
+_FP8_D256_SUPPORTED_SPLITS = (1, 2, 3, 4, 8, 16)
 _SUPPORTED_CP_WORLDS = (1, 2, 4, 8)
 
 
@@ -70,10 +75,21 @@ def _get_dcp_sources(
     selector: Mapping[str, int],
 ) -> tuple[Path, Path]:
     family = _get_dcp_family(family_name)
+    routed_selector = dict(selector)
+    is_d256 = routed_selector.get("head_dim") == 256
+    if is_d256:
+        source_records = family.get("physical_source_overlays")
+        if not isinstance(source_records, list):
+            raise RuntimeError(
+                f"Cake FMHA DCP physical source overlays are missing: {family_name}"
+            )
+    else:
+        routed_selector.pop("head_dim", None)
+        source_records = family["source_family"]
     matches = [
         entry
-        for entry in family["source_family"]
-        if entry.get("selector") == dict(selector)
+        for entry in source_records
+        if entry.get("selector") == routed_selector
     ]
     if len(matches) != 1:
         raise RuntimeError(
@@ -81,7 +97,20 @@ def _get_dcp_sources(
         )
     csrc_dir = get_cake_fmha_csrc_dir()
     body = csrc_dir / matches[0]["sources"][_TARGET_MANIFEST_ARCH[target]]
-    binding = csrc_dir / _DCP_JIT_BINDINGS[family_name]
+    if is_d256:
+        launch_override = matches[0].get("launch_override")
+        if not isinstance(launch_override, Mapping):
+            raise RuntimeError(
+                f"Cake FMHA DCP launch override is missing: {family_name}"
+            )
+        binding_source = launch_override.get("binding_source")
+        if not isinstance(binding_source, str) or not binding_source:
+            raise RuntimeError(
+                f"Cake FMHA DCP launch override binding is missing: {family_name}"
+            )
+        binding = csrc_dir / binding_source
+    else:
+        binding = csrc_dir / _DCP_JIT_BINDINGS[family_name]
     for source in (body, binding):
         if not source.is_file():
             raise FileNotFoundError(f"Cake FMHA DCP source not found: {source}")
@@ -219,6 +248,63 @@ def get_dcp_spec_fp8_uri(
     )
 
 
+def _validate_fp8_d256_specialization(
+    target: DcpSpecTarget,
+    batch_size: int,
+    q_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    cp_world: int,
+    num_split: int,
+) -> None:
+    if target not in _DCP_SPEC_NVCC_FLAGS:
+        raise ValueError(f"unsupported DCP speculative FMHA target: {target}")
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
+    if q_len not in _FP8_D256_SUPPORTED_Q_LENS:
+        raise ValueError(
+            f"D256 q_len must be one of {_FP8_D256_SUPPORTED_Q_LENS}, got {q_len}"
+        )
+    if (num_q_heads, num_kv_heads) != (16, 1):
+        raise ValueError(
+            "D256 production specialization requires num_q_heads=16 and "
+            f"num_kv_heads=1, got {num_q_heads} and {num_kv_heads}"
+        )
+    if cp_world not in (1, 4):
+        raise ValueError(f"D256 cp_world must be 1 or 4, got {cp_world}")
+    if num_split not in _FP8_D256_SUPPORTED_SPLITS:
+        raise ValueError(
+            f"D256 num_split must be one of {_FP8_D256_SUPPORTED_SPLITS}, "
+            f"got {num_split}"
+        )
+
+
+def get_dcp_spec_fp8_d256_uri(
+    target: DcpSpecTarget,
+    batch_size: int,
+    q_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    cp_world: int,
+    num_split: int,
+) -> str:
+    _validate_fp8_d256_specialization(
+        target,
+        batch_size,
+        q_len,
+        num_q_heads,
+        num_kv_heads,
+        cp_world,
+        num_split,
+    )
+    return (
+        f"cake_fmha_dcp_spec_bf16_fp8_d256_{target}"
+        f"_b{batch_size}_q{q_len}_hq{num_q_heads}_hkv{num_kv_heads}_cp{cp_world}"
+        f"_split{num_split}_retain0_{CAKE_FMHA_MANIFEST_SHA256[:12]}_"
+        f"{CAKE_FMHA_FLASHINFER_BINDINGS_SHA256[:12]}"
+    )
+
+
 @functools.cache
 def gen_dcp_spec_module(
     variant: DcpSpecVariant,
@@ -292,7 +378,11 @@ def gen_dcp_spec_fp8_module(
     body, binding = _get_dcp_sources(
         "dcp_spec_bf16_fp8",
         target,
-        {"num_split": num_split, "retain_kv_l2": retain_kv_l2},
+        {
+            "head_dim": 128,
+            "num_split": num_split,
+            "retain_kv_l2": retain_kv_l2,
+        },
     )
     csrc_dir = get_cake_fmha_csrc_dir()
 
@@ -311,6 +401,52 @@ def gen_dcp_spec_fp8_module(
         extra_ldflags=["-lcuda"],
     )
     logger.info(f"Generated FP8 DCP speculative FMHA JIT spec: {spec.name}")
+    return spec
+
+
+@functools.cache
+def gen_dcp_spec_fp8_d256_module(
+    target: DcpSpecTarget,
+    batch_size: int,
+    q_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    cp_world: int,
+    num_split: int,
+) -> JitSpec:
+    """Generate one D256/ratio16 BF16-Q/FP8-KV Cake FMHA module."""
+
+    uri = get_dcp_spec_fp8_d256_uri(
+        target,
+        batch_size,
+        q_len,
+        num_q_heads,
+        num_kv_heads,
+        cp_world,
+        num_split,
+    )
+    body, binding = _get_dcp_sources(
+        "dcp_spec_bf16_fp8",
+        target,
+        {"head_dim": 256, "num_split": num_split, "retain_kv_l2": 0},
+    )
+    csrc_dir = get_cake_fmha_csrc_dir()
+
+    spec = gen_jit_spec(
+        name=uri,
+        sources=[body, binding],
+        extra_cuda_cflags=[
+            *_DCP_SPEC_NVCC_FLAGS[target],
+            f"-DBATCH_SIZE={batch_size}",
+            f"-DQ_LEN={q_len}",
+            f"-DNUM_Q_HEADS={num_q_heads}",
+            f"-DNUM_KV_HEADS={num_kv_heads}",
+            f"-DCP_WORLD={cp_world}",
+        ],
+        extra_include_paths=[csrc_dir],
+        extra_ldflags=["-lcuda"],
+    )
+    logger.info(f"Generated D256 FP8 DCP speculative FMHA JIT spec: {spec.name}")
     return spec
 
 
@@ -364,13 +500,39 @@ def load_dcp_spec_fp8_module(
     return module
 
 
+@functools.cache
+def load_dcp_spec_fp8_d256_module(
+    target: DcpSpecTarget,
+    batch_size: int,
+    q_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    cp_world: int,
+    num_split: int,
+):
+    module = gen_dcp_spec_fp8_d256_module(
+        target,
+        batch_size,
+        q_len,
+        num_q_heads,
+        num_kv_heads,
+        cp_world,
+        num_split,
+    ).build_and_load()
+    logger.info(f"Loaded D256 FP8 DCP speculative FMHA module: {module}")
+    return module
+
+
 __all__ = [
     "DcpSpecTarget",
     "DcpSpecVariant",
+    "gen_dcp_spec_fp8_d256_module",
     "gen_dcp_spec_fp8_module",
     "gen_dcp_spec_module",
+    "get_dcp_spec_fp8_d256_uri",
     "get_dcp_spec_fp8_uri",
     "get_dcp_spec_uri",
+    "load_dcp_spec_fp8_d256_module",
     "load_dcp_spec_fp8_module",
     "load_dcp_spec_module",
 ]

@@ -122,6 +122,8 @@ scratch buffers so a prewarmed invocation can be captured in a CUDA Graph.
 It is also reachable through
 :func:`flashinfer.cake_fmha.cake_batch_decode_with_kv_cache`; the non-null
 ``causal_seqlens_kv_global`` argument is the explicit add-on selection key.
+The FP8/page64 D256 ratio-16 profile passes ``head_dim=256`` to the
+workspace-size helper; D128 remains the default.
 
 .. currentmodule:: flashinfer
 

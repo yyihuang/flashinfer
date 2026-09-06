@@ -7,6 +7,121 @@
           "sm_100a",
           "sm_103a"
         ],
+        "d256_overlay": {
+          "logical_variant_inflation": false,
+          "overlay_artifact_count": 7,
+          "overlay_sha256": "a53f82b60d2eeba1384848d78ffa55ebb35b5de19ab8cc747d6254cc29b2746b",
+          "producer_fp8_manifest_sha256": "8d31ab51cf71f1a4186bd9328c9d0467485e87d0cf17806570fb19803bc0363d",
+          "producer_package_file_count": 37,
+          "producer_package_sha256": "195403bb39d07b919f56dda7f737a5802fcfd8dd98b9203a4862201faffea2c9",
+          "producer_receipt_sha256": "c655b160695b6eb3dc6ad60bcd318cdb08f4edaa5b12e1ea291891b1d848cd2c",
+          "profiles": {
+            "d256_cp1": {
+              "cp_world": [
+                1
+              ],
+              "head_dim": 256,
+              "head_group_ratio": 16,
+              "num_kv_heads": [
+                1
+              ],
+              "num_q_heads": [
+                16
+              ],
+              "num_split": [
+                1,
+                2,
+                3,
+                4,
+                8,
+                16
+              ],
+              "q_len": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              "retain_kv_l2": [
+                0
+              ]
+            },
+            "d256_production": {
+              "context_length": 32768,
+              "cp_world": [
+                4
+              ],
+              "head_dim": 256,
+              "head_group_ratio": 16,
+              "max_local_seq_len": 8192,
+              "num_kv_heads": [
+                1
+              ],
+              "num_q_heads": [
+                16
+              ],
+              "num_split": [
+                1,
+                2,
+                3,
+                4,
+                8
+              ],
+              "num_split_by_arch": {
+                "sm_100a": {
+                  "B1": 8,
+                  "B16": 2,
+                  "B8": 4,
+                  "B>=32": 1
+                },
+                "sm_103a": {
+                  "B1": 8,
+                  "B16": 2,
+                  "B8": 4,
+                  "B>=32": 1
+                }
+              },
+              "num_split_by_arch_q_len": 4,
+              "q_len": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              "retain_kv_l2": [
+                0
+              ]
+            }
+          },
+          "route": {
+            "binding": "cake_fmha_dcp_spec_bf16_fp8_d256_binding.cu",
+            "bodies": {
+              "split16_retain0": "cake_fmha_dcp_spec_bf16_fp8_d256_split16_retain0.cu",
+              "split1_retain0": "cake_fmha_dcp_spec_bf16_fp8_d256_split1_retain0.cu",
+              "split2_retain0": "cake_fmha_dcp_spec_bf16_fp8_d256_split2_retain0.cu",
+              "split3_retain0": "cake_fmha_dcp_spec_bf16_fp8_d256_split3_retain0.cu",
+              "split4_retain0": "cake_fmha_dcp_spec_bf16_fp8_d256_split4_retain0.cu",
+              "split8_retain0": "cake_fmha_dcp_spec_bf16_fp8_d256_split8_retain0.cu"
+            },
+            "macros": [
+              "BATCH_SIZE",
+              "NUM_Q_HEADS",
+              "NUM_KV_HEADS",
+              "Q_LEN",
+              "CP_WORLD"
+            ],
+            "mma": "two_d128_groups_direct_e4m3_qk_pv"
+          },
+          "schema": "cake_fmha_dcp_spec_d256_physical_overlay_v1"
+        },
         "descriptor_abi": {
           "alignment_bytes": 128,
           "ownership": "caller-owned immutable device descriptor",
@@ -128,6 +243,122 @@
               "NUM_KV_HEADS",
               "Q_LEN",
               "CP_WORLD"
+            ],
+            "physical_source_overlays": [
+              {
+                "launch_override": {
+                  "binding_sha256": "32f0031c39d43f050965e392ba959ed6a34b81c8a9d8470eba0df77590abfdaf",
+                  "binding_source": "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+                },
+                "selector": {
+                  "head_dim": 256,
+                  "num_split": 1,
+                  "retain_kv_l2": 0
+                },
+                "sha256": {
+                  "sm_100a": "a0a18e9b6e794a60129791c8fd26edcf500a624db37c8ae6c052d8f88cd96f8c",
+                  "sm_103a": "a0a18e9b6e794a60129791c8fd26edcf500a624db37c8ae6c052d8f88cd96f8c"
+                },
+                "sources": {
+                  "sm_100a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split1_retain_kv_l20.cu",
+                  "sm_103a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split1_retain_kv_l20.cu"
+                }
+              },
+              {
+                "launch_override": {
+                  "binding_sha256": "32f0031c39d43f050965e392ba959ed6a34b81c8a9d8470eba0df77590abfdaf",
+                  "binding_source": "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+                },
+                "selector": {
+                  "head_dim": 256,
+                  "num_split": 2,
+                  "retain_kv_l2": 0
+                },
+                "sha256": {
+                  "sm_100a": "4516ab36a5ef011039dba1acd4139228c7ea49a973de41bb0fe771aaf010223d",
+                  "sm_103a": "4516ab36a5ef011039dba1acd4139228c7ea49a973de41bb0fe771aaf010223d"
+                },
+                "sources": {
+                  "sm_100a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split2_retain_kv_l20.cu",
+                  "sm_103a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split2_retain_kv_l20.cu"
+                }
+              },
+              {
+                "launch_override": {
+                  "binding_sha256": "32f0031c39d43f050965e392ba959ed6a34b81c8a9d8470eba0df77590abfdaf",
+                  "binding_source": "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+                },
+                "selector": {
+                  "head_dim": 256,
+                  "num_split": 3,
+                  "retain_kv_l2": 0
+                },
+                "sha256": {
+                  "sm_100a": "82a903f569872b7fc7e0e5bc809fbe9a4c654ea53e790a21a746f08ea1ae360c",
+                  "sm_103a": "82a903f569872b7fc7e0e5bc809fbe9a4c654ea53e790a21a746f08ea1ae360c"
+                },
+                "sources": {
+                  "sm_100a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split3_retain_kv_l20.cu",
+                  "sm_103a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split3_retain_kv_l20.cu"
+                }
+              },
+              {
+                "launch_override": {
+                  "binding_sha256": "32f0031c39d43f050965e392ba959ed6a34b81c8a9d8470eba0df77590abfdaf",
+                  "binding_source": "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+                },
+                "selector": {
+                  "head_dim": 256,
+                  "num_split": 4,
+                  "retain_kv_l2": 0
+                },
+                "sha256": {
+                  "sm_100a": "0dc2230414e9bfb87117eca9f3b8a162f7a1140e62e846207040dc6ad7c163cf",
+                  "sm_103a": "0dc2230414e9bfb87117eca9f3b8a162f7a1140e62e846207040dc6ad7c163cf"
+                },
+                "sources": {
+                  "sm_100a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split4_retain_kv_l20.cu",
+                  "sm_103a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split4_retain_kv_l20.cu"
+                }
+              },
+              {
+                "launch_override": {
+                  "binding_sha256": "32f0031c39d43f050965e392ba959ed6a34b81c8a9d8470eba0df77590abfdaf",
+                  "binding_source": "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+                },
+                "selector": {
+                  "head_dim": 256,
+                  "num_split": 8,
+                  "retain_kv_l2": 0
+                },
+                "sha256": {
+                  "sm_100a": "5d3a52a9f3889cc0b546c1390815e288363cebbbf989453ba2f4624f4286c0cd",
+                  "sm_103a": "5d3a52a9f3889cc0b546c1390815e288363cebbbf989453ba2f4624f4286c0cd"
+                },
+                "sources": {
+                  "sm_100a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split8_retain_kv_l20.cu",
+                  "sm_103a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split8_retain_kv_l20.cu"
+                }
+              },
+              {
+                "launch_override": {
+                  "binding_sha256": "32f0031c39d43f050965e392ba959ed6a34b81c8a9d8470eba0df77590abfdaf",
+                  "binding_source": "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+                },
+                "selector": {
+                  "head_dim": 256,
+                  "num_split": 16,
+                  "retain_kv_l2": 0
+                },
+                "sha256": {
+                  "sm_100a": "59a4ccf90dc21ede19aca5fee4370aaa27437f11310e1d4f9985f34200b1e70a",
+                  "sm_103a": "59a4ccf90dc21ede19aca5fee4370aaa27437f11310e1d4f9985f34200b1e70a"
+                },
+                "sources": {
+                  "sm_100a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split16_retain_kv_l20.cu",
+                  "sm_103a": "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split16_retain_kv_l20.cu"
+                }
+              }
             ],
             "public_symbol": "kernel_cake_fmha_dcp_spec_bf16_fp8",
             "source_family": [
@@ -998,6 +1229,30 @@
       "bytes": 127094,
       "sha256": "07240d76baaf7adea6ca1929fe354d32a16d9369470c0071ae6d3ad917fafb91"
     },
+    "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split16_retain_kv_l20.cu": {
+      "bytes": 105680,
+      "sha256": "59a4ccf90dc21ede19aca5fee4370aaa27437f11310e1d4f9985f34200b1e70a"
+    },
+    "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split1_retain_kv_l20.cu": {
+      "bytes": 95480,
+      "sha256": "a0a18e9b6e794a60129791c8fd26edcf500a624db37c8ae6c052d8f88cd96f8c"
+    },
+    "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split2_retain_kv_l20.cu": {
+      "bytes": 105679,
+      "sha256": "4516ab36a5ef011039dba1acd4139228c7ea49a973de41bb0fe771aaf010223d"
+    },
+    "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split3_retain_kv_l20.cu": {
+      "bytes": 105679,
+      "sha256": "82a903f569872b7fc7e0e5bc809fbe9a4c654ea53e790a21a746f08ea1ae360c"
+    },
+    "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split4_retain_kv_l20.cu": {
+      "bytes": 105679,
+      "sha256": "0dc2230414e9bfb87117eca9f3b8a162f7a1140e62e846207040dc6ad7c163cf"
+    },
+    "cuda/dcp_spec/dcp_spec_bf16_fp8_d256/num_split8_retain_kv_l20.cu": {
+      "bytes": 105679,
+      "sha256": "5d3a52a9f3889cc0b546c1390815e288363cebbbf989453ba2f4624f4286c0cd"
+    },
     "cuda/dcp_spec/dcp_spec_bf16_v1/retain_kv_l20.cu": {
       "bytes": 95503,
       "sha256": "a482028a7caca598fedd1fbdce1c9a7eaaff63ca816535a6efb6643f58a44cce"
@@ -1329,6 +1584,10 @@
     "include/cake_fmha_hd256_support.h": {
       "bytes": 1964,
       "sha256": "e10d3a3be5780df920dba990cca503065d095845259828c4accfe3e5ccb61692"
+    },
+    "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu": {
+      "bytes": 24820,
+      "sha256": "32f0031c39d43f050965e392ba959ed6a34b81c8a9d8470eba0df77590abfdaf"
     },
     "runtime/__init__.py": {
       "bytes": 145,

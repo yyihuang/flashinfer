@@ -22,11 +22,11 @@ CakeFmhaTarget = Literal["sm100a", "sm103a"]
 CakeFmhaContextExactProfile = Literal["q511", "q257"]
 
 CAKE_FMHA_MANIFEST_SHA256 = (
-    "91f523393596f443aefc847a95d84830127921278b83c8df6aba155bc17a30a9"
+    "221f25f2819b6ce3812ae3b13371988499dd945242d0b17ba46825c014298259"
 )
 CAKE_FMHA_FLASHINFER_MATRIX_REVISION = "5b8da12050f80a5b5cb2bab9e87d9635a8872e5b"
 CAKE_FMHA_FLASHINFER_BINDINGS_SHA256 = (
-    "e74a47a3c0023fa72ddda40b8c7634bc3bb8303170d54c7ca351f76bfdacafcd"
+    "fc33691f540ab31b3b80635127024de7983f8b2aee388d160a637551ba94c08c"
 )
 
 _FLASHINFER_BINDINGS = (
@@ -42,6 +42,7 @@ _FLASHINFER_BINDINGS = (
     "jit/cake_fmha_dcp_spec_bf16_v1_jit_binding.cu",
     "jit/cake_fmha_dcp_spec_bf16_v4_jit_binding.cu",
     "jit/cake_fmha_dcp_spec_bf16_fp8_jit_binding.cu",
+    "jit/cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu",
 )
 
 _TARGET_FLAGS = {

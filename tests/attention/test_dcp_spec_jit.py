@@ -19,7 +19,11 @@ from flashinfer.dcp import (
     run_dcp_spec_decode,
 )
 from flashinfer.decode import trtllm_batch_decode_with_kv_cache
-from flashinfer.jit.dcp import get_dcp_spec_fp8_uri, get_dcp_spec_uri
+from flashinfer.jit.dcp import (
+    get_dcp_spec_fp8_d256_uri,
+    get_dcp_spec_fp8_uri,
+    get_dcp_spec_uri,
+)
 from flashinfer.jit.cake_fmha import (
     CAKE_FMHA_FLASHINFER_BINDINGS_SHA256,
     CAKE_FMHA_MANIFEST_SHA256,
@@ -50,6 +54,11 @@ def test_dcp_spec_uri_covers_full_parameterized_domain() -> None:
         f"{CAKE_FMHA_MANIFEST_SHA256[:12]}_"
         f"{CAKE_FMHA_FLASHINFER_BINDINGS_SHA256[:12]}"
     )
+    assert get_dcp_spec_fp8_d256_uri("sm103a", 8, 7, 16, 1, 4, 4) == (
+        "cake_fmha_dcp_spec_bf16_fp8_d256_sm103a_b8_q7_hq16_hkv1_cp4_"
+        f"split4_retain0_{CAKE_FMHA_MANIFEST_SHA256[:12]}_"
+        f"{CAKE_FMHA_FLASHINFER_BINDINGS_SHA256[:12]}"
+    )
 
 
 def test_dcp_jit_selects_the_route_specialized_source_family(monkeypatch) -> None:
@@ -63,11 +72,15 @@ def test_dcp_jit_selects_the_route_specialized_source_family(monkeypatch) -> Non
     )
     jit_dcp.gen_dcp_spec_module.cache_clear()
     jit_dcp.gen_dcp_spec_fp8_module.cache_clear()
+    jit_dcp.gen_dcp_spec_fp8_d256_module.cache_clear()
 
     try:
         v1 = jit_dcp.gen_dcp_spec_module("v1", "sm100a", 1, 1, 64, 8, 1, 1)
         v4 = jit_dcp.gen_dcp_spec_module("v4", "sm100a", 1, 1, 64, 8, 1, 16)
         fp8 = jit_dcp.gen_dcp_spec_fp8_module("sm103a", 64, 3, 64, 8, 4, 3, 1)
+        d256 = jit_dcp.gen_dcp_spec_fp8_d256_module(
+            "sm103a", 8, 7, 16, 1, 4, 4
+        )
 
         assert Path(v1.sources[0]).name == "retain_kv_l21.cu"
         assert Path(v4.sources[0]).name == "num_split16.cu"
@@ -75,14 +88,21 @@ def test_dcp_jit_selects_the_route_specialized_source_family(monkeypatch) -> Non
         assert Path(fp8.sources[1]).name == (
             "cake_fmha_dcp_spec_bf16_fp8_jit_binding.cu"
         )
+        assert Path(d256.sources[0]).name == "num_split4_retain_kv_l20.cu"
+        assert Path(d256.sources[1]).name == (
+            "cake_fmha_dcp_spec_bf16_fp8_d256_jit_binding.cu"
+        )
         assert "-DRETAIN_KV_L2=1" not in v1.extra_cuda_cflags
         assert "-DNUM_SPLIT=16" not in v4.extra_cuda_cflags
         assert "-DQ_LEN=3" in fp8.extra_cuda_cflags
         assert "-DNUM_SPLIT=3" not in fp8.extra_cuda_cflags
         assert "-DRETAIN_KV_L2=1" not in fp8.extra_cuda_cflags
+        assert "-DQ_LEN=7" in d256.extra_cuda_cflags
+        assert "-DNUM_SPLIT=4" not in d256.extra_cuda_cflags
     finally:
         jit_dcp.gen_dcp_spec_module.cache_clear()
         jit_dcp.gen_dcp_spec_fp8_module.cache_clear()
+        jit_dcp.gen_dcp_spec_fp8_d256_module.cache_clear()
 
 
 @pytest.mark.parametrize(
@@ -107,6 +127,17 @@ def test_fp8_dcp_spec_uri_supports_q3_but_rejects_other_gaps() -> None:
         get_dcp_spec_fp8_uri("sm103a", 64, 4, 64, 8, 4, 5, 1)
     with pytest.raises(ValueError, match="retain_kv_l2"):
         get_dcp_spec_fp8_uri("sm103a", 64, 4, 64, 8, 4, 3, 2)
+
+
+def test_fp8_d256_uri_rejects_nonproduction_shapes() -> None:
+    with pytest.raises(ValueError, match="q_len"):
+        get_dcp_spec_fp8_d256_uri("sm103a", 8, 9, 16, 1, 4, 4)
+    with pytest.raises(ValueError, match="num_q_heads"):
+        get_dcp_spec_fp8_d256_uri("sm103a", 8, 4, 32, 2, 4, 4)
+    with pytest.raises(ValueError, match="cp_world"):
+        get_dcp_spec_fp8_d256_uri("sm103a", 8, 4, 16, 1, 2, 4)
+    with pytest.raises(ValueError, match="num_split"):
+        get_dcp_spec_fp8_d256_uri("sm103a", 8, 4, 16, 1, 4, 6)
 
 
 def test_public_decode_api_adds_optional_dcp_arguments() -> None:
@@ -140,6 +171,10 @@ def test_dcp_workspace_and_counter_sizes_are_caller_owned_exact_views() -> None:
     # B=8, Q=4, Hq=64, split=6: BF16 O[...128] + FP32 LSE per row.
     rows = 8 * 4 * 64 * 6
     assert get_dcp_spec_workspace_size_bytes(8, 4, 64, 6) == rows * (128 * 2 + 4)
+    d256_rows = 8 * 4 * 16 * 4
+    assert get_dcp_spec_workspace_size_bytes(
+        8, 4, 16, 4, head_dim=256
+    ) == d256_rows * (256 * 2 + 4)
     assert get_dcp_spec_counter_bytes(8, 4, 8) == 8 * 4 * 8 * 4
     assert (
         cake_dcp.get_dcp_spec_workspace_size_bytes is get_dcp_spec_workspace_size_bytes
@@ -191,6 +226,26 @@ def test_dcp_split_selector_matches_promoted_policy() -> None:
             logical_tiles=148, sm_count=148, local_blocks=64, cp_world=4
         )
         == 1
+    )
+    assert (
+        _select_fp8_num_split(
+            logical_tiles=4,
+            sm_count=152,
+            local_blocks=64,
+            cp_world=4,
+            head_dim=256,
+        )
+        == 8
+    )
+    assert (
+        _select_fp8_num_split(
+            logical_tiles=4,
+            sm_count=152,
+            local_blocks=256,
+            cp_world=1,
+            head_dim=256,
+        )
+        == 16
     )
 
 
