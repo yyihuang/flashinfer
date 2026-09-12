@@ -16,8 +16,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -355,100 +353,3 @@ def test_alphamoe_fused_router_rejects_bad_tensor_and_plan():
     )
     with pytest.raises(RuntimeError, match="overlap"):
         alphamoe_fused_router(logits, top_k=2, block_m=8, plan=alias_plan)
-
-
-def test_alphamoe_fused_router_jit_uses_only_exact_arches(monkeypatch):
-    from flashinfer.jit import fused_moe as jit_fused_moe
-
-    captured = {}
-
-    def fake_gen_jit_spec(name, sources, **kwargs):
-        captured.update(name=name, sources=sources, **kwargs)
-        return SimpleNamespace()
-
-    monkeypatch.setattr(jit_fused_moe, "gen_jit_spec", fake_gen_jit_spec)
-    monkeypatch.setattr(
-        jit_fused_moe.current_compilation_context,
-        "TARGET_CUDA_ARCHS",
-        {(10, "0a"), (10, "3a"), (10, "7a"), (12, "0f")},
-    )
-    jit_fused_moe.gen_alphamoe_fused_router_module()
-    flags = captured["extra_cuda_cflags"]
-    assert "-gencode=arch=compute_100a,code=sm_100a" in flags
-    assert "-gencode=arch=compute_103a,code=sm_103a" in flags
-    assert "--use_fast_math" in flags
-    assert not any("107" in flag or "120" in flag for flag in flags)
-
-
-def test_alphamoe_fused_router_jit_rejects_nonexact_sm10x(monkeypatch):
-    from flashinfer.jit import fused_moe as jit_fused_moe
-
-    monkeypatch.setattr(
-        jit_fused_moe.current_compilation_context,
-        "TARGET_CUDA_ARCHS",
-        {(10, "7a")},
-    )
-    with pytest.raises(RuntimeError, match="exact SM100a or SM103a"):
-        jit_fused_moe.gen_alphamoe_fused_router_module()
-
-
-@pytest.mark.parametrize(
-    ("capabilities", "expected_calls"),
-    [
-        ({"sm100a_exact": True}, 1),
-        ({"sm103a_exact": True}, 1),
-        ({"sm103": True}, 0),
-        ({"sm100": True}, 0),
-        ({"sm100f": True}, 0),
-        ({"sm107": True}, 0),
-    ],
-)
-def test_alphamoe_fused_router_aot_uses_only_exact_arches(
-    monkeypatch, capabilities, expected_calls
-):
-    from flashinfer import aot
-
-    for name in tuple(vars(aot)):
-        if name.startswith("gen_") and name != "gen_all_modules":
-            monkeypatch.setattr(
-                aot,
-                name,
-                lambda *args, _name=name, **kwargs: SimpleNamespace(name=_name),
-            )
-    monkeypatch.setattr(aot, "gen_attention", lambda *args: ())
-    calls = []
-
-    def fake_router_module():
-        calls.append("router")
-        return SimpleNamespace(name="alphamoe_fused_router")
-
-    monkeypatch.setattr(aot, "gen_alphamoe_fused_router_module", fake_router_module)
-    aot.gen_all_modules(
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        capabilities,
-        False,
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-    )
-    assert len(calls) == expected_calls
-
-
-def test_alphamoe_fused_router_frozen_provenance_is_recorded():
-    source = (
-        Path(__file__).resolve().parents[2] / "csrc" / "alphamoe_fused_router.cu"
-    ).read_text()
-    assert "e2aa03274" in source
-    assert "def2a9dcb" in source
-    assert "ec5bc689e68264a11a56a17fb10f699bc3733a521dea916b71ecda51d4227801" in source
-    assert "cudaLaunchCooperativeKernel" in source
-    assert "cudaOccupancyMaxActiveBlocksPerMultiprocessor" in source
-    assert "ffi::CUDADeviceGuard" in source

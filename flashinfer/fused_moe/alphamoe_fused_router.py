@@ -354,11 +354,9 @@ def alphamoe_fused_router(
     -----
     When routed logits are exactly equal, the selected expert set and its order
     are unspecified; no lower-expert-ID tie break is guaranteed.
-    The frozen CUDA device source was generated from Cake/Loom commit
-    ``e2aa03274`` and compiled with ``--use_fast_math``; its SHA256 is
+    The frozen CUDA device source is compiled with ``--use_fast_math``;
+    its SHA256 is
     ``ec5bc689e68264a11a56a17fb10f699bc3733a521dea916b71ecda51d4227801``.
-    Source-validation head ``def2a9dcb`` retains that exact device source while
-    strengthening route-plan coverage checks.
     The operation has no dependency on an AlphaMoE compute kernel and its plan
     can feed either the W8A8 or NVFP4 fused up/down path.
     """
