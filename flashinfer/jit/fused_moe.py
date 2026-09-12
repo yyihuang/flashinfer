@@ -493,3 +493,52 @@ def gen_alphamoe_nvfp4_sm100_module() -> JitSpec:
         extra_cuda_cflags=_alphamoe_nvfp4_sm100_nvcc_flags(),
         extra_include_paths=[jit_env.FLASHINFER_CSRC_DIR],
     )
+
+
+def gen_alphamoe_sm100_module() -> JitSpec:
+    """Generate the JIT spec for the alphamoe_sm100 fused W8A8 MoE kernel.
+
+    ``csrc/alphamoe_sm100.cu`` is a single translation unit holding the frozen
+    generated Loom schedule plus its TVM-FFI binding, mirroring the
+    ``csrc/tinygemm2_sm100.cu`` layout.
+    """
+    return gen_jit_spec(
+        "alphamoe_sm100",
+        [jit_env.FLASHINFER_CSRC_DIR / "alphamoe_sm100.cu"],
+        extra_cuda_cflags=sm100a_nvcc_flags
+        + ["-gencode=arch=compute_103a,code=sm_103a"],
+        extra_include_paths=[jit_env.FLASHINFER_CSRC_DIR],
+    )
+
+
+def gen_alphamoe_fused_router_module() -> JitSpec:
+    """Generate the exact-SM100a/SM103a AlphaMoE router JIT spec.
+
+    Do not select this source by CUDA major version: CC 10.7 and other future
+    SM10x targets are not part of the frozen kernel's validated instruction
+    contract.
+    """
+
+    supported_archs = {(10, "0a"), (10, "3a")}
+    selected_archs = sorted(
+        current_compilation_context.TARGET_CUDA_ARCHS & supported_archs
+    )
+    if not selected_archs:
+        raise RuntimeError(
+            "AlphaMoE fused router requires an exact SM100a or SM103a "
+            "compilation target; configured targets are "
+            f"{sorted(current_compilation_context.TARGET_CUDA_ARCHS)}"
+        )
+    nvcc_flags = [
+        f"-gencode=arch=compute_{major}{minor},code=sm_{major}{minor}"
+        for major, minor in selected_archs
+    ]
+    # The frozen Loom artifact was generated and compiled with this option.
+    nvcc_flags.append("--use_fast_math")
+    nvcc_flags += common_nvcc_flags
+    return gen_jit_spec(
+        "alphamoe_fused_router",
+        [jit_env.FLASHINFER_CSRC_DIR / "alphamoe_fused_router.cu"],
+        extra_cuda_cflags=nvcc_flags,
+        extra_include_paths=[jit_env.FLASHINFER_CSRC_DIR],
+    )

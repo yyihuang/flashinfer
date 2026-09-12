@@ -1,7 +1,7 @@
 .. _fi_trace:
 
 fi_trace — Operation Schema Extraction
-=======================================
+================================   * - ``flashinfer.fused_moe``
 
 ``fi_trace`` is FlashInfer's operation schema extraction system.  Every
 ``@flashinfer_api``-decorated function automatically grows a ``.fi_trace()``
@@ -206,6 +206,9 @@ files when ``FLASHINFER_TRACE_DUMP=1``:
    * - ``flashinfer.fused_moe``
      - ``alphamoe_nvfp4_aligned_moe``
      - ``moe``
+   * - ``flashinfer.fused_moe``
+     - ``alphamoe_fused_router``
+     - ``moe_routing``
 
 MoE Routing Types
 -----------------

@@ -15,6 +15,7 @@ Requires a CUDA-capable GPU.
 Results:
 - We would get these example json files under fi_trace_out directory:
 alphamoe_nvfp4_aligned_moe_topk2_e4_h256_n256_bm8.json
+alphamoe_fused_router_e512_k8_bm16_shared0.json
 bmm_mxfp8_N128_K128.json
 cute_dsl_fused_moe_bf16_h2048_e128_topk8.json
 fused_add_rmsnorm_h5120.json
@@ -1084,6 +1085,15 @@ flashinfer.kda_decode.fused_kda_decode(
     fk_output_gate,
     fk_norm_weight,
 )
+# ── AlphaMoE fused router (SM100/SM103) ──────────────────────────────────────
+with contextlib.suppress(Exception):
+    _alpha_router_logits = torch.randn(32, 512, dtype=torch.float32, device=device)
+    flashinfer.fused_moe.alphamoe_fused_router(
+        _alpha_router_logits,
+        top_k=8,
+        block_m=16,
+        has_shared_expert=False,
+    )
 
 # ── mono_moe / monomoe (Qwen3.5-35B block-FP8 MonoMoe kernel, SM90a) ────────────
 # Fixed shape: E=256, N(intermediate)=512, K(hidden)=2048, BS<=8 tokens.
