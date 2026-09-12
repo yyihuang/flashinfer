@@ -39,6 +39,8 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <mutex>
+#include <unordered_map>
 
 #include "tvm_ffi_utils.h"
 
@@ -477,6 +479,49 @@ inline void CheckCuda(cudaError_t status, const char* operation) {
   TVM_FFI_ICHECK(status == cudaSuccess) << operation << " failed: " << cudaGetErrorString(status);
 }
 
+struct RouterLaunchConfig {
+  int sm_count;
+  int active_blocks_per_sm;
+};
+
+inline RouterLaunchConfig GetRouterLaunchConfig(int32_t device_id) {
+  // Run selects the tensor device before resolving its runtime launch configuration.
+  static std::mutex mutex;
+  static std::unordered_map<int32_t, RouterLaunchConfig> cache;
+  std::lock_guard<std::mutex> lock(mutex);
+  const auto cached = cache.find(device_id);
+  if (cached != cache.end()) return cached->second;
+
+  int major = 0, minor = 0, sm_count = 0, cooperative_launch = 0;
+  CheckCuda(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device_id),
+            "cudaDeviceGetAttribute(compute capability major)");
+  CheckCuda(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device_id),
+            "cudaDeviceGetAttribute(compute capability minor)");
+  TVM_FFI_ICHECK(major == 10 && (minor == 0 || minor == 3))
+      << "AlphaMoE fused router requires compute capability 10.0 or 10.3, got " << major << "."
+      << minor;
+  CheckCuda(cudaDeviceGetAttribute(&sm_count, cudaDevAttrMultiProcessorCount, device_id),
+            "cudaDeviceGetAttribute(multiprocessor count)");
+  CheckCuda(cudaDeviceGetAttribute(&cooperative_launch, cudaDevAttrCooperativeLaunch, device_id),
+            "cudaDeviceGetAttribute(cooperative launch)");
+  TVM_FFI_ICHECK(cooperative_launch != 0)
+      << "AlphaMoE fused router requires cooperative-launch support";
+  CheckCuda(cudaFuncSetAttribute(kernel_alpha_moe_fused_router,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                 static_cast<int>(kDynamicSmemBytes)),
+            "cudaFuncSetAttribute(AlphaMoE router dynamic smem)");
+  int active_blocks_per_sm = 0;
+  CheckCuda(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+                &active_blocks_per_sm, kernel_alpha_moe_fused_router, static_cast<int>(kThreads),
+                static_cast<size_t>(kDynamicSmemBytes)),
+            "cudaOccupancyMaxActiveBlocksPerMultiprocessor(AlphaMoE router)");
+  TVM_FFI_ICHECK(active_blocks_per_sm > 0)
+      << "AlphaMoE fused router has zero cooperative occupancy";
+  const RouterLaunchConfig config{sm_count, active_blocks_per_sm};
+  cache.emplace(device_id, config);
+  return config;
+}
+
 inline void CheckTensor(const TensorView& tensor, const char* name, DLDataType dtype, int64_t ndim,
                         int32_t device_id) {
   TVM_FFI_ICHECK(tensor.device().device_type == kDLCUDA) << name << " must be a CUDA tensor";
@@ -593,32 +638,10 @@ void Run(TensorView logits, TensorView topk_weights, TensorView topk_ids,
     }
   }
 
-  cudaDeviceProp properties{};
-  CheckCuda(cudaGetDeviceProperties(&properties, device_id), "cudaGetDeviceProperties");
-  TVM_FFI_ICHECK(properties.major == 10 && (properties.minor == 0 || properties.minor == 3))
-      << "AlphaMoE fused router requires compute capability 10.0 or 10.3, got " << properties.major
-      << "." << properties.minor;
-  int cooperative_launch = 0;
-  CheckCuda(cudaDeviceGetAttribute(&cooperative_launch, cudaDevAttrCooperativeLaunch, device_id),
-            "cudaDeviceGetAttribute(cudaDevAttrCooperativeLaunch)");
-  TVM_FFI_ICHECK(cooperative_launch != 0)
-      << "AlphaMoE fused router requires cooperative-launch support";
-
-  CheckCuda(cudaFuncSetAttribute(kernel_alpha_moe_fused_router,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                 static_cast<int>(kDynamicSmemBytes)),
-            "cudaFuncSetAttribute(AlphaMoE router dynamic smem)");
-  int active_blocks_per_sm = 0;
-  CheckCuda(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-                &active_blocks_per_sm, kernel_alpha_moe_fused_router, static_cast<int>(kThreads),
-                static_cast<size_t>(kDynamicSmemBytes)),
-            "cudaOccupancyMaxActiveBlocksPerMultiprocessor(AlphaMoE router)");
-  TVM_FFI_ICHECK(active_blocks_per_sm > 0)
-      << "AlphaMoE fused router has zero cooperative occupancy";
-
-  const int64_t grid_x = std::min<int64_t>(m, properties.multiProcessorCount);
+  const RouterLaunchConfig config = GetRouterLaunchConfig(device_id);
+  const int64_t grid_x = std::min<int64_t>(m, config.sm_count);
   const int64_t cooperative_capacity =
-      static_cast<int64_t>(active_blocks_per_sm) * properties.multiProcessorCount;
+      static_cast<int64_t>(config.active_blocks_per_sm) * config.sm_count;
   TVM_FFI_ICHECK(grid_x >= 1 && grid_x <= cooperative_capacity)
       << "AlphaMoE fused router grid " << grid_x << " exceeds cooperative residency capacity "
       << cooperative_capacity;

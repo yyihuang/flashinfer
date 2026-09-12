@@ -16,7 +16,6 @@ limitations under the License.
 
 from __future__ import annotations
 
-
 import pytest
 import torch
 
@@ -27,17 +26,25 @@ from flashinfer.fused_moe.alphamoe_fused_router import (
     allocate_alphamoe_route_plan,
     alphamoe_fused_router,
 )
+from flashinfer.jit.cpp_ext import is_cuda_version_at_least
+from flashinfer.utils import is_sm100a_supported
 
 
 def _has_router_gpu() -> bool:
-    return torch.cuda.is_available() and torch.cuda.get_device_capability() in {
-        (10, 0),
-        (10, 3),
-    }
+    if not torch.cuda.is_available():
+        return False
+    device = torch.device("cuda", torch.cuda.current_device())
+    capability = torch.cuda.get_device_capability(device)
+    return (
+        capability in {(10, 0), (10, 3)}
+        and is_sm100a_supported(device)
+        and is_cuda_version_at_least("12.9" if capability == (10, 3) else "12.8")
+    )
 
 
 requires_router_gpu = pytest.mark.skipif(
-    not _has_router_gpu(), reason="AlphaMoE fused router requires SM100 or SM103"
+    not _has_router_gpu(),
+    reason="AlphaMoE fused router requires supported SM100a or SM103a hardware/toolkit",
 )
 
 
@@ -197,7 +204,8 @@ def test_alphamoe_fused_router_ties_form_valid_plan(has_shared_expert):
 
 @requires_router_gpu
 def test_alphamoe_fused_router_large_persistent_grid_and_hot_expert():
-    num_tokens = 2 * torch.cuda.get_device_properties(0).multi_processor_count + 3
+    device = torch.cuda.current_device()
+    num_tokens = 2 * torch.cuda.get_device_properties(device).multi_processor_count + 3
     logits = torch.full((num_tokens, 32), -20.0, device="cuda", dtype=torch.float32)
     logits[:, :4] = torch.tensor([10.0, 9.0, 8.0, 7.0], device="cuda")
     plan = alphamoe_fused_router(logits, top_k=4, block_m=8)
@@ -298,7 +306,7 @@ def test_alphamoe_fused_router_cuda_graph_replay():
 
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.graph(graph):
-        alphamoe_fused_router(logits, top_k=4, block_m=8, plan=plan)
+        alphamoe_fused_router(logits, top_k=4, block_m=8, plan=plan, skip_check=True)
     logits.copy_(torch.randn_like(logits))
     graph.replay()
     torch.cuda.synchronize()
