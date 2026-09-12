@@ -466,7 +466,11 @@ def gen_alphamoe_fused_router_module() -> JitSpec:
     contract.
     """
 
-    supported_archs = {(10, "0a"), (10, "3a")}
+    supported_archs = set()
+    if is_cuda_version_at_least("12.8"):
+        supported_archs.add((10, "0a"))
+    if is_cuda_version_at_least("12.9"):
+        supported_archs.add((10, "3a"))
     selected_archs = sorted(
         current_compilation_context.TARGET_CUDA_ARCHS & supported_archs
     )

@@ -13,7 +13,9 @@ from flashinfer.fused_moe import (
     allocate_alphamoe_route_plan,
     alphamoe_fused_router,
 )
+from flashinfer.jit.cpp_ext import is_cuda_version_at_least
 from flashinfer.testing.utils import bench_gpu_time
+from flashinfer.utils import is_sm100a_supported
 
 
 DEFAULT_SHAPES = (
@@ -81,10 +83,16 @@ def main() -> None:
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required")
-    capability = torch.cuda.get_device_capability()
-    if capability not in {(10, 0), (10, 3)}:
+    device = torch.device("cuda", torch.cuda.current_device())
+    capability = torch.cuda.get_device_capability(device)
+    if not (
+        capability in {(10, 0), (10, 3)}
+        and is_sm100a_supported(device)
+        and is_cuda_version_at_least("12.9" if capability == (10, 3) else "12.8")
+    ):
         raise RuntimeError(
-            f"AlphaMoE fused router requires CC 10.0 or 10.3, got {capability}"
+            "AlphaMoE fused router requires supported SM100a or SM103a hardware/toolkit; "
+            f"got compute capability {capability}"
         )
 
     results = [benchmark_shape(*shape) for shape in DEFAULT_SHAPES]
