@@ -25,7 +25,9 @@ from flashinfer.utils import get_compute_capability
 
 def _load_reference_module():
     try:
-        return importlib.import_module("tests.attention.test_trtllm_gen_sparse_mla_dsv4")
+        return importlib.import_module(
+            "tests.attention.test_trtllm_gen_sparse_mla_dsv4"
+        )
     except ModuleNotFoundError:
         path = (
             pathlib.Path(__file__).resolve().parents[1]
@@ -217,9 +219,7 @@ def _workspace(inputs: _Inputs) -> torch.Tensor:
 
 
 def _out_like(inputs: _Inputs, fill: float = float("nan")) -> torch.Tensor:
-    return torch.full(
-        inputs.query.shape, fill, dtype=torch.bfloat16, device="cuda:0"
-    )
+    return torch.full(inputs.query.shape, fill, dtype=torch.bfloat16, device="cuda:0")
 
 
 def _rows(out: torch.Tensor, inputs: _Inputs) -> torch.Tensor:
@@ -227,7 +227,9 @@ def _rows(out: torch.Tensor, inputs: _Inputs) -> torch.Tensor:
 
 
 _CASES = [
-    pytest.param(h, dtype, s_q, id=f"h{h}-{'bf16' if dtype == torch.bfloat16 else 'fp8'}-q{s_q}")
+    pytest.param(
+        h, dtype, s_q, id=f"h{h}-{'bf16' if dtype == torch.bfloat16 else 'fp8'}-q{s_q}"
+    )
     for h in HEADS
     for dtype in DTYPES
     for s_q in Q_LENS
@@ -241,7 +243,9 @@ def test_padded_query_rows_match_reference(h_q, dtype, s_q, layout):
     _skip_unless_cake_gpu()
     p, tc = _make_case(h_q, dtype, s_q, varlen=layout == "ragged")
     inputs = _Inputs(p, tc)
-    rows = inputs.num_tokens - 1 if s_q == 1 else inputs.num_tokens - s_q  # drop a token / a request
+    rows = (
+        inputs.num_tokens - 1 if s_q == 1 else inputs.num_tokens - s_q
+    )  # drop a token / a request
     assert rows >= 1
     out = _out_like(inputs)
     inputs.run(out=out, workspace=_workspace(inputs), metadata_rows=rows)
@@ -283,7 +287,14 @@ def test_lens_offset_matches_pre_added_lens(h_q, dtype, s_q, separate):
     assert torch.equal(shifted, baseline)
 
 
-@pytest.mark.parametrize("h_q,dtype", [pytest.param(h, d, id=f"h{h}-{'bf16' if d == torch.bfloat16 else 'fp8'}") for h in HEADS for d in DTYPES])
+@pytest.mark.parametrize(
+    "h_q,dtype",
+    [
+        pytest.param(h, d, id=f"h{h}-{'bf16' if d == torch.bfloat16 else 'fp8'}")
+        for h in HEADS
+        for d in DTYPES
+    ],
+)
 def test_all_invalid_rows(h_q, dtype):
     _skip_unless_cake_gpu()
     p, tc = _make_case(h_q, dtype, 4, varlen=True, all_invalid=True)
@@ -358,7 +369,10 @@ def _trtllm_workspace() -> torch.Tensor:
 
 @pytest.mark.parametrize(
     "h_q,dtype,s_q",
-    [pytest.param(64, torch.bfloat16, 4, id="h64-bf16-q4"), pytest.param(128, torch.float8_e4m3fn, 1, id="h128-fp8-q1")],
+    [
+        pytest.param(64, torch.bfloat16, 4, id="h64-bf16-q4"),
+        pytest.param(128, torch.float8_e4m3fn, 1, id="h128-fp8-q1"),
+    ],
 )
 @pytest.mark.parametrize("layout", ["dense", "ragged"])
 def test_trtllm_gen_padded_query_rows_match_reference(h_q, dtype, s_q, layout):
@@ -369,7 +383,9 @@ def test_trtllm_gen_padded_query_rows_match_reference(h_q, dtype, s_q, layout):
     rows = inputs.num_tokens - 1 if s_q == 1 else inputs.num_tokens - s_q
     assert rows >= 1
     out = _out_like(inputs)
-    inputs.run(out=out, workspace=_trtllm_workspace(), metadata_rows=rows, backend="trtllm-gen")
+    inputs.run(
+        out=out, workspace=_trtllm_workspace(), metadata_rows=rows, backend="trtllm-gen"
+    )
     torch.cuda.synchronize()
     expected = inputs.reference_rows()
     got = _rows(out, inputs)
@@ -379,11 +395,17 @@ def test_trtllm_gen_padded_query_rows_match_reference(h_q, dtype, s_q, layout):
 
 @pytest.mark.parametrize(
     "h_q,dtype,s_q",
-    [pytest.param(64, torch.bfloat16, 2, id="h64-bf16-q2"), pytest.param(128, torch.float8_e4m3fn, 4, id="h128-fp8-q4")],
+    [
+        pytest.param(64, torch.bfloat16, 2, id="h64-bf16-q2"),
+        pytest.param(128, torch.float8_e4m3fn, 4, id="h128-fp8-q4"),
+    ],
 )
 def test_trtllm_gen_caller_owned_counter_buffer(h_q, dtype, s_q):
     """A caller-owned multi-CTA KV counter buffer is validated, reused and graph-replayable."""
-    from flashinfer.utils import get_device_sm_count, get_trtllm_gen_multi_ctas_kv_counter_bytes
+    from flashinfer.utils import (
+        get_device_sm_count,
+        get_trtllm_gen_multi_ctas_kv_counter_bytes,
+    )
 
     _skip_unless_trtllm_gen_gpu()
     p, tc = _make_case(h_q, dtype, s_q, varlen=True)
@@ -396,20 +418,40 @@ def test_trtllm_gen_caller_owned_counter_buffer(h_q, dtype, s_q):
     out = _out_like(inputs)
     for _ in range(3):  # counters must self-reset between launches
         out.fill_(float("nan"))
-        inputs.run(out=out, workspace=workspace, backend="trtllm-gen", multi_ctas_kv_counter_buffer=counters)
+        inputs.run(
+            out=out,
+            workspace=workspace,
+            backend="trtllm-gen",
+            multi_ctas_kv_counter_buffer=counters,
+        )
         torch.cuda.synchronize()
         ref._assert_close(_rows(out, inputs), expected, dtype)
     with pytest.raises(ValueError, match="too small"):
-        inputs.run(out=out, workspace=workspace, backend="trtllm-gen", multi_ctas_kv_counter_buffer=counters[: nbytes - 8])
+        inputs.run(
+            out=out,
+            workspace=workspace,
+            backend="trtllm-gen",
+            multi_ctas_kv_counter_buffer=counters[: nbytes - 8],
+        )
     with pytest.raises(ValueError, match="only used by backend='trtllm-gen'"):
-        inputs.run(out=out, workspace=_workspace(inputs), backend="cake", multi_ctas_kv_counter_buffer=counters)
+        inputs.run(
+            out=out,
+            workspace=_workspace(inputs),
+            backend="cake",
+            multi_ctas_kv_counter_buffer=counters,
+        )
     # graph capture + replay with mutated inputs
     stream = torch.cuda.Stream()
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.stream(stream):
         stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.graph(graph, stream=stream):
-            inputs.run(out=out, workspace=workspace, backend="trtllm-gen", multi_ctas_kv_counter_buffer=counters)
+            inputs.run(
+                out=out,
+                workspace=workspace,
+                backend="trtllm-gen",
+                multi_ctas_kv_counter_buffer=counters,
+            )
     torch.cuda.synchronize()
     p2, tc2 = _make_case(h_q, dtype, s_q, varlen=True)
     fresh = _Inputs(p2, tc2)

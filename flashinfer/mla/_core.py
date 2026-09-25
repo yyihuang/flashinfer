@@ -2264,7 +2264,9 @@ def trtllm_batch_decode_sparse_mla_dsv4(
                 "are only supported on SM120/SM121 and by backend='cake'"
             )
         if sparse_topk_lens_offset != 0:
-            raise ValueError("sparse_topk_lens_offset is only supported by backend='cake'")
+            raise ValueError(
+                "sparse_topk_lens_offset is only supported by backend='cake'"
+            )
         if sparse_topk_lens is None or compressed_kv_cache is None or seq_lens is None:
             raise ValueError(
                 f"backend={backend!r} requires compressed_kv_cache, "

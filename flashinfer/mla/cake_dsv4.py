@@ -188,7 +188,9 @@ def _int32_lens(tensor: torch.Tensor, name: str, *, rows: int) -> torch.Tensor:
         try:
             tensor = tensor.view(-1)
         except RuntimeError as exc:
-            raise ValueError(f"{name} must flatten to one row per token without a copy") from exc
+            raise ValueError(
+                f"{name} must flatten to one row per token without a copy"
+            ) from exc
     if tensor.numel() != rows:
         raise ValueError(f"{name} must have {rows} entries, got {tensor.numel()}")
     if tensor.numel() and tensor.stride(0) != 1:
@@ -231,7 +233,9 @@ def resolve_cake_dsv4_sparse_metadata(
                 f"must have {_SWA_WIDTH} columns, got {swa.shape[1]}"
             )
         rows = int(swa.shape[0])
-        compressed = _int32_table(extra_sparse_indices, "extra_sparse_indices", rows=rows)
+        compressed = _int32_table(
+            extra_sparse_indices, "extra_sparse_indices", rows=rows
+        )
         compressed_width = int(compressed.shape[1])
         if compressed_width == 0:
             compressed = swa
@@ -245,14 +249,18 @@ def resolve_cake_dsv4_sparse_metadata(
             offset += _SWA_WIDTH
         else:
             if sparse_topk_lens is None:
-                raise ValueError("sparse_topk_lens or extra_sparse_topk_lens is required")
+                raise ValueError(
+                    "sparse_topk_lens or extra_sparse_topk_lens is required"
+                )
             lens, lens_name = sparse_topk_lens, "sparse_topk_lens"
         separate = True
     else:
         if extra_sparse_topk_lens is not None:
             raise ValueError("extra_sparse_topk_lens requires extra_sparse_indices")
         if sparse_topk_lens is None:
-            raise ValueError("sparse_topk_lens is required with a combined sparse_indices table")
+            raise ValueError(
+                "sparse_topk_lens is required with a combined sparse_indices table"
+            )
         table = _int32_table(sparse_indices, "sparse_indices")
         rows = int(table.shape[0])
         if table.shape[1] < _SWA_WIDTH:
@@ -268,7 +276,9 @@ def resolve_cake_dsv4_sparse_metadata(
     if rows < 1:
         raise ValueError("sparse metadata must describe at least one query token")
     if rows > query_rows:
-        raise ValueError(f"metadata has {rows} rows but the query only has {query_rows}")
+        raise ValueError(
+            f"metadata has {rows} rows but the query only has {query_rows}"
+        )
     sparse_topk = _SWA_WIDTH + compressed_width
     if sparse_topk % 4:
         raise ValueError(
@@ -444,7 +454,9 @@ def _descriptor_workspace(raw: torch.Tensor, num_bytes: int) -> torch.Tensor:
             f"workspace slab holds {_DESCRIPTOR_SLAB_BYTES}"
         )
     _require_workspace_bytes(raw, _PARTIAL_OFFSET)
-    return raw[_DESCRIPTOR_SLAB_OFFSET : _DESCRIPTOR_SLAB_OFFSET + _DESCRIPTOR_SLAB_BYTES]
+    return raw[
+        _DESCRIPTOR_SLAB_OFFSET : _DESCRIPTOR_SLAB_OFFSET + _DESCRIPTOR_SLAB_BYTES
+    ]
 
 
 def cake_dsv4_workspace_reset(workspace_buffer: torch.Tensor) -> None:
@@ -582,7 +594,9 @@ def _bind_argument(
 ) -> Any:
     if kind == "grid":
         if name not in grid:
-            raise ValueError(f"CAKE DSv4 {variant} has an unknown grid argument: {name}")
+            raise ValueError(
+                f"CAKE DSv4 {variant} has an unknown grid argument: {name}"
+            )
         return grid[name]
     if kind == "workspace":
         if name != _DESCRIPTOR_WORKSPACE_NAME or descriptor_slab is None:
@@ -591,7 +605,9 @@ def _bind_argument(
             )
         return descriptor_slab
     if kind not in ("buffer", "tma_buffer", "parameter"):
-        raise ValueError(f"CAKE DSv4 {variant} has an unknown argument kind {kind!r} for {name}")
+        raise ValueError(
+            f"CAKE DSv4 {variant} has an unknown argument kind {kind!r} for {name}"
+        )
     canonical = canonical_arg_name(kind, name)
     if canonical in _RETIRED_ARG_REASONS:
         raise ValueError(
@@ -621,7 +637,9 @@ def _bind_argument(
 
 
 def _grid_values(grid: tuple[int, int, int]) -> dict[str, int]:
-    if len(grid) != 3 or any(isinstance(g, bool) or not isinstance(g, int) or g < 1 for g in grid):
+    if len(grid) != 3 or any(
+        isinstance(g, bool) or not isinstance(g, int) or g < 1 for g in grid
+    ):
         raise ValueError(f"launch grid must be three positive ints, got {grid!r}")
     return dict(zip(_GRID_NAMES, grid, strict=True))
 
@@ -680,7 +698,9 @@ def _launch_program(
         else None
     )
     args = [
-        _bind_argument(values, kind, name, variant=variant, grid={}, descriptor_slab=slab)
+        _bind_argument(
+            values, kind, name, variant=variant, grid={}, descriptor_slab=slab
+        )
         for kind, name in plan
     ]
     program = get_cake_dsv4_program(program_id, arch=arch)
@@ -838,9 +858,13 @@ def _device_scale(
 
 def _dense_rows(cache: torch.Tensor, name: str, dtype: torch.dtype) -> torch.Tensor:
     if cache.dtype != dtype:
-        raise ValueError(f"{name} dtype must match the query dtype {dtype}, got {cache.dtype}")
+        raise ValueError(
+            f"{name} dtype must match the query dtype {dtype}, got {cache.dtype}"
+        )
     if cache.shape[-1] != _HEAD_DIM:
-        raise ValueError(f"{name} must have head dim {_HEAD_DIM}, got {cache.shape[-1]}")
+        raise ValueError(
+            f"{name} must have head dim {_HEAD_DIM}, got {cache.shape[-1]}"
+        )
     flat = cache.reshape(-1, _HEAD_DIM)
     if flat.data_ptr() != cache.data_ptr() or not flat.is_contiguous():
         raise ValueError(
@@ -850,14 +874,18 @@ def _dense_rows(cache: torch.Tensor, name: str, dtype: torch.dtype) -> torch.Ten
     return flat
 
 
-def _int32_vector(tensor: torch.Tensor, name: str, device: torch.device) -> torch.Tensor:
+def _int32_vector(
+    tensor: torch.Tensor, name: str, device: torch.device
+) -> torch.Tensor:
     if tensor.dtype != torch.int32:
         raise ValueError(f"{name} must be int32, got {tensor.dtype}")
     if tensor.device != device:
         raise ValueError(f"{name} must be on {device}, got {tensor.device}")
     flat = tensor.reshape(-1)
     if flat.data_ptr() != tensor.data_ptr() or not flat.is_contiguous():
-        raise ValueError(f"{name} must be contiguous; backend='cake' makes no host copy")
+        raise ValueError(
+            f"{name} must be contiguous; backend='cake' makes no host copy"
+        )
     return flat
 
 
@@ -905,7 +933,11 @@ class _Launcher:
             self.values["num_heads"],
             num_splits,
         )
-        return {"partial_O": partial_o, "partial_lse": partial_lse, "num_splits": num_splits}
+        return {
+            "partial_O": partial_o,
+            "partial_lse": partial_lse,
+            "num_splits": num_splits,
+        }
 
     def counters(self, merge_groups: int) -> torch.Tensor:
         _ensure_counters_zeroed(self.workspace, self.raw)
@@ -1006,7 +1038,11 @@ def run_cake_dsv4(
     scale1 = _device_scale(bmm1_scale, device=device, name="bmm1_scale")
     scale2 = _device_scale(bmm2_scale, device=device, name="bmm2_scale")
     if sinks is not None:
-        if sinks.dtype != torch.float32 or sinks.device != device or not sinks.is_contiguous():
+        if (
+            sinks.dtype != torch.float32
+            or sinks.device != device
+            or not sinks.is_contiguous()
+        ):
             raise ValueError(f"sinks must be a contiguous FP32 tensor on {device}")
     has_sinks = int(sinks is not None)
     sink_tensor = sinks if sinks is not None else scale1
@@ -1050,7 +1086,9 @@ def run_cake_dsv4(
         "num_splits": 1,
         "total_work_items": num_query_tokens,
         "sm_count": (
-            torch.cuda.get_device_properties(device).multi_processor_count if device.type == "cuda" else 0
+            torch.cuda.get_device_properties(device).multi_processor_count
+            if device.type == "cuda"
+            else 0
         ),
     }
     launcher = _Launcher(
@@ -1193,7 +1231,9 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
     ):
         num_splits = 2 if route in ("fp8_lowhead_split", "fp8_lowhead_h64_split") else 1
         parts = L.partials(num_splits)
-        work_factor = 2 if route in ("fp8_lowhead_swa", "fp8_lowhead_prefill") else num_splits
+        work_factor = (
+            2 if route in ("fp8_lowhead_swa", "fp8_lowhead_prefill") else num_splits
+        )
         total_work_items = T * work_factor
         cluster = 1 if route == "fp8_lowhead_prefill" else 2
         L.variant(

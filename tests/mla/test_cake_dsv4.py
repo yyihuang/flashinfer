@@ -838,9 +838,16 @@ def test_cake_dsv4_semantic_routes(
 
 @pytest.mark.parametrize(
     "num_query_tokens,expected",
-    [(12, "bf16_h128_swa128"), (127, "bf16_h128_swa128"), (128, "bf16_h128_topk128x"), (512, "bf16_h128_topk128x")],
+    [
+        (12, "bf16_h128_swa128"),
+        (127, "bf16_h128_swa128"),
+        (128, "bf16_h128_topk128x"),
+        (512, "bf16_h128_topk128x"),
+    ],
 )
-def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(num_query_tokens, expected):
+def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(
+    num_query_tokens, expected
+):
     for arch in ("sm_100a", "sm_103a"):
         assert (
             _route(
@@ -861,7 +868,12 @@ def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(num_query_tokens, 
 @pytest.mark.parametrize(
     "num_query_tokens,page_size,sparse_topk,expected",
     [
-        (12, 64, 1152, "fp8_h128"),  # canonical 12-token decode rows keep the split producer
+        (
+            12,
+            64,
+            1152,
+            "fp8_h128",
+        ),  # canonical 12-token decode rows keep the split producer
         (15, 2, 260, "fp8_h128"),
         (16, 64, 640, "fp8_h128_prefill_source_persistent"),
         (32, 64, 640, "fp8_h128_prefill_source_persistent"),
@@ -892,7 +904,12 @@ def test_fp8_h128_rows_use_the_persistent_body_from_16_tokens(
 @pytest.mark.parametrize(
     "num_query_tokens,page_size,sparse_topk,expected",
     [
-        (12, 64, 640, "bf16_h64_compressed_q8_v38"),  # canonical 12-token rows keep the portfolio producer
+        (
+            12,
+            64,
+            640,
+            "bf16_h64_compressed_q8_v38",
+        ),  # canonical 12-token rows keep the portfolio producer
         (16, 2, 260, "bf16_h64_compressed_q8_v38"),
         (24, 2, 260, "bf16_h64_prefill"),
         (64, 64, 640, "bf16_h64_prefill"),
@@ -922,7 +939,11 @@ def test_bf16_h64_compressed_rows_use_the_prefill_body_from_24_tokens(
 @pytest.mark.parametrize(
     "sparse_topk,num_query_tokens,expected",
     [
-        (1152, 12, 5),  # canonical 9-tile decode rows: full five-way split within one wave
+        (
+            1152,
+            12,
+            5,
+        ),  # canonical 9-tile decode rows: full five-way split within one wave
         (1152, 16, 4),
         (1152, 32, 2),
         (1152, 64, 1),
@@ -1016,7 +1037,10 @@ def test_registered_arg_plans_use_known_names(arch):
     for variant, spec in _ARCH_REGISTRATIONS[arch]["variants"].items():
         for kind, name in spec["arg_plan"]:
             canonical = cake.canonical_arg_name(kind, name)
-            if cake.is_bindable_arg(kind, name) or canonical in cake._RETIRED_ARG_REASONS:
+            if (
+                cake.is_bindable_arg(kind, name)
+                or canonical in cake._RETIRED_ARG_REASONS
+            ):
                 continue
             unknown.append((variant, kind, name))
     assert unknown == []
@@ -1149,11 +1173,36 @@ def test_launch_variant_binds_by_name_with_fake_arg_plan(monkeypatch):
 
 def test_launch_variant_reports_unknown_retired_and_unavailable_names(monkeypatch):
     plans = {
-        "retired": [("parameter", "completion_base"), ("grid", "grid_x"), ("grid", "grid_y"), ("grid", "grid_z")],
-        "unknown": [("buffer", "mystery"), ("grid", "grid_x"), ("grid", "grid_y"), ("grid", "grid_z")],
-        "legacy": [("buffer", "sparse_indices"), ("grid", "grid_x"), ("grid", "grid_y"), ("grid", "grid_z")],
-        "ragged_only": [("buffer", "cum_seq_lens_q"), ("grid", "grid_x"), ("grid", "grid_y"), ("grid", "grid_z")],
-        "too_many_descriptors": [("workspace", "tma_descriptor_workspace"), ("grid", "grid_x"), ("grid", "grid_y"), ("grid", "grid_z")],
+        "retired": [
+            ("parameter", "completion_base"),
+            ("grid", "grid_x"),
+            ("grid", "grid_y"),
+            ("grid", "grid_z"),
+        ],
+        "unknown": [
+            ("buffer", "mystery"),
+            ("grid", "grid_x"),
+            ("grid", "grid_y"),
+            ("grid", "grid_z"),
+        ],
+        "legacy": [
+            ("buffer", "sparse_indices"),
+            ("grid", "grid_x"),
+            ("grid", "grid_y"),
+            ("grid", "grid_z"),
+        ],
+        "ragged_only": [
+            ("buffer", "cum_seq_lens_q"),
+            ("grid", "grid_x"),
+            ("grid", "grid_y"),
+            ("grid", "grid_z"),
+        ],
+        "too_many_descriptors": [
+            ("workspace", "tma_descriptor_workspace"),
+            ("grid", "grid_x"),
+            ("grid", "grid_y"),
+            ("grid", "grid_z"),
+        ],
     }
     recorder = _install_fake_variants(monkeypatch, plans, tma_bytes=4096)
     raw = _aligned_u8(cake._PARTIAL_OFFSET)
@@ -1185,10 +1234,21 @@ def test_launch_variant_reports_unknown_retired_and_unavailable_names(monkeypatc
         launch("too_many_descriptors")
     with pytest.raises(TypeError, match="must be an int"):
         launch("retired_int_check") if False else cake._bind_argument(
-            {"num_heads": 3.5}, "parameter", "num_heads", variant="x", grid={}, descriptor_slab=None
+            {"num_heads": 3.5},
+            "parameter",
+            "num_heads",
+            variant="x",
+            grid={},
+            descriptor_slab=None,
         )
     with pytest.raises(ValueError, match="three positive ints"):
-        cake._launch_variant("legacy", arch="sm_103a", grid=(0, 1, 1), workspace_raw=raw, values={"sparse_indices": table})
+        cake._launch_variant(
+            "legacy",
+            arch="sm_103a",
+            grid=(0, 1, 1),
+            workspace_raw=raw,
+            values={"sparse_indices": table},
+        )
 
 
 def _plan(*names):
@@ -1311,7 +1371,9 @@ def test_run_cake_dsv4_separate_tables_and_offset(monkeypatch):
     table, lens = _combined_metadata(rows, compressed)
     swa = table[:, :128]
     extra = table[:, 128:].clone()
-    workspace = _aligned_u8(get_cake_dsv4_workspace_bytes(rows, 64, 128 + compressed, torch.bfloat16))
+    workspace = _aligned_u8(
+        get_cake_dsv4_workspace_bytes(rows, 64, 128 + compressed, torch.bfloat16)
+    )
     recorder, *_ = _run_fake_dense_h64(
         monkeypatch,
         query_rows=rows,
@@ -1326,7 +1388,9 @@ def test_run_cake_dsv4_separate_tables_and_offset(monkeypatch):
     )
     m = dict(zip((name for _, name in _MAIN_PLAN), recorder.calls[0], strict=True))
     assert m["swa_indices"] is swa and m["swa_index_stride"] == 128 + compressed
-    assert m["compressed_indices"] is extra and m["compressed_index_stride"] == compressed
+    assert (
+        m["compressed_indices"] is extra and m["compressed_index_stride"] == compressed
+    )
     assert m["sparse_topk_lens_offset"] == 128 - 7
     assert m["sparse_topk"] == 128 + compressed
     assert torch.equal(m["sparse_topk_lens"], lens - 128)
@@ -1343,12 +1407,17 @@ def test_run_cake_dsv4_rejects_undersized_workspace_and_copies(monkeypatch):
             metadata={"sparse_indices": table, "sparse_topk_lens": lens},
             workspace=small,
         )
-    workspace = _aligned_u8(get_cake_dsv4_workspace_bytes(rows, 64, 128 + compressed, torch.bfloat16))
+    workspace = _aligned_u8(
+        get_cake_dsv4_workspace_bytes(rows, 64, 128 + compressed, torch.bfloat16)
+    )
     with pytest.raises(ValueError, match="unit column stride"):
         _run_fake_dense_h64(
             monkeypatch,
             query_rows=rows,
-            metadata={"sparse_indices": table[:, ::2][:, : 128 + compressed // 2], "sparse_topk_lens": lens},
+            metadata={
+                "sparse_indices": table[:, ::2][:, : 128 + compressed // 2],
+                "sparse_topk_lens": lens,
+            },
             workspace=workspace,
         )
     with pytest.raises(ValueError, match="out must be contiguous"):
@@ -1370,20 +1439,38 @@ def test_workspace_formula_and_layout():
         + -(-(tokens * heads * splits * 512 * 2) // 128) * 128
         + -(-(tokens * heads * splits * 4) // 128) * 128
     )
-    assert get_cake_dsv4_workspace_bytes(tokens, heads, topk, torch.bfloat16) == expected
-    assert get_cake_dsv4_workspace_bytes(tokens, heads, topk, torch.float8_e4m3fn) == expected
+    assert (
+        get_cake_dsv4_workspace_bytes(tokens, heads, topk, torch.bfloat16) == expected
+    )
+    assert (
+        get_cake_dsv4_workspace_bytes(tokens, heads, topk, torch.float8_e4m3fn)
+        == expected
+    )
     layout = cake_dsv4_workspace_layout(tokens, heads, splits)
     assert layout.descriptor_slab == (0, 1024)
     assert layout.counters == (1024, 256 * 1024)
     assert layout.partial_o[0] == 1024 + 256 * 1024
     assert layout.partial_lse[0] == layout.partial_o[0] + layout.partial_o[1]
     assert layout.total_bytes == expected
-    for offset, size in (layout.descriptor_slab, layout.counters, layout.partial_o, layout.partial_lse):
+    for offset, size in (
+        layout.descriptor_slab,
+        layout.counters,
+        layout.partial_o,
+        layout.partial_lse,
+    ):
         assert offset % 128 == 0 and size % 128 == 0
     # Default split bound: max(ceil(topk / 128), 5); explicit splits override it.
-    assert get_cake_dsv4_workspace_bytes(tokens, heads, 260, torch.bfloat16) == cake_dsv4_workspace_layout(tokens, heads, 5).total_bytes
-    assert get_cake_dsv4_workspace_bytes(tokens, heads, 260, torch.bfloat16, num_splits=1) == cake_dsv4_workspace_layout(tokens, heads, 1).total_bytes
-    assert get_cake_dsv4_workspace_bytes(1, 8, 128, torch.bfloat16) < get_cake_dsv4_workspace_bytes(2, 8, 128, torch.bfloat16)
+    assert (
+        get_cake_dsv4_workspace_bytes(tokens, heads, 260, torch.bfloat16)
+        == cake_dsv4_workspace_layout(tokens, heads, 5).total_bytes
+    )
+    assert (
+        get_cake_dsv4_workspace_bytes(tokens, heads, 260, torch.bfloat16, num_splits=1)
+        == cake_dsv4_workspace_layout(tokens, heads, 1).total_bytes
+    )
+    assert get_cake_dsv4_workspace_bytes(
+        1, 8, 128, torch.bfloat16
+    ) < get_cake_dsv4_workspace_bytes(2, 8, 128, torch.bfloat16)
     with pytest.raises(ValueError, match="dtype"):
         get_cake_dsv4_workspace_bytes(tokens, heads, topk, torch.float16)
     with pytest.raises(ValueError, match="multiple of 4"):
@@ -1420,7 +1507,9 @@ def test_workspace_reset_zeroes_only_the_counter_region():
 def test_counter_initialisation_refused_during_capture(monkeypatch):
     workspace = _aligned_u8(cake._PARTIAL_OFFSET)
     workspace.fill_(0xAB)
-    launcher = cake._Launcher(arch="sm_103a", workspace=workspace, raw=workspace, stream=0, values={})
+    launcher = cake._Launcher(
+        arch="sm_103a", workspace=workspace, raw=workspace, stream=0, values={}
+    )
     monkeypatch.setattr(cake, "_is_capturing", lambda device: True)
     with pytest.raises(RuntimeError, match="cake_dsv4_workspace_reset"):
         launcher.counters(8)
@@ -1429,7 +1518,13 @@ def test_counter_initialisation_refused_during_capture(monkeypatch):
     counters = launcher.counters(8)
     assert torch.all(counters == 0)
     # Eager first use primes the tensor exactly once.
-    eager = cake._Launcher(arch="sm_103a", workspace=_aligned_u8(cake._PARTIAL_OFFSET), raw=None, stream=0, values={})
+    eager = cake._Launcher(
+        arch="sm_103a",
+        workspace=_aligned_u8(cake._PARTIAL_OFFSET),
+        raw=None,
+        stream=0,
+        values={},
+    )
     eager.raw = eager.workspace
     eager.workspace.fill_(0xAB)
     monkeypatch.setattr(cake, "_is_capturing", lambda device: False)
@@ -1453,8 +1548,12 @@ def test_metadata_resolution_combined_table():
     assert meta.legacy_combined_table is table
     assert set(meta.kernel_kwargs()) == set(KERNEL_METADATA_PARAMS)
     # Explicit offset passes through and disables the legacy combined binding.
-    shifted = resolve_cake_dsv4_sparse_metadata(table, lens - 40, sparse_topk_lens_offset=40, query_rows=rows)
-    assert shifted.sparse_topk_lens_offset == 40 and shifted.legacy_combined_table is None
+    shifted = resolve_cake_dsv4_sparse_metadata(
+        table, lens - 40, sparse_topk_lens_offset=40, query_rows=rows
+    )
+    assert (
+        shifted.sparse_topk_lens_offset == 40 and shifted.legacy_combined_table is None
+    )
     # SWA-only tables alias the compressed view onto the SWA table.
     swa_only, swa_lens = _combined_metadata(rows, 0)
     only = resolve_cake_dsv4_sparse_metadata(swa_only, swa_lens, query_rows=rows)
@@ -1474,18 +1573,33 @@ def test_metadata_resolution_separate_tables():
     extra = table[:, 128:]
     # Compressed-only lengths imply the 128 offset.
     meta = resolve_cake_dsv4_sparse_metadata(
-        swa, extra_sparse_indices=extra, extra_sparse_topk_lens=lens - 128, query_rows=rows
+        swa,
+        extra_sparse_indices=extra,
+        extra_sparse_topk_lens=lens - 128,
+        query_rows=rows,
     )
     assert meta.separate_tables and meta.legacy_combined_table is None
     assert meta.swa_indices is swa and meta.compressed_indices is extra
-    assert meta.swa_index_stride == 128 + compressed and meta.compressed_index_stride == 128 + compressed
+    assert (
+        meta.swa_index_stride == 128 + compressed
+        and meta.compressed_index_stride == 128 + compressed
+    )
     assert meta.sparse_topk_lens_offset == 128 and meta.sparse_topk == 128 + compressed
-    assert meta.sparse_topk_lens is not None and torch.equal(meta.sparse_topk_lens, lens - 128)
+    assert meta.sparse_topk_lens is not None and torch.equal(
+        meta.sparse_topk_lens, lens - 128
+    )
     # Combined-convention lengths with separate tables keep offset 0 (+ explicit).
     plain = resolve_cake_dsv4_sparse_metadata(
-        swa, lens, extra_sparse_indices=extra.contiguous(), sparse_topk_lens_offset=3, query_rows=rows
+        swa,
+        lens,
+        extra_sparse_indices=extra.contiguous(),
+        sparse_topk_lens_offset=3,
+        query_rows=rows,
     )
-    assert plain.sparse_topk_lens_offset == 3 and plain.compressed_index_stride == compressed
+    assert (
+        plain.sparse_topk_lens_offset == 3
+        and plain.compressed_index_stride == compressed
+    )
     # Zero-width compressed table aliases the SWA table.
     zero = resolve_cake_dsv4_sparse_metadata(
         swa, lens, extra_sparse_indices=table[:, 128:128], query_rows=rows
@@ -1496,8 +1610,13 @@ def test_metadata_resolution_separate_tables():
 def test_metadata_resolution_padded_rows():
     rows, compressed = 3, 4
     table, lens = _combined_metadata(rows, compressed)
-    assert resolve_cake_dsv4_sparse_metadata(table, lens, query_rows=10).num_query_tokens == rows
-    with pytest.raises(ValueError, match="metadata has 3 rows but the query only has 2"):
+    assert (
+        resolve_cake_dsv4_sparse_metadata(table, lens, query_rows=10).num_query_tokens
+        == rows
+    )
+    with pytest.raises(
+        ValueError, match="metadata has 3 rows but the query only has 2"
+    ):
         resolve_cake_dsv4_sparse_metadata(table, lens, query_rows=2)
     with pytest.raises(ValueError, match="at least one query token"):
         resolve_cake_dsv4_sparse_metadata(table[:0], lens[:0], query_rows=2)
@@ -1507,7 +1626,13 @@ def test_metadata_resolution_errors():
     rows, compressed = 3, 8
     table, lens = _combined_metadata(rows, compressed)
     with pytest.raises(ValueError, match="unit column stride"):
-        resolve_cake_dsv4_sparse_metadata(table[:, ::1][:, :].t().t()[:, ::2].contiguous()[:, ::1] if False else table.repeat(1, 2)[:, ::2], lens, query_rows=rows)
+        resolve_cake_dsv4_sparse_metadata(
+            table[:, ::1][:, :].t().t()[:, ::2].contiguous()[:, ::1]
+            if False
+            else table.repeat(1, 2)[:, ::2],
+            lens,
+            query_rows=rows,
+        )
     with pytest.raises(ValueError, match="must be int32"):
         resolve_cake_dsv4_sparse_metadata(table.to(torch.int64), lens, query_rows=rows)
     with pytest.raises(ValueError, match="sparse_topk_lens must be int32"):
@@ -1521,16 +1646,34 @@ def test_metadata_resolution_errors():
     with pytest.raises(ValueError, match="multiple of 4"):
         resolve_cake_dsv4_sparse_metadata(table[:, : 128 + 6], lens, query_rows=rows)
     with pytest.raises(ValueError, match="must have 128 columns"):
-        resolve_cake_dsv4_sparse_metadata(table, lens, extra_sparse_indices=table[:, 128:], query_rows=rows)
+        resolve_cake_dsv4_sparse_metadata(
+            table, lens, extra_sparse_indices=table[:, 128:], query_rows=rows
+        )
     with pytest.raises(ValueError, match="must have 3 rows"):
-        resolve_cake_dsv4_sparse_metadata(table[:, :128], lens, extra_sparse_indices=table[:2, 128:], query_rows=rows)
+        resolve_cake_dsv4_sparse_metadata(
+            table[:, :128], lens, extra_sparse_indices=table[:2, 128:], query_rows=rows
+        )
     with pytest.raises(ValueError, match="not both"):
-        resolve_cake_dsv4_sparse_metadata(table[:, :128], lens, extra_sparse_indices=table[:, 128:], extra_sparse_topk_lens=lens, query_rows=rows)
+        resolve_cake_dsv4_sparse_metadata(
+            table[:, :128],
+            lens,
+            extra_sparse_indices=table[:, 128:],
+            extra_sparse_topk_lens=lens,
+            query_rows=rows,
+        )
     with pytest.raises(ValueError, match="requires extra_sparse_indices"):
-        resolve_cake_dsv4_sparse_metadata(table, extra_sparse_topk_lens=lens, query_rows=rows)
+        resolve_cake_dsv4_sparse_metadata(
+            table, extra_sparse_topk_lens=lens, query_rows=rows
+        )
     with pytest.raises(ValueError, match="sparse_topk_lens is required"):
         resolve_cake_dsv4_sparse_metadata(table, None, query_rows=rows)
     with pytest.raises(TypeError, match="sparse_topk_lens_offset"):
-        resolve_cake_dsv4_sparse_metadata(table, lens, sparse_topk_lens_offset=1.5, query_rows=rows)
+        resolve_cake_dsv4_sparse_metadata(
+            table, lens, sparse_topk_lens_offset=1.5, query_rows=rows
+        )
     with pytest.raises(ValueError, match="densely packed"):
-        resolve_cake_dsv4_sparse_metadata(table.reshape(1, rows, -1).transpose(0, 1).expand(rows, 2, -1), lens, query_rows=rows)
+        resolve_cake_dsv4_sparse_metadata(
+            table.reshape(1, rows, -1).transpose(0, 1).expand(rows, 2, -1),
+            lens,
+            query_rows=rows,
+        )
