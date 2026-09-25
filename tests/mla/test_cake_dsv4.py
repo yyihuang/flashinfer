@@ -859,6 +859,34 @@ def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(num_query_tokens, 
 
 
 @pytest.mark.parametrize(
+    "sparse_topk,num_query_tokens,expected",
+    [
+        (1152, 12, 5),  # canonical 9-tile decode rows: full five-way split within one wave
+        (1152, 16, 4),
+        (1152, 32, 2),
+        (1152, 64, 1),
+        (260, 12, 1),  # SWA + topk128x = 3 tiles: unsplit at every token count
+        (260, 1, 1),
+        (640, 12, 2),  # SWA + topk4x 512 = 5 tiles: at most 32 clusters
+        (640, 16, 2),
+        (640, 32, 1),
+        (640, 64, 1),
+        (128, 12, 1),  # SWA-only rows run unsplit
+        (1152, 128, 1),  # prefill-sized rows run unsplit
+    ],
+)
+def test_fp8_h128_split_rule(sparse_topk, num_query_tokens, expected):
+    assert cake._fp8_h128_num_splits(sparse_topk, num_query_tokens, 148) == expected
+    assert cake._fp8_h128_num_splits(sparse_topk, num_query_tokens, 152) == expected
+
+
+def test_fp8_h128_split_rule_needs_the_device_sm_count():
+    with pytest.raises(ValueError, match="SM count"):
+        cake._fp8_h128_num_splits(1152, 12, 0)
+    assert cake._fp8_h128_num_splits(260, 12, 0) == 1
+
+
+@pytest.mark.parametrize(
     "num_heads,batch_size,page_size,expected",
     [
         (64, 1, 64, "fp8_lowhead_prefill"),

@@ -1054,16 +1054,20 @@ def _fp8_h128_num_splits(sparse_topk: int, num_query_tokens: int, sm_count: int)
     """KV splits for the FP8/H128 route (mirrors the Cake producer's rule).
 
     Each (token, split) pair is one 2-CTA work item; ``sm_count // 2`` clusters
-    fill one wave. Long-sparse decode rows split up to 5 ways while the grid
-    stays within one wave; rows with 128+ tokens and SWA-only rows (a single
-    128-row KV tile) run unsplit with the direct epilogue.
+    fill one wave. Rows with up to three 128-row KV tiles run unsplit, 4-5 tile
+    rows split only while the grid stays within 32 clusters, and 6+ tile rows
+    take up to five splits while the grid stays within one wave. Rows with
+    128+ tokens run unsplit with the direct epilogue.
     """
-    if sparse_topk <= 128 or num_query_tokens >= 128:
+    tokens = max(1, int(num_query_tokens))
+    tiles = (int(sparse_topk) + 127) // 128
+    if tiles <= 3 or tokens >= 128:
         return 1
     if int(sm_count) <= 0:
         raise ValueError("the fp8_h128 split count needs the CUDA device SM count")
     clusters = max(1, int(sm_count) // 2)
-    return max(1, min(5, clusters // max(1, int(num_query_tokens))))
+    budget = clusters if tiles > 5 else min(clusters, 32)
+    return max(1, min(5, tiles, budget // tokens))
 
 
 def _dispatch_route(route: str, L: _Launcher) -> None:
