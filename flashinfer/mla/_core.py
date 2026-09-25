@@ -2301,6 +2301,10 @@ def trtllm_batch_decode_sparse_mla_dsv4(
             "multi_ctas_kv_counter_buffer is only used by backend='trtllm-gen'"
         )
 
+    # ``cake_lens`` is whichever length tensor the caller supplied; remember
+    # whether it was the combined table so the cake host receives exactly one
+    # of sparse_topk_lens / extra_sparse_topk_lens.
+    combined_lens_given = sparse_topk_lens is not None
     (
         swa_kv_cache,
         compressed_kv_cache,
@@ -2379,8 +2383,9 @@ def trtllm_batch_decode_sparse_mla_dsv4(
             workspace_buffer=workspace_buffer,
             sparse_indices=sparse_indices,
             # Combined-convention lengths, or None when the compressed-only
-            # extra_sparse_topk_lens carries them.
-            sparse_topk_lens=sparse_topk_lens,
+            # extra_sparse_topk_lens carries them (the checked tensor above is
+            # the extra table in that case and must not be passed twice).
+            sparse_topk_lens=sparse_topk_lens if combined_lens_given else None,
             extra_sparse_indices=extra_sparse_indices,
             extra_sparse_topk_lens=extra_sparse_topk_lens,
             sparse_topk_lens_offset=sparse_topk_lens_offset,
