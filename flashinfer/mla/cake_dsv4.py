@@ -68,7 +68,6 @@ _MAX_FIXED_SPLITS = 5
 # BF16 H128 SWA-only rows with this many metadata tokens or more use the full-V
 # H128 family instead of the dedicated SWA producer (see the Cake dispatcher).
 _BF16_H128_SWA_FULL_V_TOKENS = 128
-_FP8_H128_PERSISTENT_TOKENS = 16
 _BF16_H64_COMPRESSED_PREFILL_TOKENS = 24
 _BF16_H64_PREFILL_MAX_SPARSE_WIDTH = 640
 _PRIMED_ATTR = "_cake_dsv4_counters_primed"
@@ -731,19 +730,11 @@ def _route(
     is_topk128x = not is_swa and compressed_page_size == 2
     if dtype == torch.float8_e4m3fn:
         if num_heads == 128:
-            if (
-                batch_size == 2
-                and max_q_len == 257
-                and ragged
-                and is_topk4x
-                and sparse_topk == 1152
-            ):
-                return "fp8_h128_prefill_source_persistent"
-            if num_query_tokens >= _FP8_H128_PERSISTENT_TOKENS:
-                # One persistent work feed over T x 2 CTAs beats the
-                # per-(token, split) cluster producer from 16 tokens on.
-                return "fp8_h128_prefill_source_persistent"
-            return "fp8_h128"
+            # One producer for every FP8/H128 row: the persistent body (one
+            # work feed over T x 2 CTAs, runtime q_lens) matched or beat the
+            # former per-(token, split) cluster producer on the 12-token
+            # decode rows and beat trtllm-gen 1.12-1.75x on the MTP rows.
+            return "fp8_h128_prefill_source_persistent"
         if num_heads not in (8, 16, 32, 64):
             raise ValueError(f"unsupported CAKE FP8 DSv4 head count: {num_heads}")
         if (
@@ -1085,11 +1076,6 @@ def run_cake_dsv4(
         "ragged_query": int(ragged),
         "num_splits": 1,
         "total_work_items": num_query_tokens,
-        "sm_count": (
-            torch.cuda.get_device_properties(device).multi_processor_count
-            if device.type == "cuda"
-            else 0
-        ),
     }
     launcher = _Launcher(
         arch=arch,
@@ -1100,26 +1086,6 @@ def run_cake_dsv4(
     )
     _dispatch_route(route, launcher)
     return out
-
-
-def _fp8_h128_num_splits(sparse_topk: int, num_query_tokens: int, sm_count: int) -> int:
-    """KV splits for the FP8/H128 route (mirrors the Cake producer's rule).
-
-    Each (token, split) pair is one 2-CTA work item; ``sm_count // 2`` clusters
-    fill one wave. Rows with up to three 128-row KV tiles run unsplit, 4-5 tile
-    rows split only while the grid stays within 32 clusters, and 6+ tile rows
-    take up to five splits while the grid stays within one wave. Rows with
-    128+ tokens run unsplit with the direct epilogue.
-    """
-    tokens = max(1, int(num_query_tokens))
-    tiles = (int(sparse_topk) + 127) // 128
-    if tiles <= 3 or tokens >= 128:
-        return 1
-    if int(sm_count) <= 0:
-        raise ValueError("the fp8_h128 split count needs the CUDA device SM count")
-    clusters = max(1, int(sm_count) // 2)
-    budget = clusters if tiles > 5 else min(clusters, 32)
-    return max(1, min(5, tiles, budget // tokens))
 
 
 def _dispatch_route(route: str, L: _Launcher) -> None:
@@ -1213,12 +1179,6 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
     if route == "fp8_h128_prefill_source_persistent":
         parts = L.partials(1)
         L.variant(route, grid=(T * 2, 1, 1), total_work_items=T, **parts)
-        return
-
-    if route == "fp8_h128":
-        num_splits = _fp8_h128_num_splits(topk, T, v["sm_count"])
-        parts = L.partials(num_splits)
-        L.program(route, total_work_items=T * num_splits, **parts)
         return
 
     if route in (

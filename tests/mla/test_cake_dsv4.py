@@ -296,22 +296,70 @@ from flashinfer.mla.cake_dsv4 import (
             torch.bfloat16, 128, 3, 5, True, 260, 2, "bf16_h128_topk128x", id="case-29"
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 128, 1, "fp8_h128", id="case-30"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            128,
+            1,
+            "fp8_h128_prefill_source_persistent",
+            id="case-30",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 1152, 64, "fp8_h128", id="case-31"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            1152,
+            64,
+            "fp8_h128_prefill_source_persistent",
+            id="case-31",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 260, 2, "fp8_h128", id="case-32"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            260,
+            2,
+            "fp8_h128_prefill_source_persistent",
+            id="case-32",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 128, 1, "fp8_h128", id="case-33"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            128,
+            1,
+            "fp8_h128_prefill_source_persistent",
+            id="case-33",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 1152, 64, "fp8_h128", id="case-34"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            1152,
+            64,
+            "fp8_h128_prefill_source_persistent",
+            id="case-34",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 260, 2, "fp8_h128", id="case-35"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            260,
+            2,
+            "fp8_h128_prefill_source_persistent",
+            id="case-35",
         ),
         pytest.param(
             torch.bfloat16, 128, 3, 5, True, 128, 1, "bf16_h128_swa128", id="case-36"
@@ -348,22 +396,70 @@ from flashinfer.mla.cake_dsv4 import (
             torch.bfloat16, 128, 3, 5, True, 388, 2, "bf16_h128_topk128x", id="case-41"
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 128, 1, "fp8_h128", id="case-42"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            128,
+            1,
+            "fp8_h128_prefill_source_persistent",
+            id="case-42",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 1152, 64, "fp8_h128", id="case-43"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            1152,
+            64,
+            "fp8_h128_prefill_source_persistent",
+            id="case-43",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 388, 2, "fp8_h128", id="case-44"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            388,
+            2,
+            "fp8_h128_prefill_source_persistent",
+            id="case-44",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 128, 1, "fp8_h128", id="case-45"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            128,
+            1,
+            "fp8_h128_prefill_source_persistent",
+            id="case-45",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 1152, 64, "fp8_h128", id="case-46"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            1152,
+            64,
+            "fp8_h128_prefill_source_persistent",
+            id="case-46",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 128, 3, 5, True, 388, 2, "fp8_h128", id="case-47"
+            torch.float8_e4m3fn,
+            128,
+            3,
+            5,
+            True,
+            388,
+            2,
+            "fp8_h128_prefill_source_persistent",
+            id="case-47",
         ),
         pytest.param(
             torch.bfloat16, 8, 3, 5, True, 128, 1, "bf16_h8_swa128_v43", id="case-48"
@@ -872,16 +968,16 @@ def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(
             12,
             64,
             1152,
-            "fp8_h128",
-        ),  # canonical 12-token decode rows keep the split producer
-        (15, 2, 260, "fp8_h128"),
+            "fp8_h128_prefill_source_persistent",
+        ),  # 12-token decode rows too
+        (15, 2, 260, "fp8_h128_prefill_source_persistent"),
         (16, 64, 640, "fp8_h128_prefill_source_persistent"),
         (32, 64, 640, "fp8_h128_prefill_source_persistent"),
         (128, 2, 260, "fp8_h128_prefill_source_persistent"),
         (128, None, 128, "fp8_h128_prefill_source_persistent"),
     ],
 )
-def test_fp8_h128_rows_use_the_persistent_body_from_16_tokens(
+def test_fp8_h128_rows_all_use_the_persistent_body(
     num_query_tokens, page_size, sparse_topk, expected
 ):
     for arch in ("sm_100a", "sm_103a"):
@@ -934,38 +1030,6 @@ def test_bf16_h64_compressed_rows_use_the_prefill_body_from_24_tokens(
             )
             == expected
         )
-
-
-@pytest.mark.parametrize(
-    "sparse_topk,num_query_tokens,expected",
-    [
-        (
-            1152,
-            12,
-            5,
-        ),  # canonical 9-tile decode rows: full five-way split within one wave
-        (1152, 16, 4),
-        (1152, 32, 2),
-        (1152, 64, 1),
-        (260, 12, 1),  # SWA + topk128x = 3 tiles: unsplit at every token count
-        (260, 1, 1),
-        (640, 12, 2),  # SWA + topk4x 512 = 5 tiles: at most 32 clusters
-        (640, 16, 2),
-        (640, 32, 1),
-        (640, 64, 1),
-        (128, 12, 1),  # SWA-only rows run unsplit
-        (1152, 128, 1),  # prefill-sized rows run unsplit
-    ],
-)
-def test_fp8_h128_split_rule(sparse_topk, num_query_tokens, expected):
-    assert cake._fp8_h128_num_splits(sparse_topk, num_query_tokens, 148) == expected
-    assert cake._fp8_h128_num_splits(sparse_topk, num_query_tokens, 152) == expected
-
-
-def test_fp8_h128_split_rule_needs_the_device_sm_count():
-    with pytest.raises(ValueError, match="SM count"):
-        cake._fp8_h128_num_splits(1152, 12, 0)
-    assert cake._fp8_h128_num_splits(260, 12, 0) == 1
 
 
 @pytest.mark.parametrize(
