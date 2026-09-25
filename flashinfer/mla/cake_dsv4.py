@@ -85,6 +85,7 @@ KERNEL_METADATA_PARAMS = (
 
 _scale_cache: dict[tuple[str, Optional[int], float], torch.Tensor] = {}
 _scale_cache_lock = threading.Lock()
+_dense_offsets_cache: dict[tuple[str, Optional[int], int, int], torch.Tensor] = {}
 
 
 def _target_arch(device: torch.device) -> str:
@@ -131,8 +132,18 @@ class SparseMetadata:
     separate_tables: bool
 
     def kernel_kwargs(self) -> dict[str, Any]:
-        """Keyword arguments in the shared kernel parameter vocabulary."""
-        return {name: getattr(self, name) for name in KERNEL_METADATA_PARAMS}
+        """Keyword arguments in the shared kernel parameter vocabulary.
+
+        The two index tables are handed over as contiguous spans (see
+        ``_flat_index_span``): the generated bindings check every pointer
+        buffer for contiguity, and the column-sliced compressed view of a
+        combined table is not contiguous even though the kernel only reads
+        its base pointer plus the row stride.
+        """
+        values = {name: getattr(self, name) for name in KERNEL_METADATA_PARAMS}
+        values["swa_indices"] = _flat_index_span(self.swa_indices)
+        values["compressed_indices"] = _flat_index_span(self.compressed_indices)
+        return values
 
     @property
     def compressed_width(self) -> int:
@@ -149,6 +160,22 @@ class SparseMetadata:
         if self.separate_tables or self.sparse_topk_lens_offset != 0:
             return None
         return self.swa_indices
+
+
+def _flat_index_span(table: torch.Tensor) -> torch.Tensor:
+    """Expose a row-strided int32 table as one contiguous span without a copy.
+
+    A contiguous table is returned as is. A column-sliced view (row stride
+    larger than its width) becomes the 1-D span from its first to its last
+    element, which keeps ``data_ptr`` and the row stride the kernel indexes
+    with while satisfying the binding's contiguity check.
+    """
+    if table.is_contiguous() or table.ndim != 2:
+        return table
+    rows, cols = int(table.shape[0]), int(table.shape[1])
+    if rows == 0 or cols == 0:
+        return table.reshape(-1)
+    return table.as_strided(((rows - 1) * int(table.stride(0)) + cols,), (1,))
 
 
 def _int32_table(tensor: torch.Tensor, name: str, *, rows: Optional[int] = None):
@@ -549,6 +576,9 @@ _RETIRED_ARG_REASONS: Mapping[str, str] = {
         "partition_arrivals itself"
     ),
 }
+# Producers whose generated ABI reads request boundaries from cum_seq_lens_q
+# only; run_cake_dsv4 synthesizes the dense offsets for them.
+_RAGGED_ONLY_ROUTES = frozenset({"fp8_h128_prefill_source_persistent"})
 _UNAVAILABLE_HINTS: Mapping[str, str] = {
     "sparse_indices": (
         "this binding predates the split-table metadata ABI and only accepts a "
@@ -847,6 +877,31 @@ def _device_scale(
     return result
 
 
+def _dense_query_offsets(
+    batch_size: int, q_len: int, *, device: torch.device
+) -> torch.Tensor:
+    """``cum_seq_lens_q`` for a dense ``[batch, q_len]`` query (process-lifetime constant).
+
+    Variants that only accept ragged queries read the request boundaries
+    from ``cum_seq_lens_q``; a dense query is the ragged query with every
+    request ``q_len`` long. The offsets are cached per (device, batch,
+    q_len) so no call path allocates and CUDA-graph replay sees a stable
+    pointer.
+    """
+    device_index = device.index
+    if device_index is None and device.type == "cuda":
+        device_index = torch.cuda.current_device()
+    key = (device.type, device_index, int(batch_size), int(q_len))
+    with _scale_cache_lock:
+        result = _dense_offsets_cache.get(key)
+        if result is None:
+            result = torch.arange(
+                0, (batch_size + 1) * q_len, q_len, dtype=torch.int32, device=device
+            )
+            _dense_offsets_cache[key] = result
+    return result
+
+
 def _dense_rows(cache: torch.Tensor, name: str, dtype: torch.dtype) -> torch.Tensor:
     if cache.dtype != dtype:
         raise ValueError(
@@ -1054,6 +1109,10 @@ def run_cake_dsv4(
         compressed_page_size=compressed_kv_cache.shape[-2],
         num_query_tokens=meta.num_query_tokens,
     )
+
+    if cum_seq_lens_q is None and route in _RAGGED_ONLY_ROUTES:
+        # Dense query on a ragged-only producer: every request is max_q_len long.
+        cum_seq_lens_q = _dense_query_offsets(batch_size, max_q_len, device=device)
 
     is_fp8 = query.dtype == torch.float8_e4m3fn
     values: dict[str, Any] = {

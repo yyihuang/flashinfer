@@ -1451,7 +1451,11 @@ def test_run_cake_dsv4_separate_tables_and_offset(monkeypatch):
         workspace=workspace,
     )
     m = dict(zip((name for _, name in _MAIN_PLAN), recorder.calls[0], strict=True))
-    assert m["swa_indices"] is swa and m["swa_index_stride"] == 128 + compressed
+    # The SWA table is a column view of the combined table: the kernel gets the
+    # contiguous span with the same base pointer and the combined row stride.
+    assert m["swa_indices"].data_ptr() == swa.data_ptr()
+    assert m["swa_indices"].is_contiguous() and m["swa_indices"].ndim == 1
+    assert m["swa_index_stride"] == 128 + compressed
     assert (
         m["compressed_indices"] is extra and m["compressed_index_stride"] == compressed
     )
@@ -1741,3 +1745,112 @@ def test_metadata_resolution_errors():
             lens,
             query_rows=rows,
         )
+
+
+def test_kernel_kwargs_hand_over_contiguous_index_spans():
+    rows, compressed = 5, 132
+    table, lens = _combined_metadata(rows, compressed)
+    kw = resolve_cake_dsv4_sparse_metadata(table, lens, query_rows=rows).kernel_kwargs()
+    # Combined table: the SWA table is the contiguous table itself; the compressed
+    # column view is not contiguous (the generated bindings reject it) and becomes
+    # the span from its first to its last element with the same base pointer.
+    assert kw["swa_indices"] is table
+    span = kw["compressed_indices"]
+    assert span.is_contiguous() and span.ndim == 1
+    assert span.data_ptr() == table.data_ptr() + 128 * 4
+    assert span.numel() == (rows - 1) * (128 + compressed) + compressed
+    assert kw["compressed_index_stride"] == 128 + compressed
+    assert torch.equal(span[:compressed], table[0, 128:])
+    assert torch.equal(span[(rows - 1) * (128 + compressed) :], table[rows - 1, 128:])
+    # Separate contiguous tables pass through by identity.
+    swa, extra = table[:, :128].clone(), table[:, 128:].clone()
+    sep = resolve_cake_dsv4_sparse_metadata(
+        swa,
+        extra_sparse_indices=extra,
+        extra_sparse_topk_lens=lens - 128,
+        query_rows=rows,
+    ).kernel_kwargs()
+    assert sep["swa_indices"] is swa and sep["compressed_indices"] is extra
+
+
+_PERSISTENT_PLAN = _plan(
+    ("tma_buffer", "tmap_q"),
+    ("tma_buffer", "tmap_swa_kv"),
+    ("tma_buffer", "tmap_compressed_kv"),
+    ("buffer", "O"),
+    ("buffer", "partial_lse"),
+    ("buffer", "swa_indices"),
+    ("buffer", "compressed_indices"),
+    ("buffer", "sparse_topk_lens"),
+    ("buffer", "seq_lens"),
+    ("buffer", "cum_seq_lens_q"),
+    ("buffer", "sinks"),
+    ("buffer", "bmm1_scale"),
+    ("buffer", "bmm2_scale"),
+    ("parameter", "num_heads"),
+    ("parameter", "swa_index_stride"),
+    ("parameter", "compressed_index_stride"),
+    ("parameter", "sparse_topk_lens_offset"),
+    ("parameter", "num_query_tokens"),
+    ("parameter", "sparse_topk"),
+    ("parameter", "has_sinks"),
+    ("parameter", "total_work_items"),
+    ("parameter", "max_q_len"),
+    ("parameter", "batch_size"),
+)
+
+
+def _run_fake_persistent_fp8_h128(monkeypatch, *, cum_seq_lens_q, max_q_len):
+    """Drive run_cake_dsv4 on CPU tensors through the FP8 H128 persistent route."""
+    recorder = _install_fake_variants(
+        monkeypatch, {"fp8_h128_prefill_source_persistent": _PERSISTENT_PLAN}
+    )
+    monkeypatch.setattr(cake, "_target_arch", lambda device: "sm_103a")
+    monkeypatch.setattr(cake, "_stream_ptr", lambda device: 0)
+    rows, compressed = 6, 512
+    table, lens = _combined_metadata(rows, compressed)
+    workspace = _aligned_u8(
+        get_cake_dsv4_workspace_bytes(rows, 128, 128 + compressed, torch.float8_e4m3fn)
+    )
+    query = torch.zeros((rows, 128, 512), dtype=torch.float8_e4m3fn)
+    out = torch.zeros((rows, 128, 512), dtype=torch.bfloat16)
+    cake.run_cake_dsv4(
+        query=query,
+        swa_kv_cache=torch.zeros((4, 1, 256, 512), dtype=torch.float8_e4m3fn),
+        compressed_kv_cache=torch.zeros((8, 1, 64, 512), dtype=torch.float8_e4m3fn),
+        workspace_buffer=workspace,
+        out=out,
+        bmm1_scale=0.5,
+        bmm2_scale=1.0,
+        sinks=None,
+        max_q_len=max_q_len,
+        cum_seq_lens_q=cum_seq_lens_q,
+        seq_lens=torch.full((3,), 1000, dtype=torch.int32),
+        backend="cake",
+        sparse_indices=table,
+        sparse_topk_lens=lens,
+    )
+    (call,) = recorder.calls
+    return dict(zip((name for _, name in _PERSISTENT_PLAN), call, strict=True))
+
+
+def test_persistent_route_synthesizes_dense_query_offsets(monkeypatch):
+    # Dense [batch=3, q_len=2] query: every request is max_q_len long, so the
+    # ragged-only producer receives cum_seq_lens_q = [0, 2, 4, 6] without a
+    # per-call allocation (the offsets are a cached process-lifetime constant).
+    first = _run_fake_persistent_fp8_h128(monkeypatch, cum_seq_lens_q=None, max_q_len=2)
+    offsets = first["cum_seq_lens_q"]
+    assert offsets.dtype == torch.int32 and offsets.is_contiguous()
+    assert offsets.tolist() == [0, 2, 4, 6]
+    assert first["batch_size"] == 3 and first["max_q_len"] == 2
+    assert first["total_work_items"] == first["num_query_tokens"] == 6
+    assert (first["grid_x"], first["grid_y"], first["grid_z"]) == (12, 1, 1)
+    again = _run_fake_persistent_fp8_h128(monkeypatch, cum_seq_lens_q=None, max_q_len=2)
+    assert again["cum_seq_lens_q"] is offsets
+    # Ragged callers keep their own offsets.
+    indptr = torch.tensor([0, 1, 3, 6], dtype=torch.int32)
+    ragged = _run_fake_persistent_fp8_h128(
+        monkeypatch, cum_seq_lens_q=indptr, max_q_len=3
+    )
+    assert ragged["cum_seq_lens_q"].data_ptr() == indptr.data_ptr()
+    assert torch.equal(ragged["cum_seq_lens_q"], indptr) and ragged["max_q_len"] == 3
