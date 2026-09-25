@@ -830,7 +830,32 @@ def test_cake_dsv4_semantic_routes(
             ragged=ragged,
             sparse_topk=sparse_topk,
             compressed_page_size=page_size,
+            # Canonical rows: linspace(q/2, q) ragged lengths, well below the
+            # 128-token full-V threshold for BF16 H128 SWA rows.
+            num_query_tokens=batch_size * max_q_len,
         ) == (expected[arch] if isinstance(expected, dict) else expected)
+
+
+@pytest.mark.parametrize(
+    "num_query_tokens,expected",
+    [(12, "bf16_h128_swa128"), (127, "bf16_h128_swa128"), (128, "bf16_h128_topk128x"), (512, "bf16_h128_topk128x")],
+)
+def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(num_query_tokens, expected):
+    for arch in ("sm_100a", "sm_103a"):
+        assert (
+            _route(
+                arch=arch,
+                dtype=torch.bfloat16,
+                num_heads=128,
+                batch_size=64,
+                max_q_len=8,
+                ragged=True,
+                sparse_topk=128,
+                compressed_page_size=64,
+                num_query_tokens=num_query_tokens,
+            )
+            == expected
+        )
 
 
 @pytest.mark.parametrize(
@@ -856,6 +881,7 @@ def test_fp8_prefill_keeps_batch_and_cache_layout_predicates(
                 ragged=True,
                 sparse_topk=640 if num_heads == 64 else 1152,
                 compressed_page_size=page_size,
+                num_query_tokens=batch_size * 257,
             )
             == expected
         )
