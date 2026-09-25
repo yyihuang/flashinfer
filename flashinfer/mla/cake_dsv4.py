@@ -1,9 +1,50 @@
-"""Source-level CAKE backend for DeepSeek V4 sparse MLA on SM100 and SM103."""
+"""Source-level CAKE backend for DeepSeek V4 sparse MLA on SM100 and SM103.
+
+Host contract (flashinfer#4671 hardening)
+-----------------------------------------
+
+* **Metadata ABI.** Every generated variant consumes its per-token metadata
+  through the same eight kernel parameters (:data:`KERNEL_METADATA_PARAMS`):
+  ``swa_indices``, ``compressed_indices``, ``sparse_topk_lens``,
+  ``swa_index_stride``, ``compressed_index_stride``, ``sparse_topk_lens_offset``,
+  ``sparse_topk`` and ``num_query_tokens``. Combined-space column ``c`` of row
+  ``t`` lives at ``swa_indices[t * swa_index_stride + c]`` when ``c < 128`` and
+  at ``compressed_indices[t * compressed_index_stride + (c - 128)]`` otherwise.
+  The active length of a row is
+  ``clamp(sparse_topk_lens[t] + sparse_topk_lens_offset, 0, sparse_topk)``.
+  The host resolves the parameters from either the combined FlashInfer table
+  ``sparse_indices [T, sparse_topk]`` (the compressed view is a column offset of
+  the same storage) or from separate tables (``sparse_indices [T, 128]`` plus
+  ``extra_sparse_indices [T, topk_c]``; ``extra_sparse_topk_lens`` counts
+  compressed slots only and implies ``sparse_topk_lens_offset += 128``).
+  Resolution never copies: a non-unit column stride or a non-int32 table is an
+  error.
+* **Padded rows.** ``num_query_tokens`` is the metadata row count ``T``.
+  ``query`` and ``out`` may carry more rows; rows ``>= T`` are neither read nor
+  written. Grids and workspace views derive from ``T``, never from query rows.
+* **Argument binding.** Kernel arguments are bound *by name* through the
+  registration ``arg_plan`` (:func:`_launch_variant`) or the program signature
+  (:func:`_launch_program`), so regenerated bindings only need names from the
+  host vocabulary (:func:`is_bindable_arg`).
+* **Workspace.** One caller-owned ``workspace_buffer`` is carved
+  deterministically (:func:`cake_dsv4_workspace_layout`)::
+
+      [0,      1024)          TMA descriptor slab (bindings refresh it on every launch)
+      [1024,   1024 + 256 KiB) split-merge counters, uint32[65536]; zero at first use,
+                               the kernel leaves them zero after every launch
+      [P,      P + O_bytes)    partial_O  bf16 [T * H * S * 512]  (P = 1024 + 256 KiB)
+      [P + O_bytes, ...)       partial_lse f32 [T * H * S]
+
+  with every region 128-byte aligned. No call path allocates device memory:
+  callers zero the counter region once (:func:`cake_dsv4_workspace_reset`, or
+  the first eager call does it for that tensor) and the kernels self-reset.
+"""
 
 from __future__ import annotations
 
 import threading
-from typing import Literal, Union
+from dataclasses import dataclass
+from typing import Any, Literal, Mapping, Optional, Union
 
 import torch
 
@@ -12,205 +53,637 @@ from ..utils import get_compute_capability
 
 _HEAD_DIM = 512
 _TILE_KV = 128
-_scale_cache: dict[tuple[int, float], torch.Tensor] = {}
+_SWA_WIDTH = 128
+_ALIGN = 128
+
+# Deterministic workspace layout (byte offsets inside workspace_buffer).
+_DESCRIPTOR_SLAB_OFFSET = 0
+_DESCRIPTOR_SLAB_BYTES = 1024
+_COUNTER_OFFSET = _DESCRIPTOR_SLAB_OFFSET + _DESCRIPTOR_SLAB_BYTES
+_COUNTER_REGION_BYTES = 256 * 1024
+_MAX_MERGE_GROUPS = _COUNTER_REGION_BYTES // 4
+_PARTIAL_OFFSET = _COUNTER_OFFSET + _COUNTER_REGION_BYTES
+# Largest fixed split count used by any route (bf16_h128_topk4x_v52 / fp8_h128).
+_MAX_FIXED_SPLITS = 5
+_PRIMED_ATTR = "_cake_dsv4_counters_primed"
+
+KERNEL_METADATA_PARAMS = (
+    "swa_indices",
+    "compressed_indices",
+    "sparse_topk_lens",
+    "swa_index_stride",
+    "compressed_index_stride",
+    "sparse_topk_lens_offset",
+    "sparse_topk",
+    "num_query_tokens",
+)
+
+_scale_cache: dict[tuple[str, Optional[int], float], torch.Tensor] = {}
 _scale_cache_lock = threading.Lock()
-_descriptor_cache: dict[tuple, torch.Tensor] = {}
 
 
 def _target_arch(device: torch.device) -> str:
+    if device.type != "cuda":
+        raise ValueError(f"CAKE DSv4 requires CUDA tensors, got {device}")
     major, minor = get_compute_capability(device)
     return f"sm_{major}{minor}a"
 
 
-def _module(kind: str, *, arch: str):
+def _variant_module(variant: str, *, arch: str):
     from ..jit.cake_dsv4 import get_cake_dsv4_module
 
-    return get_cake_dsv4_module(kind, arch=arch)
-
-
-def _variant_module(variant: str, *, arch: str):
-    return _module(variant, arch=arch)
-
-
-def _launch_program(variant: str, *, stream: int, **values) -> None:
-    from ..jit.cake_dsv4 import (
-        get_cake_dsv4_program,
-        get_cake_dsv4_program_for_variant,
-    )
-
-    arch = _target_arch(values["Q"].device)
-    selected = get_cake_dsv4_program_for_variant(variant, arch=arch)
-    if selected is None:
-        raise ValueError(f"CAKE DSv4 variant has no compiled program: {variant}")
-    program_id, contract = selected
-    signature = contract["signature"]
-    names = (
-        *signature["tensor_keys"],
-        *signature["workspace_keys"],
-        *signature["scalar_names"],
-    )
-    args = [values[name] for name in names]
-    program = get_cake_dsv4_program(program_id, arch=arch)
-    getattr(program, contract["entry"])(*args, stream)
+    return get_cake_dsv4_module(variant, arch=arch)
 
 
 def _stream_ptr(device: torch.device) -> int:
     return int(torch.cuda.current_stream(device).cuda_stream)
 
 
-def _device_scale(
-    value: Union[float, torch.Tensor], *, device: torch.device, name: str
-) -> torch.Tensor:
-    if isinstance(value, torch.Tensor):
-        if value.dtype != torch.float32 or value.numel() != 1:
-            raise ValueError(f"{name} must be a one-element FP32 tensor")
-        if value.device != device:
-            raise ValueError(f"{name} must be on {device}, got {value.device}")
-        return value.contiguous()
-
-    device_index = device.index
-    if device_index is None:
-        device_index = torch.cuda.current_device()
-    key = (device_index, float(value))
-    with _scale_cache_lock:
-        result = _scale_cache.get(key)
-        if result is None:
-            result = torch.tensor([key[1]], dtype=torch.float32, device=device)
-            _scale_cache[key] = result
-    return result
+def _is_capturing(device: torch.device) -> bool:
+    if device.type != "cuda":
+        return False
+    with torch.cuda.device(device):
+        return bool(torch.cuda.is_current_stream_capturing())
 
 
-def _workspace_views(
-    workspace: torch.Tensor,
-    *,
-    partial_o_elems: int,
-    partial_lse_elems: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    if workspace.device.type != "cuda" or not workspace.is_contiguous():
-        raise ValueError("workspace_buffer must be a contiguous CUDA tensor")
-    raw = workspace.view(torch.uint8).reshape(-1)
-    partial_o_bytes = partial_o_elems * torch.bfloat16.itemsize
-    lse_offset = (partial_o_bytes + 15) & ~15
-    required = lse_offset + partial_lse_elems * torch.float32.itemsize
-    if raw.numel() < required:
+# --------------------------------------------------------------------------- #
+# Sparse metadata resolution                                                  #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class SparseMetadata:
+    """Resolved kernel-side view of the DSv4 sparse metadata (no copies)."""
+
+    swa_indices: torch.Tensor
+    compressed_indices: torch.Tensor
+    sparse_topk_lens: torch.Tensor
+    swa_index_stride: int
+    compressed_index_stride: int
+    sparse_topk_lens_offset: int
+    sparse_topk: int
+    num_query_tokens: int
+    separate_tables: bool
+
+    def kernel_kwargs(self) -> dict[str, Any]:
+        """Keyword arguments in the shared kernel parameter vocabulary."""
+        return {name: getattr(self, name) for name in KERNEL_METADATA_PARAMS}
+
+    @property
+    def compressed_width(self) -> int:
+        return self.sparse_topk - _SWA_WIDTH
+
+    @property
+    def legacy_combined_table(self) -> Optional[torch.Tensor]:
+        """Combined ``[T, sparse_topk]`` table for bindings that predate the split ABI.
+
+        Only a combined table without an explicit length offset can be handed
+        to a binding that still declares the pre-hardening ``sparse_indices``
+        argument; separate tables and offsets need regenerated bindings.
+        """
+        if self.separate_tables or self.sparse_topk_lens_offset != 0:
+            return None
+        return self.swa_indices
+
+
+def _int32_table(tensor: torch.Tensor, name: str, *, rows: Optional[int] = None):
+    if not isinstance(tensor, torch.Tensor):
+        raise TypeError(f"{name} must be a torch.Tensor, got {type(tensor).__name__}")
+    if tensor.dtype != torch.int32:
+        raise ValueError(f"{name} must be int32, got {tensor.dtype}")
+    if tensor.ndim < 2:
         raise ValueError(
-            f"workspace_buffer requires at least {required} bytes for this CAKE route, "
-            f"got {raw.numel()}"
+            f"{name} must be a [rows, columns] table, got shape {tuple(tensor.shape)}"
         )
-    partial_o = raw[:partial_o_bytes].view(torch.bfloat16)
-    partial_lse = raw[lse_offset:required].view(torch.float32)
-    return partial_o, partial_lse
+    if tensor.ndim > 2:
+        try:
+            tensor = tensor.view(-1, tensor.shape[-1])
+        except RuntimeError as exc:
+            raise ValueError(
+                f"{name} leading dimensions must be densely packed so they fold "
+                "into rows without a copy"
+            ) from exc
+    if rows is not None and tensor.shape[0] != rows:
+        raise ValueError(f"{name} must have {rows} rows, got {tensor.shape[0]}")
+    if tensor.shape[1] and tensor.stride(1) != 1:
+        raise ValueError(
+            f"{name} must have a unit column stride; pass a row-strided view "
+            "instead of a copy"
+        )
+    return tensor
 
 
-def _direct_lse(workspace: torch.Tensor, elems: int) -> torch.Tensor:
-    return _workspace_views(
-        workspace,
-        partial_o_elems=0,
-        partial_lse_elems=elems,
-    )[1]
+def _int32_lens(tensor: torch.Tensor, name: str, *, rows: int) -> torch.Tensor:
+    if not isinstance(tensor, torch.Tensor):
+        raise TypeError(f"{name} must be a torch.Tensor, got {type(tensor).__name__}")
+    if tensor.dtype != torch.int32:
+        raise ValueError(f"{name} must be int32, got {tensor.dtype}")
+    if tensor.ndim != 1:
+        try:
+            tensor = tensor.view(-1)
+        except RuntimeError as exc:
+            raise ValueError(f"{name} must flatten to one row per token without a copy") from exc
+    if tensor.numel() != rows:
+        raise ValueError(f"{name} must have {rows} entries, got {tensor.numel()}")
+    if tensor.numel() and tensor.stride(0) != 1:
+        raise ValueError(f"{name} must have unit stride")
+    return tensor
 
 
-def _reduce(
-    workspace: torch.Tensor,
-    variant: str,
-    partial_o: torch.Tensor,
-    partial_lse: torch.Tensor,
-    out: torch.Tensor,
+def resolve_cake_dsv4_sparse_metadata(
+    sparse_indices: torch.Tensor,
+    sparse_topk_lens: Optional[torch.Tensor] = None,
+    *,
+    extra_sparse_indices: Optional[torch.Tensor] = None,
+    extra_sparse_topk_lens: Optional[torch.Tensor] = None,
+    sparse_topk_lens_offset: int = 0,
+    query_rows: int,
+) -> SparseMetadata:
+    """Resolve the shared metadata ABI from combined or separate host tables.
+
+    Combined form: ``sparse_indices [T, sparse_topk]`` whose first 128 columns
+    are SWA slots, with ``sparse_topk_lens`` counting those 128 slots.
+
+    Separate form: ``sparse_indices [T, 128]`` is the SWA table and
+    ``extra_sparse_indices [T, topk_c]`` the compressed table. Lengths come from
+    ``sparse_topk_lens`` (combined convention) or ``extra_sparse_topk_lens``
+    (compressed slots only; the host adds 128 to ``sparse_topk_lens_offset``).
+
+    ``query_rows`` is the number of rows the query tensor provides; the metadata
+    may describe fewer tokens (padded batch) but never more.
+    """
+    if isinstance(sparse_topk_lens_offset, bool) or not isinstance(
+        sparse_topk_lens_offset, int
+    ):
+        raise TypeError("sparse_topk_lens_offset must be an int")
+    offset = int(sparse_topk_lens_offset)
+    if extra_sparse_indices is not None:
+        swa = _int32_table(sparse_indices, "sparse_indices")
+        if swa.shape[1] != _SWA_WIDTH:
+            raise ValueError(
+                "with extra_sparse_indices, sparse_indices is the SWA table and "
+                f"must have {_SWA_WIDTH} columns, got {swa.shape[1]}"
+            )
+        rows = int(swa.shape[0])
+        compressed = _int32_table(extra_sparse_indices, "extra_sparse_indices", rows=rows)
+        compressed_width = int(compressed.shape[1])
+        if compressed_width == 0:
+            compressed = swa
+        if extra_sparse_topk_lens is not None:
+            if sparse_topk_lens is not None:
+                raise ValueError(
+                    "pass either sparse_topk_lens (combined, counting the 128 SWA "
+                    "slots) or extra_sparse_topk_lens (compressed slots only), not both"
+                )
+            lens, lens_name = extra_sparse_topk_lens, "extra_sparse_topk_lens"
+            offset += _SWA_WIDTH
+        else:
+            if sparse_topk_lens is None:
+                raise ValueError("sparse_topk_lens or extra_sparse_topk_lens is required")
+            lens, lens_name = sparse_topk_lens, "sparse_topk_lens"
+        separate = True
+    else:
+        if extra_sparse_topk_lens is not None:
+            raise ValueError("extra_sparse_topk_lens requires extra_sparse_indices")
+        if sparse_topk_lens is None:
+            raise ValueError("sparse_topk_lens is required with a combined sparse_indices table")
+        table = _int32_table(sparse_indices, "sparse_indices")
+        rows = int(table.shape[0])
+        if table.shape[1] < _SWA_WIDTH:
+            raise ValueError(
+                f"sparse_indices must have at least {_SWA_WIDTH} columns, got {table.shape[1]}"
+            )
+        swa = table
+        compressed_width = int(table.shape[1]) - _SWA_WIDTH
+        compressed = table[:, _SWA_WIDTH:] if compressed_width else table
+        lens, lens_name = sparse_topk_lens, "sparse_topk_lens"
+        separate = False
+
+    if rows < 1:
+        raise ValueError("sparse metadata must describe at least one query token")
+    if rows > query_rows:
+        raise ValueError(f"metadata has {rows} rows but the query only has {query_rows}")
+    sparse_topk = _SWA_WIDTH + compressed_width
+    if sparse_topk % 4:
+        raise ValueError(
+            f"sparse_topk (128 + compressed columns) must be a multiple of 4, got {sparse_topk}"
+        )
+    lens = _int32_lens(lens, lens_name, rows=rows)
+    return SparseMetadata(
+        swa_indices=swa,
+        compressed_indices=compressed,
+        sparse_topk_lens=lens,
+        swa_index_stride=int(swa.stride(0)),
+        compressed_index_stride=int(compressed.stride(0)),
+        sparse_topk_lens_offset=offset,
+        sparse_topk=sparse_topk,
+        num_query_tokens=rows,
+        separate_tables=separate,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Workspace                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def _align_up(num_bytes: int) -> int:
+    return -(-num_bytes // _ALIGN) * _ALIGN
+
+
+def _positive_int(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive int, got {value!r}")
+    return value
+
+
+def _upper_bound_num_splits(sparse_topk: int) -> int:
+    return max(-(-sparse_topk // _TILE_KV), _MAX_FIXED_SPLITS)
+
+
+@dataclass(frozen=True)
+class WorkspaceLayout:
+    """Byte ``(offset, size)`` of every region carved from ``workspace_buffer``."""
+
+    descriptor_slab: tuple[int, int]
+    counters: tuple[int, int]
+    partial_o: tuple[int, int]
+    partial_lse: tuple[int, int]
+    total_bytes: int
+
+
+def cake_dsv4_workspace_layout(
+    num_query_tokens: int, num_heads: int, num_splits: int
+) -> WorkspaceLayout:
+    """Deterministic carve of ``workspace_buffer`` for one launch shape."""
+    tokens = _positive_int(num_query_tokens, "num_query_tokens")
+    heads = _positive_int(num_heads, "num_heads")
+    splits = _positive_int(num_splits, "num_splits")
+    partial_elems = tokens * heads * splits
+    o_bytes = _align_up(partial_elems * _HEAD_DIM * torch.bfloat16.itemsize)
+    lse_bytes = _align_up(partial_elems * torch.float32.itemsize)
+    o_offset = _PARTIAL_OFFSET
+    lse_offset = o_offset + o_bytes
+    return WorkspaceLayout(
+        descriptor_slab=(_DESCRIPTOR_SLAB_OFFSET, _DESCRIPTOR_SLAB_BYTES),
+        counters=(_COUNTER_OFFSET, _COUNTER_REGION_BYTES),
+        partial_o=(o_offset, o_bytes),
+        partial_lse=(lse_offset, lse_bytes),
+        total_bytes=lse_offset + lse_bytes,
+    )
+
+
+def get_cake_dsv4_workspace_bytes(
+    num_query_tokens: int,
+    num_heads: int,
+    sparse_topk: int,
+    dtype: torch.dtype,
+    *,
+    num_splits: Optional[int] = None,
+) -> int:
+    """Bytes ``workspace_buffer`` needs for ``backend="cake"`` at this shape.
+
+    ``num_query_tokens`` is the metadata row count (padded query rows do not
+    count). The result is an upper bound over every route::
+
+        S      = num_splits if given else max(ceil(sparse_topk / 128), 5)
+        bytes  = 1024                                   # TMA descriptor slab
+               + 262144                                 # split-merge counters (uint32[65536])
+               + align128(num_query_tokens * num_heads * S * 512 * 2)   # partial_O (BF16)
+               + align128(num_query_tokens * num_heads * S * 4)         # partial_lse (FP32)
+
+    Partial buffers are BF16/FP32 for both BF16 and FP8 inputs; ``dtype`` is
+    validated only. Pass ``num_splits`` to size for a known route (routes use
+    ``ceil(sparse_topk / 128)`` or a fixed 1..5 splits).
+    """
+    if dtype not in (torch.bfloat16, torch.float8_e4m3fn):
+        raise ValueError(f"unsupported CAKE DSv4 dtype: {dtype}")
+    topk = _positive_int(sparse_topk, "sparse_topk")
+    if topk < _SWA_WIDTH or topk % 4:
+        raise ValueError(
+            f"sparse_topk must be a multiple of 4 and at least {_SWA_WIDTH}, got {topk}"
+        )
+    splits = (
+        _upper_bound_num_splits(topk)
+        if num_splits is None
+        else _positive_int(num_splits, "num_splits")
+    )
+    return cake_dsv4_workspace_layout(num_query_tokens, num_heads, splits).total_bytes
+
+
+def _workspace_bytes(workspace: torch.Tensor) -> torch.Tensor:
+    if not isinstance(workspace, torch.Tensor):
+        raise TypeError("workspace_buffer must be a torch.Tensor")
+    if not workspace.is_contiguous():
+        raise ValueError("workspace_buffer must be contiguous")
+    raw = workspace.view(torch.uint8).reshape(-1)
+    if raw.data_ptr() % _ALIGN:
+        raise ValueError(f"workspace_buffer must be {_ALIGN}-byte aligned")
+    return raw
+
+
+def _require_workspace_bytes(raw: torch.Tensor, needed: int) -> None:
+    if raw.numel() < needed:
+        raise ValueError(
+            f"workspace_buffer requires at least {needed} bytes for this CAKE DSv4 "
+            f"launch, got {raw.numel()}; size it with get_cake_dsv4_workspace_bytes()"
+        )
+
+
+def _partial_views(
+    raw: torch.Tensor,
+    out_rows: torch.Tensor,
     num_query_tokens: int,
     num_heads: int,
     num_splits: int,
-    stream: int,
-) -> None:
-    _launch_variant(
-        variant,
-        partial_o,
-        partial_lse,
-        out,
-        num_heads,
-        num_splits,
-        grid=(num_query_tokens, num_heads, 1),
-        stream=stream,
-        workspace=workspace,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    layout = cake_dsv4_workspace_layout(num_query_tokens, num_heads, num_splits)
+    _require_workspace_bytes(raw, layout.total_bytes)
+    elems = num_query_tokens * num_heads * num_splits
+    lse_offset = layout.partial_lse[0]
+    partial_lse = raw[lse_offset : lse_offset + elems * torch.float32.itemsize].view(
+        torch.float32
     )
+    if num_splits == 1:
+        # Single-partition routes write the final output directly.
+        return out_rows.reshape(-1), partial_lse
+    o_offset = layout.partial_o[0]
+    partial_o = raw[
+        o_offset : o_offset + elems * _HEAD_DIM * torch.bfloat16.itemsize
+    ].view(torch.bfloat16)
+    return partial_o, partial_lse
 
 
-def _run_bf16_split(
+def _counters(raw: torch.Tensor, merge_groups: int) -> torch.Tensor:
+    if merge_groups > _MAX_MERGE_GROUPS:
+        raise ValueError(
+            f"CAKE DSv4 split-merge route needs {merge_groups} counters; the workspace "
+            f"counter region holds {_MAX_MERGE_GROUPS}"
+        )
+    _require_workspace_bytes(raw, _PARTIAL_OFFSET)
+    return raw[_COUNTER_OFFSET : _COUNTER_OFFSET + merge_groups * 4].view(torch.uint32)
+
+
+def _descriptor_workspace(raw: torch.Tensor, num_bytes: int) -> torch.Tensor:
+    """Descriptor slab at a fixed offset of the workspace.
+
+    The generated bindings encode fresh TMA descriptors and upload them into this
+    slab on every launch (by-value kernel parameters, so CUDA graphs record the
+    upload), which makes the slab plain mutable scratch: its address is stable
+    per workspace and no separate per-layout storage is needed.
+    """
+    if num_bytes > _DESCRIPTOR_SLAB_BYTES:
+        raise ValueError(
+            f"CAKE DSv4 variant needs {num_bytes} TMA descriptor bytes; the "
+            f"workspace slab holds {_DESCRIPTOR_SLAB_BYTES}"
+        )
+    _require_workspace_bytes(raw, _PARTIAL_OFFSET)
+    return raw[_DESCRIPTOR_SLAB_OFFSET : _DESCRIPTOR_SLAB_OFFSET + _DESCRIPTOR_SLAB_BYTES]
+
+
+def cake_dsv4_workspace_reset(workspace_buffer: torch.Tensor) -> None:
+    """Zero the split-merge counter region of ``workspace_buffer``.
+
+    Call once after allocating a workspace (or allocate it with ``torch.zeros``
+    and warm up eagerly). The generated kernels leave the counters zero after
+    every launch, so no per-call reset is needed and CUDA graph replays stay
+    self-contained. Zeroing is an in-place fill; nothing is allocated.
+    """
+    raw = _workspace_bytes(workspace_buffer)
+    _require_workspace_bytes(raw, _PARTIAL_OFFSET)
+    raw[_COUNTER_OFFSET:_PARTIAL_OFFSET].zero_()
+    setattr(workspace_buffer, _PRIMED_ATTR, True)
+
+
+def _ensure_counters_zeroed(workspace: torch.Tensor, raw: torch.Tensor) -> None:
+    if getattr(workspace, _PRIMED_ATTR, False):
+        return
+    if _is_capturing(workspace.device):
+        raise RuntimeError(
+            "CAKE DSv4 split-merge counters in this workspace_buffer have not been "
+            "initialised and the current stream is capturing a CUDA graph; call "
+            "flashinfer.mla.cake_dsv4_workspace_reset(workspace_buffer) or run one "
+            "eager call with this workspace before capture"
+        )
+    raw[_COUNTER_OFFSET:_PARTIAL_OFFSET].zero_()
+    setattr(workspace, _PRIMED_ATTR, True)
+
+
+# --------------------------------------------------------------------------- #
+# Name-based argument binding                                                 #
+# --------------------------------------------------------------------------- #
+
+_TMA_SOURCE_ALIASES: Mapping[str, str] = {
+    "tmap_q": "Q",
+    "tmap_swa_k": "SWA_cache",
+    "tmap_swa_v": "SWA_cache",
+    "tmap_swa_kv": "SWA_cache",
+    "tmap_compressed_k": "compressed_KV_cache",
+    "tmap_compressed_v": "compressed_KV_cache",
+    "tmap_compressed_kv": "compressed_KV_cache",
+}
+_SCALAR_ALIASES: Mapping[str, str] = {
+    "num_q_heads": "num_heads",
+    "num_split": "num_splits",
+}
+_TENSOR_VALUE_NAMES = frozenset(
+    {
+        "Q",
+        "SWA_cache",
+        "compressed_KV_cache",
+        "O",
+        "partial_O",
+        "partial_lse",
+        "partition_arrivals",
+        "seq_lens",
+        "cum_seq_lens_q",
+        "sinks",
+        "bmm1_scale",
+        "bmm2_scale",
+        "swa_indices",
+        "compressed_indices",
+        "sparse_topk_lens",
+        # Pre-hardening combined table; bound only for combined metadata.
+        "sparse_indices",
+    }
+)
+_SCALAR_VALUE_NAMES = frozenset(
+    {
+        "swa_index_stride",
+        "compressed_index_stride",
+        "sparse_topk_lens_offset",
+        "sparse_topk",
+        "num_query_tokens",
+        "num_heads",
+        "num_head_tiles",
+        "has_sinks",
+        "num_splits",
+        "total_work_items",
+        "batch_size",
+        "max_q_len",
+        "ragged_query",
+    }
+)
+_GRID_NAMES = ("grid_x", "grid_y", "grid_z")
+_DESCRIPTOR_WORKSPACE_NAME = "tma_descriptor_workspace"
+_RETIRED_ARG_REASONS: Mapping[str, str] = {
+    "completion_base": (
+        "host-side split-merge generation state was removed; the kernel resets "
+        "partition_arrivals itself"
+    ),
+}
+_UNAVAILABLE_HINTS: Mapping[str, str] = {
+    "sparse_indices": (
+        "this binding predates the split-table metadata ABI and only accepts a "
+        "combined sparse_indices table with sparse_topk_lens_offset == 0; "
+        "regenerate the bindings for separate tables or length offsets"
+    ),
+    "cum_seq_lens_q": "this variant needs ragged queries (cum_seq_lens_q)",
+}
+
+
+def canonical_arg_name(kind: str, name: str) -> str:
+    """Map a registration ``arg_plan`` entry onto the host value vocabulary."""
+    if kind == "tma_buffer":
+        return _TMA_SOURCE_ALIASES.get(name, name)
+    if kind == "parameter":
+        return _SCALAR_ALIASES.get(name, name)
+    return name
+
+
+def is_bindable_arg(kind: str, name: str) -> bool:
+    """Whether the host can supply this ``arg_plan`` entry at all."""
+    canonical = canonical_arg_name(kind, name)
+    if kind in ("buffer", "tma_buffer"):
+        return canonical in _TENSOR_VALUE_NAMES
+    if kind == "parameter":
+        return canonical in _SCALAR_VALUE_NAMES
+    if kind == "workspace":
+        return name == _DESCRIPTOR_WORKSPACE_NAME
+    if kind == "grid":
+        return name in _GRID_NAMES
+    return False
+
+
+def _bind_argument(
+    values: Mapping[str, Any],
+    kind: str,
+    name: str,
     *,
     variant: str,
-    reducer: str,
-    query: torch.Tensor,
-    swa: torch.Tensor,
-    compressed: torch.Tensor,
-    workspace: torch.Tensor,
-    indices: torch.Tensor,
-    active_lens: torch.Tensor,
-    sinks: torch.Tensor,
-    bmm1_scale: torch.Tensor,
-    bmm2_scale: torch.Tensor,
-    out: torch.Tensor,
-    num_heads: int,
-    with_head_tiles: bool,
-    stream: int,
-) -> None:
-    num_query_tokens = query.shape[0]
-    sparse_topk = indices.shape[1]
-    num_splits = (sparse_topk + _TILE_KV - 1) // _TILE_KV
-    partial_lse_elems = num_query_tokens * num_heads * num_splits
-    if num_splits == 1:
-        partial_o = out.reshape(-1)
-        partial_lse = _direct_lse(workspace, partial_lse_elems)
-    else:
-        partial_o, partial_lse = _workspace_views(
-            workspace,
-            partial_o_elems=partial_lse_elems * _HEAD_DIM,
-            partial_lse_elems=partial_lse_elems,
+    grid: Mapping[str, int],
+    descriptor_slab: Optional[torch.Tensor],
+) -> Any:
+    if kind == "grid":
+        if name not in grid:
+            raise ValueError(f"CAKE DSv4 {variant} has an unknown grid argument: {name}")
+        return grid[name]
+    if kind == "workspace":
+        if name != _DESCRIPTOR_WORKSPACE_NAME or descriptor_slab is None:
+            raise ValueError(
+                f"CAKE DSv4 {variant} has an unresolved workspace argument: {name}"
+            )
+        return descriptor_slab
+    if kind not in ("buffer", "tma_buffer", "parameter"):
+        raise ValueError(f"CAKE DSv4 {variant} has an unknown argument kind {kind!r} for {name}")
+    canonical = canonical_arg_name(kind, name)
+    if canonical in _RETIRED_ARG_REASONS:
+        raise ValueError(
+            f"CAKE DSv4 {variant} binds the retired argument {name!r}: "
+            f"{_RETIRED_ARG_REASONS[canonical]}; regenerate the bindings"
         )
+    if canonical not in values:
+        raise ValueError(
+            f"CAKE DSv4 {variant} argument {name!r} ({kind}) has no host value; "
+            f"known names: {sorted(values)}"
+        )
+    value = values[canonical]
+    if value is None:
+        hint = _UNAVAILABLE_HINTS.get(canonical, "it is not available for this call")
+        raise ValueError(f"CAKE DSv4 {variant} argument {name!r}: {hint}")
+    if kind == "parameter":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(
+                f"CAKE DSv4 {variant} parameter {name!r} must be an int, got {type(value).__name__}"
+            )
+        return int(value)
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(
+            f"CAKE DSv4 {variant} buffer {name!r} must be a tensor, got {type(value).__name__}"
+        )
+    return value
 
-    args = [
-        query,
-        swa,
-        compressed,
-        partial_o,
-        partial_lse,
-        indices,
-        active_lens,
-        sinks,
-        bmm1_scale,
-        bmm2_scale,
-        num_heads,
-    ]
-    num_head_tiles = (num_heads + 63) // 64
-    if with_head_tiles:
-        args.append(num_head_tiles)
-    args.extend(
-        [
-            sparse_topk,
-            num_splits,
-            int(sinks.numel() == num_heads),
-        ]
-    )
-    grid_x = num_query_tokens * num_splits * 4
-    if with_head_tiles:
-        grid_x *= num_head_tiles
-    _launch_variant(
-        variant,
-        *args,
-        grid=(grid_x, 1, 1),
-        stream=stream,
-        workspace=workspace,
-    )
-    if num_splits > 1:
-        _reduce(
-            workspace,
-            reducer,
-            partial_o,
-            partial_lse,
-            out,
-            num_query_tokens,
-            num_heads,
-            num_splits,
-            stream,
+
+def _grid_values(grid: tuple[int, int, int]) -> dict[str, int]:
+    if len(grid) != 3 or any(isinstance(g, bool) or not isinstance(g, int) or g < 1 for g in grid):
+        raise ValueError(f"launch grid must be three positive ints, got {grid!r}")
+    return dict(zip(_GRID_NAMES, grid, strict=True))
+
+
+def _launch_variant(
+    variant: str,
+    *,
+    arch: str,
+    grid: tuple[int, int, int],
+    workspace_raw: torch.Tensor,
+    values: Mapping[str, Any],
+):
+    """Bind the generated ABI by name through the registration ``arg_plan``."""
+    from ..jit.cake_dsv4 import get_cake_dsv4_spec
+
+    contract = get_cake_dsv4_spec(variant, arch=arch)
+    tma_bytes = int(contract.get("tma_workspace_bytes", 0) or 0)
+    slab = _descriptor_workspace(workspace_raw, tma_bytes) if tma_bytes else None
+    grid_values = _grid_values(grid)
+    bound = [
+        _bind_argument(
+            values, kind, name, variant=variant, grid=grid_values, descriptor_slab=slab
         )
+        for kind, name in contract["arg_plan"]
+    ]
+    # Direct-source bindings use the target FFI current stream.
+    return getattr(_variant_module(variant, arch=arch), contract["entry"])(*bound)
+
+
+def _launch_program(
+    variant: str,
+    *,
+    arch: str,
+    stream: int,
+    workspace_raw: torch.Tensor,
+    values: Mapping[str, Any],
+) -> None:
+    from ..jit.cake_dsv4 import (
+        get_cake_dsv4_program,
+        get_cake_dsv4_program_for_variant,
+    )
+
+    selected = get_cake_dsv4_program_for_variant(variant, arch=arch)
+    if selected is None:
+        raise ValueError(f"CAKE DSv4 variant has no compiled program: {variant}")
+    program_id, contract = selected
+    signature = contract["signature"]
+    plan = [
+        *(("buffer", name) for name in signature["tensor_keys"]),
+        *(("workspace", name) for name in signature["workspace_keys"]),
+        *(("parameter", name) for name in signature["scalar_names"]),
+    ]
+    slab = (
+        _descriptor_workspace(workspace_raw, _DESCRIPTOR_SLAB_BYTES)
+        if signature["workspace_keys"]
+        else None
+    )
+    args = [
+        _bind_argument(values, kind, name, variant=variant, grid={}, descriptor_slab=slab)
+        for kind, name in plan
+    ]
+    program = get_cake_dsv4_program(program_id, arch=arch)
+    getattr(program, contract["entry"])(*args, stream)
+
+
+# --------------------------------------------------------------------------- #
+# Routing                                                                     #
+# --------------------------------------------------------------------------- #
 
 
 def _route(
@@ -310,158 +783,119 @@ def _route(
     raise ValueError(f"unsupported CAKE BF16 DSv4 head count: {num_heads}")
 
 
-def _descriptor_workspace(
-    workspace: torch.Tensor, variant: str, tensors, num_bytes: int
-):
-    # The native binding caches immutable descriptor addresses. Keep their
-    # storage for the module lifetime: a PyTorch suballocation can otherwise be
-    # recycled without changing CUDA's allocation id. Retain only descriptors,
-    # without extending query/cache tensor lifetimes.
-    layout = tuple(
-        (
-            tensor.device,
-            tensor.dtype,
-            tensor.data_ptr(),
-            tuple(tensor.shape),
-            tuple(tensor.stride()),
-        )
-        for tensor in tensors
-    )
-    key = ("tma_descriptors", variant, layout)
-    entry = _descriptor_cache.get(key)
-    if entry is None:
-        entry = _descriptor_cache.setdefault(
-            key, torch.empty(num_bytes, dtype=torch.uint8, device=workspace.device)
-        )
-    _workspace_state(workspace)[key] = entry
-    return entry
+# --------------------------------------------------------------------------- #
+# Launch orchestration                                                        #
+# --------------------------------------------------------------------------- #
 
 
-def _launch_variant(
-    variant: str,
-    *args,
-    grid: tuple[int, int, int],
-    stream: int,
-    workspace: torch.Tensor,
-):
-    """Bind the generated ABI with descriptors retained for the module lifetime."""
-    from ..jit.cake_dsv4 import get_cake_dsv4_spec
+def _device_scale(
+    value: Union[float, torch.Tensor], *, device: torch.device, name: str
+) -> torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        if value.dtype != torch.float32 or value.numel() != 1:
+            raise ValueError(f"{name} must be a one-element FP32 tensor")
+        if value.device != device:
+            raise ValueError(f"{name} must be on {device}, got {value.device}")
+        if not value.is_contiguous():
+            raise ValueError(f"{name} must be contiguous")
+        return value
 
-    arch = _target_arch(workspace.device)
-    contract = get_cake_dsv4_spec(variant, arch=arch)
-    arg_plan = contract["arg_plan"]
-    input_plan = [
-        (kind, name) for kind, name in arg_plan if kind not in ("workspace", "grid")
-    ]
-    if len(args) != len(input_plan):
+    device_index = device.index
+    if device_index is None and device.type == "cuda":
+        device_index = torch.cuda.current_device()
+    key = (device.type, device_index, float(value))
+    with _scale_cache_lock:
+        result = _scale_cache.get(key)
+        if result is None:
+            # Process-lifetime constant; not a per-call allocation.
+            result = torch.tensor([key[2]], dtype=torch.float32, device=device)
+            _scale_cache[key] = result
+    return result
+
+
+def _dense_rows(cache: torch.Tensor, name: str, dtype: torch.dtype) -> torch.Tensor:
+    if cache.dtype != dtype:
+        raise ValueError(f"{name} dtype must match the query dtype {dtype}, got {cache.dtype}")
+    if cache.shape[-1] != _HEAD_DIM:
+        raise ValueError(f"{name} must have head dim {_HEAD_DIM}, got {cache.shape[-1]}")
+    flat = cache.reshape(-1, _HEAD_DIM)
+    if flat.data_ptr() != cache.data_ptr() or not flat.is_contiguous():
         raise ValueError(
-            f"CAKE DSv4 {variant} expects {len(input_plan)} source arguments, got {len(args)}"
+            f"{name} must be a densely packed [..., {_HEAD_DIM}] pool; backend='cake' "
+            "makes no host copy, so strided page layouts are not supported"
         )
-    descriptors = None
-    if contract["tma_workspace_bytes"]:
-        tensors = [
-            value
-            for (kind, _name), value in zip(input_plan, args, strict=True)
-            if kind == "tma_buffer"
-        ]
-        descriptors = _descriptor_workspace(
-            workspace, variant, tensors, contract["tma_workspace_bytes"]
+    return flat
+
+
+def _int32_vector(tensor: torch.Tensor, name: str, device: torch.device) -> torch.Tensor:
+    if tensor.dtype != torch.int32:
+        raise ValueError(f"{name} must be int32, got {tensor.dtype}")
+    if tensor.device != device:
+        raise ValueError(f"{name} must be on {device}, got {tensor.device}")
+    flat = tensor.reshape(-1)
+    if flat.data_ptr() != tensor.data_ptr() or not flat.is_contiguous():
+        raise ValueError(f"{name} must be contiguous; backend='cake' makes no host copy")
+    return flat
+
+
+class _Launcher:
+    """Per-call launch context: shared values plus per-variant overrides."""
+
+    def __init__(
+        self,
+        *,
+        arch: str,
+        workspace: torch.Tensor,
+        raw: torch.Tensor,
+        stream: int,
+        values: dict[str, Any],
+    ):
+        self.arch = arch
+        self.workspace = workspace
+        self.raw = raw
+        self.stream = stream
+        self.values = values
+
+    def variant(self, name: str, *, grid: tuple[int, int, int], **overrides: Any):
+        return _launch_variant(
+            name,
+            arch=self.arch,
+            grid=grid,
+            workspace_raw=self.raw,
+            values={**self.values, **overrides},
         )
-    inputs = iter(args)
-    grid_args = dict(zip(("grid_x", "grid_y", "grid_z"), grid, strict=True))
-    bound_args = []
-    for kind, name in arg_plan:
-        if kind == "workspace":
-            if name != "tma_descriptor_workspace" or descriptors is None:
-                raise ValueError(
-                    f"CAKE DSv4 {variant} has an unresolved workspace argument: {name}"
-                )
-            bound_args.append(descriptors)
-        elif kind == "grid":
-            bound_args.append(grid_args[name])
-        else:
-            bound_args.append(next(inputs))
-    # Direct-source bindings use the target FFI current stream. The old explicit
-    # stream value belongs to Python orchestration, not the generated ABI.
-    return getattr(_variant_module(variant, arch=arch), contract["entry"])(*bound_args)
+
+    def program(self, name: str, **overrides: Any) -> None:
+        _launch_program(
+            name,
+            arch=self.arch,
+            stream=self.stream,
+            workspace_raw=self.raw,
+            values={**self.values, **overrides},
+        )
+
+    def partials(self, num_splits: int) -> dict[str, Any]:
+        partial_o, partial_lse = _partial_views(
+            self.raw,
+            self.values["O"],
+            self.values["num_query_tokens"],
+            self.values["num_heads"],
+            num_splits,
+        )
+        return {"partial_O": partial_o, "partial_lse": partial_lse, "num_splits": num_splits}
+
+    def counters(self, merge_groups: int) -> torch.Tensor:
+        _ensure_counters_zeroed(self.workspace, self.raw)
+        return _counters(self.raw, merge_groups)
+
+    def reduce(self, reducer: str, **overrides: Any) -> None:
+        tokens = self.values["num_query_tokens"]
+        heads = self.values["num_heads"]
+        self.variant(reducer, grid=(tokens, heads, 1), **overrides)
 
 
-def _partition_workspace(workspace, out, num_query_tokens, num_heads, num_splits):
-    lse_elems = num_query_tokens * num_heads * num_splits
-    if num_splits == 1:
-        return out.reshape(-1), _direct_lse(workspace, lse_elems)
-    return _workspace_views(
-        workspace,
-        partial_o_elems=lse_elems * _HEAD_DIM,
-        partial_lse_elems=lse_elems,
-    )
-
-
-def _workspace_state(workspace: torch.Tensor) -> dict:
-    state = getattr(workspace, "_cake_dsv4_state", None)
-    if state is None:
-        state = {}
-        workspace._cake_dsv4_state = state
-    return state
-
-
-def _partition_arrivals(workspace, variant, merge_groups, num_splits):
-    # The producer increments these counters and consumes successive generations.
-    # Keep their lifetime with the caller's workspace, as for partial O/LSE.
-    state = _workspace_state(workspace)
-    key = (variant, merge_groups, num_splits)
-    counters = state.get(key)
-    if counters is None:
-        counters = [
-            torch.zeros(merge_groups, dtype=torch.uint32, device=workspace.device),
-            0,
-        ]
-        state[key] = counters
-    completion_base = counters[1]
-    counters[1] += num_splits
-    return counters[0], completion_base
-
-
-def _padded_sparse_indices(workspace, indices):
-    # The last query needs backing storage through the fixed 1152-entry staging
-    # envelope. Only the live sparse prefix participates in the computation.
-    rows, width = indices.shape
-    flat = indices.reshape(-1)
-    required = (rows - 1) * width + 1152
-    if flat.numel() >= required:
-        return flat
-    state = _workspace_state(workspace)
-    key = ("sparse_index_tail", rows, width)
-    padded = state.get(key)
-    if padded is None:
-        padded = torch.full((required,), -1, dtype=torch.int32, device=indices.device)
-        state[key] = padded
-    # Public callers may update indices in place between calls.
-    padded[: flat.numel()].copy_(flat)
-    return padded
-
-
-def _launch_shared_reduce(
-    partial_o,
-    partial_lse,
-    out,
-    num_query_tokens,
-    num_heads,
-    num_splits,
-    stream,
-    workspace,
-):
-    _launch_variant(
-        "split_reduce",
-        partial_o,
-        partial_lse,
-        out,
-        num_heads,
-        num_splits,
-        grid=(num_query_tokens, num_heads, 1),
-        stream=stream,
-        workspace=workspace,
-    )
+def _ceil_div(a: int, b: int) -> int:
+    return -(-a // b)
 
 
 def run_cake_dsv4(
@@ -471,39 +905,96 @@ def run_cake_dsv4(
     compressed_kv_cache: torch.Tensor,
     workspace_buffer: torch.Tensor,
     sparse_indices: torch.Tensor,
-    sparse_topk_lens: torch.Tensor,
+    sparse_topk_lens: Optional[torch.Tensor],
     out: torch.Tensor,
     bmm1_scale: Union[float, torch.Tensor],
     bmm2_scale: Union[float, torch.Tensor],
-    sinks: torch.Tensor | None,
+    sinks: Optional[torch.Tensor],
     max_q_len: int,
-    cum_seq_lens_q: torch.Tensor | None,
+    cum_seq_lens_q: Optional[torch.Tensor],
     seq_lens: torch.Tensor,
     backend: Literal["cake"],
+    extra_sparse_indices: Optional[torch.Tensor] = None,
+    extra_sparse_topk_lens: Optional[torch.Tensor] = None,
+    sparse_topk_lens_offset: int = 0,
 ) -> torch.Tensor:
+    """Launch the CAKE DSv4 route for flattened ``query [rows, num_heads, 512]``.
+
+    ``query`` / ``out`` may have more rows than the metadata; only the first
+    ``num_query_tokens`` (metadata rows) are read and written. No device memory
+    is allocated here; see the module docstring for the workspace contract.
+    """
     if backend != "cake":
         raise ValueError(f"expected backend='cake', got {backend!r}")
-    num_query_tokens, num_heads, head_dim = query.shape
+    if query.ndim != 3:
+        raise ValueError(
+            f"query must be [num_tokens, num_heads, {_HEAD_DIM}], got shape {tuple(query.shape)}"
+        )
+    query_capacity, num_heads, head_dim = query.shape
     if head_dim != _HEAD_DIM:
         raise ValueError(f"CAKE DSv4 requires head dim {_HEAD_DIM}, got {head_dim}")
+    if query.dtype not in (torch.bfloat16, torch.float8_e4m3fn):
+        raise ValueError(f"unsupported CAKE DSv4 dtype: {query.dtype}")
+    if not query.is_contiguous():
+        raise ValueError("query must be contiguous; backend='cake' makes no host copy")
+    device = query.device
+    arch = _target_arch(device)
+
+    meta = resolve_cake_dsv4_sparse_metadata(
+        sparse_indices,
+        sparse_topk_lens,
+        extra_sparse_indices=extra_sparse_indices,
+        extra_sparse_topk_lens=extra_sparse_topk_lens,
+        sparse_topk_lens_offset=sparse_topk_lens_offset,
+        query_rows=query_capacity,
+    )
+    for tensor, name in (
+        (meta.swa_indices, "sparse_indices"),
+        (meta.compressed_indices, "extra_sparse_indices"),
+        (meta.sparse_topk_lens, "sparse_topk_lens"),
+    ):
+        if tensor.device != device:
+            raise ValueError(f"{name} must be on {device}, got {tensor.device}")
+    num_query_tokens = meta.num_query_tokens
+    sparse_topk = meta.sparse_topk
+
+    if out.dtype != torch.bfloat16:
+        raise ValueError(f"out must be bfloat16, got {out.dtype}")
+    if out.device != device:
+        raise ValueError(f"out must be on {device}, got {out.device}")
+    if not out.is_contiguous():
+        raise ValueError("out must be contiguous; backend='cake' makes no host copy")
+    row_elems = num_heads * _HEAD_DIM
+    if out.numel() % row_elems or out.numel() < num_query_tokens * row_elems:
+        raise ValueError(
+            f"out must hold at least {num_query_tokens} rows of [{num_heads}, {_HEAD_DIM}], "
+            f"got {tuple(out.shape)}"
+        )
+    query_rows = query[:num_query_tokens]
+    out_rows = out.view(-1, num_heads, _HEAD_DIM)[:num_query_tokens]
+
+    swa = _dense_rows(swa_kv_cache, "swa_kv_cache", query.dtype)
+    compressed = _dense_rows(compressed_kv_cache, "compressed_kv_cache", query.dtype)
+    seq_lens = _int32_vector(seq_lens, "seq_lens", device)
     batch_size = seq_lens.numel()
     ragged = cum_seq_lens_q is not None
-    query = query.contiguous()
-    indices = sparse_indices.reshape(num_query_tokens, -1).contiguous()
-    active_lens = sparse_topk_lens.reshape(-1).contiguous()
-    sparse_topk = indices.shape[1]
-    swa = swa_kv_cache.reshape(-1, _HEAD_DIM).contiguous()
-    compressed = compressed_kv_cache.reshape(-1, _HEAD_DIM).contiguous()
-    seq_lens = seq_lens.reshape(-1).contiguous()
-    if cum_seq_lens_q is not None:
-        cum_seq_lens_q = cum_seq_lens_q.reshape(-1).contiguous()
-    out_rows = out.reshape(num_query_tokens, num_heads, _HEAD_DIM)
-    scale1 = _device_scale(bmm1_scale, device=query.device, name="bmm1_scale")
-    scale2 = _device_scale(bmm2_scale, device=query.device, name="bmm2_scale")
+    if ragged:
+        cum_seq_lens_q = _int32_vector(cum_seq_lens_q, "cum_seq_lens_q", device)
+    scale1 = _device_scale(bmm1_scale, device=device, name="bmm1_scale")
+    scale2 = _device_scale(bmm2_scale, device=device, name="bmm2_scale")
+    if sinks is not None:
+        if sinks.dtype != torch.float32 or sinks.device != device or not sinks.is_contiguous():
+            raise ValueError(f"sinks must be a contiguous FP32 tensor on {device}")
     has_sinks = int(sinks is not None)
     sink_tensor = sinks if sinks is not None else scale1
+
+    if workspace_buffer.device != device:
+        raise ValueError(
+            f"workspace_buffer must be on {device}, got {workspace_buffer.device}"
+        )
+    raw = _workspace_bytes(workspace_buffer)
     route = _route(
-        arch=_target_arch(query.device),
+        arch=arch,
         dtype=query.dtype,
         num_heads=num_heads,
         max_q_len=max_q_len,
@@ -512,28 +1003,55 @@ def run_cake_dsv4(
         batch_size=batch_size,
         compressed_page_size=compressed_kv_cache.shape[-2],
     )
-    stream = _stream_ptr(query.device)
+
+    is_fp8 = query.dtype == torch.float8_e4m3fn
+    values: dict[str, Any] = {
+        "Q": query_rows.view(torch.uint8) if is_fp8 else query_rows,
+        "SWA_cache": swa.view(torch.uint8) if is_fp8 else swa,
+        "compressed_KV_cache": compressed.view(torch.uint8) if is_fp8 else compressed,
+        "O": out_rows,
+        "seq_lens": seq_lens,
+        "cum_seq_lens_q": cum_seq_lens_q,
+        "sinks": sink_tensor,
+        "bmm1_scale": scale1,
+        "bmm2_scale": scale2,
+        **meta.kernel_kwargs(),
+        "sparse_indices": meta.legacy_combined_table,
+        "num_heads": num_heads,
+        "num_head_tiles": _ceil_div(num_heads, 64),
+        "has_sinks": has_sinks,
+        "batch_size": batch_size,
+        "max_q_len": max_q_len,
+        "ragged_query": int(ragged),
+        "num_splits": 1,
+        "total_work_items": num_query_tokens,
+    }
+    launcher = _Launcher(
+        arch=arch,
+        workspace=workspace_buffer,
+        raw=raw,
+        stream=_stream_ptr(device),
+        values=values,
+    )
+    _dispatch_route(route, launcher)
+    return out
+
+
+def _dispatch_route(route: str, L: _Launcher) -> None:
+    v = L.values
+    T = v["num_query_tokens"]
+    H = v["num_heads"]
+    topk = v["sparse_topk"]
+    arch = L.arch
 
     if route == "bf16_h8_h32":
-        # Retain the general low-head path outside the specialized profiles.
-        _run_bf16_split(
-            variant=route,
-            reducer="bf16_h8_h32_reduce",
-            query=query,
-            swa=swa,
-            compressed=compressed,
-            workspace=workspace_buffer,
-            indices=indices,
-            active_lens=active_lens,
-            sinks=sink_tensor,
-            bmm1_scale=scale1,
-            bmm2_scale=scale2,
-            out=out_rows,
-            num_heads=num_heads,
-            with_head_tiles=False,
-            stream=stream,
-        )
-        return out
+        # General low-head path outside the specialized profiles.
+        num_splits = _ceil_div(topk, _TILE_KV)
+        parts = L.partials(num_splits)
+        L.variant(route, grid=(T * num_splits * 4, 1, 1), **parts)
+        if num_splits > 1:
+            L.reduce("bf16_h8_h32_reduce", **parts)
+        return
 
     if route in (
         "bf16_swa128_single_cta",
@@ -541,313 +1059,82 @@ def run_cake_dsv4(
         "bf16_h8_swa128_v43",
         "bf16_h16_h32_swa128_v44",
     ):
-        head_tiles = (num_heads + 63) // 64 if route == "bf16_h128_swa128" else 1
-        scalars = (
-            (num_heads, head_tiles, has_sinks)
-            if route == "bf16_h128_swa128"
-            else (num_heads, has_sinks)
-        )
-        _launch_variant(
-            route,
-            query,
-            swa,
-            out_rows,
-            indices,
-            active_lens,
-            sink_tensor,
-            scale1,
-            scale2,
-            *scalars,
-            grid=(num_query_tokens * head_tiles * 4, 1, 1),
-            stream=stream,
-            workspace=workspace_buffer,
-        )
-        return out
+        head_tiles = _ceil_div(H, 64) if route == "bf16_h128_swa128" else 1
+        L.variant(route, grid=(T * head_tiles * 4, 1, 1), num_head_tiles=head_tiles)
+        return
 
     if route == "bf16_h8_h16_source_exact":
-        _launch_variant(
-            route,
-            query,
-            swa,
-            compressed,
-            out_rows,
-            indices,
-            active_lens,
-            seq_lens,
-            cum_seq_lens_q,
-            sink_tensor,
-            scale1,
-            scale2,
-            sparse_topk,
-            max_q_len,
-            batch_size,
-            has_sinks,
-            grid=(max_q_len, (num_heads // 8) * 4, batch_size),
-            stream=stream,
-            workspace=workspace_buffer,
-        )
-        return out
+        L.variant(route, grid=(v["max_q_len"], (H // 8) * 4, v["batch_size"]))
+        return
 
     if route == "bf16_h64_guard_q_tma_batch_r25":
-        _launch_variant(
-            route,
-            query,
-            swa,
-            compressed,
-            out_rows,
-            indices,
-            active_lens,
-            seq_lens,
-            cum_seq_lens_q,
-            sink_tensor,
-            scale1,
-            scale2,
-            num_heads,
-            sparse_topk,
-            batch_size,
-            max_q_len,
-            int(ragged),
-            has_sinks,
-            grid=(num_query_tokens, 2, 1),
-            stream=stream,
-            workspace=workspace_buffer,
-        )
-        return out
+        L.variant(route, grid=(T, 2, 1))
+        return
 
     if route in ("bf16_h64_compressed_q8_v38", "bf16_h64_fixed_q"):
-        num_splits = (sparse_topk + 127) // 128
-        partial_o, partial_lse = _partition_workspace(
-            workspace_buffer, out_rows, num_query_tokens, num_heads, num_splits
-        )
-        _launch_variant(
-            route,
-            query,
-            swa,
-            compressed,
-            partial_o,
-            partial_lse,
-            indices,
-            active_lens,
-            sink_tensor,
-            scale1,
-            scale2,
-            num_heads,
-            sparse_topk,
-            num_splits,
-            has_sinks,
-            grid=(num_query_tokens * num_splits * 2, 1, 1),
-            stream=stream,
-            workspace=workspace_buffer,
-        )
+        num_splits = _ceil_div(topk, _TILE_KV)
+        parts = L.partials(num_splits)
+        L.variant(route, grid=(T * num_splits * 2, 1, 1), **parts)
         if num_splits > 1:
-            _launch_variant(
-                (
-                    "bf16_h64_compressed_reduce"
-                    if route == "bf16_h64_compressed_q8_v38"
-                    else "bf16_h64_fixed_q_reduce"
-                ),
-                partial_o,
-                partial_lse,
-                out_rows,
-                num_heads,
-                num_splits,
-                grid=(num_query_tokens, num_heads, 1),
-                stream=stream,
-                workspace=workspace_buffer,
+            reducer = (
+                "bf16_h64_compressed_reduce"
+                if route == "bf16_h64_compressed_q8_v38"
+                else "bf16_h64_fixed_q_reduce"
             )
-        return out
+            L.reduce(reducer, **parts)
+        return
 
     if route in ("bf16_h32_topk4x_v38", "bf16_h32_topk128x_early_v47"):
-        num_splits = (sparse_topk + 127) // 128
-        head_tiles = (num_heads + 7) // 8
-        partial_o, partial_lse = _partition_workspace(
-            workspace_buffer, out_rows, num_query_tokens, num_heads, num_splits
-        )
-        arrivals, completion_base = _partition_arrivals(
-            workspace_buffer, route, num_query_tokens * head_tiles, num_splits
-        )
-        _launch_variant(
+        num_splits = _ceil_div(topk, _TILE_KV)
+        head_tiles = _ceil_div(H, 8)
+        parts = L.partials(num_splits)
+        arrivals = L.counters(T * head_tiles)
+        L.variant(
             route,
-            query,
-            swa,
-            compressed,
-            partial_o,
-            partial_lse,
-            out_rows,
-            arrivals,
-            indices,
-            active_lens,
-            sink_tensor,
-            scale1,
-            scale2,
-            num_heads,
-            sparse_topk,
-            num_splits,
-            head_tiles,
-            has_sinks,
-            completion_base,
-            grid=(num_query_tokens * num_splits * head_tiles, 1, 1),
-            stream=stream,
-            workspace=workspace_buffer,
+            grid=(T * num_splits * head_tiles, 1, 1),
+            partition_arrivals=arrivals,
+            num_head_tiles=head_tiles,
+            **parts,
         )
-        return out
+        return
 
     if route == "bf16_h64_prefill":
-        _launch_variant(
-            route,
-            query,
-            swa,
-            compressed,
-            out_rows,
-            indices,
-            active_lens,
-            sink_tensor,
-            scale1,
-            scale2,
-            num_heads,
-            sparse_topk,
-            num_query_tokens,
-            has_sinks,
-            grid=(num_query_tokens, 1, 1),
-            stream=stream,
-            workspace=workspace_buffer,
-        )
-        return out
+        L.variant(route, grid=(T, 1, 1), total_work_items=T)
+        return
 
     if route in ("bf16_h128_topk128x", "bf16_h128_topk4x_v52", "bf16_h128_prefill_v42"):
         num_splits = 5 if route == "bf16_h128_topk4x_v52" else 1
         program_variant = route
-        if (
-            route == "bf16_h128_topk128x"
-            and _target_arch(query.device) == "sm_100a"
-            and 256 < sparse_topk <= 384
-        ):
+        if route == "bf16_h128_topk128x" and arch == "sm_100a" and 256 < topk <= 384:
             num_splits = 3
             program_variant = "bf16_h128_topk128x_split3_sm100"
-        elif (
-            route == "bf16_h128_topk128x"
-            and _target_arch(query.device) == "sm_100a"
-            and sparse_topk == 388
-        ):
+        elif route == "bf16_h128_topk128x" and arch == "sm_100a" and topk == 388:
             num_splits = 4
             program_variant = "bf16_h128_topk128x_split4_sm100"
-        partial_o, partial_lse = _partition_workspace(
-            workspace_buffer, out_rows, num_query_tokens, num_heads, num_splits
-        )
-        packed_indices = (
-            _padded_sparse_indices(workspace_buffer, indices)
-            if route == "bf16_h128_topk128x"
-            else indices
-        )
-        total_work_items = num_query_tokens * num_splits
-        _launch_program(
-            program_variant,
-            stream=stream,
-            Q=query,
-            SWA_cache=swa,
-            compressed_KV_cache=compressed,
-            partial_O=partial_o,
-            partial_lse=partial_lse,
-            sparse_indices=packed_indices,
-            sparse_topk_lens=active_lens,
-            sinks=sink_tensor,
-            bmm1_scale=scale1,
-            bmm2_scale=scale2,
-            O=out_rows,
-            num_heads=num_heads,
-            num_query_tokens=num_query_tokens,
-            sparse_topk=sparse_topk,
-            has_sinks=has_sinks,
-            total_work_items=total_work_items,
-            num_split=num_splits,
-        )
-        return out
-
-    query_u8 = query.view(torch.uint8)
-    swa_u8 = swa.view(torch.uint8)
-    compressed_u8 = compressed.view(torch.uint8)
+        parts = L.partials(num_splits)
+        L.program(program_variant, total_work_items=T * num_splits, **parts)
+        return
 
     if route == "fp8_h64_source_exact":
-        head_tiles = (num_heads + 63) // 64
-        total_work_items = max_q_len * head_tiles * batch_size
-        _launch_variant(
+        head_tiles = _ceil_div(H, 64)
+        L.variant(
             route,
-            query_u8,
-            swa_u8,
-            compressed_u8,
-            out_rows,
-            cum_seq_lens_q,
-            indices,
-            active_lens,
-            sink_tensor,
-            scale1,
-            scale2,
-            num_heads,
-            sparse_topk,
-            has_sinks,
-            total_work_items,
-            grid=(max_q_len, head_tiles, batch_size),
-            stream=stream,
-            workspace=workspace_buffer,
+            grid=(v["max_q_len"], head_tiles, v["batch_size"]),
+            num_head_tiles=head_tiles,
+            total_work_items=v["max_q_len"] * head_tiles * v["batch_size"],
         )
-        return out
+        return
 
     if route == "fp8_h128_prefill_source_persistent":
-        _launch_variant(
-            route,
-            query_u8,
-            swa_u8,
-            compressed_u8,
-            out_rows.reshape(-1),
-            _direct_lse(workspace_buffer, 1),
-            indices,
-            active_lens,
-            seq_lens,
-            cum_seq_lens_q,
-            sink_tensor,
-            scale1,
-            scale2,
-            num_heads,
-            num_query_tokens,
-            sparse_topk,
-            has_sinks,
-            num_query_tokens,
-            max_q_len,
-            batch_size,
-            grid=(num_query_tokens * 2, 1, 1),
-            stream=stream,
-            workspace=workspace_buffer,
-        )
-        return out
+        parts = L.partials(1)
+        L.variant(route, grid=(T * 2, 1, 1), total_work_items=T, **parts)
+        return
 
     if route == "fp8_h128":
-        num_splits = 5 if sparse_topk > 128 and num_query_tokens < 128 else 1
-        partial_o, partial_lse = _partition_workspace(
-            workspace_buffer, out_rows, num_query_tokens, num_heads, num_splits
-        )
-        total_work_items = num_query_tokens * num_splits
-        _launch_program(
-            route,
-            stream=stream,
-            Q=query_u8,
-            SWA_cache=swa_u8,
-            compressed_KV_cache=compressed_u8,
-            partial_O=partial_o,
-            partial_lse=partial_lse,
-            sparse_indices=indices,
-            sparse_topk_lens=active_lens,
-            sinks=sink_tensor,
-            bmm1_scale=scale1,
-            bmm2_scale=scale2,
-            O=out_rows,
-            num_heads=num_heads,
-            num_query_tokens=num_query_tokens,
-            sparse_topk=sparse_topk,
-            has_sinks=has_sinks,
-            total_work_items=total_work_items,
-            num_split=num_splits,
-        )
-        return out
+        num_splits = 5 if topk > 128 and T < 128 else 1
+        parts = L.partials(num_splits)
+        L.program(route, total_work_items=T * num_splits, **parts)
+        return
 
     if route in (
         "fp8_lowhead_swa",
@@ -858,60 +1145,34 @@ def run_cake_dsv4(
         "fp8_lowhead_prefill",
     ):
         num_splits = 2 if route in ("fp8_lowhead_split", "fp8_lowhead_h64_split") else 1
-        partial_o, partial_lse = _partition_workspace(
-            workspace_buffer, out_rows, num_query_tokens, num_heads, num_splits
-        )
-        work_factor = (
-            2 if route in ("fp8_lowhead_swa", "fp8_lowhead_prefill") else num_splits
-        )
-        total_work_items = num_query_tokens * work_factor
+        parts = L.partials(num_splits)
+        work_factor = 2 if route in ("fp8_lowhead_swa", "fp8_lowhead_prefill") else num_splits
+        total_work_items = T * work_factor
         cluster = 1 if route == "fp8_lowhead_prefill" else 2
-        _launch_variant(
+        L.variant(
             route,
-            query_u8,
-            swa_u8,
-            compressed_u8,
-            partial_o,
-            partial_lse,
-            indices,
-            active_lens,
-            sink_tensor,
-            scale1,
-            scale2,
-            num_heads,
-            num_query_tokens,
-            sparse_topk,
-            has_sinks,
-            total_work_items,
             grid=(total_work_items * cluster, 1, 1),
-            stream=stream,
-            workspace=workspace_buffer,
+            total_work_items=total_work_items,
+            **parts,
         )
         if route == "fp8_lowhead_h64_split":
-            _launch_variant(
-                "fp8_h64_split_reduce2",
-                partial_o,
-                partial_lse,
-                out_rows,
-                num_heads,
-                grid=(num_query_tokens, num_heads, 1),
-                stream=stream,
-                workspace=workspace_buffer,
-            )
+            L.reduce("fp8_h64_split_reduce2", **parts)
         elif num_splits > 1:
-            _launch_shared_reduce(
-                partial_o,
-                partial_lse,
-                out_rows,
-                num_query_tokens,
-                num_heads,
-                num_splits,
-                stream,
-                workspace_buffer,
-            )
-        return out
+            L.reduce("split_reduce", **parts)
+        return
 
     raise RuntimeError(f"unhandled CAKE DSv4 route: {route}")
 
 
-__all__ = ["run_cake_dsv4"]
+__all__ = [
+    "KERNEL_METADATA_PARAMS",
+    "SparseMetadata",
+    "WorkspaceLayout",
+    "cake_dsv4_workspace_layout",
+    "cake_dsv4_workspace_reset",
+    "canonical_arg_name",
+    "get_cake_dsv4_workspace_bytes",
+    "is_bindable_arg",
+    "resolve_cake_dsv4_sparse_metadata",
+    "run_cake_dsv4",
+]

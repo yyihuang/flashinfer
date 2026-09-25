@@ -40,6 +40,15 @@ _SPARSE_MLA_NVFP4_SM120_LAZY_EXPORTS = frozenset(
     }
 )
 
+_CAKE_DSV4_LAZY_EXPORTS = frozenset(
+    {
+        "cake_dsv4_workspace_layout",
+        "cake_dsv4_workspace_reset",
+        "get_cake_dsv4_workspace_bytes",
+        "resolve_cake_dsv4_sparse_metadata",
+    }
+)
+
 
 def __getattr__(name: str):
     """Resolve lazily-exported MLA APIs without loading their runtime at import."""
@@ -62,6 +71,12 @@ def __getattr__(name: str):
         value = getattr(_dsv4_nvfp4, name)
         globals()[name] = value
         return value
+    if name in _CAKE_DSV4_LAZY_EXPORTS:
+        from . import cake_dsv4
+
+        value = getattr(cake_dsv4, name)
+        globals()[name] = value
+        return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -72,4 +87,5 @@ def __dir__():
         | _PRIMS_TS_LAZY_EXPORTS
         | _SPARSE_MLA_SM120_LAZY_EXPORTS
         | _SPARSE_MLA_NVFP4_SM120_LAZY_EXPORTS
+        | _CAKE_DSV4_LAZY_EXPORTS
     )
