@@ -166,6 +166,8 @@ class _Inputs:
         separate: bool = False,
         lens_offset: int = 0,
         metadata_rows: int | None = None,
+        backend: str = "cake",
+        multi_ctas_kv_counter_buffer: torch.Tensor | None = None,
     ) -> torch.Tensor:
         rows = self.num_tokens if metadata_rows is None else metadata_rows
         kwargs = dict(
@@ -182,9 +184,11 @@ class _Inputs:
             cum_seq_lens_q=self.cum_seq_lens_q,
             max_q_len=self.max_q_len,
             enable_pdl=False,
-            backend="cake",
+            backend=backend,
             sparse_topk_lens_offset=lens_offset,
         )
+        if multi_ctas_kv_counter_buffer is not None:
+            kwargs["multi_ctas_kv_counter_buffer"] = multi_ctas_kv_counter_buffer
         if separate:
             kwargs.update(
                 sparse_indices=self.swa_indices[:rows],
@@ -337,3 +341,81 @@ def test_cuda_graph_replay_matches_eager(h_q, dtype, s_q):
     # The reference must be evaluated on the mutated testcase's own tensors.
     ref._assert_close(_rows(eager_out, static), mutated.reference_rows(), dtype)
     assert torch.equal(out, eager_out)
+
+
+# --------------------------------------------------------------------------- trtllm-gen host hardening
+def _skip_unless_trtllm_gen_gpu() -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    compute_capability = get_compute_capability(torch.device("cuda"))
+    if compute_capability not in ((10, 0), (10, 3)):
+        pytest.skip("TRTLLM-GEN DSv4 sparse MLA requires SM100/SM103")
+
+
+def _trtllm_workspace() -> torch.Tensor:
+    return torch.zeros(128 * 1024 * 1024, dtype=torch.uint8, device="cuda:0")
+
+
+@pytest.mark.parametrize(
+    "h_q,dtype,s_q",
+    [pytest.param(64, torch.bfloat16, 4, id="h64-bf16-q4"), pytest.param(128, torch.float8_e4m3fn, 1, id="h128-fp8-q1")],
+)
+@pytest.mark.parametrize("layout", ["dense", "ragged"])
+def test_trtllm_gen_padded_query_rows_match_reference(h_q, dtype, s_q, layout):
+    """Default backend: query/out rows beyond the metadata tables are sliced away on the host."""
+    _skip_unless_trtllm_gen_gpu()
+    p, tc = _make_case(h_q, dtype, s_q, varlen=layout == "ragged")
+    inputs = _Inputs(p, tc)
+    rows = inputs.num_tokens - 1 if s_q == 1 else inputs.num_tokens - s_q
+    assert rows >= 1
+    out = _out_like(inputs)
+    inputs.run(out=out, workspace=_trtllm_workspace(), metadata_rows=rows, backend="trtllm-gen")
+    torch.cuda.synchronize()
+    expected = inputs.reference_rows()
+    got = _rows(out, inputs)
+    ref._assert_close(got[:rows], expected[:rows], dtype)
+    assert torch.isnan(got[rows:]).all(), "padded query rows must not be written"
+
+
+@pytest.mark.parametrize(
+    "h_q,dtype,s_q",
+    [pytest.param(64, torch.bfloat16, 2, id="h64-bf16-q2"), pytest.param(128, torch.float8_e4m3fn, 4, id="h128-fp8-q4")],
+)
+def test_trtllm_gen_caller_owned_counter_buffer(h_q, dtype, s_q):
+    """A caller-owned multi-CTA KV counter buffer is validated, reused and graph-replayable."""
+    from flashinfer.utils import get_device_sm_count, get_trtllm_gen_multi_ctas_kv_counter_bytes
+
+    _skip_unless_trtllm_gen_gpu()
+    p, tc = _make_case(h_q, dtype, s_q, varlen=True)
+    inputs = _Inputs(p, tc)
+    sm_count = get_device_sm_count(torch.device("cuda:0"))
+    nbytes = get_trtllm_gen_multi_ctas_kv_counter_bytes(BATCH, h_q, sm_count)
+    counters = torch.zeros(nbytes, dtype=torch.uint8, device="cuda:0")
+    workspace = _trtllm_workspace()
+    expected = inputs.reference_rows()
+    out = _out_like(inputs)
+    for _ in range(3):  # counters must self-reset between launches
+        out.fill_(float("nan"))
+        inputs.run(out=out, workspace=workspace, backend="trtllm-gen", multi_ctas_kv_counter_buffer=counters)
+        torch.cuda.synchronize()
+        ref._assert_close(_rows(out, inputs), expected, dtype)
+    with pytest.raises(ValueError, match="too small"):
+        inputs.run(out=out, workspace=workspace, backend="trtllm-gen", multi_ctas_kv_counter_buffer=counters[: nbytes - 8])
+    with pytest.raises(ValueError, match="only used by backend='trtllm-gen'"):
+        inputs.run(out=out, workspace=_workspace(inputs), backend="cake", multi_ctas_kv_counter_buffer=counters)
+    # graph capture + replay with mutated inputs
+    stream = torch.cuda.Stream()
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.stream(stream):
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.graph(graph, stream=stream):
+            inputs.run(out=out, workspace=workspace, backend="trtllm-gen", multi_ctas_kv_counter_buffer=counters)
+    torch.cuda.synchronize()
+    p2, tc2 = _make_case(h_q, dtype, s_q, varlen=True)
+    fresh = _Inputs(p2, tc2)
+    inputs.copy_from(fresh)
+    out.fill_(float("nan"))
+    graph.replay()
+    graph.replay()
+    torch.cuda.synchronize()
+    ref._assert_close(_rows(out, inputs), fresh.reference_rows(), dtype)

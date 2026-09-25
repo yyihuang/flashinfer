@@ -1752,6 +1752,7 @@ def trtllm_batch_decode_sparse_mla_dsv4(
     dsv4_inv_rope_cos_sin_cache: Optional[torch.Tensor] = None,
     dsv4_output_scale: Optional[torch.Tensor] = None,
     sparse_topk_lens_offset: int = 0,
+    multi_ctas_kv_counter_buffer: Optional[torch.Tensor] = None,
     *,
     kv_cache_format: Literal["fp8", "nvfp4", "fp8_dsv41", "fp8_dsv41_fp4_ca"] = "fp8",
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
@@ -1996,6 +1997,15 @@ def trtllm_batch_decode_sparse_mla_dsv4(
         ``[sum_q, 16, 4096]`` and group-major strides
         ``(4096, sum_q * 4096, 1)``; ``out_scale`` uses the packed UE8M0
         layout described above.
+    multi_ctas_kv_counter_buffer : Optional[torch.Tensor]
+        Caller-owned, zero-initialized ``uint8`` buffer for the TRTLLM-GEN
+        multi-CTA KV split semaphores, sized by
+        :func:`flashinfer.utils.get_trtllm_gen_multi_ctas_kv_counter_bytes`
+        (``batch_size``, ``num_heads``, SM count). The kernel resets the
+        counters at the end of every launch, so one buffer can be reused across
+        launches and CUDA-graph replays. When ``None`` (default) a fresh buffer
+        is allocated per call, which is not CUDA-graph friendly. Only used by
+        ``backend="trtllm-gen"``.
     kv_cache_format : {"fp8", "nvfp4", "fp8_dsv41", "fp8_dsv41_fp4_ca"}
         SM120/SM121 sparse-cache storage format. ``"fp8"`` preserves the
         existing 584-byte DSv4 cache ABI. ``"fp8_dsv41"`` selects the
@@ -2286,6 +2296,10 @@ def trtllm_batch_decode_sparse_mla_dsv4(
             )
     if sparse_indices is None:
         raise ValueError(f"backend={backend!r} requires sparse_indices")
+    if multi_ctas_kv_counter_buffer is not None and backend != "trtllm-gen":
+        raise ValueError(
+            "multi_ctas_kv_counter_buffer is only used by backend='trtllm-gen'"
+        )
 
     (
         swa_kv_cache,
@@ -2308,7 +2322,7 @@ def trtllm_batch_decode_sparse_mla_dsv4(
         cum_seq_lens_q,
         max_q_len,
         allow_sm120_packed_kv=False,
-        metadata_rows_may_be_fewer=backend == "cake",
+        metadata_rows_may_be_fewer=backend in ("cake", "trtllm-gen"),
         check_topk_lens_range=backend != "cake",
     )
 
@@ -2381,7 +2395,32 @@ def trtllm_batch_decode_sparse_mla_dsv4(
         )
 
     primary_kv_cache = compressed_kv_cache
-    sparse_indices = sparse_indices.reshape(query_flat.size(0), -1).contiguous()
+    # Padded DP/MTP batches: ``query``/``out`` may carry more rows than the
+    # metadata tables. Only the metadata rows are attended; the cubin never sees
+    # the padded rows and never writes their output (flashinfer#4671, P1).
+    metadata_rows = sparse_indices.shape[0]
+    if metadata_rows != query_flat.size(0):
+        if rope_quant:
+            raise ValueError(
+                "padded query rows are not supported together with "
+                "dsv4_inv_rope_cos_sin_cache"
+            )
+        if cum_seq_lens_q is None:
+            if metadata_rows % q_len_per_request:
+                raise ValueError(
+                    "dense padded queries must pad whole requests: "
+                    f"{metadata_rows} metadata rows are not a multiple of "
+                    f"q_len {q_len_per_request}"
+                )
+            batch_size = metadata_rows // q_len_per_request
+            if seq_lens.numel() > batch_size:
+                seq_lens = seq_lens[:batch_size]
+        query_flat = query_flat[:metadata_rows]
+        out = out.reshape(-1, *out.shape[-2:])[:metadata_rows]
+        check_shape_dtype_device(
+            seq_lens, (batch_size,), torch.int32, query.device, "seq_lens"
+        )
+    sparse_indices = sparse_indices.reshape(metadata_rows, -1).contiguous()
     sparse_topk_lens = sparse_topk_lens.contiguous()
     has_strided_pages = any(
         kv_cache.stride(-2) != kv_cache.size(-1)
@@ -2426,10 +2465,15 @@ def trtllm_batch_decode_sparse_mla_dsv4(
         )
 
     sm_count = get_device_sm_count(query.device)
-    # Fresh zero-initialized buffer; the kernel self-resets the counters at the
-    # end of the launch, so no explicit re-zeroing is required.
-    multi_ctas_kv_counter_buffer = _get_trtllm_gen_multi_ctas_kv_counter_buffer(
-        batch_size, query_flat.size(1), sm_count, query.device
+    # Caller-owned buffer when provided (validated against the required size);
+    # otherwise a fresh zero-initialized buffer. The kernel self-resets the
+    # counters at the end of the launch, so no explicit re-zeroing is required.
+    multi_ctas_kv_counter_buffer = _resolve_trtllm_gen_multi_ctas_kv_counter_buffer(
+        multi_ctas_kv_counter_buffer,
+        batch_size,
+        query_flat.size(1),
+        sm_count,
+        query.device,
     )
     run_func(
         out,
