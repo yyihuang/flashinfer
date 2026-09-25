@@ -1255,11 +1255,18 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
         )
         total_work_items = T * work_factor
         cluster = 1 if route == "fp8_lowhead_prefill" else 2
+        producer = dict(parts)
+        if num_splits > 1:
+            # The FP8 split producers write their per-partition outputs through
+            # the ``O`` argument ([tokens, heads, splits, 512], as the Cake
+            # dispatcher passes its partial buffer); only the reducer writes
+            # the caller's output rows.
+            producer["O"] = parts["partial_O"]
         L.variant(
             route,
             grid=(total_work_items * cluster, 1, 1),
             total_work_items=total_work_items,
-            **parts,
+            **producer,
         )
         if route == "fp8_lowhead_h64_split":
             L.reduce("fp8_h64_split_reduce2", **parts)

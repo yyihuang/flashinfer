@@ -1854,3 +1854,84 @@ def test_persistent_route_synthesizes_dense_query_offsets(monkeypatch):
     )
     assert ragged["cum_seq_lens_q"].data_ptr() == indptr.data_ptr()
     assert torch.equal(ragged["cum_seq_lens_q"], indptr) and ragged["max_q_len"] == 3
+
+
+_FP8_SPLIT_PRODUCER_PLAN = _plan(
+    ("tma_buffer", "tmap_q"),
+    ("tma_buffer", "tmap_swa_kv"),
+    ("tma_buffer", "tmap_compressed_kv"),
+    ("buffer", "O"),
+    ("buffer", "partial_lse"),
+    ("buffer", "swa_indices"),
+    ("buffer", "compressed_indices"),
+    ("buffer", "sparse_topk_lens"),
+    ("buffer", "sinks"),
+    ("buffer", "bmm1_scale"),
+    ("buffer", "bmm2_scale"),
+    ("parameter", "num_heads"),
+    ("parameter", "swa_index_stride"),
+    ("parameter", "compressed_index_stride"),
+    ("parameter", "sparse_topk_lens_offset"),
+    ("parameter", "num_query_tokens"),
+    ("parameter", "sparse_topk"),
+    ("parameter", "has_sinks"),
+    ("parameter", "total_work_items"),
+)
+_FP8_SPLIT_REDUCE_PLAN = _plan(
+    ("buffer", "partial_O"),
+    ("buffer", "partial_lse"),
+    ("buffer", "O"),
+    ("parameter", "num_q_heads"),
+    ("parameter", "num_split"),
+)
+
+
+def test_fp8_split_producer_writes_partials_through_o(monkeypatch):
+    """fp8_lowhead_split's ``O`` is the [tokens, heads, 2, 512] partial buffer."""
+    recorder = _install_fake_variants(
+        monkeypatch,
+        {
+            "fp8_lowhead_split": _FP8_SPLIT_PRODUCER_PLAN,
+            "split_reduce": _FP8_SPLIT_REDUCE_PLAN,
+        },
+    )
+    monkeypatch.setattr(cake, "_target_arch", lambda device: "sm_103a")
+    monkeypatch.setattr(cake, "_stream_ptr", lambda device: 0)
+    rows, compressed, heads = 4, 256, 32
+    table, lens = _combined_metadata(rows, compressed)
+    workspace = _aligned_u8(
+        get_cake_dsv4_workspace_bytes(
+            rows, heads, 128 + compressed, torch.float8_e4m3fn
+        )
+    )
+    out = torch.zeros((rows, heads, 512), dtype=torch.bfloat16)
+    cake.run_cake_dsv4(
+        query=torch.zeros((rows, heads, 512), dtype=torch.float8_e4m3fn),
+        swa_kv_cache=torch.zeros((4, 1, 256, 512), dtype=torch.float8_e4m3fn),
+        compressed_kv_cache=torch.zeros((8, 1, 64, 512), dtype=torch.float8_e4m3fn),
+        workspace_buffer=workspace,
+        out=out,
+        bmm1_scale=0.5,
+        bmm2_scale=1.0,
+        sinks=None,
+        max_q_len=2,
+        cum_seq_lens_q=None,
+        seq_lens=torch.full((2,), 1000, dtype=torch.int32),
+        backend="cake",
+        sparse_indices=table,
+        sparse_topk_lens=lens,
+    )
+    producer, reduce = recorder.calls
+    m = dict(zip((name for _, name in _FP8_SPLIT_PRODUCER_PLAN), producer, strict=True))
+    r = dict(zip((name for _, name in _FP8_SPLIT_REDUCE_PLAN), reduce, strict=True))
+    layout = cake_dsv4_workspace_layout(rows, heads, 2)
+    assert m["O"].data_ptr() == workspace.data_ptr() + layout.partial_o[0]
+    assert m["O"].numel() == rows * heads * 2 * 512 and m["O"].dtype == torch.bfloat16
+    assert m["partial_lse"].data_ptr() == workspace.data_ptr() + layout.partial_lse[0]
+    assert m["total_work_items"] == rows * 2
+    assert (m["grid_x"], m["grid_y"], m["grid_z"]) == (rows * 2 * 2, 1, 1)
+    assert r["partial_O"].data_ptr() == m["O"].data_ptr()
+    assert r["partial_lse"].data_ptr() == m["partial_lse"].data_ptr()
+    assert r["O"].data_ptr() == out.data_ptr() and r["O"].numel() == out.numel()
+    assert r["num_split"] == 2 and r["num_q_heads"] == heads
+    assert (r["grid_x"], r["grid_y"], r["grid_z"]) == (rows, heads, 1)

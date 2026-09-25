@@ -2420,8 +2420,20 @@ def trtllm_batch_decode_sparse_mla_dsv4(
                     f"q_len {q_len_per_request}"
                 )
             batch_size = metadata_rows // q_len_per_request
-            if seq_lens.numel() > batch_size:
-                seq_lens = seq_lens[:batch_size]
+        else:
+            # Ragged padding drops trailing requests: the kernel takes its
+            # token count from cum_seq_lens_q, so the offsets are cut at the
+            # request boundary that equals the metadata row count.
+            offsets = cum_seq_lens_q.tolist()
+            if metadata_rows not in offsets[1:]:
+                raise ValueError(
+                    "ragged padded queries must pad whole requests: no "
+                    f"cum_seq_lens_q boundary equals the {metadata_rows} metadata rows"
+                )
+            batch_size = offsets.index(metadata_rows)
+            cum_seq_lens_q = cum_seq_lens_q[: batch_size + 1]
+        if seq_lens.numel() > batch_size:
+            seq_lens = seq_lens[:batch_size]
         query_flat = query_flat[:metadata_rows]
         out = out.reshape(-1, *out.shape[-2:])[:metadata_rows]
         check_shape_dtype_device(
