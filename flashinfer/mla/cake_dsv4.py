@@ -68,6 +68,9 @@ _MAX_FIXED_SPLITS = 5
 # BF16 H128 SWA-only rows with this many metadata tokens or more use the full-V
 # H128 family instead of the dedicated SWA producer (see the Cake dispatcher).
 _BF16_H128_SWA_FULL_V_TOKENS = 128
+_FP8_H128_PERSISTENT_TOKENS = 16
+_BF16_H64_COMPRESSED_PREFILL_TOKENS = 24
+_BF16_H64_PREFILL_MAX_SPARSE_WIDTH = 640
 _PRIMED_ATTR = "_cake_dsv4_counters_primed"
 
 KERNEL_METADATA_PARAMS = (
@@ -716,6 +719,10 @@ def _route(
                 and sparse_topk == 1152
             ):
                 return "fp8_h128_prefill_source_persistent"
+            if num_query_tokens >= _FP8_H128_PERSISTENT_TOKENS:
+                # One persistent work feed over T x 2 CTAs beats the
+                # per-(token, split) cluster producer from 16 tokens on.
+                return "fp8_h128_prefill_source_persistent"
             return "fp8_h128"
         if num_heads not in (8, 16, 32, 64):
             raise ValueError(f"unsupported CAKE FP8 DSv4 head count: {num_heads}")
@@ -775,6 +782,13 @@ def _route(
                 if max_q_len > 5
                 else "bf16_swa128_single_cta"
             )
+        if (
+            num_query_tokens >= _BF16_H64_COMPRESSED_PREFILL_TOKENS
+            and sparse_topk <= _BF16_H64_PREFILL_MAX_SPARSE_WIDTH
+        ):
+            # The KV-reuse prefill body (one Q64 CTA per token, full V) beats
+            # the one-tile-per-split portfolio producer from 24 tokens on.
+            return "bf16_h64_prefill"
         return "bf16_h64_compressed_q8_v38"
     if num_heads == 128:
         if max_q_len >= 257:

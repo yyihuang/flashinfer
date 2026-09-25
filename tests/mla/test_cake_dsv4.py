@@ -859,6 +859,67 @@ def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(num_query_tokens, 
 
 
 @pytest.mark.parametrize(
+    "num_query_tokens,page_size,sparse_topk,expected",
+    [
+        (12, 64, 1152, "fp8_h128"),  # canonical 12-token decode rows keep the split producer
+        (15, 2, 260, "fp8_h128"),
+        (16, 64, 640, "fp8_h128_prefill_source_persistent"),
+        (32, 64, 640, "fp8_h128_prefill_source_persistent"),
+        (128, 2, 260, "fp8_h128_prefill_source_persistent"),
+        (128, None, 128, "fp8_h128_prefill_source_persistent"),
+    ],
+)
+def test_fp8_h128_rows_use_the_persistent_body_from_16_tokens(
+    num_query_tokens, page_size, sparse_topk, expected
+):
+    for arch in ("sm_100a", "sm_103a"):
+        assert (
+            _route(
+                arch=arch,
+                dtype=torch.float8_e4m3fn,
+                num_heads=128,
+                batch_size=8,
+                max_q_len=8,
+                ragged=True,
+                sparse_topk=sparse_topk,
+                compressed_page_size=page_size,
+                num_query_tokens=num_query_tokens,
+            )
+            == expected
+        )
+
+
+@pytest.mark.parametrize(
+    "num_query_tokens,page_size,sparse_topk,expected",
+    [
+        (12, 64, 640, "bf16_h64_compressed_q8_v38"),  # canonical 12-token rows keep the portfolio producer
+        (16, 2, 260, "bf16_h64_compressed_q8_v38"),
+        (24, 2, 260, "bf16_h64_prefill"),
+        (64, 64, 640, "bf16_h64_prefill"),
+        (512, 64, 640, "bf16_h64_prefill"),
+    ],
+)
+def test_bf16_h64_compressed_rows_use_the_prefill_body_from_24_tokens(
+    num_query_tokens, page_size, sparse_topk, expected
+):
+    for arch in ("sm_100a", "sm_103a"):
+        assert (
+            _route(
+                arch=arch,
+                dtype=torch.bfloat16,
+                num_heads=64,
+                batch_size=8,
+                max_q_len=8,
+                ragged=True,
+                sparse_topk=sparse_topk,
+                compressed_page_size=page_size,
+                num_query_tokens=num_query_tokens,
+            )
+            == expected
+        )
+
+
+@pytest.mark.parametrize(
     "sparse_topk,num_query_tokens,expected",
     [
         (1152, 12, 5),  # canonical 9-tile decode rows: full five-way split within one wave
@@ -891,8 +952,11 @@ def test_fp8_h128_split_rule_needs_the_device_sm_count():
     [
         (64, 1, 64, "fp8_lowhead_prefill"),
         (64, 2, 2, "fp8_lowhead_prefill"),
-        (128, 1, 64, "fp8_h128"),
-        (128, 2, 2, "fp8_h128"),
+        # FP8/H128 rows with 16+ tokens use the persistent body for every
+        # batch size and cache layout (measured 1.12-1.75x vs trtllm-gen on
+        # the 16-256 token MTP rows, topk4x and topk128x alike).
+        (128, 1, 64, "fp8_h128_prefill_source_persistent"),
+        (128, 2, 2, "fp8_h128_prefill_source_persistent"),
     ],
 )
 def test_fp8_prefill_keeps_batch_and_cache_layout_predicates(
