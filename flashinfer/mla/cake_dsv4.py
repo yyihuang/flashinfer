@@ -1228,10 +1228,15 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
     if route in ("bf16_h128_topk128x", "bf16_h128_topk4x_v52", "bf16_h128_prefill_v42"):
         num_splits = 5 if route == "bf16_h128_topk4x_v52" else 1
         program_variant = route
-        if route == "bf16_h128_topk128x" and arch == "sm_100a" and 256 < topk <= 384:
+        # The two-stage split programs (disjoint full-V KV owners + one LSE
+        # reducer) ship on both Blackwell targets: GB300 rows at width 260/388
+        # measured 1.18-1.26x vs trtllm-gen against 0.83-1.05x for the
+        # single-owner kernel (CAKE-624 W2).  Mirrors the Cake seed's
+        # BF16_TOPK128X_SPLIT_ARCHES.
+        if route == "bf16_h128_topk128x" and 256 < topk <= 384:
             num_splits = 3
             program_variant = "bf16_h128_topk128x_split3_sm100"
-        elif route == "bf16_h128_topk128x" and arch == "sm_100a" and topk == 388:
+        elif route == "bf16_h128_topk128x" and topk == 388:
             num_splits = 4
             program_variant = "bf16_h128_topk128x_split4_sm100"
         parts = L.partials(num_splits)

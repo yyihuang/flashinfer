@@ -1994,3 +1994,46 @@ def test_fp8_split_producer_writes_partials_through_o(monkeypatch):
     assert r["O"].data_ptr() == out.data_ptr() and r["O"].numel() == out.numel()
     assert r["num_split"] == 2 and r["num_q_heads"] == heads
     assert (r["grid_x"], r["grid_y"], r["grid_z"]) == (rows, heads, 1)
+
+
+class _RecordingLauncher:
+    """Minimal stand-in for ``_Launcher`` that records program/variant selections."""
+
+    def __init__(self, arch: str, **values):
+        self.arch = arch
+        self.values = values
+        self.calls: list[tuple[str, str, dict]] = []
+
+    def variant(self, name, *, grid, **overrides):
+        self.calls.append(("variant", name, {"grid": grid, **overrides}))
+
+    def program(self, name, **overrides):
+        self.calls.append(("program", name, overrides))
+
+    def partials(self, num_splits):
+        return {"num_splits": num_splits}
+
+
+@pytest.mark.parametrize("arch", ["sm_100a", "sm_103a"])
+@pytest.mark.parametrize(
+    "sparse_topk,expected_program,expected_splits",
+    [
+        (260, "bf16_h128_topk128x_split3_sm100", 3),
+        (388, "bf16_h128_topk128x_split4_sm100", 4),
+        (640, "bf16_h128_topk128x", 1),
+    ],
+)
+def test_bf16_h128_topk128x_split_programs_dispatch_on_both_targets(
+    arch, sparse_topk, expected_program, expected_splits
+):
+    L = _RecordingLauncher(
+        arch, num_query_tokens=12, num_heads=128, sparse_topk=sparse_topk
+    )
+    cake._dispatch_route("bf16_h128_topk128x", L)
+    assert L.calls == [
+        (
+            "program",
+            expected_program,
+            {"total_work_items": 12 * expected_splits, "num_splits": expected_splits},
+        )
+    ]
