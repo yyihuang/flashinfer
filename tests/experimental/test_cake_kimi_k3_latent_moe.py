@@ -53,7 +53,16 @@ WEIGHT_SEED = 621
 SITU_BETA = 4.0
 SITU_LINEAR_BETA = 25.0
 # Representative subset of the 60 validated rows: both stages x TP {1, 8} x these token counts.
-SMOKE_TOKENS = (1, 8, 16, 128, 256, 4096)
+SMOKE_TOKENS = (
+    1,
+    8,
+    16,
+    128,
+    256,
+    4096,
+    8192,
+    16384,
+)  # decode + prefill routes, incl. the power-capped GEMM rows
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +145,9 @@ def test_prefill_tail_plan_and_trigger():
     # TP1 T=256: 112 GEMM CTAs next to 64 norm CTAs do not fit 148 SMs -> late trigger.
     tp1 = prefill_tail_plan(256, 1)
     assert tp1["gemm_grid"] == (tp1["num_items"]) * 2 and not tp1["early_trigger"]
+    assert plan["weights_evict_first"] and tp1["weights_evict_first"]
+    assert not prefill_tail_plan(2048, 1)["weights_evict_first"]
+    assert cb.weights_evict_first(112, SM_COUNT) and not cb.weights_evict_first(224, SM_COUNT)
     assert cb.norm_early_trigger(300, 64, SM_COUNT) and not cb.norm_early_trigger(
         112, 64, SM_COUNT
     )
@@ -153,10 +165,19 @@ def test_route_keys_cover_the_row_set():
         "tail_gemm",
     }
     assert "front:i6144" in keys and "front:i768" in keys
-    assert "tail_gemm:tp1" in keys and "tail_gemm:tp8" in keys
+    assert {k for k in keys if k.startswith("tail_gemm:")} == {
+        "tail_gemm:tp1e0",
+        "tail_gemm:tp1e1",
+        "tail_gemm:tp8e0",
+        "tail_gemm:tp8e1",
+    }
     assert route_kernel_keys("front", 1, 128)[0].startswith("decode:")
     assert route_kernel_keys("front", 1, 256) == ("front:i6144",)
-    assert route_kernel_keys("tail", 8, 256) == ("tail_norm:e1", "tail_gemm:tp8")
+    assert route_kernel_keys("tail", 8, 256) == ("tail_norm:e1", "tail_gemm:tp8e1")
+    # Single-wave grids (T = 256 / 512) stream the weights evict_first; persistent grids keep the default policy.
+    assert route_kernel_keys("tail", 1, 512)[1] == "tail_gemm:tp1e1"
+    assert route_kernel_keys("tail", 1, 1024)[1] == "tail_gemm:tp1e0"
+    assert route_kernel_keys("tail", 8, 1024)[1] == "tail_gemm:tp8e0"
     assert len(route_kernel_keys("tail", 1, 16384)) == 2
     for stage in ("front", "tail"):
         for tp in SUPPORTED_TP:
@@ -436,12 +457,16 @@ def test_tail_matches_reference(tp, tokens):
     runner()
     torch.cuda.synchronize()
     expected = tail_reference(routed, shared_act, w, tp, rank)
-    # The normalised latent reproduces the reference rounding exactly (FP32 statistics, BF16 round,
-    # BF16 weight product); the GEMM output is within the BF16 contract tolerance.
+    # Decode route: the fused norm reproduces the reference rounding exactly (FP32 statistics, BF16
+    # round, BF16 weight product).  Prefill route: the one-pass RMSNorm kernel reduces the row in a
+    # different FP32 order and lands within one BF16 ulp on a few elements (the Cake contract
+    # receipts record the same for the production kernel), so it is held to the BF16 tolerance.
+    # Both routes are bit-identical across re-launch and CUDA-graph replay below.
     _assert_close("y", y, expected["y"], ATOL, RTOL)
-    assert torch.equal(y, expected["y"]), (
-        f"y differs from the reference in {int((y != expected['y']).sum())} elements"
-    )
+    if tokens <= DECODE_MAX_T:
+        assert torch.equal(y, expected["y"]), (
+            f"y differs from the reference in {int((y != expected['y']).sum())} elements"
+        )
     _assert_close("out", out, expected["out"], ATOL, RTOL)
     first = (y.clone(), out.clone())
     runner()
