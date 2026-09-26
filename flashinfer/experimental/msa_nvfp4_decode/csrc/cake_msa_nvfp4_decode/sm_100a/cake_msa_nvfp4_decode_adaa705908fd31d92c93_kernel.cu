@@ -961,7 +961,7 @@ __device__ __forceinline__ uint32_t make_warp_uniform(uint32_t val) {
 extern "C" {
 
 __global__ __launch_bounds__(512, 1) void
-kernel_cake_msa_nvfp4_decode_3364243f5992ccf9ac63(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap K, const __grid_constant__ CUtensorMap K_scale, const __grid_constant__ CUtensorMap V, const __grid_constant__ CUtensorMap V_scale, __nv_bfloat16* __restrict__ O, float* __restrict__ msa_lse, float* __restrict__ partial_O, float* __restrict__ partial_M, float* __restrict__ partial_D, int* __restrict__ split_completion, int* __restrict__ kv_indices, int* __restrict__ kv_indptr, int* __restrict__ task_kind, int* __restrict__ task_request, int* __restrict__ task_kv_head, int total_q, int seqlen_q, int num_q_heads, int num_kv_heads, float softmax_scale_log2, float output_scale, int msa_max_pages)
+kernel_cake_msa_nvfp4_decode_adaa705908fd31d92c93(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap K, const __grid_constant__ CUtensorMap K_scale, const __grid_constant__ CUtensorMap V, const __grid_constant__ CUtensorMap V_scale, __nv_bfloat16* __restrict__ O, float* __restrict__ msa_lse, float* __restrict__ partial_O, float* __restrict__ partial_M, float* __restrict__ partial_D, int* __restrict__ split_completion, int* __restrict__ kv_indices, int* __restrict__ kv_indptr, int* __restrict__ task_kind, int* __restrict__ task_request, int* __restrict__ task_kv_head, int total_q, int seqlen_q, int num_q_heads, int num_kv_heads, float softmax_scale_log2, float output_scale, int msa_max_pages)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -1849,8 +1849,16 @@ kernel_cake_msa_nvfp4_decode_3364243f5992ccf9ac63(const __grid_constant__ CUtens
                             mbarrier_arrive_expect_tx(kv_raw_full_addr + (kt_l % 16) * 8, 9216);
                             int physical_page_1 = smem_page[slot0_l + k_tile] / num_kv_heads;
                             int kv_head_1 = smem_page[slot0_l + k_tile] - physical_page_1 * num_kv_heads;
-                            tma_4d_gmem2smem(smem_raw_addr + (unsigned int)(load_stage * 8192), (&K), 0, 0, kv_head_1, physical_page_1, kv_raw_full_addr + (kt_l % 16) * 8);
-                            tma_4d_gmem2smem(smem_scale_addr + (unsigned int)(load_stage * 1024), (&K_scale), 0, 0, kv_head_1, physical_page_1, kv_raw_full_addr + (kt_l % 16) * 8);
+                            asm volatile(
+                                "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                :: "r"(smem_raw_addr + (unsigned int)(load_stage * 8192)), "l"((&K)), "r"(0), "r"(0), "r"(kv_head_1), "r"(physical_page_1),
+                                   "r"(kv_raw_full_addr + (kt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
+                            asm volatile(
+                                "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                :: "r"(smem_scale_addr + (unsigned int)(load_stage * 1024)), "l"((&K_scale)), "r"(0), "r"(0), "r"(kv_head_1), "r"(physical_page_1),
+                                   "r"(kv_raw_full_addr + (kt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
                             load_stage += 1;
                             if (load_stage == 11) { load_stage = 0; load_phase ^= 1; }
                             kt_l = kt_l + 1;
@@ -1871,8 +1879,16 @@ kernel_cake_msa_nvfp4_decode_3364243f5992ccf9ac63(const __grid_constant__ CUtens
                             mbarrier_arrive_expect_tx(kv_raw_full_addr + (kt_l % 16) * 8, 9216);
                             int physical_page_2 = smem_page[slot0_l + 2 + k_tile_1] / num_kv_heads;
                             int kv_head_2 = smem_page[slot0_l + 2 + k_tile_1] - physical_page_2 * num_kv_heads;
-                            tma_4d_gmem2smem(smem_raw_addr + (unsigned int)(load_stage * 8192), (&K), 0, 0, kv_head_2, physical_page_2, kv_raw_full_addr + (kt_l % 16) * 8);
-                            tma_4d_gmem2smem(smem_scale_addr + (unsigned int)(load_stage * 1024), (&K_scale), 0, 0, kv_head_2, physical_page_2, kv_raw_full_addr + (kt_l % 16) * 8);
+                            asm volatile(
+                                "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                :: "r"(smem_raw_addr + (unsigned int)(load_stage * 8192)), "l"((&K)), "r"(0), "r"(0), "r"(kv_head_2), "r"(physical_page_2),
+                                   "r"(kv_raw_full_addr + (kt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
+                            asm volatile(
+                                "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                :: "r"(smem_scale_addr + (unsigned int)(load_stage * 1024)), "l"((&K_scale)), "r"(0), "r"(0), "r"(kv_head_2), "r"(physical_page_2),
+                                   "r"(kv_raw_full_addr + (kt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
                             load_stage += 1;
                             if (load_stage == 11) { load_stage = 0; load_phase ^= 1; }
                             kt_l = kt_l + 1;
@@ -1950,8 +1966,16 @@ kernel_cake_msa_nvfp4_decode_3364243f5992ccf9ac63(const __grid_constant__ CUtens
                                 mbarrier_arrive_expect_tx(kv_raw_full_addr + (kt_l % 16) * 8, 9216);
                                 int physical_page_4 = smem_page[slot0_l + pair_2 * 2 + 4 + k_tile_2] / num_kv_heads;
                                 int kv_head_3 = smem_page[slot0_l + pair_2 * 2 + 4 + k_tile_2] - physical_page_4 * num_kv_heads;
-                                tma_4d_gmem2smem(smem_raw_addr + (unsigned int)(load_stage * 8192), (&K), 0, 0, kv_head_3, physical_page_4, kv_raw_full_addr + (kt_l % 16) * 8);
-                                tma_4d_gmem2smem(smem_scale_addr + (unsigned int)(load_stage * 1024), (&K_scale), 0, 0, kv_head_3, physical_page_4, kv_raw_full_addr + (kt_l % 16) * 8);
+                                asm volatile(
+                                    "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                    " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                    :: "r"(smem_raw_addr + (unsigned int)(load_stage * 8192)), "l"((&K)), "r"(0), "r"(0), "r"(kv_head_3), "r"(physical_page_4),
+                                       "r"(kv_raw_full_addr + (kt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
+                                asm volatile(
+                                    "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                    " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                    :: "r"(smem_scale_addr + (unsigned int)(load_stage * 1024)), "l"((&K_scale)), "r"(0), "r"(0), "r"(kv_head_3), "r"(physical_page_4),
+                                       "r"(kv_raw_full_addr + (kt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
                                 load_stage += 1;
                                 if (load_stage == 11) { load_stage = 0; load_phase ^= 1; }
                                 kt_l = kt_l + 1;
@@ -1963,8 +1987,16 @@ kernel_cake_msa_nvfp4_decode_3364243f5992ccf9ac63(const __grid_constant__ CUtens
                             mbarrier_arrive_expect_tx(kv_raw_full_addr + (16 + vt_l % 16) * 8, 9216);
                             int physical_page_5 = smem_page[slot0_l + pair_2 * 2 + v_tile] / num_kv_heads;
                             int kv_head_4 = smem_page[slot0_l + pair_2 * 2 + v_tile] - physical_page_5 * num_kv_heads;
-                            tma_4d_gmem2smem(smem_raw_addr + (unsigned int)(load_stage * 8192), (&V), 0, 0, kv_head_4, physical_page_5, kv_raw_full_addr + (16 + vt_l % 16) * 8);
-                            tma_4d_gmem2smem(smem_scale_addr + (unsigned int)(load_stage * 1024), (&V_scale), 0, 0, kv_head_4, physical_page_5, kv_raw_full_addr + (16 + vt_l % 16) * 8);
+                            asm volatile(
+                                "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                :: "r"(smem_raw_addr + (unsigned int)(load_stage * 8192)), "l"((&V)), "r"(0), "r"(0), "r"(kv_head_4), "r"(physical_page_5),
+                                   "r"(kv_raw_full_addr + (16 + vt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
+                            asm volatile(
+                                "cp.async.bulk.tensor.4d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+                                :: "r"(smem_scale_addr + (unsigned int)(load_stage * 1024)), "l"((&V_scale)), "r"(0), "r"(0), "r"(kv_head_4), "r"(physical_page_5),
+                                   "r"(kv_raw_full_addr + (16 + vt_l % 16) * 8), "l"(0x12F0000000000000ULL) : "memory");
                             load_stage += 1;
                             if (load_stage == 11) { load_stage = 0; load_phase ^= 1; }
                             vt_l = vt_l + 1;
