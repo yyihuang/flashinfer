@@ -123,6 +123,31 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
         pytest.param(
             torch.float8_e4m3fn, 64, 3, 5, True, 260, 2, "fp8_lowhead_h64", id="case-08"
         ),
+        # CAKE-624 W14: FP8/H64 rows admitted to the persistent body with >= 128
+        # tokens (dense 2 x 64) run the single-CTA M64 program; 127 tokens keep
+        # the FP8/H128 persistent program.
+        pytest.param(
+            torch.float8_e4m3fn,
+            64,
+            2,
+            64,
+            False,
+            260,
+            2,
+            "fp8_h64_prefill_source_persistent_m64",
+            id="w14-h64-w260-128tok",
+        ),
+        pytest.param(
+            torch.float8_e4m3fn,
+            64,
+            1,
+            127,
+            False,
+            260,
+            2,
+            "fp8_h128_prefill_source_persistent",
+            id="w14-h64-w260-127tok",
+        ),
         pytest.param(
             torch.float8_e4m3fn,
             64,
@@ -949,7 +974,8 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
         # FP8/H64 many-token rows (dense 3 x 64 = 192 query tokens) with
         # >= 2 complete sparse tiles take the persistent FP8 body on both
         # targets (CAKE-624 W10: the cluster producers sat at 0.19-0.79x
-        # vs trtllm-gen from 64 tokens on).
+        # vs trtllm-gen from 64 tokens on); from 128 tokens the H64-specific
+        # single-CTA M64 program (CAKE-624 W14).
         pytest.param(
             torch.float8_e4m3fn,
             64,
@@ -958,7 +984,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             False,
             640,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h64_prefill_source_persistent_m64",
             id="h64-w640-192tok",
         ),
         pytest.param(
@@ -969,7 +995,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             False,
             388,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h64_prefill_source_persistent_m64",
             id="h64-w388-192tok",
         ),
         # Off-contract low-head width beyond three sparse tiles keeps the
@@ -2085,16 +2111,37 @@ def test_bf16_h128_topk128x_split_programs_dispatch_on_both_targets(
         (12, 2, 260, "fp8_lowhead_h64"),  # W5: 12 tokens, 2 tiles keep the cluster body
         (16, 64, 640, "fp8_h128_prefill_source_persistent"),  # hardening-000018
         (64, 64, 640, "fp8_h128_prefill_source_persistent"),  # hardening-000030
-        (128, 2, 260, "fp8_h128_prefill_source_persistent"),  # hardening-000022
-        (512, 2, 260, "fp8_h128_prefill_source_persistent"),  # hardening-000034
+        (
+            128,
+            2,
+            260,
+            "fp8_h64_prefill_source_persistent_m64",
+        ),  # hardening-000022 (W14)
+        (
+            512,
+            2,
+            260,
+            "fp8_h64_prefill_source_persistent_m64",
+        ),  # hardening-000034 (W14)
         (
             64,
             None,
             128,
             "fp8_lowhead_prefill",
         ),  # hardening-000020: SWA producer < 128 tokens
-        (128, None, 128, "fp8_h128_prefill_source_persistent"),  # hardening-000026
-        (256, None, 128, "fp8_h128_prefill_source_persistent"),  # hardening-000032
+        (127, None, 128, "fp8_lowhead_prefill"),  # SWA producer below 128 tokens
+        (
+            128,
+            None,
+            128,
+            "fp8_h64_prefill_source_persistent_m64",
+        ),  # hardening-000026 (W14)
+        (
+            256,
+            None,
+            128,
+            "fp8_h64_prefill_source_persistent_m64",
+        ),  # hardening-000032 (W14)
     ],
 )
 def test_fp8_h64_rows_follow_the_persistent_body_rule(

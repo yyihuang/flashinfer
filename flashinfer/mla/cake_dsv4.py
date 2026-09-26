@@ -583,7 +583,13 @@ _RETIRED_ARG_REASONS: Mapping[str, str] = {
 }
 # Producers whose generated ABI reads request boundaries from cum_seq_lens_q
 # only; run_cake_dsv4 synthesizes the dense offsets for them.
-_RAGGED_ONLY_ROUTES = frozenset({"fp8_h128_prefill_source_persistent"})
+_RAGGED_ONLY_ROUTES = frozenset(
+    {"fp8_h128_prefill_source_persistent", "fp8_h64_prefill_source_persistent_m64"}
+)
+# CAKE-624 W14: mirrors the Cake seed's H64_M64_MIN_TOKENS
+# (portfolio_v34.persistent_program): FP8/H64 rows admitted to the persistent
+# body with at least this many tokens run the H64-specific single-CTA M64 body.
+_FP8_H64_M64_MIN_TOKENS = 128
 
 
 def _fp8_h64_uses_persistent_body(sparse_topk: int, num_query_tokens: int) -> bool:
@@ -804,6 +810,12 @@ def _route(
             # 1.02-1.92x on the 16-128-token hardening rows where the
             # per-token cluster body and the SWA producer sat at 0.6-0.87x.
             # Evaluated before the SWA-only test on purpose.
+            if num_query_tokens >= _FP8_H64_M64_MIN_TOKENS:
+                # CAKE-624 W14: H64-specific single-CTA M64 persistent body (one
+                # CTA per token, unified 128-row KV stage, no V gathers): GB300
+                # 1.25-1.55x / B200 1.22-1.44x on the 128-512 token rows where
+                # the FP8/H128 body sat at 0.81-1.13x.
+                return "fp8_h64_prefill_source_persistent_m64"
             return "fp8_h128_prefill_source_persistent"
         if is_swa:
             return "fp8_lowhead_prefill"
@@ -1285,6 +1297,14 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
     if route == "fp8_h128_prefill_source_persistent":
         parts = L.partials(1)
         L.variant(route, grid=(T * 2, 1, 1), total_work_items=T, **parts)
+        return
+
+    if route == "fp8_h64_prefill_source_persistent_m64":
+        # One CTA per token (cta_group::1, M = 64); same kernel kwargs as the
+        # FP8/H128 persistent body (num_heads runtime, -1 masking, padded rows,
+        # caller-owned workspace), grid = tokens.
+        parts = L.partials(1)
+        L.variant(route, grid=(T, 1, 1), total_work_items=T, **parts)
         return
 
     if route in (
