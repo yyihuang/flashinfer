@@ -66,9 +66,12 @@ from .utils import (
     griddepcontrol_launch_dependents,
     griddepcontrol_wait,
     is_power_of_2,
+    mapa_shared_cluster_u32,
+    mbarrier_arrive_cluster,
     native_situ_f32,
     native_tanh_f32,
     situ_f32,
+    st_async_v4_f32_cluster,
     tanh_f32,
     tcgen05_fence_after_thread_sync,
     tcgen05_fence_before_thread_sync,
@@ -445,6 +448,8 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         zero_fill: bool = False,
         zero_fill_secondary: bool = False,
         zero_fill_chunk_bytes: int = 65536,
+        cluster_split_k: bool = False,
+        cluster_split_max_tiles: int = 0,
     ):
         """Initializes the configuration for a Blackwell blockscaled dense GEMM kernel with
         gather operation and FC1 activation fusion.
@@ -534,6 +539,24 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         )
 
         self.occupancy = 1
+        # Cluster split-K (single-CTA MMA tiles): the kernel launches (1, 1, 2)
+        # clusters over the same persistent CTA budget. While a launch's
+        # valid tiles fit half the CTAs (and ``cluster_split_max_tiles``, the
+        # co-resident cluster count), the two CTAs of a cluster take the two K
+        # halves of one tile: the peer (rank 1) ships its raw FP32 accumulator
+        # fragments with ``st.async`` into the leader's operand stages (free
+        # once the leader's MMAs finished), the leader (rank 0) adds them
+        # before the activation epilogue and stores the tile. Otherwise every
+        # CTA is an independent scheduler slot as without the cluster.
+        self.cluster_split_k = bool(cluster_split_k)
+        self.cluster_split_max_tiles = int(cluster_split_max_tiles)
+        if self.cluster_split_k:
+            if self.use_2cta_instrs or tuple(cluster_shape_mn) != (1, 1):
+                raise ValueError(
+                    "cluster_split_k needs the single-CTA MMA tile and cluster (1, 1)"
+                )
+            if self.cluster_split_max_tiles <= 0:
+                raise ValueError("cluster_split_k needs cluster_split_max_tiles > 0")
         self.epilog_warp_id = (0, 1, 2, 3)
         self.ldgsts_a_warp_id = (
             4,
@@ -1089,6 +1112,26 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             max_active_clusters,
             self.raster_along_m,
         )
+        if cutlass.const_expr(self.cluster_split_k):
+            # Whole clusters over the same one-CTA-per-SM budget; a problem
+            # with fewer tiles than that gets two CTAs per tile.
+            cs_grid_z = 2 * grid[2]
+            if cs_grid_z > max_active_clusters:
+                cs_grid_z = cutlass.Int32(max_active_clusters)
+            grid = (grid[0], grid[1], cs_grid_z + cs_grid_z % 2)
+            cs_bytes = (
+                cute.cosize(self.a_smem_layout_staged.outer)
+                * self.smem_alloc_a_dtype.width
+                + cute.cosize(self.b_smem_layout_staged.outer)
+                * self.smem_alloc_b_dtype.width
+            ) // 8
+            if cutlass.const_expr(
+                cs_bytes < self.cta_tile_shape_mnk[0] * self.cta_tile_shape_mnk[1] * 4
+            ):
+                raise ValueError(
+                    "cluster_split_k: the A/B operand stages cannot hold the "
+                    "peer's FP32 accumulator tile"
+                )
 
         self.buffer_align_bytes = 1024
 
@@ -1109,6 +1152,9 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             ]
             tmem_dealloc_mbar_ptr: cutlass.Int64
             tmem_holding_buf: cutlass.Int32
+            # Cluster split-K exchange barriers (leader: full, peer: empty).
+            cs_full_mbar: cutlass.Int64
+            cs_empty_mbar: cutlass.Int64
             # (EPI_TILE_M, EPI_TILE_N, STAGE)
             sC: cute.struct.Align[
                 cute.struct.MemRange[
@@ -1167,6 +1213,9 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             ]
             tmem_dealloc_mbar_ptr: cutlass.Int64
             tmem_holding_buf: cutlass.Int32
+            # Cluster split-K exchange barriers (leader: full, peer: empty).
+            cs_full_mbar: cutlass.Int64
+            cs_empty_mbar: cutlass.Int64
             # (EPI_TILE_M, EPI_TILE_N, STAGE)
             sC: cute.struct.Align[
                 cute.struct.MemRange[
@@ -1251,7 +1300,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         ).launch(
             grid=grid,
             block=[self.threads_per_cta, 1, 1],
-            cluster=(*self.cluster_shape_mn, 1),
+            cluster=(*self.cluster_shape_mn, 2 if self.cluster_split_k else 1),
             smem=self.shared_storage.size_in_bytes(),  # type: ignore[union-attr]
             stream=stream,
             min_blocks_per_mp=1,
@@ -1368,6 +1417,10 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         cta_rank_in_cluster = cute.arch.make_warp_uniform(
             cute.arch.block_idx_in_cluster()
         )
+        if cutlass.const_expr(self.cluster_split_k):
+            # The (1, 1, 2) cluster only pairs CTAs for the split-K exchange:
+            # every TMA / pipeline coordinate keeps the single-CTA layout.
+            cta_rank_in_cluster = cutlass.Int32(0)
         block_in_cluster_coord_vmnk = cluster_layout_vmnk.get_flat_coord(
             cta_rank_in_cluster
         )
@@ -1479,6 +1532,16 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             is_two_cta=use_2cta_instrs,
             two_cta_tmem_dealloc_mbar_ptr=storage.tmem_dealloc_mbar_ptr.ptr,
         )
+
+        if cutlass.const_expr(self.cluster_split_k):
+            # Split-K exchange barriers: ``cs_full`` (leader; one
+            # arrive.expect_tx, the peer's st.async bytes complete it) and
+            # ``cs_empty`` (peer; the leader's remote arrive says its operand
+            # stages are free to receive the partial).
+            if tidx == 0:
+                cute.arch.mbarrier_init(storage.cs_full_mbar.ptr, 1)
+                cute.arch.mbarrier_init(storage.cs_empty_mbar.ptr, 1)
+            cute.arch.mbarrier_init_fence()
 
         # Cluster arrive after barrier init
         if cute.size(self.cluster_shape_mn) > 1:
@@ -1651,6 +1714,37 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             griddepcontrol_launch_dependents()
         griddepcontrol_wait()
 
+        # Cluster split-K decision (grid-uniform; the tile count is read after
+        # the PDL wait): while the valid tiles fit half the CTAs, the two CTAs
+        # of a cluster take the two K halves of one tile and the persistent
+        # scheduler runs over clusters; otherwise every CTA is its own slot.
+        cs_split = cutlass.Boolean(0)
+        cs_rank = cutlass.Int32(0)
+        cs_k_base = cutlass.Int32(0)
+        sched_gdx, sched_gdy, sched_gdz = cute.arch.grid_dim()
+        sched_z = cutlass.Int32(bidz)
+        sched_gz = cutlass.Int32(sched_gdz)
+        if cutlass.const_expr(self.cluster_split_k):
+            cs_valid_tiles = num_non_exiting_tiles[0]
+            cs_split = (2 * cs_valid_tiles <= sched_gz) & (
+                cs_valid_tiles <= cutlass.Int32(self.cluster_split_max_tiles)
+            )
+            if cs_split:
+                cs_rank = bidz % 2
+                cs_half = (k_tile_cnt + 1) // 2
+                cs_k_base = cs_rank * cs_half
+                k_tile_cnt = k_tile_cnt - cs_k_base
+                if k_tile_cnt > cs_half:
+                    k_tile_cnt = cs_half
+                sched_z = bidz // 2
+                sched_gz = sched_gz // 2
+                # The exchange barriers are cluster-visible before any
+                # remote access.
+                cute.arch.cluster_arrive_relaxed()
+                cute.arch.cluster_wait()
+        sched_bidx = (bidx, bidy, sched_z)
+        sched_gdim = (sched_gdx, sched_gdy, sched_gz)
+
         #
         # Specialized Schedule Warp
         #
@@ -1659,7 +1753,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             # Persistent tile scheduling loop
             #
             tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                tile_sched_params, sched_bidx, sched_gdim
             )
             # First tile
             work_tile = tile_sched.initial_work_tile_info()
@@ -1857,7 +1951,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             # Persistent tile scheduling loop
             #
             tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                tile_sched_params, sched_bidx, sched_gdim
             )
             # First tile
             work_tile = tile_sched.initial_work_tile_info()
@@ -1966,10 +2060,10 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                     # Conditionally wait for AB buffer empty
                     a_pipeline.producer_acquire(a_producer_state, peek_a_empty_status)
 
-                    tAgA_ktile = tAgA[(None, None, a_producer_state.count)]
+                    tAgA_ktile = tAgA[(None, None, a_producer_state.count + cs_k_base)]
                     tAsA_ktile = tAsA_tiled[(None, None, None, a_producer_state.index)]
 
-                    tAgSFA_ktile = tAgSFA[(None, a_producer_state.count)]
+                    tAgSFA_ktile = tAgSFA[(None, a_producer_state.count + cs_k_base)]
                     tAsSFA_ktile = tAsSFA[
                         (
                             None,
@@ -2010,7 +2104,8 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                         )
                         # Row validity does not guard a partial final K tile.
                         a_predicate_slice[0] = a_predicate_tensor[i] & (
-                            a_producer_state.count * self.cta_tile_shape_mnk[2]
+                            (a_producer_state.count + cs_k_base)
+                            * self.cta_tile_shape_mnk[2]
                             + A_gmem_thread_offset
                             < cute.size(mA_mkl, mode=[1])
                         )
@@ -2048,7 +2143,8 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                             cute.make_layout((1,)), cutlass.Boolean
                         )
                         sfa_tail_predicate[0] = sfa_predicate_tensor[0] & (
-                            a_producer_state.count * self.cta_tile_shape_mnk_sfa[2]
+                            (a_producer_state.count + cs_k_base)
+                            * self.cta_tile_shape_mnk_sfa[2]
                             + 4 * swizzled_iterator
                             < cute.size(mSFA_mkl, mode=[1])
                         )
@@ -2099,7 +2195,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 # Persistent tile scheduling loop
                 #
                 tile_sched = utils.StaticPersistentTileScheduler.create(
-                    tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                    tile_sched_params, sched_bidx, sched_gdim
                 )
                 # First tile
                 work_tile = tile_sched.initial_work_tile_info()
@@ -2180,7 +2276,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             # Persistent tile scheduling loop
             #
             tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                tile_sched_params, sched_bidx, sched_gdim
             )
             # First tile
             work_tile = tile_sched.initial_work_tile_info()
@@ -2244,8 +2340,8 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                     # Conditionally wait for B buffer empty
                     b_pipeline.producer_acquire(b_producer_state, peek_ab_empty_status)
 
-                    tBgB_k = tBgB_slice[(None, b_producer_state.count)]
-                    tBgSFB_k = tBgSFB_slice[(None, b_producer_state.count)]
+                    tBgB_k = tBgB_slice[(None, b_producer_state.count + cs_k_base)]
+                    tBgSFB_k = tBgSFB_slice[(None, b_producer_state.count + cs_k_base)]
                     tBsB_pipe = tBsB[(None, b_producer_state.index)]
                     tBsSFB_pipe = tBsSFB[(None, b_producer_state.index)]
 
@@ -2380,7 +2476,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             # Persistent tile scheduling loop
             #
             tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                tile_sched_params, sched_bidx, sched_gdim
             )
             work_tile = tile_sched.initial_work_tile_info()
 
@@ -2729,7 +2825,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             # Persistent tile scheduling loop
             #
             tile_sched = utils.StaticPersistentTileScheduler.create(
-                tile_sched_params, cute.arch.block_idx(), cute.arch.grid_dim()
+                tile_sched_params, sched_bidx, sched_gdim
             )
             work_tile = tile_sched.initial_work_tile_info()
 
@@ -2793,6 +2889,37 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 for i in cutlass.range_constexpr(4):
                     zf_zeros[i] = cutlass.Uint32(0)
                 zf_tile = cutlass.Int32(0)
+            # Cluster split-K exchange state. The peer ships each thread's
+            # fragments as 16 B chunks: chunk row r (2 KB = 128 threads x 16 B)
+            # at r * 2048 + thread * 16 of the leader's operand stages, rows
+            # numbered per epilogue subtile step; the leader reads the same
+            # layout as FP32 words. Only the leader of a split tile (or any
+            # CTA of an unsplit launch) computes and stores the tile.
+            cs_do_store = cutlass.Boolean(1)
+            cs_remote_red = cutlass.Int32(0)
+            cs_remote_full = cutlass.Int32(0)
+            cs_remote_empty = cutlass.Int32(0)
+            cs_frag = cute.size(tTR_rAcc_up)
+            cs_rows_per_step = (cs_frag * (2 if self.gated else 1)) // 4
+            sRed = cute.make_tensor(
+                cute.recast_ptr(storage.sA.data_ptr(), dtype=cutlass.Float32),
+                layout=cute.make_layout(
+                    (self.cta_tile_shape_mnk[0] * self.cta_tile_shape_mnk[1],)
+                ),
+            )
+            if cutlass.const_expr(self.cluster_split_k):
+                if cs_split:
+                    if cs_rank == 1:
+                        cs_do_store = cutlass.Boolean(0)
+                cs_remote_red = mapa_shared_cluster_u32(
+                    storage.sA.data_ptr(), cutlass.Int32(0)
+                ) + epi_tidx * cutlass.Int32(16)
+                cs_remote_full = mapa_shared_cluster_u32(
+                    storage.cs_full_mbar.ptr, cutlass.Int32(0)
+                )
+                cs_remote_empty = mapa_shared_cluster_u32(
+                    storage.cs_empty_mbar.ptr, cutlass.Int32(1)
+                )
             num_prev_subtiles = cutlass.Int32(0)
             while is_valid_tile:
                 mma_tile_coord_mnl = (
@@ -2873,6 +3000,25 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 acc_pipeline.consumer_wait(acc_consumer_state)
                 tcgen05_fence_after_thread_sync()
 
+                if cutlass.const_expr(self.cluster_split_k):
+                    if cs_split:
+                        if cs_rank == 0:
+                            # Leader: its MMAs consumed every operand stage and
+                            # no producer refills them (one tile per CTA), so
+                            # the peer may write its partial there.
+                            if epi_tidx == 0:
+                                cute.arch.mbarrier_arrive_and_expect_tx(
+                                    storage.cs_full_mbar.ptr,
+                                    self.cta_tile_shape_mnk[0]
+                                    * self.cta_tile_shape_mnk[1]
+                                    * 4,
+                                )
+                                mbarrier_arrive_cluster(cs_remote_empty)
+                        else:
+                            cute.arch.mbarrier_wait(
+                                storage.cs_empty_mbar.ptr, cutlass.Int32(0)
+                            )
+
                 tTR_tAcc = cute.group_modes(tTR_tAcc, 3, cute.rank(tTR_tAcc))
                 bSG_gC = cute.group_modes(bSG_gC, 1, cute.rank(bSG_gC))
 
@@ -2919,554 +3065,654 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                             acc_pipeline.consumer_release(acc_consumer_state)
                             acc_consumer_state.advance()
 
-                    if cutlass.const_expr(not self.gated):
-                        acc_vec = tTR_rAcc_up.load()
-                        tCompute = cute.make_rmem_tensor(acc_vec.shape, self.acc_dtype)
-                        if cutlass.const_expr(self.vectorized_f32):
-                            for i in cutlass.range_constexpr(
-                                0, cute.size(tTR_rAcc_up), 2
-                            ):
-                                acc_alpha = cute.arch.mul_packed_f32x2(
-                                    (acc_vec[i], acc_vec[i + 1]),
-                                    (
-                                        cutlass.Float32(alpha_val),
-                                        cutlass.Float32(alpha_val),
-                                    ),
-                                )
-                                r0 = cute.arch.fmax(acc_alpha[0], cutlass.Float32(0.0))
-                                r1 = cute.arch.fmax(acc_alpha[1], cutlass.Float32(0.0))
-                                (
-                                    tCompute[i],
-                                    tCompute[i + 1],
-                                ) = cute.arch.mul_packed_f32x2((r0, r1), (r0, r1))
-                        else:
-                            for i in cutlass.range_constexpr(cute.size(tTR_rAcc_up)):
-                                v = acc_vec[i] * cutlass.Float32(alpha_val)
-                                v = cute.arch.fmax(v, cutlass.Float32(0.0))
-                                tCompute[i] = v * v
-                    else:
-                        acc_vec_up = tTR_rAcc_up.load()
-                        acc_vec_gate = tTR_rAcc_gate.load()
+                    if cutlass.const_expr(self.cluster_split_k):
+                        if cs_split:
+                            cs_row = real_subtile_idx * cs_rows_per_step
+                            if cs_rank == 1:
+                                # Peer: ship the raw fragments of this step.
+                                for e in cutlass.range_constexpr(0, cs_frag, 4):
+                                    st_async_v4_f32_cluster(
+                                        cs_remote_red
+                                        + (cs_row + e // 4) * cutlass.Int32(2048),
+                                        tTR_rAcc_up[e],
+                                        tTR_rAcc_up[e + 1],
+                                        tTR_rAcc_up[e + 2],
+                                        tTR_rAcc_up[e + 3],
+                                        cs_remote_full,
+                                    )
+                                if cutlass.const_expr(self.gated):
+                                    for e in cutlass.range_constexpr(0, cs_frag, 4):
+                                        st_async_v4_f32_cluster(
+                                            cs_remote_red
+                                            + (cs_row + cs_frag // 4 + e // 4)
+                                            * cutlass.Int32(2048),
+                                            tTR_rAcc_gate[e],
+                                            tTR_rAcc_gate[e + 1],
+                                            tTR_rAcc_gate[e + 2],
+                                            tTR_rAcc_gate[e + 3],
+                                            cs_remote_full,
+                                        )
+                            else:
+                                # Leader: the whole partial arrives before the
+                                # first step; add it fragment by fragment.
+                                if subtile_idx == 0:
+                                    cute.arch.mbarrier_wait(
+                                        storage.cs_full_mbar.ptr, cutlass.Int32(0)
+                                    )
+                                cs_word = cs_row * cutlass.Int32(512) + epi_tidx * 4
+                                for e in cutlass.range_constexpr(cs_frag):
+                                    tTR_rAcc_up[e] = (
+                                        tTR_rAcc_up[e]
+                                        + sRed[cs_word + (e // 4) * 512 + e % 4]
+                                    )
+                                if cutlass.const_expr(self.gated):
+                                    cs_word = cs_word + (cs_frag // 4) * 512
+                                    for e in cutlass.range_constexpr(cs_frag):
+                                        tTR_rAcc_gate[e] = (
+                                            tTR_rAcc_gate[e]
+                                            + sRed[cs_word + (e // 4) * 512 + e % 4]
+                                        )
 
-                        #
-                        # Gated activation. SiTU optionally applies smooth tanh
-                        # clamps, while GeGLU uses tanh-approximate GELU.
-                        # Represent standard SwiGLU and the OAI variant as
-                        # ActivationType.Swiglu; the alpha/beta/limit parameters
-                        # specialize the same formula:
-                        # gate * sigmoid(swiglu_alpha * gate)
-                        # * (up + swiglu_beta).
-                        #
-                        tCompute = cute.make_rmem_tensor(
-                            acc_vec_gate.shape, self.acc_dtype
-                        )
-                        swiglu_alpha = cutlass.Float32(self.swiglu_alpha)
-                        swiglu_beta = cutlass.Float32(self.swiglu_beta)
-                        swiglu_limit = cutlass.Float32(self.swiglu_limit)
-                        LOG2_E = cutlass.Float32(1.4426950408889634)
-                        if cutlass.const_expr(
-                            self.runtime_situ or self.situ_beta is not None
-                        ):
-                            if cutlass.const_expr(self.runtime_situ):
-                                situ_beta = runtime_beta
-                                if cutlass.const_expr(self.runtime_situ_linear_beta):
-                                    linear_beta = runtime_linear_beta
-                                    inv_linear_beta = runtime_inv_linear_beta
-                            else:
-                                # Preserve folding for the existing scalar API.
-                                situ_beta = self.situ_beta
-                                if cutlass.const_expr(
-                                    self.situ_linear_beta is not None
-                                ):
-                                    linear_beta = cutlass.Float32(self.situ_linear_beta)
-                                    inv_linear_beta = cutlass.Float32(
-                                        f32_reciprocal(self.situ_linear_beta)
-                                    )
-                            if cutlass.const_expr(self.vectorized_f32):
-                                for i in cutlass.range_constexpr(
-                                    0, cute.size(tTR_rAcc_up), 2
-                                ):
-                                    acc_vec_up_alpha = cute.arch.mul_packed_f32x2(
-                                        (acc_vec_up[i], acc_vec_up[i + 1]),
-                                        (
-                                            cutlass.Float32(alpha_val),
-                                            cutlass.Float32(alpha_val),
-                                        ),
-                                    )
-                                    acc_vec_gate_alpha = cute.arch.mul_packed_f32x2(
-                                        (acc_vec_gate[i], acc_vec_gate[i + 1]),
-                                        (
-                                            cutlass.Float32(alpha_val),
-                                            cutlass.Float32(alpha_val),
-                                        ),
-                                    )
-                                    # The validated mixed MXFP8/MXFP4 path uses native tanh.
-                                    if cutlass.const_expr(
-                                        self.unpack_tma and self.is_mxfp8_output
-                                    ):
-                                        situ_gate_pair = (
-                                            native_situ_f32(
-                                                acc_vec_gate_alpha[0],
-                                                situ_beta,
-                                                fastmath=True,
-                                            ),
-                                            native_situ_f32(
-                                                acc_vec_gate_alpha[1],
-                                                situ_beta,
-                                                fastmath=True,
-                                            ),
-                                        )
-                                    else:
-                                        situ_gate_pair = (
-                                            situ_f32(
-                                                acc_vec_gate_alpha[0],
-                                                situ_beta,
-                                                fastmath=True,
-                                            ),
-                                            situ_f32(
-                                                acc_vec_gate_alpha[1],
-                                                situ_beta,
-                                                fastmath=True,
-                                            ),
-                                        )
-                                    if cutlass.const_expr(
-                                        self.runtime_situ_linear_beta
-                                        or self.situ_linear_beta is not None
-                                    ):
-                                        if cutlass.const_expr(
-                                            self.unpack_tma and self.is_mxfp8_output
-                                        ):
-                                            acc_vec_up_alpha = (
-                                                linear_beta
-                                                * native_tanh_f32(
-                                                    acc_vec_up_alpha[0]
-                                                    * inv_linear_beta,
-                                                ),
-                                                linear_beta
-                                                * native_tanh_f32(
-                                                    acc_vec_up_alpha[1]
-                                                    * inv_linear_beta,
-                                                ),
-                                            )
-                                        else:
-                                            acc_vec_up_alpha = (
-                                                linear_beta
-                                                * tanh_f32(
-                                                    acc_vec_up_alpha[0]
-                                                    * inv_linear_beta,
-                                                    fastmath=True,
-                                                ),
-                                                linear_beta
-                                                * tanh_f32(
-                                                    acc_vec_up_alpha[1]
-                                                    * inv_linear_beta,
-                                                    fastmath=True,
-                                                ),
-                                            )
-                                    (
-                                        tCompute[i],
-                                        tCompute[i + 1],
-                                    ) = cute.arch.mul_packed_f32x2(
-                                        acc_vec_up_alpha, situ_gate_pair
-                                    )
-                            else:
-                                for i in cutlass.range_constexpr(
-                                    cute.size(tTR_rAcc_up)
-                                ):
-                                    acc_vec_up_alpha = acc_vec_up[i] * cutlass.Float32(
-                                        alpha_val
-                                    )
-                                    acc_vec_gate_alpha = acc_vec_gate[
-                                        i
-                                    ] * cutlass.Float32(alpha_val)
-                                    if cutlass.const_expr(
-                                        self.unpack_tma and self.is_mxfp8_output
-                                    ):
-                                        situ_gate_value = native_situ_f32(
-                                            acc_vec_gate_alpha,
-                                            situ_beta,
-                                            fastmath=True,
-                                        )
-                                    else:
-                                        situ_gate_value = situ_f32(
-                                            acc_vec_gate_alpha,
-                                            situ_beta,
-                                            fastmath=True,
-                                        )
-                                    if cutlass.const_expr(
-                                        self.runtime_situ_linear_beta
-                                        or self.situ_linear_beta is not None
-                                    ):
-                                        if cutlass.const_expr(
-                                            self.unpack_tma and self.is_mxfp8_output
-                                        ):
-                                            acc_vec_up_alpha = (
-                                                linear_beta
-                                                * native_tanh_f32(
-                                                    acc_vec_up_alpha * inv_linear_beta,
-                                                )
-                                            )
-                                        else:
-                                            acc_vec_up_alpha = linear_beta * tanh_f32(
-                                                acc_vec_up_alpha * inv_linear_beta,
-                                                fastmath=True,
-                                            )
-                                    tCompute[i] = acc_vec_up_alpha * situ_gate_value
-                        elif cutlass.const_expr(
-                            self.activation_type == ActivationType.GegluTanh.value
-                        ):
-                            if cutlass.const_expr(self.vectorized_f32):
-                                for i in cutlass.range_constexpr(
-                                    0, cute.size(tTR_rAcc_up), 2
-                                ):
-                                    acc_vec_up_alpha = cute.arch.mul_packed_f32x2(
-                                        (acc_vec_up[i], acc_vec_up[i + 1]),
-                                        (
-                                            cutlass.Float32(alpha_val),
-                                            cutlass.Float32(alpha_val),
-                                        ),
-                                    )
-                                    acc_vec_gate_alpha = cute.arch.mul_packed_f32x2(
-                                        (acc_vec_gate[i], acc_vec_gate[i + 1]),
-                                        (
-                                            cutlass.Float32(alpha_val),
-                                            cutlass.Float32(alpha_val),
-                                        ),
-                                    )
-                                    (
-                                        tCompute[i],
-                                        tCompute[i + 1],
-                                    ) = cute.arch.mul_packed_f32x2(
-                                        acc_vec_up_alpha,
-                                        (
-                                            gelu_tanh_f32(
-                                                acc_vec_gate_alpha[0], fastmath=True
-                                            ),
-                                            gelu_tanh_f32(
-                                                acc_vec_gate_alpha[1], fastmath=True
-                                            ),
-                                        ),
-                                    )
-                            else:
-                                for i in cutlass.range_constexpr(
-                                    cute.size(tTR_rAcc_up)
-                                ):
-                                    acc_vec_up_alpha = acc_vec_up[i] * cutlass.Float32(
-                                        alpha_val
-                                    )
-                                    acc_vec_gate_alpha = acc_vec_gate[
-                                        i
-                                    ] * cutlass.Float32(alpha_val)
-                                    tCompute[i] = acc_vec_up_alpha * gelu_tanh_f32(
-                                        acc_vec_gate_alpha, fastmath=True
-                                    )
-                        elif cutlass.const_expr(self.vectorized_f32):
-                            for i in cutlass.range_constexpr(
-                                0, cute.size(tTR_rAcc_up), 2
-                            ):
-                                acc_vec_up_alpha = cute.arch.mul_packed_f32x2(
-                                    (acc_vec_up[i], acc_vec_up[i + 1]),
-                                    (
-                                        cutlass.Float32(alpha_val),
-                                        cutlass.Float32(alpha_val),
-                                    ),
-                                )
-                                acc_vec_gate_alpha = cute.arch.mul_packed_f32x2(
-                                    (acc_vec_gate[i], acc_vec_gate[i + 1]),
-                                    (
-                                        cutlass.Float32(alpha_val),
-                                        cutlass.Float32(alpha_val),
-                                    ),
-                                )
-                                gate_clamped = (
-                                    fmin(acc_vec_gate_alpha[0], swiglu_limit, nan=True),
-                                    fmin(acc_vec_gate_alpha[1], swiglu_limit, nan=True),
-                                )
-                                up_clamped = (
-                                    -fmin(
-                                        -fmin(
-                                            acc_vec_up_alpha[0], swiglu_limit, nan=True
-                                        ),
-                                        swiglu_limit,
-                                        nan=True,
-                                    ),
-                                    -fmin(
-                                        -fmin(
-                                            acc_vec_up_alpha[1], swiglu_limit, nan=True
-                                        ),
-                                        swiglu_limit,
-                                        nan=True,
-                                    ),
-                                )
-                                gate_sigmoid_log2e = cute.arch.mul_packed_f32x2(
-                                    gate_clamped,
-                                    (
-                                        -(swiglu_alpha * LOG2_E),
-                                        -(swiglu_alpha * LOG2_E),
-                                    ),
-                                )
-                                (
-                                    tCompute[i],
-                                    tCompute[i + 1],
-                                ) = cute.arch.add_packed_f32x2(
-                                    (
-                                        cute.math.exp2(
-                                            gate_sigmoid_log2e[0], fastmath=True
-                                        ),
-                                        cute.math.exp2(
-                                            gate_sigmoid_log2e[1], fastmath=True
-                                        ),
-                                    ),
-                                    (1.0, 1.0),
-                                )
-                                tCompute[i] = cute.arch.rcp_approx(tCompute[i])
-                                tCompute[i + 1] = cute.arch.rcp_approx(tCompute[i + 1])
-                                (
-                                    tCompute[i],
-                                    tCompute[i + 1],
-                                ) = cute.arch.mul_packed_f32x2(
-                                    (tCompute[i], tCompute[i + 1]),
-                                    gate_clamped,
-                                )
-                                up_biased = cute.arch.add_packed_f32x2(
-                                    up_clamped,
-                                    (
-                                        swiglu_beta,
-                                        swiglu_beta,
-                                    ),
-                                )
-                                (
-                                    tCompute[i],
-                                    tCompute[i + 1],
-                                ) = cute.arch.mul_packed_f32x2(
-                                    (tCompute[i], tCompute[i + 1]),
-                                    (
-                                        up_biased[0],
-                                        up_biased[1],
-                                    ),
-                                )
-                        else:
-                            for i in cutlass.range_constexpr(cute.size(tTR_rAcc_up)):
-                                acc_vec_up_alpha = acc_vec_up[i] * cutlass.Float32(
-                                    alpha_val
-                                )
-                                acc_vec_gate_alpha = acc_vec_gate[i] * cutlass.Float32(
-                                    alpha_val
-                                )
-                                gate_clamped = fmin(
-                                    acc_vec_gate_alpha, swiglu_limit, nan=True
-                                )
-                                up_clamped = -fmin(
-                                    -fmin(acc_vec_up_alpha, swiglu_limit, nan=True),
-                                    swiglu_limit,
-                                    nan=True,
-                                )
-                                sigmoid_gate = cute.arch.rcp_approx(
-                                    1.0
-                                    + cute.math.exp2(
-                                        -(swiglu_alpha * LOG2_E * gate_clamped),
-                                        fastmath=True,
-                                    )
-                                )
-                                tCompute[i] = (
-                                    gate_clamped
-                                    * sigmoid_gate
-                                    * (up_clamped + swiglu_beta)
-                                )
-
-                    if cutlass.const_expr(self.generate_sfc):
-                        #
-                        # Quantization path for Float4E2M1FN or MXFP8 output:
-                        # 1. Compute per-vector absolute max from SwiGLU result
-                        # 2. Generate scale factor C (SFC) based on max values
-                        # 3. Store SFC to global memory
-                        # 4. Quantize output by scaling with reciprocal of SFC
-                        #
-                        # Assume subtile partitioned always happens on n dimension
-                        sfc_subtile_idx_mn = (
-                            tile_info[0] * self.epi_tile_cnt[0],
-                            tile_info[1] * self.epi_tile_cnt[1] + real_subtile_idx,
-                        )
-                        tCgSFC = tCgSFC_mn[
-                            (
-                                None,
-                                None,
-                                None,
-                                *sfc_subtile_idx_mn,
+                    if cs_do_store:
+                        if cutlass.const_expr(not self.gated):
+                            acc_vec = tTR_rAcc_up.load()
+                            tCompute = cute.make_rmem_tensor(
+                                acc_vec.shape, self.acc_dtype
                             )
-                        ]
-
-                        #
-                        # Get absolute max across a vector and Compute SFC
-                        #
-                        tTR_rAcc_frg = cute.logical_divide(
-                            tCompute, cute.make_layout(self.sf_vec_size)
-                        )
-                        acc_frg = tTR_rAcc_frg.load()
-                        acc_frg = epilogue_op(acc_frg)
-
-                        # Apply element-wise absolute value using math.absf (supports vectors)
-                        abs_acc_frg_ir = math.absf(acc_frg.ir_value())
-                        abs_acc_frg = type(acc_frg)(
-                            abs_acc_frg_ir, acc_frg.shape, acc_frg.dtype
-                        )
-
-                        if cutlass.const_expr(self.vectorized_f32):
-                            for vi in cutlass.range_constexpr(abs_acc_frg.shape[1]):
-                                tCrSFC_pvscale[vi] = abs_acc_frg[None, vi].reduce(
-                                    cute.ReductionOp.MAX,
-                                    cutlass.Float32(0.0),
-                                    0,  # Use 0.0 as init for abs values
-                                )
-                            for vi in cutlass.range_constexpr(
-                                0, abs_acc_frg.shape[1], 2
-                            ):
-                                tCrSFC_pvscale[vi], tCrSFC_pvscale[vi + 1] = (
-                                    cute.arch.mul_packed_f32x2(
-                                        (tCrSFC_pvscale[vi], tCrSFC_pvscale[vi + 1]),
+                            if cutlass.const_expr(self.vectorized_f32):
+                                for i in cutlass.range_constexpr(
+                                    0, cute.size(tTR_rAcc_up), 2
+                                ):
+                                    acc_alpha = cute.arch.mul_packed_f32x2(
+                                        (acc_vec[i], acc_vec[i + 1]),
                                         (
-                                            self.get_dtype_rcp_limits(self.c_dtype),
-                                            self.get_dtype_rcp_limits(self.c_dtype),
+                                            cutlass.Float32(alpha_val),
+                                            cutlass.Float32(alpha_val),
                                         ),
                                     )
-                                )
-                                tCrSFC_pvscale[vi], tCrSFC_pvscale[vi + 1] = (
-                                    cute.arch.mul_packed_f32x2(
-                                        (tCrSFC_pvscale[vi], tCrSFC_pvscale[vi + 1]),
-                                        (norm_const, norm_const),
+                                    r0 = cute.arch.fmax(
+                                        acc_alpha[0], cutlass.Float32(0.0)
                                     )
-                                )
+                                    r1 = cute.arch.fmax(
+                                        acc_alpha[1], cutlass.Float32(0.0)
+                                    )
+                                    (
+                                        tCompute[i],
+                                        tCompute[i + 1],
+                                    ) = cute.arch.mul_packed_f32x2((r0, r1), (r0, r1))
+                            else:
+                                for i in cutlass.range_constexpr(
+                                    cute.size(tTR_rAcc_up)
+                                ):
+                                    v = acc_vec[i] * cutlass.Float32(alpha_val)
+                                    v = cute.arch.fmax(v, cutlass.Float32(0.0))
+                                    tCompute[i] = v * v
                         else:
-                            for vi in cutlass.range_constexpr(abs_acc_frg.shape[1]):
-                                tCrSFC_pvscale[vi] = (
-                                    abs_acc_frg[None, vi].reduce(
+                            acc_vec_up = tTR_rAcc_up.load()
+                            acc_vec_gate = tTR_rAcc_gate.load()
+
+                            #
+                            # Gated activation. SiTU optionally applies smooth tanh
+                            # clamps, while GeGLU uses tanh-approximate GELU.
+                            # Represent standard SwiGLU and the OAI variant as
+                            # ActivationType.Swiglu; the alpha/beta/limit parameters
+                            # specialize the same formula:
+                            # gate * sigmoid(swiglu_alpha * gate)
+                            # * (up + swiglu_beta).
+                            #
+                            tCompute = cute.make_rmem_tensor(
+                                acc_vec_gate.shape, self.acc_dtype
+                            )
+                            swiglu_alpha = cutlass.Float32(self.swiglu_alpha)
+                            swiglu_beta = cutlass.Float32(self.swiglu_beta)
+                            swiglu_limit = cutlass.Float32(self.swiglu_limit)
+                            LOG2_E = cutlass.Float32(1.4426950408889634)
+                            if cutlass.const_expr(
+                                self.runtime_situ or self.situ_beta is not None
+                            ):
+                                if cutlass.const_expr(self.runtime_situ):
+                                    situ_beta = runtime_beta
+                                    if cutlass.const_expr(
+                                        self.runtime_situ_linear_beta
+                                    ):
+                                        linear_beta = runtime_linear_beta
+                                        inv_linear_beta = runtime_inv_linear_beta
+                                else:
+                                    # Preserve folding for the existing scalar API.
+                                    situ_beta = self.situ_beta
+                                    if cutlass.const_expr(
+                                        self.situ_linear_beta is not None
+                                    ):
+                                        linear_beta = cutlass.Float32(
+                                            self.situ_linear_beta
+                                        )
+                                        inv_linear_beta = cutlass.Float32(
+                                            f32_reciprocal(self.situ_linear_beta)
+                                        )
+                                if cutlass.const_expr(self.vectorized_f32):
+                                    for i in cutlass.range_constexpr(
+                                        0, cute.size(tTR_rAcc_up), 2
+                                    ):
+                                        acc_vec_up_alpha = cute.arch.mul_packed_f32x2(
+                                            (acc_vec_up[i], acc_vec_up[i + 1]),
+                                            (
+                                                cutlass.Float32(alpha_val),
+                                                cutlass.Float32(alpha_val),
+                                            ),
+                                        )
+                                        acc_vec_gate_alpha = cute.arch.mul_packed_f32x2(
+                                            (acc_vec_gate[i], acc_vec_gate[i + 1]),
+                                            (
+                                                cutlass.Float32(alpha_val),
+                                                cutlass.Float32(alpha_val),
+                                            ),
+                                        )
+                                        # The validated mixed MXFP8/MXFP4 path uses native tanh.
+                                        if cutlass.const_expr(
+                                            self.unpack_tma and self.is_mxfp8_output
+                                        ):
+                                            situ_gate_pair = (
+                                                native_situ_f32(
+                                                    acc_vec_gate_alpha[0],
+                                                    situ_beta,
+                                                    fastmath=True,
+                                                ),
+                                                native_situ_f32(
+                                                    acc_vec_gate_alpha[1],
+                                                    situ_beta,
+                                                    fastmath=True,
+                                                ),
+                                            )
+                                        else:
+                                            situ_gate_pair = (
+                                                situ_f32(
+                                                    acc_vec_gate_alpha[0],
+                                                    situ_beta,
+                                                    fastmath=True,
+                                                ),
+                                                situ_f32(
+                                                    acc_vec_gate_alpha[1],
+                                                    situ_beta,
+                                                    fastmath=True,
+                                                ),
+                                            )
+                                        if cutlass.const_expr(
+                                            self.runtime_situ_linear_beta
+                                            or self.situ_linear_beta is not None
+                                        ):
+                                            if cutlass.const_expr(
+                                                self.unpack_tma and self.is_mxfp8_output
+                                            ):
+                                                acc_vec_up_alpha = (
+                                                    linear_beta
+                                                    * native_tanh_f32(
+                                                        acc_vec_up_alpha[0]
+                                                        * inv_linear_beta,
+                                                    ),
+                                                    linear_beta
+                                                    * native_tanh_f32(
+                                                        acc_vec_up_alpha[1]
+                                                        * inv_linear_beta,
+                                                    ),
+                                                )
+                                            else:
+                                                acc_vec_up_alpha = (
+                                                    linear_beta
+                                                    * tanh_f32(
+                                                        acc_vec_up_alpha[0]
+                                                        * inv_linear_beta,
+                                                        fastmath=True,
+                                                    ),
+                                                    linear_beta
+                                                    * tanh_f32(
+                                                        acc_vec_up_alpha[1]
+                                                        * inv_linear_beta,
+                                                        fastmath=True,
+                                                    ),
+                                                )
+                                        (
+                                            tCompute[i],
+                                            tCompute[i + 1],
+                                        ) = cute.arch.mul_packed_f32x2(
+                                            acc_vec_up_alpha, situ_gate_pair
+                                        )
+                                else:
+                                    for i in cutlass.range_constexpr(
+                                        cute.size(tTR_rAcc_up)
+                                    ):
+                                        acc_vec_up_alpha = acc_vec_up[
+                                            i
+                                        ] * cutlass.Float32(alpha_val)
+                                        acc_vec_gate_alpha = acc_vec_gate[
+                                            i
+                                        ] * cutlass.Float32(alpha_val)
+                                        if cutlass.const_expr(
+                                            self.unpack_tma and self.is_mxfp8_output
+                                        ):
+                                            situ_gate_value = native_situ_f32(
+                                                acc_vec_gate_alpha,
+                                                situ_beta,
+                                                fastmath=True,
+                                            )
+                                        else:
+                                            situ_gate_value = situ_f32(
+                                                acc_vec_gate_alpha,
+                                                situ_beta,
+                                                fastmath=True,
+                                            )
+                                        if cutlass.const_expr(
+                                            self.runtime_situ_linear_beta
+                                            or self.situ_linear_beta is not None
+                                        ):
+                                            if cutlass.const_expr(
+                                                self.unpack_tma and self.is_mxfp8_output
+                                            ):
+                                                acc_vec_up_alpha = (
+                                                    linear_beta
+                                                    * native_tanh_f32(
+                                                        acc_vec_up_alpha
+                                                        * inv_linear_beta,
+                                                    )
+                                                )
+                                            else:
+                                                acc_vec_up_alpha = (
+                                                    linear_beta
+                                                    * tanh_f32(
+                                                        acc_vec_up_alpha
+                                                        * inv_linear_beta,
+                                                        fastmath=True,
+                                                    )
+                                                )
+                                        tCompute[i] = acc_vec_up_alpha * situ_gate_value
+                            elif cutlass.const_expr(
+                                self.activation_type == ActivationType.GegluTanh.value
+                            ):
+                                if cutlass.const_expr(self.vectorized_f32):
+                                    for i in cutlass.range_constexpr(
+                                        0, cute.size(tTR_rAcc_up), 2
+                                    ):
+                                        acc_vec_up_alpha = cute.arch.mul_packed_f32x2(
+                                            (acc_vec_up[i], acc_vec_up[i + 1]),
+                                            (
+                                                cutlass.Float32(alpha_val),
+                                                cutlass.Float32(alpha_val),
+                                            ),
+                                        )
+                                        acc_vec_gate_alpha = cute.arch.mul_packed_f32x2(
+                                            (acc_vec_gate[i], acc_vec_gate[i + 1]),
+                                            (
+                                                cutlass.Float32(alpha_val),
+                                                cutlass.Float32(alpha_val),
+                                            ),
+                                        )
+                                        (
+                                            tCompute[i],
+                                            tCompute[i + 1],
+                                        ) = cute.arch.mul_packed_f32x2(
+                                            acc_vec_up_alpha,
+                                            (
+                                                gelu_tanh_f32(
+                                                    acc_vec_gate_alpha[0], fastmath=True
+                                                ),
+                                                gelu_tanh_f32(
+                                                    acc_vec_gate_alpha[1], fastmath=True
+                                                ),
+                                            ),
+                                        )
+                                else:
+                                    for i in cutlass.range_constexpr(
+                                        cute.size(tTR_rAcc_up)
+                                    ):
+                                        acc_vec_up_alpha = acc_vec_up[
+                                            i
+                                        ] * cutlass.Float32(alpha_val)
+                                        acc_vec_gate_alpha = acc_vec_gate[
+                                            i
+                                        ] * cutlass.Float32(alpha_val)
+                                        tCompute[i] = acc_vec_up_alpha * gelu_tanh_f32(
+                                            acc_vec_gate_alpha, fastmath=True
+                                        )
+                            elif cutlass.const_expr(self.vectorized_f32):
+                                for i in cutlass.range_constexpr(
+                                    0, cute.size(tTR_rAcc_up), 2
+                                ):
+                                    acc_vec_up_alpha = cute.arch.mul_packed_f32x2(
+                                        (acc_vec_up[i], acc_vec_up[i + 1]),
+                                        (
+                                            cutlass.Float32(alpha_val),
+                                            cutlass.Float32(alpha_val),
+                                        ),
+                                    )
+                                    acc_vec_gate_alpha = cute.arch.mul_packed_f32x2(
+                                        (acc_vec_gate[i], acc_vec_gate[i + 1]),
+                                        (
+                                            cutlass.Float32(alpha_val),
+                                            cutlass.Float32(alpha_val),
+                                        ),
+                                    )
+                                    gate_clamped = (
+                                        fmin(
+                                            acc_vec_gate_alpha[0],
+                                            swiglu_limit,
+                                            nan=True,
+                                        ),
+                                        fmin(
+                                            acc_vec_gate_alpha[1],
+                                            swiglu_limit,
+                                            nan=True,
+                                        ),
+                                    )
+                                    up_clamped = (
+                                        -fmin(
+                                            -fmin(
+                                                acc_vec_up_alpha[0],
+                                                swiglu_limit,
+                                                nan=True,
+                                            ),
+                                            swiglu_limit,
+                                            nan=True,
+                                        ),
+                                        -fmin(
+                                            -fmin(
+                                                acc_vec_up_alpha[1],
+                                                swiglu_limit,
+                                                nan=True,
+                                            ),
+                                            swiglu_limit,
+                                            nan=True,
+                                        ),
+                                    )
+                                    gate_sigmoid_log2e = cute.arch.mul_packed_f32x2(
+                                        gate_clamped,
+                                        (
+                                            -(swiglu_alpha * LOG2_E),
+                                            -(swiglu_alpha * LOG2_E),
+                                        ),
+                                    )
+                                    (
+                                        tCompute[i],
+                                        tCompute[i + 1],
+                                    ) = cute.arch.add_packed_f32x2(
+                                        (
+                                            cute.math.exp2(
+                                                gate_sigmoid_log2e[0], fastmath=True
+                                            ),
+                                            cute.math.exp2(
+                                                gate_sigmoid_log2e[1], fastmath=True
+                                            ),
+                                        ),
+                                        (1.0, 1.0),
+                                    )
+                                    tCompute[i] = cute.arch.rcp_approx(tCompute[i])
+                                    tCompute[i + 1] = cute.arch.rcp_approx(
+                                        tCompute[i + 1]
+                                    )
+                                    (
+                                        tCompute[i],
+                                        tCompute[i + 1],
+                                    ) = cute.arch.mul_packed_f32x2(
+                                        (tCompute[i], tCompute[i + 1]),
+                                        gate_clamped,
+                                    )
+                                    up_biased = cute.arch.add_packed_f32x2(
+                                        up_clamped,
+                                        (
+                                            swiglu_beta,
+                                            swiglu_beta,
+                                        ),
+                                    )
+                                    (
+                                        tCompute[i],
+                                        tCompute[i + 1],
+                                    ) = cute.arch.mul_packed_f32x2(
+                                        (tCompute[i], tCompute[i + 1]),
+                                        (
+                                            up_biased[0],
+                                            up_biased[1],
+                                        ),
+                                    )
+                            else:
+                                for i in cutlass.range_constexpr(
+                                    cute.size(tTR_rAcc_up)
+                                ):
+                                    acc_vec_up_alpha = acc_vec_up[i] * cutlass.Float32(
+                                        alpha_val
+                                    )
+                                    acc_vec_gate_alpha = acc_vec_gate[
+                                        i
+                                    ] * cutlass.Float32(alpha_val)
+                                    gate_clamped = fmin(
+                                        acc_vec_gate_alpha, swiglu_limit, nan=True
+                                    )
+                                    up_clamped = -fmin(
+                                        -fmin(acc_vec_up_alpha, swiglu_limit, nan=True),
+                                        swiglu_limit,
+                                        nan=True,
+                                    )
+                                    sigmoid_gate = cute.arch.rcp_approx(
+                                        1.0
+                                        + cute.math.exp2(
+                                            -(swiglu_alpha * LOG2_E * gate_clamped),
+                                            fastmath=True,
+                                        )
+                                    )
+                                    tCompute[i] = (
+                                        gate_clamped
+                                        * sigmoid_gate
+                                        * (up_clamped + swiglu_beta)
+                                    )
+
+                        if cutlass.const_expr(self.generate_sfc):
+                            #
+                            # Quantization path for Float4E2M1FN or MXFP8 output:
+                            # 1. Compute per-vector absolute max from SwiGLU result
+                            # 2. Generate scale factor C (SFC) based on max values
+                            # 3. Store SFC to global memory
+                            # 4. Quantize output by scaling with reciprocal of SFC
+                            #
+                            # Assume subtile partitioned always happens on n dimension
+                            sfc_subtile_idx_mn = (
+                                tile_info[0] * self.epi_tile_cnt[0],
+                                tile_info[1] * self.epi_tile_cnt[1] + real_subtile_idx,
+                            )
+                            tCgSFC = tCgSFC_mn[
+                                (
+                                    None,
+                                    None,
+                                    None,
+                                    *sfc_subtile_idx_mn,
+                                )
+                            ]
+
+                            #
+                            # Get absolute max across a vector and Compute SFC
+                            #
+                            tTR_rAcc_frg = cute.logical_divide(
+                                tCompute, cute.make_layout(self.sf_vec_size)
+                            )
+                            acc_frg = tTR_rAcc_frg.load()
+                            acc_frg = epilogue_op(acc_frg)
+
+                            # Apply element-wise absolute value using math.absf (supports vectors)
+                            abs_acc_frg_ir = math.absf(acc_frg.ir_value())
+                            abs_acc_frg = type(acc_frg)(
+                                abs_acc_frg_ir, acc_frg.shape, acc_frg.dtype
+                            )
+
+                            if cutlass.const_expr(self.vectorized_f32):
+                                for vi in cutlass.range_constexpr(abs_acc_frg.shape[1]):
+                                    tCrSFC_pvscale[vi] = abs_acc_frg[None, vi].reduce(
                                         cute.ReductionOp.MAX,
                                         cutlass.Float32(0.0),
                                         0,  # Use 0.0 as init for abs values
                                     )
-                                    * self.get_dtype_rcp_limits(self.c_dtype)
-                                    * norm_const
-                                )
-
-                        if cutlass.const_expr(self.is_mxfp8_output):
-                            # Direct FP32 -> E8M0 exists, but converting this
-                            # two-element fragment produces an unsupported
-                            # vector<2xE8M0> lowering. Generate the same exact
-                            # raw codes as mxfp8_quantize instead: saturating
-                            # round-toward +infinity, with byte 0 for a zero block.
-                            for vi in cutlass.range_constexpr(cute.size(tCrSFC)):
-                                scale_ue8m0 = float_to_ue8m0_fast(tCrSFC_pvscale[vi])
-                                tCrSFC[vi] = scale_ue8m0.to(cutlass.Uint8)
-                        else:
-                            tCrSFC.store(tCrSFC_pvscale.load().to(self.sf_dtype))
-
-                        #
-                        # Store SFC to global memory
-                        #
-                        # TODO: Need to think about predicate on it
-                        # if cute.elem_less():
-                        if cutlass.const_expr(self.is_mxfp8_output):
-                            # Preserve those raw codes with scalar byte stores;
-                            # the generic auto-vectorizer requires at least 32 bits.
-                            for vi in cutlass.range_constexpr(cute.size(tCrSFC)):
-                                tCgSFC[vi] = tCrSFC[vi]
-                        else:
-                            cute.autovec_copy(tCrSFC, tCgSFC)
-
-                        #
-                        # Compute quantized output values and convert to C type
-                        #
-                        fp32_max = cutlass.Float32(3.40282346638528859812e38)
-                        if cutlass.const_expr(self.is_mxfp8_output):
-                            for vi in cutlass.range_constexpr(0, cute.size(tCrSFC), 2):
-                                acc_scale0 = ue8m0_to_inv_scale_fast(
-                                    tCrSFC[vi].to(cutlass.Uint32)
-                                )
-                                acc_scale1 = ue8m0_to_inv_scale_fast(
-                                    tCrSFC[vi + 1].to(cutlass.Uint32)
-                                )
-                                vec0 = tTR_rAcc_frg[None, vi]
-                                vec1 = tTR_rAcc_frg[None, vi + 1]
-                                for ei in cutlass.range_constexpr(self.sf_vec_size):
-                                    vec0[ei], vec1[ei] = cute.arch.mul_packed_f32x2(
-                                        (vec0[ei], vec1[ei]),
-                                        (acc_scale0, acc_scale1),
+                                for vi in cutlass.range_constexpr(
+                                    0, abs_acc_frg.shape[1], 2
+                                ):
+                                    tCrSFC_pvscale[vi], tCrSFC_pvscale[vi + 1] = (
+                                        cute.arch.mul_packed_f32x2(
+                                            (
+                                                tCrSFC_pvscale[vi],
+                                                tCrSFC_pvscale[vi + 1],
+                                            ),
+                                            (
+                                                self.get_dtype_rcp_limits(self.c_dtype),
+                                                self.get_dtype_rcp_limits(self.c_dtype),
+                                            ),
+                                        )
                                     )
-                        elif cutlass.const_expr(self.vectorized_f32):
-                            tCrSFC_qpvscale_up = tCrSFC.load().to(cutlass.Float32)
-                            for vi in cutlass.range_constexpr(0, cute.size(tCrSFC), 2):
-                                acc_scale = cute.arch.mul_packed_f32x2(
-                                    (
-                                        cute.arch.rcp_approx(tCrSFC_qpvscale_up[vi]),
-                                        cute.arch.rcp_approx(
-                                            tCrSFC_qpvscale_up[vi + 1]
+                                    tCrSFC_pvscale[vi], tCrSFC_pvscale[vi + 1] = (
+                                        cute.arch.mul_packed_f32x2(
+                                            (
+                                                tCrSFC_pvscale[vi],
+                                                tCrSFC_pvscale[vi + 1],
+                                            ),
+                                            (norm_const, norm_const),
+                                        )
+                                    )
+                            else:
+                                for vi in cutlass.range_constexpr(abs_acc_frg.shape[1]):
+                                    tCrSFC_pvscale[vi] = (
+                                        abs_acc_frg[None, vi].reduce(
+                                            cute.ReductionOp.MAX,
+                                            cutlass.Float32(0.0),
+                                            0,  # Use 0.0 as init for abs values
+                                        )
+                                        * self.get_dtype_rcp_limits(self.c_dtype)
+                                        * norm_const
+                                    )
+
+                            if cutlass.const_expr(self.is_mxfp8_output):
+                                # Direct FP32 -> E8M0 exists, but converting this
+                                # two-element fragment produces an unsupported
+                                # vector<2xE8M0> lowering. Generate the same exact
+                                # raw codes as mxfp8_quantize instead: saturating
+                                # round-toward +infinity, with byte 0 for a zero block.
+                                for vi in cutlass.range_constexpr(cute.size(tCrSFC)):
+                                    scale_ue8m0 = float_to_ue8m0_fast(
+                                        tCrSFC_pvscale[vi]
+                                    )
+                                    tCrSFC[vi] = scale_ue8m0.to(cutlass.Uint8)
+                            else:
+                                tCrSFC.store(tCrSFC_pvscale.load().to(self.sf_dtype))
+
+                            #
+                            # Store SFC to global memory
+                            #
+                            # TODO: Need to think about predicate on it
+                            # if cute.elem_less():
+                            if cutlass.const_expr(self.is_mxfp8_output):
+                                # Preserve those raw codes with scalar byte stores;
+                                # the generic auto-vectorizer requires at least 32 bits.
+                                for vi in cutlass.range_constexpr(cute.size(tCrSFC)):
+                                    tCgSFC[vi] = tCrSFC[vi]
+                            else:
+                                cute.autovec_copy(tCrSFC, tCgSFC)
+
+                            #
+                            # Compute quantized output values and convert to C type
+                            #
+                            fp32_max = cutlass.Float32(3.40282346638528859812e38)
+                            if cutlass.const_expr(self.is_mxfp8_output):
+                                for vi in cutlass.range_constexpr(
+                                    0, cute.size(tCrSFC), 2
+                                ):
+                                    acc_scale0 = ue8m0_to_inv_scale_fast(
+                                        tCrSFC[vi].to(cutlass.Uint32)
+                                    )
+                                    acc_scale1 = ue8m0_to_inv_scale_fast(
+                                        tCrSFC[vi + 1].to(cutlass.Uint32)
+                                    )
+                                    vec0 = tTR_rAcc_frg[None, vi]
+                                    vec1 = tTR_rAcc_frg[None, vi + 1]
+                                    for ei in cutlass.range_constexpr(self.sf_vec_size):
+                                        vec0[ei], vec1[ei] = cute.arch.mul_packed_f32x2(
+                                            (vec0[ei], vec1[ei]),
+                                            (acc_scale0, acc_scale1),
+                                        )
+                            elif cutlass.const_expr(self.vectorized_f32):
+                                tCrSFC_qpvscale_up = tCrSFC.load().to(cutlass.Float32)
+                                for vi in cutlass.range_constexpr(
+                                    0, cute.size(tCrSFC), 2
+                                ):
+                                    acc_scale = cute.arch.mul_packed_f32x2(
+                                        (
+                                            cute.arch.rcp_approx(
+                                                tCrSFC_qpvscale_up[vi]
+                                            ),
+                                            cute.arch.rcp_approx(
+                                                tCrSFC_qpvscale_up[vi + 1]
+                                            ),
                                         ),
-                                    ),
-                                    (norm_const, norm_const),
-                                )
-                                acc_scale_min0 = fmin(acc_scale[0], fp32_max, nan=True)
-                                acc_scale_min1 = fmin(acc_scale[1], fp32_max, nan=True)
-
-                                vec0 = tTR_rAcc_frg[None, vi]
-                                vec1 = tTR_rAcc_frg[None, vi + 1]
-                                for ei in cutlass.range_constexpr(self.sf_vec_size):
-                                    vec0[ei], vec1[ei] = cute.arch.mul_packed_f32x2(
-                                        (vec0[ei], vec1[ei]),
-                                        (acc_scale_min0, acc_scale_min1),
+                                        (norm_const, norm_const),
                                     )
+                                    acc_scale_min0 = fmin(
+                                        acc_scale[0], fp32_max, nan=True
+                                    )
+                                    acc_scale_min1 = fmin(
+                                        acc_scale[1], fp32_max, nan=True
+                                    )
+
+                                    vec0 = tTR_rAcc_frg[None, vi]
+                                    vec1 = tTR_rAcc_frg[None, vi + 1]
+                                    for ei in cutlass.range_constexpr(self.sf_vec_size):
+                                        vec0[ei], vec1[ei] = cute.arch.mul_packed_f32x2(
+                                            (vec0[ei], vec1[ei]),
+                                            (acc_scale_min0, acc_scale_min1),
+                                        )
+                            else:
+                                tCrSFC_qpvscale_up = tCrSFC.load().to(cutlass.Float32)
+                                for vi in cutlass.range_constexpr(cute.size(tCrSFC)):
+                                    # TODO:Need to add E8M0 rcp approximation
+                                    acc_scale = norm_const * cute.arch.rcp_approx(
+                                        tCrSFC_qpvscale_up[vi]
+                                    )
+                                    acc_scale = fmin(acc_scale, fp32_max, nan=True)
+
+                                    vec = tTR_rAcc_frg[None, vi]
+                                    for ei in cutlass.range_constexpr(self.sf_vec_size):
+                                        vec[ei] = vec[ei] * acc_scale
+
+                            acc_vec = tiled_copy_r2s.retile(tCompute).load()
+                            tRS_rC.store(acc_vec.to(self.c_dtype))
                         else:
-                            tCrSFC_qpvscale_up = tCrSFC.load().to(cutlass.Float32)
-                            for vi in cutlass.range_constexpr(cute.size(tCrSFC)):
-                                # TODO:Need to add E8M0 rcp approximation
-                                acc_scale = norm_const * cute.arch.rcp_approx(
-                                    tCrSFC_qpvscale_up[vi]
-                                )
-                                acc_scale = fmin(acc_scale, fp32_max, nan=True)
+                            #
+                            # Convert to C type
+                            #
+                            acc_vec = tiled_copy_r2s.retile(tCompute).load()
+                            acc_vec = epilogue_op(acc_vec.to(self.c_dtype))
+                            tRS_rC.store(acc_vec)
 
-                                vec = tTR_rAcc_frg[None, vi]
-                                for ei in cutlass.range_constexpr(self.sf_vec_size):
-                                    vec[ei] = vec[ei] * acc_scale
-
-                        acc_vec = tiled_copy_r2s.retile(tCompute).load()
-                        tRS_rC.store(acc_vec.to(self.c_dtype))
-                    else:
                         #
-                        # Convert to C type
+                        # Store C to shared memory
                         #
-                        acc_vec = tiled_copy_r2s.retile(tCompute).load()
-                        acc_vec = epilogue_op(acc_vec.to(self.c_dtype))
-                        tRS_rC.store(acc_vec)
+                        num_prev_subtiles = num_prev_subtiles + 1
+                        c_buffer = num_prev_subtiles % self.num_c_stage
 
-                    #
-                    # Store C to shared memory
-                    #
-                    num_prev_subtiles = num_prev_subtiles + 1
-                    c_buffer = num_prev_subtiles % self.num_c_stage
-
-                    cute.copy(
-                        tiled_copy_r2s,
-                        tRS_rC,
-                        tRS_sC[(None, None, None, c_buffer)],
-                    )
-                    # Fence and barrier to make sure shared memory store is visible to TMA store
-                    cute.arch.fence_proxy(
-                        "async.shared",
-                        space="cta",
-                    )
-                    self.epilog_sync_barrier.arrive_and_wait()
-                    #
-                    # TMA store C to global memory
-                    #
-                    if warp_idx == self.epilog_warp_id[0]:
                         cute.copy(
-                            tma_atom_c,
-                            bSG_sC[(None, c_buffer)],
-                            bSG_gC[(None, real_subtile_idx)],
+                            tiled_copy_r2s,
+                            tRS_rC,
+                            tRS_sC[(None, None, None, c_buffer)],
                         )
                         # Fence and barrier to make sure shared memory store is visible to TMA store
-                        c_pipeline.producer_commit()
-                        c_pipeline.producer_acquire()
-                    self.epilog_sync_barrier.arrive_and_wait()
+                        cute.arch.fence_proxy(
+                            "async.shared",
+                            space="cta",
+                        )
+                        self.epilog_sync_barrier.arrive_and_wait()
+                        #
+                        # TMA store C to global memory
+                        #
+                        if warp_idx == self.epilog_warp_id[0]:
+                            cute.copy(
+                                tma_atom_c,
+                                bSG_sC[(None, c_buffer)],
+                                bSG_gC[(None, real_subtile_idx)],
+                            )
+                            # Fence and barrier to make sure shared memory store is visible to TMA store
+                            c_pipeline.producer_commit()
+                            c_pipeline.producer_acquire()
+                        self.epilog_sync_barrier.arrive_and_wait()
 
                 #
                 # Async arrive accumulator buffer empty

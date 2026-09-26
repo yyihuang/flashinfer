@@ -374,6 +374,33 @@ def st_async_f32_cluster(remote_addr_i32, v_f32, remote_mbar_i32, loc=None, ip=N
 
 
 @dsl_user_op
+def st_async_v4_f32_cluster(
+    remote_addr_i32, v0, v1, v2, v3, remote_mbar_i32, loc=None, ip=None
+):
+    """``st.async`` of four F32 (16 B) into a peer CTA's shared memory; the
+    peer's mbarrier at ``remote_mbar`` receives ``complete_tx`` of 16 bytes."""
+    llvm.inline_asm(
+        None,
+        [
+            remote_addr_i32.ir_value(loc=loc, ip=ip),
+            v0.ir_value(loc=loc, ip=ip),
+            v1.ir_value(loc=loc, ip=ip),
+            v2.ir_value(loc=loc, ip=ip),
+            v3.ir_value(loc=loc, ip=ip),
+            remote_mbar_i32.ir_value(loc=loc, ip=ip),
+        ],
+        "st.async.shared::cluster.mbarrier::complete_tx::bytes.v4.f32 "
+        "[$0], {$1, $2, $3, $4}, [$5];",
+        "r,f,f,f,f,r",
+        has_side_effects=True,
+        is_align_stack=False,
+        asm_dialect=llvm.AsmDialect.AD_ATT,
+        loc=loc,
+        ip=ip,
+    )
+
+
+@dsl_user_op
 def mbarrier_arrive_cluster(remote_mbar_i32, loc=None, ip=None):
     """Release-arrive on a peer CTA's mbarrier (cluster scope)."""
     llvm.inline_asm(

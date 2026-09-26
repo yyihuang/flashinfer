@@ -298,6 +298,15 @@ B300_SITU_DENSE_TACTIC_TABLE_NARROW = (
 # threshold is 1.10. The bucket whose table tactic is the M256 tile runs the
 # M128 base ``_T128_N256_C2`` under this rule instead.
 DENSE_DUAL_TILE = os.environ.get("MXFP4_DENSE_DUAL_TILE", "1") == "1"
+# Dense gather GEMM1 (single-CTA M128 tile, expert-parallel rank): pairs of
+# CTAs (a (1, 1, 2) cluster) split each tile's K while the routing's valid
+# tiles fit half the SMs (one local expert holding every local row at
+# T = 2048..4096: 48 tiles of a 56-step K loop); the peer's partial crosses
+# over DSMEM before the activation epilogue. Decided on the device per
+# launch, so a routing with more tiles runs the plain schedule. 0 disables.
+DENSE_GEMM1_CLUSTER_SPLIT = (
+    os.environ.get("MXFP4_DENSE_GEMM1_CLUSTER_SPLIT", "1") == "1"
+)
 DENSE_DUAL_TILE_MIN_TOKENS = int(
     os.environ.get("MXFP4_DENSE_DUAL_TILE_MIN_TOKENS", "7168")
 )
@@ -1557,6 +1566,7 @@ class CuteDslMxfp4MoEWrapper:
         dense_dual_tile: Optional[bool] = None,
         dense_dual_tile_min_tokens: Optional[int] = None,
         dense_dual_tile_threshold_permille: Optional[int] = None,
+        dense_gemm1_cluster_split: Optional[bool] = None,
     ):
         self.num_experts = num_experts
         self.top_k = top_k
@@ -1577,6 +1587,9 @@ class CuteDslMxfp4MoEWrapper:
         # Dual-tile dense routing (see DENSE_DUAL_TILE). ``dense_dual_tile=True``
         # forces it for every dense token count (tests); ``False`` disables it.
         self.dense_dual_tile = dense_dual_tile
+        # Cluster split-K of the dense GEMM1 (see DENSE_GEMM1_CLUSTER_SPLIT);
+        # None follows the environment knob.
+        self.dense_gemm1_cluster_split = dense_gemm1_cluster_split
         self.dense_dual_tile_min_tokens = (
             DENSE_DUAL_TILE_MIN_TOKENS
             if dense_dual_tile_min_tokens is None
@@ -1708,6 +1721,23 @@ class CuteDslMxfp4MoEWrapper:
                         return _T128_N256_C2
                     return tactic
         return DEFAULT_BLACKWELL_MOE_TACTIC
+
+    def _dense_gemm1_cluster_split(self, gemm1_tactic):
+        enabled = (
+            DENSE_GEMM1_CLUSTER_SPLIT
+            if self.dense_gemm1_cluster_split is None
+            else self.dense_gemm1_cluster_split
+        )
+        # Only a rank with remote experts can see a single active local
+        # group at a dense token count (the routing spreads the routes of a
+        # rank holding every expert), and the exchange assumes the
+        # single-CTA MMA tile without a TMA multicast cluster.
+        return bool(
+            enabled
+            and self.num_local_experts < self.num_experts
+            and gemm1_tactic[0][0] == 128
+            and tuple(gemm1_tactic[1]) == (1, 1)
+        )
 
     def _dual_enabled(self, num_tokens):
         if self.activation_type != ActivationType.Situ or self.dense_dual_tile is False:
@@ -2342,6 +2372,7 @@ class CuteDslMxfp4MoEWrapper:
                 tile_size=tile,
                 gemm1_mma_tiler_mn=gemm1[0],
                 gemm1_cluster_shape_mn=gemm1[1],
+                gemm1_cluster_split_k=self._dense_gemm1_cluster_split(gemm1),
                 gemm2_mma_tiler_mn=gemm2[0],
                 gemm2_cluster_shape_mn=gemm2[1],
                 dual_tile_size=dual[0] if dual is not None else 0,

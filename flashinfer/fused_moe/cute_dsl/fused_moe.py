@@ -207,6 +207,9 @@ def _moe_core_impl(
     tile_size: int = 128,
     gemm1_mma_tiler_mn: Tuple[int, int] = (128, 128),
     gemm1_cluster_shape_mn: Tuple[int, int] = (1, 1),
+    # Blackwell single-CTA GEMM1 tile only: (1, 1, 2) clusters split each
+    # tile's K over two CTAs while the valid tiles fit half the CTAs.
+    gemm1_cluster_split_k: bool = False,
     gemm2_mma_tiler_mn: Tuple[int, int] = (128, 128),
     gemm2_cluster_shape_mn: Tuple[int, int] = (1, 1),
     # Dual-tile routing (Blackwell, off when dual_tile_size == 0): the routing
@@ -486,6 +489,7 @@ def _moe_core_impl(
             topk=top_k,
             mma_tiler_mn=gemm1_mma_tiler_mn,
             cluster_shape_mn=gemm1_cluster_shape_mn,
+            cluster_split_k=gemm1_cluster_split_k,
             mma_tiler=gemm1_mma_tiler,
             mma_inst_shape=gemm1_mma_inst_shape,
             enable_pdl=enable_pdl,
