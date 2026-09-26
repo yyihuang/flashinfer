@@ -1722,7 +1722,7 @@ class CuteDslMxfp4MoEWrapper:
                     return tactic
         return DEFAULT_BLACKWELL_MOE_TACTIC
 
-    def _dense_gemm1_cluster_split(self, gemm1_tactic):
+    def _dense_gemm1_cluster_split(self, gemm1_tactic, num_tokens):
         enabled = (
             DENSE_GEMM1_CLUSTER_SPLIT
             if self.dense_gemm1_cluster_split is None
@@ -1731,12 +1731,18 @@ class CuteDslMxfp4MoEWrapper:
         # Only a rank with remote experts can see a single active local
         # group at a dense token count (the routing spreads the routes of a
         # rank holding every expert), and the exchange assumes the
-        # single-CTA MMA tile without a TMA multicast cluster.
+        # single-CTA MMA tile without a TMA multicast cluster. Launches that
+        # also carry the output fill (T >= 8192) keep the plain grid: the
+        # fill is spread over the tile-less CTAs and the paired grid would
+        # halve their share (EP8 T=16384 empty 1.05x with the split).
         return bool(
             enabled
             and self.num_local_experts < self.num_experts
             and gemm1_tactic[0][0] == 128
             and tuple(gemm1_tactic[1]) == (1, 1)
+            and not _dense_fill_in_gemm1(
+                self.num_experts, self.num_local_experts, num_tokens
+            )
         )
 
     def _dual_enabled(self, num_tokens):
@@ -2372,7 +2378,9 @@ class CuteDslMxfp4MoEWrapper:
                 tile_size=tile,
                 gemm1_mma_tiler_mn=gemm1[0],
                 gemm1_cluster_shape_mn=gemm1[1],
-                gemm1_cluster_split_k=self._dense_gemm1_cluster_split(gemm1),
+                gemm1_cluster_split_k=self._dense_gemm1_cluster_split(
+                    gemm1, num_tokens
+                ),
                 gemm2_mma_tiler_mn=gemm2[0],
                 gemm2_cluster_shape_mn=gemm2[1],
                 dual_tile_size=dual[0] if dual is not None else 0,
