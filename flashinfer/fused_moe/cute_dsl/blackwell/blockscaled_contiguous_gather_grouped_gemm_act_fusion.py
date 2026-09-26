@@ -449,6 +449,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         zero_fill_secondary: bool = False,
         zero_fill_chunk_bytes: int = 65536,
         zero_fill_mainloop: bool = False,
+        zero_fill_dual: bool = False,
         cluster_split_k: bool = False,
         cluster_split_max_tiles: int = 0,
     ):
@@ -528,6 +529,9 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         # kernel body): the busy CTAs' epilogue warps stream chunks while the
         # MMA warp builds their first accumulator.
         self.zero_fill_mainloop = bool(zero_fill_mainloop)
+        # Tail phase through both store paths: lane 0's bulk copies of one
+        # chunk and all lanes' 16 B stores of a second chunk per claim.
+        self.zero_fill_dual = bool(zero_fill_dual)
         self.use_a_per_token_scale = use_a_per_token_scale
         self.topk = topk
         self.gated = gated
@@ -5450,14 +5454,20 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                     num_bytes = cutlass.Int64(zf_num_vec) * 16
                     num_units = zf_num_units
                     per_claim = cutlass.Int32(copies_per_chunk)
+                    # Dual path: each claim takes two chunks; lane 0 streams the
+                    # first with bulk copies while all 32 lanes store the second
+                    # with 16 B stores (the two per-SM store paths add up).
+                    claim_units = cutlass.Int32(
+                        copies_per_chunk * (2 if self.zero_fill_dual else 1)
+                    )
                     claimed = cutlass.Int32(0)
                     if lane == 0:
-                        claimed = atomic_add_global_i32(claim_addr, per_claim)
+                        claimed = atomic_add_global_i32(claim_addr, claim_units)
                     claimed = cute.arch.shuffle_sync(claimed, 0)
                     while claimed < num_units:
                         next_claim = cutlass.Int32(0)
                         if lane == 0:
-                            next_claim = atomic_add_global_i32(claim_addr, per_claim)
+                            next_claim = atomic_add_global_i32(claim_addr, claim_units)
                             for j in cutlass.range_constexpr(copies_per_chunk):
                                 unit = claimed + j
                                 if unit < num_units:
@@ -5467,6 +5477,22 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                                     )
                                     blk_copy_raw(dst_base + off, src_addr, sz)
                             cute.arch.cp_async_bulk_commit_group()
+                        if cutlass.const_expr(self.zero_fill_dual):
+                            for j in cutlass.range_constexpr(copies_per_chunk):
+                                zf_pu = claimed + per_claim + j
+                                if zf_pu < num_units:
+                                    zf_pbase = zf_pu * zf_unit_vec + lane
+                                    for it in cutlass.range(
+                                        0, zf_unit_vec // 32, 1, unroll=8
+                                    ):
+                                        zf_pv = zf_pbase + it * 32
+                                        if zf_pv < zf_num_vec:
+                                            zf_pout = cute.make_tensor(
+                                                zero_fill_words.iterator
+                                                + cute.assume(zf_pv * 4, divby=4),
+                                                layout=cute.make_layout((4,)),
+                                            )
+                                            cute.autovec_copy(zf_zeros, zf_pout)
                         claimed = cute.arch.shuffle_sync(next_claim, 0)
                     if lane == 0:
                         cute.arch.cp_async_bulk_wait_group(0)

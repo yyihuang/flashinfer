@@ -221,6 +221,9 @@ def create_gather_gemm_tensors(
 # while their first accumulator is built (``MXFP4_DENSE_FILL_MAINLOOP`` =
 # ``1``); ``0`` leaves the fill to the tile-less CTAs and the tail phase.
 ZERO_FILL_MAINLOOP_DEFAULT = os.environ.get("MXFP4_DENSE_FILL_MAINLOOP", "0") == "1"
+# Tail phase of the same fill through both per-SM store paths (lane 0 bulk
+# copies + all lanes' 16 B stores per claim; ``MXFP4_DENSE_FILL_DUAL`` = ``1``).
+ZERO_FILL_DUAL_DEFAULT = os.environ.get("MXFP4_DENSE_FILL_DUAL", "0") == "1"
 
 _gather_kernel_cache: Dict[Tuple, Any] = {}
 
@@ -290,6 +293,7 @@ def _get_compiled_gather_kernel(
     zero_fill_other_tiles_ptr=None,
     zero_fill_secondary: bool = False,
     zero_fill_mainloop: bool = False,
+    zero_fill_dual: bool = False,
     cluster_split_k: bool = False,
 ):
     """Get or compile the gather grouped GEMM with FC1 activation fusion.
@@ -352,6 +356,7 @@ def _get_compiled_gather_kernel(
         zero_fill_words_ptr is not None,
         zero_fill_secondary,
         zero_fill_mainloop,
+        zero_fill_dual,
         cluster_split_k,
     )
 
@@ -421,6 +426,7 @@ def _get_compiled_gather_kernel(
                 zero_fill=zero_fill_words_ptr is not None,
                 zero_fill_secondary=zero_fill_secondary,
                 zero_fill_mainloop=zero_fill_mainloop,
+                zero_fill_dual=zero_fill_dual,
                 cluster_split_k=cluster_split_k,
                 # Clusters of two that are co-resident: the split needs one
                 # wave (each cluster owns at most one tile).
@@ -533,6 +539,7 @@ def blockscaled_contiguous_gather_grouped_gemm_act_fusion(
     zero_fill_other_tiles: Optional[torch.Tensor] = None,
     zero_fill_secondary: bool = False,
     zero_fill_mainloop: Optional[bool] = None,
+    zero_fill_dual: Optional[bool] = None,
     cluster_split_k: bool = False,
     _prepared_launches: Optional[Dict[str, Any]] = None,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
@@ -1065,6 +1072,10 @@ def blockscaled_contiguous_gather_grouped_gemm_act_fusion(
             ZERO_FILL_MAINLOOP_DEFAULT
             if zero_fill_mainloop is None
             else zero_fill_mainloop
+        )
+        and zero_fill_words_ptr is not None,
+        zero_fill_dual=(
+            ZERO_FILL_DUAL_DEFAULT if zero_fill_dual is None else zero_fill_dual
         )
         and zero_fill_words_ptr is not None,
         cluster_split_k=cluster_split_k,
