@@ -77,11 +77,12 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define GROUP_M 16
 #define WORK_STAGES 4
 #define WORK_CONSUMERS 546
-#define K1_ITERS 56
-#define K2_ITERS 96
-#define NUM_K_ITERS 152
+#define K1_ITERS 7
+#define K2_ITERS 12
+#define NUM_K_ITERS 19
 #define N_TILES 28
 #define HIDDEN 7168
+#define B_EVICT_FIRST 0
 #define tiles_per_group (GROUP_M * N_TILES)
 
 #include <math_constants.h>
@@ -466,7 +467,7 @@ __device__ __forceinline__ void tmem_ld_x16_wait(float* dst, int addr) {
 extern "C" {
 
 __global__ __launch_bounds__(320) __cluster_dims__(2,1,1) void
-kernel_cake_kimi_k3_latent_moe_ea9c4b21fd6ca1796790(const __grid_constant__ CUtensorMap A1, const __grid_constant__ CUtensorMap B1, const __grid_constant__ CUtensorMap A2, const __grid_constant__ CUtensorMap B2, __nv_bfloat16* __restrict__ out, float* __restrict__ ws, int* __restrict__ counters, int M, int m_tiles, int k0_blocks, int num_items, int full_items, int sk_ipc, int sk_max_seg, int sk_total)
+kernel_cake_kimi_k3_latent_moe_14a2aaccf2d2c3aa87f9(const __grid_constant__ CUtensorMap A1, const __grid_constant__ CUtensorMap B1, const __grid_constant__ CUtensorMap A2, const __grid_constant__ CUtensorMap B2, __nv_bfloat16* __restrict__ out, float* __restrict__ ws, int* __restrict__ counters, int M, int m_tiles, int k0_blocks, int num_items, int full_items, int sk_ipc, int sk_max_seg, int sk_total)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -647,13 +648,17 @@ kernel_cake_kimi_k3_latent_moe_ea9c4b21fd6ca1796790(const __grid_constant__ CUte
                             mbarrier_wait(mma_done_addr + (load_stage) * 8, _phase_mma_done);
                             if (iter_k < K2_ITERS) {
                                 tma_3d_gmem2smem_cta2(smem_a_addr + load_stage * 32768, (&A2), 0, off_m, iter_k, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
-                                tma_3d_gmem2smem_cta2(smem_b_addr + load_stage * 32768, (&B2), 0, w_row, iter_k, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
+                                {
+                                    tma_3d_gmem2smem_cta2(smem_b_addr + load_stage * 32768, (&B2), 0, w_row, iter_k, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
+                                }
                             }
                             if (iter_k >= K2_ITERS) {
                                 asm volatile("griddepcontrol.wait;" ::: "memory");
                                 int kb1 = k0_blocks + iter_k - K2_ITERS;
                                 tma_3d_gmem2smem_cta2(smem_a_addr + load_stage * 32768, (&A1), 0, off_m, kb1, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
-                                tma_3d_gmem2smem_cta2(smem_b_addr + load_stage * 32768, (&B1), 0, w_row, kb1, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
+                                {
+                                    tma_3d_gmem2smem_cta2(smem_b_addr + load_stage * 32768, (&B1), 0, w_row, kb1, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
+                                }
                             }
                             asm volatile(
                                 "mbarrier.arrive.expect_tx.release.cta.shared::cluster.b64 _, [%0], %1;"
