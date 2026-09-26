@@ -200,6 +200,62 @@ def blk_copy_raw(dst_gmem_addr, src_smem_addr, size, loc=None, ip=None):
 
 
 @dsl_user_op
+def l2_evict_first_policy(loc=None, ip=None):
+    """``createpolicy.fractional.L2::evict_first`` for the whole access (streaming
+    writes that must not displace the operands other warps keep in L2)."""
+    return cutlass.Int64(
+        llvm.inline_asm(
+            T.i64(),
+            [],
+            "createpolicy.fractional.L2::evict_first.b64 $0, 1.0;",
+            "=l",
+            has_side_effects=False,
+            is_align_stack=False,
+            asm_dialect=llvm.AsmDialect.AD_ATT,
+            loc=loc,
+            ip=ip,
+        )
+    )
+
+
+@dsl_user_op
+def blk_copy_raw_hint(dst_gmem_addr, src_smem_addr, size, policy, loc=None, ip=None):
+    """``blk_copy_raw`` with an L2 cache-policy operand (see ``l2_evict_first_policy``)."""
+    llvm.inline_asm(
+        None,
+        [
+            dst_gmem_addr.ir_value(loc=loc, ip=ip),
+            src_smem_addr.ir_value(loc=loc, ip=ip),
+            size.ir_value(loc=loc, ip=ip),
+            policy.ir_value(loc=loc, ip=ip),
+        ],
+        "cp.async.bulk.global.shared::cta.bulk_group.L2::cache_hint [$0], [$1], $2, $3;",
+        "l,r,r,l",
+        has_side_effects=True,
+        is_align_stack=False,
+        asm_dialect=llvm.AsmDialect.AD_ATT,
+        loc=loc,
+        ip=ip,
+    )
+
+
+@dsl_user_op
+def st_global_v4_zero_hint(dst_gmem_addr, policy, loc=None, ip=None):
+    """16 B zero store with an L2 cache-policy operand."""
+    llvm.inline_asm(
+        None,
+        [dst_gmem_addr.ir_value(loc=loc, ip=ip), policy.ir_value(loc=loc, ip=ip)],
+        "st.global.L2::cache_hint.v4.b32 [$0], {0, 0, 0, 0}, $1;",
+        "l,l",
+        has_side_effects=True,
+        is_align_stack=False,
+        asm_dialect=llvm.AsmDialect.AD_ATT,
+        loc=loc,
+        ip=ip,
+    )
+
+
+@dsl_user_op
 def red_add_bf16x2_pair_pred(dst_gmem, lo_f32, hi_f32, pred_i32, loc=None, ip=None):
     """Predicated ``red.global.add.bf16x2`` of two F32 values rounded to BF16.
 

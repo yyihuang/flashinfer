@@ -59,7 +59,9 @@ from ..moe_utils import (
 from .custom_pipeline import PipelineCpAsyncUmma
 from .utils import (
     UnalignedNamedBarrier,
-    blk_copy_raw,
+    blk_copy_raw_hint,
+    l2_evict_first_policy,
+    st_global_v4_zero_hint,
     f32_reciprocal,
     fmin,
     gelu_tanh_f32,
@@ -2792,6 +2794,11 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 zf_zeros = cute.make_rmem_tensor((4,), cutlass.Uint32)
                 for i in cutlass.range_constexpr(4):
                     zf_zeros[i] = cutlass.Uint32(0)
+                # The zeros are streamed once and read only by the finalize
+                # GEMM2 far later: evict-first keeps them from displacing the
+                # weight tiles the other CTAs reuse from L2 (hot routings).
+                zf_policy = l2_evict_first_policy()
+                zf_words_base = zero_fill_words.iterator.toint()
                 zf_tile = cutlass.Int32(0)
             num_prev_subtiles = cutlass.Int32(0)
             while is_valid_tile:
@@ -3501,12 +3508,10 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                                 ):
                                     zf_vec = zf_base + it * 32
                                     if zf_vec < zf_num_vec:
-                                        zf_out = cute.make_tensor(
-                                            zero_fill_words.iterator
-                                            + cute.assume(zf_vec * 4, divby=4),
-                                            layout=cute.make_layout((4,)),
+                                        st_global_v4_zero_hint(
+                                            zf_words_base + cutlass.Int64(zf_vec) * 16,
+                                            zf_policy,
                                         )
-                                        cute.autovec_copy(zf_zeros, zf_out)
                     zf_tile = zf_tile + 1
                 #
                 # Advance to next tile
@@ -3598,7 +3603,9 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                                     sz = cutlass.Int32(
                                         cutlass.min(num_bytes - off, cutlass.Int64(zb))
                                     )
-                                    blk_copy_raw(dst_base + off, src_addr, sz)
+                                    blk_copy_raw_hint(
+                                        dst_base + off, src_addr, sz, zf_policy
+                                    )
                             cute.arch.cp_async_bulk_commit_group()
                         claimed = cute.arch.shuffle_sync(next_claim, 0)
                     if lane == 0:
