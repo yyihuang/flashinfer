@@ -45,6 +45,7 @@ Comparison with non-gather activation fusion:
 """
 
 import functools
+import os
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -215,6 +216,12 @@ def create_gather_gemm_tensors(
 
 
 # Kernel cache for compiled kernels (class-level to persist across calls)
+# Zero-fill of the dense chain's token output inside the gather GEMM1: on a
+# single-wave launch the busy CTAs' epilogue warps also stream zero chunks
+# while their first accumulator is built (``MXFP4_DENSE_FILL_MAINLOOP`` =
+# ``1``); ``0`` leaves the fill to the tile-less CTAs and the tail phase.
+ZERO_FILL_MAINLOOP_DEFAULT = os.environ.get("MXFP4_DENSE_FILL_MAINLOOP", "0") == "1"
+
 _gather_kernel_cache: Dict[Tuple, Any] = {}
 
 
@@ -282,6 +289,7 @@ def _get_compiled_gather_kernel(
     zero_fill_counters_ptr=None,
     zero_fill_other_tiles_ptr=None,
     zero_fill_secondary: bool = False,
+    zero_fill_mainloop: bool = False,
     cluster_split_k: bool = False,
 ):
     """Get or compile the gather grouped GEMM with FC1 activation fusion.
@@ -343,6 +351,7 @@ def _get_compiled_gather_kernel(
         pdl_trigger_early,
         zero_fill_words_ptr is not None,
         zero_fill_secondary,
+        zero_fill_mainloop,
         cluster_split_k,
     )
 
@@ -411,6 +420,7 @@ def _get_compiled_gather_kernel(
                 pdl_trigger_early=pdl_trigger_early,
                 zero_fill=zero_fill_words_ptr is not None,
                 zero_fill_secondary=zero_fill_secondary,
+                zero_fill_mainloop=zero_fill_mainloop,
                 cluster_split_k=cluster_split_k,
                 # Clusters of two that are co-resident: the split needs one
                 # wave (each cluster owns at most one tile).
@@ -522,6 +532,7 @@ def blockscaled_contiguous_gather_grouped_gemm_act_fusion(
     zero_fill_counters: Optional[torch.Tensor] = None,
     zero_fill_other_tiles: Optional[torch.Tensor] = None,
     zero_fill_secondary: bool = False,
+    zero_fill_mainloop: Optional[bool] = None,
     cluster_split_k: bool = False,
     _prepared_launches: Optional[Dict[str, Any]] = None,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
@@ -1050,6 +1061,12 @@ def blockscaled_contiguous_gather_grouped_gemm_act_fusion(
         zero_fill_counters_ptr=zero_fill_counters_ptr,
         zero_fill_other_tiles_ptr=zero_fill_other_tiles_ptr,
         zero_fill_secondary=zero_fill_secondary,
+        zero_fill_mainloop=(
+            ZERO_FILL_MAINLOOP_DEFAULT
+            if zero_fill_mainloop is None
+            else zero_fill_mainloop
+        )
+        and zero_fill_words_ptr is not None,
         cluster_split_k=cluster_split_k,
     )
 

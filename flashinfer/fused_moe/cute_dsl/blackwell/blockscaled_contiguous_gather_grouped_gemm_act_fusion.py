@@ -448,6 +448,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         zero_fill: bool = False,
         zero_fill_secondary: bool = False,
         zero_fill_chunk_bytes: int = 65536,
+        zero_fill_mainloop: bool = False,
         cluster_split_k: bool = False,
         cluster_split_max_tiles: int = 0,
     ):
@@ -523,6 +524,10 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         self.zero_fill = bool(zero_fill)
         self.zero_fill_secondary = bool(zero_fill_secondary)
         self.zero_fill_chunk_bytes = int(zero_fill_chunk_bytes)
+        # Mainloop phase of the zero-fill on single-wave launches (see the
+        # kernel body): the busy CTAs' epilogue warps stream chunks while the
+        # MMA warp builds their first accumulator.
+        self.zero_fill_mainloop = bool(zero_fill_mainloop)
         self.use_a_per_token_scale = use_a_per_token_scale
         self.topk = topk
         self.gated = gated
@@ -2899,6 +2904,16 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 for i in cutlass.range_constexpr(4):
                     zf_zeros[i] = cutlass.Uint32(0)
                 zf_tile = cutlass.Int32(0)
+                # Mainloop phase only on a single-wave launch: every tile's
+                # CTA(s) resident at once, so a busy CTA's first K chain is
+                # the whole launch and its epilogue warps idle through it.
+                zf_mainloop_ok = cutlass.Boolean(False)
+                if cutlass.const_expr(self.zero_fill_mainloop):
+                    zf_gx, zf_gy, zf_gz = cute.arch.grid_dim()
+                    zf_mainloop_ok = (
+                        zf_my_tiles * cute.size(tiled_mma.thr_id.shape)
+                        <= zf_gx * zf_gy * zf_gz
+                    )
             # Cluster split-K exchange state (symmetric): each CTA finishes one
             # of the tile's two epilogue steps and ships the raw FP32 fragments
             # of the other step to its peer. Thread t stages its cs_elems words
@@ -3010,6 +3025,68 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                         )
                     ]
 
+                if cutlass.const_expr(self.zero_fill and self.zero_fill_mainloop):
+                    # Mainloop phase of the zero-fill (first tile of this CTA,
+                    # single-wave launch): on the sparse routings most CTAs
+                    # have no tile and the busy ones idle their four epilogue
+                    # warps through the whole K chain (16-24 us) while the C
+                    # staging smem is untouched. Its zeroed prefix is streamed
+                    # out with cp.async.bulk in zero_fill_chunk_bytes claims
+                    # from the shared counter until the accumulator is ready;
+                    # each warp drains the reads of its bulk groups and the
+                    # epilogue barrier orders them before the first C store.
+                    if zf_do_fill & zf_mainloop_ok & (zf_tile == 0):
+                        zf_zb = self.zero_fill_bulk_bytes
+                        zf_sZ = storage.sC.get_tensor(
+                            cute.make_layout((zf_zb // 4,)), dtype=cutlass.Uint32
+                        )
+                        for i in cutlass.range_constexpr(zf_zb // 16 // 128):
+                            zf_s_out = cute.make_tensor(
+                                zf_sZ.iterator + (epi_tidx + i * 128) * 4,
+                                layout=cute.make_layout((4,)),
+                            )
+                            cute.autovec_copy(zf_zeros, zf_s_out)
+                        cute.arch.fence_proxy("async.shared", space="cta")
+                        self.epilog_sync_barrier.arrive_and_wait()
+                        zf_src = zf_sZ.iterator.toint()
+                        zf_dst = zero_fill_words.iterator.toint()
+                        zf_nbytes = cutlass.Int64(zf_num_vec) * 16
+                        zf_per_claim = cutlass.Int32(
+                            self.zero_fill_chunk_bytes // zf_zb
+                        )
+                        zf_go = cutlass.Int32(1)
+                        if acc_pipeline.consumer_try_wait(acc_consumer_state):
+                            zf_go = cutlass.Int32(0)
+                        while zf_go == 1:
+                            zf_cl = cutlass.Int32(0)
+                            if zf_lane == 0:
+                                zf_cl = atomic_add_global_i32(
+                                    zf_claim_addr, zf_per_claim
+                                )
+                            zf_cl = cute.arch.shuffle_sync(zf_cl, 0)
+                            if zf_cl < zf_num_units:
+                                if zf_lane == 0:
+                                    for j in cutlass.range_constexpr(
+                                        self.zero_fill_chunk_bytes // zf_zb
+                                    ):
+                                        zf_u = zf_cl + j
+                                        if zf_u < zf_num_units:
+                                            zf_off = cutlass.Int64(zf_u) * zf_zb
+                                            zf_sz = cutlass.Int32(
+                                                cutlass.min(
+                                                    zf_nbytes - zf_off,
+                                                    cutlass.Int64(zf_zb),
+                                                )
+                                            )
+                                            blk_copy_raw(zf_dst + zf_off, zf_src, zf_sz)
+                                    cute.arch.cp_async_bulk_commit_group()
+                                if acc_pipeline.consumer_try_wait(acc_consumer_state):
+                                    zf_go = cutlass.Int32(0)
+                            else:
+                                zf_go = cutlass.Int32(0)
+                        if zf_lane == 0:
+                            cute.arch.cp_async_bulk_wait_group(0, read=True)
+                        self.epilog_sync_barrier.arrive_and_wait()
                 #
                 # Wait for accumulator buffer full
                 #
