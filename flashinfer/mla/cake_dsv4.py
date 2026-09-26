@@ -840,9 +840,9 @@ def _route(
     if num_heads == 32:
         if is_swa:
             return "bf16_h16_h32_swa128_v44"
-        if is_topk4x:
-            return "bf16_h32_topk4x_v38"
-        if is_topk128x:
+        if is_topk4x or is_topk128x:
+            # CAKE-624 W13: the retained-KV body with the last-arriver merge
+            # beats the topk4x body on the H32 topk4x rows on both targets.
             return "bf16_h32_topk128x_early_v47"
         raise ValueError("BF16 H32 compressed cache requires page size 64 or 2")
     if num_heads == 64:
@@ -1227,7 +1227,7 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
             L.reduce(reducer, **parts)
         return
 
-    if route in ("bf16_h32_topk4x_v38", "bf16_h32_topk128x_early_v47"):
+    if route == "bf16_h32_topk128x_early_v47":
         num_splits = _ceil_div(topk, _TILE_KV)
         head_tiles = _ceil_div(H, 8)
         parts = L.partials(num_splits)

@@ -740,7 +740,15 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             id="case-72",
         ),
         pytest.param(
-            torch.bfloat16, 32, 3, 5, True, 384, 64, "bf16_h32_topk4x_v38", id="case-73"
+            torch.bfloat16,
+            32,
+            3,
+            5,
+            True,
+            384,
+            64,
+            "bf16_h32_topk128x_early_v47",
+            id="case-73",
         ),
         pytest.param(
             torch.bfloat16,
@@ -765,7 +773,15 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             id="case-75",
         ),
         pytest.param(
-            torch.bfloat16, 32, 3, 5, True, 384, 64, "bf16_h32_topk4x_v38", id="case-76"
+            torch.bfloat16,
+            32,
+            3,
+            5,
+            True,
+            384,
+            64,
+            "bf16_h32_topk128x_early_v47",
+            id="case-76",
         ),
         pytest.param(
             torch.bfloat16,
