@@ -117,7 +117,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             640,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-07",
         ),
         pytest.param(
@@ -145,7 +145,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             False,
             260,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="w14-h64-w260-127tok",
         ),
         pytest.param(
@@ -167,7 +167,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             640,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-10",
         ),
         pytest.param(
@@ -258,7 +258,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             640,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-19",
         ),
         pytest.param(
@@ -269,7 +269,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             388,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-20",
         ),
         pytest.param(
@@ -291,7 +291,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             640,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-22",
         ),
         pytest.param(
@@ -302,7 +302,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             388,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-23",
         ),
         pytest.param(
@@ -347,7 +347,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             128,
             1,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-30",
         ),
         pytest.param(
@@ -358,7 +358,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             1152,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-31",
         ),
         pytest.param(
@@ -369,7 +369,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             260,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-32",
         ),
         pytest.param(
@@ -380,7 +380,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             128,
             1,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-33",
         ),
         pytest.param(
@@ -391,7 +391,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             1152,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-34",
         ),
         pytest.param(
@@ -402,7 +402,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             260,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-35",
         ),
         pytest.param(
@@ -447,7 +447,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             128,
             1,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-42",
         ),
         pytest.param(
@@ -458,7 +458,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             1152,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-43",
         ),
         pytest.param(
@@ -469,7 +469,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             388,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-44",
         ),
         pytest.param(
@@ -480,7 +480,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             128,
             1,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-45",
         ),
         pytest.param(
@@ -491,7 +491,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             1152,
             64,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-46",
         ),
         pytest.param(
@@ -502,7 +502,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             True,
             388,
             2,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
             id="case-47",
         ),
         pytest.param(
@@ -1075,11 +1075,11 @@ def test_bf16_h128_swa_and_topk4x_rows_use_the_persistent_prefill_body_from_64_t
             12,
             64,
             1152,
-            "fp8_h128_prefill_source_persistent",
+            "fp8_h128_prefill_source_persistent_uniform",
         ),  # 12-token decode rows too
-        (15, 2, 260, "fp8_h128_prefill_source_persistent"),
-        (16, 64, 640, "fp8_h128_prefill_source_persistent"),
-        (32, 64, 640, "fp8_h128_prefill_source_persistent"),
+        (15, 2, 260, "fp8_h128_prefill_source_persistent_uniform"),
+        (16, 64, 640, "fp8_h128_prefill_source_persistent_uniform"),
+        (32, 64, 640, "fp8_h128_prefill_source_persistent_uniform"),
         (128, 2, 260, "fp8_h128_prefill_source_persistent"),
         (128, None, 128, "fp8_h128_prefill_source_persistent"),
     ],
@@ -1910,7 +1910,7 @@ _PERSISTENT_PLAN = _plan(
 def _run_fake_persistent_fp8_h128(monkeypatch, *, cum_seq_lens_q, max_q_len):
     """Drive run_cake_dsv4 on CPU tensors through the FP8 H128 persistent route."""
     recorder = _install_fake_variants(
-        monkeypatch, {"fp8_h128_prefill_source_persistent": _PERSISTENT_PLAN}
+        monkeypatch, {"fp8_h128_prefill_source_persistent_uniform": _PERSISTENT_PLAN}
     )
     monkeypatch.setattr(cake, "_target_arch", lambda device: "sm_103a")
     monkeypatch.setattr(cake, "_stream_ptr", lambda device: 0)
@@ -2107,10 +2107,15 @@ def test_bf16_h128_topk128x_split_programs_dispatch_on_both_targets(
 @pytest.mark.parametrize(
     "num_query_tokens,page_size,sparse_topk,expected",
     [
-        (12, 64, 640, "fp8_h128_prefill_source_persistent"),  # W5: 12 tokens, 5 tiles
+        (
+            12,
+            64,
+            640,
+            "fp8_h128_prefill_source_persistent_uniform",
+        ),  # W5: 12 tokens, 5 tiles
         (12, 2, 260, "fp8_lowhead_h64"),  # W5: 12 tokens, 2 tiles keep the cluster body
-        (16, 64, 640, "fp8_h128_prefill_source_persistent"),  # hardening-000018
-        (64, 64, 640, "fp8_h128_prefill_source_persistent"),  # hardening-000030
+        (16, 64, 640, "fp8_h128_prefill_source_persistent_uniform"),  # hardening-000018
+        (64, 64, 640, "fp8_h128_prefill_source_persistent_uniform"),  # hardening-000030
         (
             128,
             2,

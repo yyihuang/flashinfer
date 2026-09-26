@@ -122,8 +122,9 @@ more rows (dense `[B, Q, H, 512]` with `T <= B * Q`, ragged `[sum_q, H, 512]`
 with `T <= sum_q`). Rows `>= T` are neither read nor written. Every grid and
 workspace view derives from `T`. Batch-derived routes (`*_source_exact`,
 `bf16_h64_guard_q_tma_batch_r25`, `fp8_h128_prefill_source_persistent`,
-`fp8_h64_prefill_source_persistent_m64`) walk `cum_seq_lens_q`, so the
-metadata must cover every token those prefix sums address.
+`fp8_h128_prefill_source_persistent_uniform`, `fp8_h64_prefill_source_persistent_m64`)
+walk `cum_seq_lens_q`, so the metadata must cover every token those prefix
+sums address.
 
 ### Workspace
 
