@@ -53,6 +53,16 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 
 #define CAKE_INF CUDART_INF_F
 #define NUM_MAIN_STAGES 1
+#define SMEM_SMEM_W_OFF 0
+#define SMEM_SMEM_W_STAGE_BYTES 1024
+#define SMEM_SMEM_W_STRIDE 1024
+#define SMEM_SMEM_RED_OFF 1024
+#define SMEM_SMEM_RED_STAGE_BYTES 64
+#define SMEM_SMEM_RED_STRIDE 64
+#define SMEM_SMEM_ACC_OFF 1088
+#define SMEM_SMEM_ACC_STAGE_BYTES 4096
+#define SMEM_SMEM_ACC_STRIDE 4096
+#define SMEM_TOTAL 5248
 #define THREADS 256
 
 #include <math_constants.h>
@@ -80,62 +90,100 @@ __device__ __forceinline__ float max_noftz(float a, float b) {
 extern "C" {
 
 __global__ __launch_bounds__(256) void
-kernel_cake_kimi_k3_mla_fp8_paged_attention_1557229d1d37dd27f3ea(__nv_bfloat16* __restrict__ partial_O, float* __restrict__ partial_max, float* __restrict__ partial_sum, __nv_bfloat16* __restrict__ O, int* __restrict__ cum_seq_lens_q, int batch, int num_heads, int num_split, float bmm2_scale)
+kernel_cake_kimi_k3_mla_fp8_paged_attention_d135c689aa2149f59eba(__nv_bfloat16* __restrict__ partial_O, float* __restrict__ partial_max, float* __restrict__ partial_sum, __nv_bfloat16* __restrict__ O, int* __restrict__ cum_seq_lens_q, int batch, int num_heads, int num_split, float bmm2_scale)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
     const int lane = tid % 32;
 
+    extern __shared__ __align__(1024) char smem_raw[];
+    int smem;
+    asm volatile("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }" : "=r"(smem) : "l"(smem_raw));
+    smem = make_warp_uniform(smem);
 
     const int bid = blockIdx.x;
     const int num_bids = gridDim.x;
 
+    // Kernel setup ops
+    float* smem_w = reinterpret_cast<float*>(smem_raw + 0);
+    const int smem_w_addr = smem + 0;
+    float* smem_red = reinterpret_cast<float*>(smem_raw + 1024);
+    const int smem_red_addr = smem + 1024;
+    float* smem_acc = reinterpret_cast<float*>(smem_raw + 1088);
+    const int smem_acc_addr = smem + 1088;
+
     // === Task calls (dependency order) ===
-    int row = blockIdx.x * 4 + warp / 2;
-    int part = warp % 2;
+    asm volatile("griddepcontrol.wait;" ::: "memory");
+    int row = blockIdx.x;
+    int chunk = blockIdx.y;
     int rows_total = cum_seq_lens_q[batch] * num_heads;
     if (row < rows_total) {
         int stat_base = row * num_split;
         int last_split = num_split - 1;
-        int s_ld = ((last_split < lane) ? last_split : lane);
+        int s_idx = tid;
+        int s_ld = ((s_idx > last_split) ? last_split : s_idx);
         float m_raw = partial_max[stat_base + s_ld];
         float sum_raw = partial_sum[stat_base + s_ld];
-        float m_s = ((last_split < lane) ? -CAKE_INF : m_raw);
+        float m_s = ((s_idx > last_split) ? -CAKE_INF : m_raw);
         float _warp_reduce_0 = m_s;
         #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1)
             _warp_reduce_0 = max_noftz(_warp_reduce_0, __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_0, offset));
-        float max_m = _warp_reduce_0;
+        float m_warp = _warp_reduce_0;
+        if (lane == 0) {
+            smem_red[warp] = m_warp;
+        }
+        asm volatile("barrier.sync 8, 256;" ::: "memory");
+        float max_m = smem_red[0];
+        #pragma unroll
+        for (int w = 1; w < 8; w++) {
+            float m_w = smem_red[w];
+            float _max_0 = max_noftz(max_m, m_w);
+            max_m = _max_0;
+        }
         float w_s = 0.0f;
         if (m_s > -CAKE_INF) {
             float _exp2_0 = approx_exp2(m_s - max_m);
             w_s = _exp2_0 * sum_raw;
         }
+        smem_w[s_idx] = w_s;
         float _warp_reduce_1 = w_s;
         #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1)
             _warp_reduce_1 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_1, offset);
-        float sum_w = _warp_reduce_1;
+        float sum_warp = _warp_reduce_1;
+        if (lane == 0) {
+            smem_red[8 + warp] = sum_warp;
+        }
+        asm volatile("barrier.sync 8, 256;" ::: "memory");
+        float sum_w = 0.0f;
+        #pragma unroll
+        for (int w_1 = 0; w_1 < 8; w_1++) {
+            float s_w = smem_red[8 + w_1];
+            sum_w = sum_w + s_w;
+        }
         float inv_sum = 0.0f;
         if (sum_w > 0.0f) {
             float _rcp_0 = approx_rcp(sum_w);
             inv_sum = _rcp_0 * bmm2_scale;
         }
-        int d0 = part * 256 + lane * 8;
+        int half = lane >> 4;
+        int d0 = chunk * 128 + (lane & 15) * 8;
         float acc[8];
         #pragma unroll
         for (int e = 0; e < 8; e++) {
             acc[e] = 0.0f;
         }
-        #pragma unroll 4
-        for (int k = 0; k < num_split; k++) {
-            float _shfl_0;
-            asm volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=f"(_shfl_0) : "f"(w_s), "r"(k));
-            float w_k = _shfl_0;
-            int src = (stat_base + k) * 512 + d0;
+        int n_iter_w = (num_split + 16 - 1) / 16;
+        #pragma unroll 8
+        for (int k = 0; k < n_iter_w; k++) {
+            int s_raw = (k * 8 + warp) * 2 + half;
+            int s_w_idx = ((s_raw > last_split) ? last_split : s_raw);
+            float w_raw = smem_w[s_w_idx];
+            float w_k = ((s_raw > last_split) ? 0.0f : w_raw);
             float _vec_load_0[8];
             {
-                const uint4* _vptr_0 = reinterpret_cast<const uint4*>(partial_O + src);
+                const uint4* _vptr_0 = reinterpret_cast<const uint4*>(partial_O + (stat_base + s_w_idx) * 512 + d0);
                 uint4 _vld_0[1];
                 #pragma unroll
                 for (int _blk = 0; _blk < 1; _blk++) {
@@ -155,22 +203,41 @@ kernel_cake_kimi_k3_mla_fp8_paged_attention_1557229d1d37dd27f3ea(__nv_bfloat16* 
             }
             #pragma unroll
             for (int e_1 = 0; e_1 < 8; e_1++) {
-                float c_e = w_k * _vec_load_0[e_1];
-                float safe_e = ((w_k > 0.0f) ? c_e : 0.0f);
-                acc[e_1] = acc[e_1] + safe_e;
+                float contrib = w_k * _vec_load_0[e_1];
+                float safe = ((w_k > 0.0f) ? contrib : 0.0f);
+                acc[e_1] = acc[e_1] + safe;
             }
         }
         #pragma unroll
         for (int e_2 = 0; e_2 < 8; e_2++) {
-            acc[e_2] = acc[e_2] * inv_sum;
+            float _shfl_xor_0 = __shfl_xor_sync(0xFFFFFFFF, acc[e_2], 16);
+            float other = _shfl_xor_0;
+            acc[e_2] = acc[e_2] + other;
         }
-        {
-            __nv_bfloat162 _pk[4];
-            _pk[0] = __floats2bfloat162_rn(acc[0 + 0], acc[0 + 1]);
-            _pk[1] = __floats2bfloat162_rn(acc[0 + 2], acc[0 + 3]);
-            _pk[2] = __floats2bfloat162_rn(acc[0 + 4], acc[0 + 5]);
-            _pk[3] = __floats2bfloat162_rn(acc[0 + 6], acc[0 + 7]);
-            *reinterpret_cast<uint4*>(&((__nv_bfloat16*)(O))[row * 512 + d0 + 0]) = *reinterpret_cast<uint4*>(&_pk[0]);
+        if (lane < 16) {
+            #pragma unroll
+            for (int e_3 = 0; e_3 < 8; e_3++) {
+                smem_acc[warp * 128 + lane * 8 + e_3] = acc[e_3];
+            }
+        }
+        asm volatile("barrier.sync 8, 256;" ::: "memory");
+        if (warp == 0) {
+            int d_out = chunk * 128 + lane * 4;
+            float out[4];
+            #pragma unroll
+            for (int e_4 = 0; e_4 < 4; e_4++) {
+                float tot = 0.0f;
+                #pragma unroll
+                for (int w_2 = 0; w_2 < 8; w_2++) {
+                    float a_w = smem_acc[w_2 * 128 + lane * 4 + e_4];
+                    tot = tot + a_w;
+                }
+                out[e_4] = tot * inv_sum;
+            }
+            #pragma unroll
+            for (int e_5 = 0; e_5 < 4; e_5++) {
+                *(reinterpret_cast<__nv_bfloat16*>(O + (row * 512 + d_out + e_5)) + (0)) = __float2bfloat16_rn(out[e_5]);
+            }
         }
     }
 }

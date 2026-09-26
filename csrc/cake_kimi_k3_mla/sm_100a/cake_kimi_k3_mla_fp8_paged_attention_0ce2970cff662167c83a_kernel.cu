@@ -80,7 +80,7 @@ __device__ __forceinline__ float max_noftz(float a, float b) {
 extern "C" {
 
 __global__ __launch_bounds__(256) void
-kernel_cake_kimi_k3_mla_fp8_paged_attention_f68f10ac2edb881c5c96(__nv_bfloat16* __restrict__ partial_O, float* __restrict__ partial_max, float* __restrict__ partial_sum, __nv_bfloat16* __restrict__ O, int* __restrict__ cum_seq_lens_q, int batch, int num_heads, int num_split, float bmm2_scale)
+kernel_cake_kimi_k3_mla_fp8_paged_attention_0ce2970cff662167c83a(__nv_bfloat16* __restrict__ partial_O, float* __restrict__ partial_max, float* __restrict__ partial_sum, __nv_bfloat16* __restrict__ O, int* __restrict__ cum_seq_lens_q, int batch, int num_heads, int num_split, float bmm2_scale)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -91,8 +91,9 @@ kernel_cake_kimi_k3_mla_fp8_paged_attention_f68f10ac2edb881c5c96(__nv_bfloat16* 
     const int num_bids = gridDim.x;
 
     // === Task calls (dependency order) ===
-    int row = blockIdx.x * 2 + warp / 4;
-    int part = warp % 4;
+    asm volatile("griddepcontrol.wait;" ::: "memory");
+    int row = blockIdx.x * 4 + warp / 2;
+    int part = warp % 2;
     int rows_total = cum_seq_lens_q[batch] * num_heads;
     if (row < rows_total) {
         int stat_base = row * num_split;
@@ -121,10 +122,10 @@ kernel_cake_kimi_k3_mla_fp8_paged_attention_f68f10ac2edb881c5c96(__nv_bfloat16* 
             float _rcp_0 = approx_rcp(sum_w);
             inv_sum = _rcp_0 * bmm2_scale;
         }
-        int d0 = part * 128 + lane * 4;
-        float acc[4];
+        int d0 = part * 256 + lane * 8;
+        float acc[8];
         #pragma unroll
-        for (int e = 0; e < 4; e++) {
+        for (int e = 0; e < 8; e++) {
             acc[e] = 0.0f;
         }
         #pragma unroll 4
@@ -133,40 +134,44 @@ kernel_cake_kimi_k3_mla_fp8_paged_attention_f68f10ac2edb881c5c96(__nv_bfloat16* 
             asm volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=f"(_shfl_0) : "f"(w_s), "r"(k));
             float w_k = _shfl_0;
             int src = (stat_base + k) * 512 + d0;
-            float _vec_load_0[4];
+            float _vec_load_0[8];
             {
-                uint2 _vld_0;
-                _vld_0 = *reinterpret_cast<const uint2*>(partial_O + src);
-                uint32_t* _vpairs_0 = reinterpret_cast<uint32_t*>(&_vld_0);
+                const uint4* _vptr_0 = reinterpret_cast<const uint4*>(partial_O + src);
+                uint4 _vld_0[1];
                 #pragma unroll
-                for (int _pair = 0; _pair < 2; _pair++) {
-                    asm volatile(
-                        "{\n\t"
-                        "shl.b32 %0, %2, 16;\n\t"
-                        "and.b32 %1, %2, 0xffff0000;\n\t"
-                        "}\n"
-                        : "=f"((&_vec_load_0[0 + _pair * 2])[0]), "=f"((&_vec_load_0[0 + _pair * 2])[1])
-                        : "r"(_vpairs_0[_pair]));
+                for (int _blk = 0; _blk < 1; _blk++) {
+                    _vld_0[_blk] = _vptr_0[_blk];
+                    uint32_t* _vpairs_0 = reinterpret_cast<uint32_t*>(&_vld_0[_blk]);
+                    #pragma unroll
+                    for (int _pair = 0; _pair < 4; _pair++) {
+                        asm volatile(
+                            "{\n\t"
+                            "shl.b32 %0, %2, 16;\n\t"
+                            "and.b32 %1, %2, 0xffff0000;\n\t"
+                            "}\n"
+                            : "=f"((&_vec_load_0[0 + _blk * 8 + _pair * 2])[0]), "=f"((&_vec_load_0[0 + _blk * 8 + _pair * 2])[1])
+                            : "r"(_vpairs_0[_pair]));
+                    }
                 }
             }
             #pragma unroll
-            for (int e_1 = 0; e_1 < 4; e_1++) {
+            for (int e_1 = 0; e_1 < 8; e_1++) {
                 float c_e = w_k * _vec_load_0[e_1];
                 float safe_e = ((w_k > 0.0f) ? c_e : 0.0f);
                 acc[e_1] = acc[e_1] + safe_e;
             }
         }
         #pragma unroll
-        for (int e_2 = 0; e_2 < 4; e_2++) {
+        for (int e_2 = 0; e_2 < 8; e_2++) {
             acc[e_2] = acc[e_2] * inv_sum;
         }
         {
-            __nv_bfloat162 _pk = __floats2bfloat162_rn(acc[0 + 0], acc[0 + 1]);
-            *reinterpret_cast<__nv_bfloat162*>(&((__nv_bfloat16*)(O))[row * 512 + d0]) = _pk;
-        }
-        {
-            __nv_bfloat162 _pk = __floats2bfloat162_rn(acc[2 + 0], acc[2 + 1]);
-            *reinterpret_cast<__nv_bfloat162*>(&((__nv_bfloat16*)(O))[row * 512 + d0 + 2]) = _pk;
+            __nv_bfloat162 _pk[4];
+            _pk[0] = __floats2bfloat162_rn(acc[0 + 0], acc[0 + 1]);
+            _pk[1] = __floats2bfloat162_rn(acc[0 + 2], acc[0 + 3]);
+            _pk[2] = __floats2bfloat162_rn(acc[0 + 4], acc[0 + 5]);
+            _pk[3] = __floats2bfloat162_rn(acc[0 + 6], acc[0 + 7]);
+            *reinterpret_cast<uint4*>(&((__nv_bfloat16*)(O))[row * 512 + d0 + 0]) = *reinterpret_cast<uint4*>(&_pk[0]);
         }
     }
 }

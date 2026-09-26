@@ -80,7 +80,7 @@ __device__ __forceinline__ float max_noftz(float a, float b) {
 extern "C" {
 
 __global__ __launch_bounds__(256) void
-kernel_cake_kimi_k3_mla_fp8_paged_attention_74c77f0505225a55460f(__nv_bfloat16* __restrict__ partial_O, float* __restrict__ partial_max, float* __restrict__ partial_sum, __nv_bfloat16* __restrict__ O, int* __restrict__ cum_seq_lens_q, int batch, int num_heads, int num_split, float bmm2_scale)
+kernel_cake_kimi_k3_mla_fp8_paged_attention_dcea66af29f10a1c20a5(__nv_bfloat16* __restrict__ partial_O, float* __restrict__ partial_max, float* __restrict__ partial_sum, __nv_bfloat16* __restrict__ O, int* __restrict__ cum_seq_lens_q, int batch, int num_heads, int num_split, float bmm2_scale)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -91,6 +91,7 @@ kernel_cake_kimi_k3_mla_fp8_paged_attention_74c77f0505225a55460f(__nv_bfloat16* 
     const int num_bids = gridDim.x;
 
     // === Task calls (dependency order) ===
+    asm volatile("griddepcontrol.wait;" ::: "memory");
     int row = blockIdx.x * 2 + warp / 4;
     int part = warp % 4;
     int rows_total = cum_seq_lens_q[batch] * num_heads;
