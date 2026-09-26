@@ -66,12 +66,12 @@ from .utils import (
     griddepcontrol_launch_dependents,
     griddepcontrol_wait,
     is_power_of_2,
+    cp_async_bulk_s2s_cluster,
     mapa_shared_cluster_u32,
     mbarrier_arrive_cluster,
     native_situ_f32,
     native_tanh_f32,
     situ_f32,
-    st_async_v4_f32_cluster,
     tanh_f32,
     tcgen05_fence_after_thread_sync,
     tcgen05_fence_before_thread_sync,
@@ -557,6 +557,11 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 )
             if self.cluster_split_max_tiles <= 0:
                 raise ValueError("cluster_split_k needs cluster_split_max_tiles > 0")
+            if mma_tiler_mn[1] // 64 // (2 if gated else 1) != 2:
+                raise ValueError(
+                    "cluster_split_k needs a tile with two epilogue steps "
+                    "(N = 256 gated or N = 128 ungated)"
+                )
         self.epilog_warp_id = (0, 1, 2, 3)
         self.ldgsts_a_warp_id = (
             4,
@@ -2859,7 +2864,7 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
             tile_info[1] = sInfo[(1, tile_info_consumer_state.index)]
             tile_info[2] = sInfo[(2, tile_info_consumer_state.index)]
             tile_info[3] = sInfo[(3, tile_info_consumer_state.index)]
-            if cutlass.const_expr(self.use_a_per_token_scale):
+            if cutlass.const_expr(self.use_a_per_token_scale or self.cluster_split_k):
                 tile_info[4] = sInfo[(4, tile_info_consumer_state.index)]
             is_valid_tile = tile_info[3] == 1
             cute.arch.fence_proxy(
@@ -2892,18 +2897,24 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 for i in cutlass.range_constexpr(4):
                     zf_zeros[i] = cutlass.Uint32(0)
                 zf_tile = cutlass.Int32(0)
-            # Cluster split-K exchange state. The peer ships each thread's
-            # fragments as 16 B chunks: chunk row r (2 KB = 128 threads x 16 B)
-            # at r * 2048 + thread * 16 of the leader's operand stages, rows
-            # numbered per epilogue subtile step; the leader reads the same
-            # layout as FP32 words. Only the leader of a split tile (or any
-            # CTA of an unsplit launch) computes and stores the tile.
+            # Cluster split-K exchange state (symmetric): each CTA finishes one
+            # of the tile's two epilogue steps and ships the raw FP32 fragments
+            # of the other step to its peer. Thread t stages its cs_elems words
+            # of a step at step * cs_step_bytes + t * cs_elems * 4 in its own
+            # operand stages (element i in slot (i + t) % cs_elems: conflict
+            # free), fences, and one thread bulk-copies the first valid rows
+            # (thread t owns row t) into the peer's stages at the same offset
+            # with complete_tx on the peer's cs_full; the owner of the step
+            # adds them before its activation epilogue and stores that step.
             cs_do_store = cutlass.Boolean(1)
+            cs_frag = cute.size(tTR_rAcc_up)
+            cs_elems = cs_frag * (2 if self.gated else 1)
+            cs_step_bytes = self.cta_tile_shape_mnk[0] * cs_elems * 4
+            cs_rows = cutlass.Int32(0)
+            cs_local_red = cutlass.Int32(0)
             cs_remote_red = cutlass.Int32(0)
             cs_remote_full = cutlass.Int32(0)
             cs_remote_empty = cutlass.Int32(0)
-            cs_frag = cute.size(tTR_rAcc_up)
-            cs_rows_per_step = (cs_frag * (2 if self.gated else 1)) // 4
             sRed = cute.make_tensor(
                 cute.recast_ptr(storage.sA.data_ptr(), dtype=cutlass.Float32),
                 layout=cute.make_layout(
@@ -2911,17 +2922,14 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 ),
             )
             if cutlass.const_expr(self.cluster_split_k):
-                if cs_split:
-                    if cs_rank == 1:
-                        cs_do_store = cutlass.Boolean(0)
-                cs_remote_red = mapa_shared_cluster_u32(
-                    storage.sA.data_ptr(), cutlass.Int32(0)
-                ) + epi_tidx * cutlass.Int32(16)
+                cs_peer = cutlass.Int32(1) - cs_rank
+                cs_local_red = storage.sA.data_ptr().toint()
+                cs_remote_red = mapa_shared_cluster_u32(storage.sA.data_ptr(), cs_peer)
                 cs_remote_full = mapa_shared_cluster_u32(
-                    storage.cs_full_mbar.ptr, cutlass.Int32(0)
+                    storage.cs_full_mbar.ptr, cs_peer
                 )
                 cs_remote_empty = mapa_shared_cluster_u32(
-                    storage.cs_empty_mbar.ptr, cutlass.Int32(1)
+                    storage.cs_empty_mbar.ptr, cs_peer
                 )
             num_prev_subtiles = cutlass.Int32(0)
             while is_valid_tile:
@@ -3005,22 +3013,23 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
 
                 if cutlass.const_expr(self.cluster_split_k):
                     if cs_split:
-                        if cs_rank == 0:
-                            # Leader: its MMAs consumed every operand stage and
-                            # no producer refills them (one tile per CTA), so
-                            # the peer may write its partial there.
-                            if epi_tidx == 0:
-                                cute.arch.mbarrier_arrive_and_expect_tx(
-                                    storage.cs_full_mbar.ptr,
-                                    self.cta_tile_shape_mnk[0]
-                                    * self.cta_tile_shape_mnk[1]
-                                    * 4,
-                                )
-                                mbarrier_arrive_cluster(cs_remote_empty)
-                        else:
-                            cute.arch.mbarrier_wait(
-                                storage.cs_empty_mbar.ptr, cutlass.Int32(0)
+                        # Rows of this tile with data (thread t owns row t):
+                        # only those cross over.
+                        cs_rows = (
+                            tile_info[4] - tile_info[0] * self.cta_tile_shape_mnk[0]
+                        )
+                        if cs_rows > self.cta_tile_shape_mnk[0]:
+                            cs_rows = cutlass.Int32(self.cta_tile_shape_mnk[0])
+                        if cs_rows < 1:
+                            cs_rows = cutlass.Int32(1)
+                        if epi_tidx == 0:
+                            # My MMAs consumed every operand stage and nothing
+                            # refills them (one tile per CTA): expect the peer's
+                            # step there and tell the peer my stages are free.
+                            cute.arch.mbarrier_arrive_and_expect_tx(
+                                storage.cs_full_mbar.ptr, cs_rows * (cs_elems * 4)
                             )
+                            mbarrier_arrive_cluster(cs_remote_empty)
 
                 tTR_tAcc = cute.group_modes(tTR_tAcc, 3, cute.rank(tTR_tAcc))
                 bSG_gC = cute.group_modes(bSG_gC, 1, cute.rank(bSG_gC))
@@ -3040,6 +3049,14 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                                 self.cta_tile_shape_mnk[1] // self.epi_tile_n_required
                                 - 1
                                 - real_subtile_idx
+                            )
+                    if cutlass.const_expr(self.cluster_split_k):
+                        if cs_split:
+                            # Two steps: the peer's step first (ship it), own
+                            # step second (its partial has had time to land).
+                            cs_it = subtile_idx // (2 if self.gated else 1)
+                            real_subtile_idx = cs_it + (cutlass.Int32(1) - cs_rank) * (
+                                cutlass.Int32(1) - 2 * cs_it
                             )
                     #
                     # Load accumulator from tensor memory buffer to register
@@ -3069,52 +3086,66 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                             acc_consumer_state.advance()
 
                     if cutlass.const_expr(self.cluster_split_k):
+                        cs_do_store = cutlass.Boolean(1)
                         if cs_split:
-                            cs_row = real_subtile_idx * cs_rows_per_step
-                            if cs_rank == 1:
-                                # Peer: ship the raw fragments of this step.
-                                for e in cutlass.range_constexpr(0, cs_frag, 4):
-                                    st_async_v4_f32_cluster(
-                                        cs_remote_red
-                                        + (cs_row + e // 4) * cutlass.Int32(2048),
-                                        tTR_rAcc_up[e],
-                                        tTR_rAcc_up[e + 1],
-                                        tTR_rAcc_up[e + 2],
-                                        tTR_rAcc_up[e + 3],
-                                        cs_remote_full,
-                                    )
-                                if cutlass.const_expr(self.gated):
-                                    for e in cutlass.range_constexpr(0, cs_frag, 4):
-                                        st_async_v4_f32_cluster(
-                                            cs_remote_red
-                                            + (cs_row + cs_frag // 4 + e // 4)
-                                            * cutlass.Int32(2048),
-                                            tTR_rAcc_gate[e],
-                                            tTR_rAcc_gate[e + 1],
-                                            tTR_rAcc_gate[e + 2],
-                                            tTR_rAcc_gate[e + 3],
-                                            cs_remote_full,
-                                        )
-                            else:
-                                # Leader: the whole partial arrives before the
-                                # first step; add it fragment by fragment.
-                                if subtile_idx == 0:
-                                    cute.arch.mbarrier_wait(
-                                        storage.cs_full_mbar.ptr, cutlass.Int32(0)
-                                    )
-                                cs_word = cs_row * cutlass.Int32(512) + epi_tidx * 4
+                            cs_base = (
+                                real_subtile_idx
+                                * (self.cta_tile_shape_mnk[0] * cs_elems)
+                                + epi_tidx * cs_elems
+                            )
+                            if real_subtile_idx == cs_rank:
+                                # Own step: add the peer's partial once landed.
+                                cute.arch.mbarrier_wait(
+                                    storage.cs_full_mbar.ptr, cutlass.Int32(0)
+                                )
                                 for e in cutlass.range_constexpr(cs_frag):
                                     tTR_rAcc_up[e] = (
                                         tTR_rAcc_up[e]
-                                        + sRed[cs_word + (e // 4) * 512 + e % 4]
+                                        + sRed[
+                                            cs_base + ((epi_tidx + e) & (cs_elems - 1))
+                                        ]
                                     )
                                 if cutlass.const_expr(self.gated):
-                                    cs_word = cs_word + (cs_frag // 4) * 512
                                     for e in cutlass.range_constexpr(cs_frag):
                                         tTR_rAcc_gate[e] = (
                                             tTR_rAcc_gate[e]
-                                            + sRed[cs_word + (e // 4) * 512 + e % 4]
+                                            + sRed[
+                                                cs_base
+                                                + (
+                                                    (epi_tidx + cs_frag + e)
+                                                    & (cs_elems - 1)
+                                                )
+                                            ]
                                         )
+                            else:
+                                # Peer's step: stage, fence, bulk-copy over.
+                                cs_do_store = cutlass.Boolean(0)
+                                for e in cutlass.range_constexpr(cs_frag):
+                                    sRed[
+                                        cs_base + ((epi_tidx + e) & (cs_elems - 1))
+                                    ] = tTR_rAcc_up[e]
+                                if cutlass.const_expr(self.gated):
+                                    for e in cutlass.range_constexpr(cs_frag):
+                                        sRed[
+                                            cs_base
+                                            + (
+                                                (epi_tidx + cs_frag + e)
+                                                & (cs_elems - 1)
+                                            )
+                                        ] = tTR_rAcc_gate[e]
+                                cute.arch.fence_proxy("async.shared", space="cta")
+                                self.epilog_sync_barrier.arrive_and_wait()
+                                if epi_tidx == 0:
+                                    cute.arch.mbarrier_wait(
+                                        storage.cs_empty_mbar.ptr, cutlass.Int32(0)
+                                    )
+                                    cs_off = real_subtile_idx * cs_step_bytes
+                                    cp_async_bulk_s2s_cluster(
+                                        cs_remote_red + cs_off,
+                                        cs_local_red + cs_off,
+                                        cs_rows * (cs_elems * 4),
+                                        cs_remote_full,
+                                    )
 
                     if cs_do_store:
                         if cutlass.const_expr(not self.gated):
@@ -3765,7 +3796,9 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
                 tile_info[1] = sInfo[(1, tile_info_consumer_state.index)]
                 tile_info[2] = sInfo[(2, tile_info_consumer_state.index)]
                 tile_info[3] = sInfo[(3, tile_info_consumer_state.index)]
-                if cutlass.const_expr(self.use_a_per_token_scale):
+                if cutlass.const_expr(
+                    self.use_a_per_token_scale or self.cluster_split_k
+                ):
                     tile_info[4] = sInfo[(4, tile_info_consumer_state.index)]
                 is_valid_tile = tile_info[3] == 1
                 cute.arch.fence_proxy(
@@ -3865,6 +3898,11 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
 
         if cutlass.const_expr(not self.pdl_trigger_early):
             griddepcontrol_launch_dependents()
+        if cutlass.const_expr(self.cluster_split_k):
+            if cs_split:
+                # The peer's bulk copy may still read my operand stages.
+                cute.arch.cluster_arrive_relaxed()
+                cute.arch.cluster_wait()
 
     def epilog_tmem_copy_and_partition(
         self,

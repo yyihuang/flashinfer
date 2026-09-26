@@ -374,24 +374,23 @@ def st_async_f32_cluster(remote_addr_i32, v_f32, remote_mbar_i32, loc=None, ip=N
 
 
 @dsl_user_op
-def st_async_v4_f32_cluster(
-    remote_addr_i32, v0, v1, v2, v3, remote_mbar_i32, loc=None, ip=None
+def cp_async_bulk_s2s_cluster(
+    dst_cluster_addr_i32, src_cta_addr_i32, size_i32, remote_mbar_i32, loc=None, ip=None
 ):
-    """``st.async`` of four F32 (16 B) into a peer CTA's shared memory; the
-    peer's mbarrier at ``remote_mbar`` receives ``complete_tx`` of 16 bytes."""
+    """``cp.async.bulk`` of ``size`` bytes (multiple of 16) from this CTA's shared
+    memory to a peer CTA's (``dst`` a shared::cluster address from ``mapa``); the
+    peer's mbarrier at ``remote_mbar`` receives ``complete_tx`` of ``size``."""
     llvm.inline_asm(
         None,
         [
-            remote_addr_i32.ir_value(loc=loc, ip=ip),
-            v0.ir_value(loc=loc, ip=ip),
-            v1.ir_value(loc=loc, ip=ip),
-            v2.ir_value(loc=loc, ip=ip),
-            v3.ir_value(loc=loc, ip=ip),
+            dst_cluster_addr_i32.ir_value(loc=loc, ip=ip),
+            src_cta_addr_i32.ir_value(loc=loc, ip=ip),
+            size_i32.ir_value(loc=loc, ip=ip),
             remote_mbar_i32.ir_value(loc=loc, ip=ip),
         ],
-        "st.async.shared::cluster.mbarrier::complete_tx::bytes.v4.f32 "
-        "[$0], {$1, $2, $3, $4}, [$5];",
-        "r,f,f,f,f,r",
+        "cp.async.bulk.shared::cluster.shared::cta.mbarrier::complete_tx::bytes "
+        "[$0], [$1], $2, [$3];",
+        "r,r,r,r",
         has_side_effects=True,
         is_align_stack=False,
         asm_dialect=llvm.AsmDialect.AD_ATT,
