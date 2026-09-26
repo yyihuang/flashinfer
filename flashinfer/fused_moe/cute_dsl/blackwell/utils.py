@@ -283,6 +283,27 @@ def st_bf16_pred_rowaddr(
 
 
 @dsl_user_op
+def blk_reduce_bf16_hint(dst_gemm, src_smem, size, policy, loc=None, ip=None):
+    """``cp.reduce.async.bulk`` add of BF16 rows with an L2 cache-policy operand
+    (CUTLASS TMA cache-hint encoding, e.g. EVICT_LAST keeps the reduced output
+    rows resident for the following top_k adds)."""
+    llvm.inline_asm(
+        None,
+        [
+            dst_gemm.iterator.llvm_ptr,
+            src_smem.iterator.llvm_ptr,
+            size.ir_value(),
+            policy.ir_value(),
+        ],
+        "cp.reduce.async.bulk.global.shared::cta.bulk_group.L2::cache_hint.add.noftz.bf16 [$0], [$1], $2, $3;",
+        "l,l,r,l",
+        has_side_effects=True,
+        loc=loc,
+        ip=ip,
+    )
+
+
+@dsl_user_op
 def blk_reduce_bf16(dst_gemm, src_smem, size, loc=None, ip=None):
     llvm.inline_asm(
         None,

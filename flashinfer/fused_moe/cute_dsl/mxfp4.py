@@ -87,6 +87,16 @@ _DENSE_L2_HINTS = {
     "last": 0x14F0000000000000,
 }
 DENSE_WEIGHT_L2_HINT = _DENSE_L2_HINTS[os.environ.get("MXFP4_DENSE_L2HINT", "first")]
+# L2 policy on the fused finalize's bulk reduce-adds ("last" keeps the output
+# rows resident for the following top_k adds) and on the finalize GEMM's
+# activation loads ("first" frees L2 for the output). Round-20 knobs; the
+# defaults are the measured choice.
+DENSE_REDUCE_L2_HINT = _DENSE_L2_HINTS[
+    os.environ.get("MXFP4_DENSE_REDUCE_L2HINT", "none")
+]
+DENSE_FINALIZE_A_L2_HINT = _DENSE_L2_HINTS[
+    os.environ.get("MXFP4_DENSE_FINALIZE_A_L2HINT", "none")
+]
 # Hybrid prefill form (wide swap tiles, finalize=True): the swap GEMM1 runs
 # ``n_tile``-row sub-tiles of 128-row sort groups (only the occupied ones, via
 # a device-built work list) and writes its MXFP8 rows with the block-scaled
@@ -1254,6 +1264,8 @@ class Mxfp4MoESwapAbPlan:
                         enable_pdl=pdl,
                         use_fused_finalize=True,
                         weight_l2_hint=DENSE_WEIGHT_L2_HINT,
+                        reduce_l2_hint=DENSE_REDUCE_L2_HINT,
+                        a_l2_hint=DENSE_FINALIZE_A_L2_HINT,
                         tile_idx_to_row_group=b["swap_wide_list"],
                         pdl_trigger_early=pdl and SWAP_SPLIT_EARLY_TRIGGER,
                         _prepared_launches=wide_launches,
@@ -1345,6 +1357,8 @@ class Mxfp4MoESwapAbPlan:
                     enable_pdl=pdl,
                     use_fused_finalize=True,
                     weight_l2_hint=DENSE_WEIGHT_L2_HINT,
+                    reduce_l2_hint=DENSE_REDUCE_L2_HINT,
+                    a_l2_hint=DENSE_FINALIZE_A_L2_HINT,
                     _prepared_launches=launches,
                 )
                 launches["swap_gemm2"] = launches["finalize"]

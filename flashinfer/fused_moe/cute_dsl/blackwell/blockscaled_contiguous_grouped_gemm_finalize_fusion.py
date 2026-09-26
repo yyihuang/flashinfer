@@ -44,6 +44,7 @@ from .utils import (
     UnalignedNamedBarrier,
     blk_copy,
     blk_reduce_bf16,
+    blk_reduce_bf16_hint,
     blk_reduce_fp16,
     blk_reduce_fp32,
     griddepcontrol_launch_dependents,
@@ -376,6 +377,8 @@ class Sm100BlockScaledContiguousGroupedGemmFinalizeFusionKernel:
         use_fused_finalize: bool = True,
         enable_narrow_a: bool = False,
         weight_l2_hint: Optional[int] = None,
+        reduce_l2_hint: Optional[int] = None,
+        a_l2_hint: Optional[int] = None,
         swizzle_size: int = 1,
         pdl_trigger_early: bool = False,
     ):
@@ -408,6 +411,11 @@ class Sm100BlockScaledContiguousGroupedGemmFinalizeFusionKernel:
         # weight-scale TMA loads: weights streamed once prefer EVICT_FIRST so the
         # activations gathered by several CTAs stay resident.
         self.weight_l2_hint = weight_l2_hint
+        # Optional L2 policy on the fused finalize's bulk reduce-adds (EVICT_LAST
+        # keeps the output rows resident for the following top_k adds) and on the
+        # activation TMA loads (EVICT_FIRST frees L2 for the output).
+        self.reduce_l2_hint = reduce_l2_hint
+        self.a_l2_hint = a_l2_hint
         # Signal programmatic dependents right after the dependency wait
         # instead of at the end of the kernel: a launch that runs ahead of
         # independent work in a PDL chain (the split form's wide GEMM2) lets
@@ -1820,13 +1828,23 @@ class Sm100BlockScaledContiguousGroupedGemmFinalizeFusionKernel:
                     )
 
                     # TMA load A/B
-                    cute.copy(
-                        tma_atom_a,
-                        tAgA_k,
-                        tAsA_pipe,
-                        tma_bar_ptr=tma_bar,
-                        mcast_mask=a_full_mcast_mask,
-                    )
+                    if cutlass.const_expr(self.a_l2_hint is not None):
+                        cute.copy(
+                            tma_atom_a,
+                            tAgA_k,
+                            tAsA_pipe,
+                            tma_bar_ptr=tma_bar,
+                            mcast_mask=a_full_mcast_mask,
+                            cache_policy=cutlass.Int64(self.a_l2_hint),
+                        )
+                    else:
+                        cute.copy(
+                            tma_atom_a,
+                            tAgA_k,
+                            tAsA_pipe,
+                            tma_bar_ptr=tma_bar,
+                            mcast_mask=a_full_mcast_mask,
+                        )
                     if cutlass.const_expr(self.weight_l2_hint is not None):
                         cute.copy(
                             tma_atom_b,
@@ -2416,6 +2434,16 @@ class Sm100BlockScaledContiguousGroupedGemmFinalizeFusionKernel:
                                 scatter_out_offset,
                                 sC[reduce_row, None, 0],
                                 valid_copy_size,
+                            )
+                        elif cutlass.const_expr(
+                            self.out_dtype == cutlass.BFloat16
+                            and self.reduce_l2_hint is not None
+                        ):
+                            blk_reduce_bf16_hint(
+                                scatter_out_offset,
+                                sC[reduce_row, None, 0],
+                                valid_copy_size,
+                                cutlass.Int64(self.reduce_l2_hint),
                             )
                         elif cutlass.const_expr(self.out_dtype == cutlass.BFloat16):
                             blk_reduce_bf16(

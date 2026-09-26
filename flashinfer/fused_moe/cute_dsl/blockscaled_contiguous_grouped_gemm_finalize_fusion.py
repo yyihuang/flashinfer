@@ -224,6 +224,8 @@ def _get_compiled_finalize_kernel(
     use_fused_finalize: bool = True,
     enable_narrow_a: bool = False,
     weight_l2_hint: Optional[int] = None,
+    reduce_l2_hint: Optional[int] = None,
+    a_l2_hint: Optional[int] = None,
     swizzle_size: int = 1,
     # Optional compacted work list (Blackwell only); its presence is part of
     # the compiled kernel, the pointer value is a runtime parameter.
@@ -266,6 +268,8 @@ def _get_compiled_finalize_kernel(
         use_fused_finalize,
         enable_narrow_a,
         weight_l2_hint,
+        reduce_l2_hint,
+        a_l2_hint,
         swizzle_size,
         row_group_ptr is not None,
         pdl_trigger_early,
@@ -327,6 +331,8 @@ def _get_compiled_finalize_kernel(
                 use_fused_finalize=use_fused_finalize,
                 enable_narrow_a=enable_narrow_a,
                 weight_l2_hint=weight_l2_hint,
+                reduce_l2_hint=reduce_l2_hint,
+                a_l2_hint=a_l2_hint,
                 swizzle_size=swizzle_size,
                 pdl_trigger_early=pdl_trigger_early,
             )
