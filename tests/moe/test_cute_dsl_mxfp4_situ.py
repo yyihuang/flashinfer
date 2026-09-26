@@ -2178,9 +2178,10 @@ def _dense_gemm1_would_split(plan):
     from flashinfer.cute_dsl.utils import get_max_active_clusters
 
     buffers = plan._kwargs["moe_sort_buffers"]
-    valid = int(buffers["out_num_non_exiting_tiles"].item())
-    permuted_m = int(plan._gather_args[-4])
     n_tiles = (plan._kwargs["w1_weight"].shape[1] + 255) // 256
+    # Valid work items = valid 128-row tiles x N tiles.
+    valid = int(buffers["out_num_non_exiting_tiles"].item()) * n_tiles
+    permuted_m = int(plan._gather_args[-4])
     total = (permuted_m // 128) * n_tiles
     grid_z = min(2 * total, get_max_active_clusters(1))
     grid_z += grid_z % 2

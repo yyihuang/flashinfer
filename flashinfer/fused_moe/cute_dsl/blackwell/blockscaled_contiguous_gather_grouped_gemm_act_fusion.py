@@ -1725,7 +1725,10 @@ class BlockScaledContiguousGatherGroupedGemmKernel:
         sched_z = cutlass.Int32(bidz)
         sched_gz = cutlass.Int32(sched_gdz)
         if cutlass.const_expr(self.cluster_split_k):
-            cs_valid_tiles = num_non_exiting_tiles[0]
+            # Work items = valid M tiles (or compacted row groups) x N tiles.
+            cs_valid_tiles = num_non_exiting_tiles[0] * cutlass.Int32(
+                cute.size(gC_mnl, mode=[3])
+            )
             cs_split = (2 * cs_valid_tiles <= sched_gz) & (
                 cs_valid_tiles <= cutlass.Int32(self.cluster_split_max_tiles)
             )
