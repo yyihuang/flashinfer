@@ -65,9 +65,10 @@ _MAX_MERGE_GROUPS = _COUNTER_REGION_BYTES // 4
 _PARTIAL_OFFSET = _COUNTER_OFFSET + _COUNTER_REGION_BYTES
 # Largest fixed split count used by any route (bf16_h128_topk4x_v52 / fp8_h128).
 _MAX_FIXED_SPLITS = 5
-# BF16 H128 SWA-only rows with this many metadata tokens or more use the full-V
-# H128 family instead of the dedicated SWA producer (see the Cake dispatcher).
-_BF16_H128_SWA_FULL_V_TOKENS = 128
+# BF16/H128 SWA-only and topk4x rows with this many metadata tokens or more use
+# the persistent KV-reuse prefill body (mirrors the Cake dispatcher's
+# BF16_H128_PREFILL_MIN_TOKENS, CAKE-624 W11).
+_BF16_H128_PREFILL_MIN_TOKENS = 64
 # Two-stage split3/split4 programs (3-4 owners x 2 CTAs per token) run one wave
 # only up to this many query tokens; wider grids lose to trtllm-gen (CAKE-624 W12).
 # Mirrors the Cake seed's BF16_TOPK128X_SPLIT_MAX_TOKENS.
@@ -866,12 +867,13 @@ def _route(
     if num_heads == 128:
         if max_q_len >= 257:
             return "bf16_h128_prefill_v42"
+        if (is_swa or is_topk4x) and num_query_tokens >= _BF16_H128_PREFILL_MIN_TOKENS:
+            # Persistent KV-reuse prefill body for the many-token MTP rows
+            # (Cake rule BF16_H128_PREFILL_MIN_TOKENS): the dedicated SWA
+            # producer repeats QK per V chunk and the per-token owners lose
+            # from 64 tokens on.
+            return "bf16_h128_prefill_v42"
         if is_swa:
-            # Mirrors the Cake dispatcher: from 128 tokens on, the full-V H128
-            # family (one QK per head tile, cooperative V512) beats the
-            # dedicated SWA producer, which repeats QK per 128-wide V chunk.
-            if num_query_tokens >= _BF16_H128_SWA_FULL_V_TOKENS:
-                return "bf16_h128_topk128x"
             return "bf16_h128_swa128"
         if is_topk4x and sparse_topk == 1152:
             return "bf16_h128_topk4x_v52"

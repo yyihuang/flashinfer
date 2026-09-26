@@ -989,16 +989,25 @@ def test_cake_dsv4_semantic_routes(
 
 
 @pytest.mark.parametrize(
-    "num_query_tokens,expected",
+    "num_query_tokens,sparse_topk,page_size,expected",
     [
-        (12, "bf16_h128_swa128"),
-        (127, "bf16_h128_swa128"),
-        (128, "bf16_h128_topk128x"),
-        (512, "bf16_h128_topk128x"),
+        # SWA-only rows: dedicated producer below the bound, persistent prefill body from 64 tokens.
+        (12, 128, None, "bf16_h128_swa128"),
+        (63, 128, None, "bf16_h128_swa128"),
+        (64, 128, None, "bf16_h128_prefill_v42"),  # hardening-000023-like
+        (128, 128, None, "bf16_h128_prefill_v42"),
+        (512, 128, None, "bf16_h128_prefill_v42"),  # hardening-000035
+        # topk4x rows: split5 / single owner at 12 tokens, persistent prefill body from 64 tokens.
+        (12, 1152, 64, "bf16_h128_topk4x_v52"),
+        (12, 640, 64, "bf16_h128_topk128x"),
+        (64, 640, 64, "bf16_h128_prefill_v42"),  # hardening-000021
+        (512, 640, 64, "bf16_h128_prefill_v42"),  # hardening-000037
+        # topk128x rows keep their own rule (W12), whatever the token count.
+        (64, 260, 2, "bf16_h128_topk128x"),
     ],
 )
-def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(
-    num_query_tokens, expected
+def test_bf16_h128_swa_and_topk4x_rows_use_the_persistent_prefill_body_from_64_tokens(
+    num_query_tokens, sparse_topk, page_size, expected
 ):
     for arch in ("sm_100a", "sm_103a"):
         assert (
@@ -1009,8 +1018,8 @@ def test_bf16_h128_swa_rows_use_full_v_family_from_128_tokens(
                 batch_size=64,
                 max_q_len=8,
                 ragged=True,
-                sparse_topk=128,
-                compressed_page_size=64,
+                sparse_topk=sparse_topk,
+                compressed_page_size=page_size,
                 num_query_tokens=num_query_tokens,
             )
             == expected
