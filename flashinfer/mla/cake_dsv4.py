@@ -68,6 +68,10 @@ _MAX_FIXED_SPLITS = 5
 # BF16 H128 SWA-only rows with this many metadata tokens or more use the full-V
 # H128 family instead of the dedicated SWA producer (see the Cake dispatcher).
 _BF16_H128_SWA_FULL_V_TOKENS = 128
+# Two-stage split3/split4 programs (3-4 owners x 2 CTAs per token) run one wave
+# only up to this many query tokens; wider grids lose to trtllm-gen (CAKE-624 W12).
+# Mirrors the Cake seed's BF16_TOPK128X_SPLIT_MAX_TOKENS.
+_BF16_TOPK128X_SPLIT_MAX_TOKENS = 16
 _BF16_H64_COMPRESSED_PREFILL_TOKENS = 24
 _BF16_H64_PREFILL_MAX_SPARSE_WIDTH = 640
 _PRIMED_ATTR = "_cake_dsv4_counters_primed"
@@ -1180,7 +1184,6 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
     T = v["num_query_tokens"]
     H = v["num_heads"]
     topk = v["sparse_topk"]
-    arch = L.arch
 
     if route == "bf16_h8_h32":
         # General low-head path outside the specialized profiles.
@@ -1247,8 +1250,17 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
         # reducer) ship on both Blackwell targets: GB300 rows at width 260/388
         # measured 1.18-1.26x vs trtllm-gen against 0.83-1.05x for the
         # single-owner kernel (CAKE-624 W2).  Mirrors the Cake seed's
-        # BF16_TOPK128X_SPLIT_ARCHES.
-        if route == "bf16_h128_topk128x" and 256 < topk <= 384:
+        # BF16_TOPK128X_SPLIT_ARCHES.  Above the token bound the rows run one
+        # full-V owner per token whose invalid (-1) sparse rows gather the
+        # tile's first index (CAKE-624 W12: hardening-000025/31 0.45-0.95x ->
+        # 1.13-1.65x); mirrors bf16_topk128x_uses_row_first_owner.
+        if (
+            route == "bf16_h128_topk128x"
+            and 256 < topk <= 388
+            and T > _BF16_TOPK128X_SPLIT_MAX_TOKENS
+        ):
+            program_variant = "bf16_h128_topk128x_row_first"
+        elif route == "bf16_h128_topk128x" and 256 < topk <= 384:
             num_splits = 3
             program_variant = "bf16_h128_topk128x_split3_sm100"
         elif route == "bf16_h128_topk128x" and topk == 388:

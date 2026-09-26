@@ -2015,25 +2015,40 @@ class _RecordingLauncher:
 
 @pytest.mark.parametrize("arch", ["sm_100a", "sm_103a"])
 @pytest.mark.parametrize(
-    "sparse_topk,expected_program,expected_splits",
+    "num_query_tokens,sparse_topk,expected_program,expected_splits",
     [
-        (260, "bf16_h128_topk128x_split3_sm100", 3),
-        (388, "bf16_h128_topk128x_split4_sm100", 4),
-        (640, "bf16_h128_topk128x", 1),
+        (12, 260, "bf16_h128_topk128x_split3_sm100", 3),
+        (16, 260, "bf16_h128_topk128x_split3_sm100", 3),
+        (12, 388, "bf16_h128_topk128x_split4_sm100", 4),
+        (16, 388, "bf16_h128_topk128x_split4_sm100", 4),
+        # CAKE-624 W12: above the token bound one row-first owner per token.
+        (17, 260, "bf16_h128_topk128x_row_first", 1),
+        (32, 260, "bf16_h128_topk128x_row_first", 1),  # hardening-000025
+        (64, 260, "bf16_h128_topk128x_row_first", 1),  # hardening-000031
+        (32, 388, "bf16_h128_topk128x_row_first", 1),
+        (64, 388, "bf16_h128_topk128x_row_first", 1),
+        (12, 640, "bf16_h128_topk128x", 1),
+        (64, 512, "bf16_h128_topk128x", 1),
     ],
 )
 def test_bf16_h128_topk128x_split_programs_dispatch_on_both_targets(
-    arch, sparse_topk, expected_program, expected_splits
+    arch, num_query_tokens, sparse_topk, expected_program, expected_splits
 ):
     L = _RecordingLauncher(
-        arch, num_query_tokens=12, num_heads=128, sparse_topk=sparse_topk
+        arch,
+        num_query_tokens=num_query_tokens,
+        num_heads=128,
+        sparse_topk=sparse_topk,
     )
     cake._dispatch_route("bf16_h128_topk128x", L)
     assert L.calls == [
         (
             "program",
             expected_program,
-            {"total_work_items": 12 * expected_splits, "num_splits": expected_splits},
+            {
+                "total_work_items": num_query_tokens * expected_splits,
+                "num_splits": expected_splits,
+            },
         )
     ]
 
