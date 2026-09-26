@@ -176,6 +176,43 @@ def _routing_cluster_sync(*, loc=None, ip=None) -> None:
 
 
 @dsl_user_op
+def _routing_mapa_u32(smem_ptr, cta_rank_i32, *, loc=None, ip=None) -> cutlass.Int32:
+    """Shared-memory address of ``smem_ptr``'s slot in cluster CTA ``cta_rank``."""
+    return cutlass.Int32(
+        llvm.inline_asm(
+            T.i32(),
+            [
+                smem_ptr.toint(loc=loc, ip=ip).ir_value(loc=loc, ip=ip),
+                cta_rank_i32.ir_value(loc=loc, ip=ip),
+            ],
+            "mapa.shared::cluster.u32 $0, $1, $2;",
+            "=r,r,r",
+            has_side_effects=False,
+            is_align_stack=False,
+            asm_dialect=llvm.AsmDialect.AD_ATT,
+        )
+    )
+
+
+@dsl_user_op
+def _routing_ld_shared_cluster_i32(
+    remote_addr_i32, *, loc=None, ip=None
+) -> cutlass.Int32:
+    """One Int32 from a peer CTA's shared memory (``shared::cluster`` address)."""
+    return cutlass.Int32(
+        llvm.inline_asm(
+            T.i32(),
+            [remote_addr_i32.ir_value(loc=loc, ip=ip)],
+            "ld.shared::cluster.s32 $0, [$1];",
+            "=r,r",
+            has_side_effects=True,
+            is_align_stack=False,
+            asm_dialect=llvm.AsmDialect.AD_ATT,
+        )
+    )
+
+
+@dsl_user_op
 def _routing_shared_add(
     address: cutlass.Int32, value: cutlass.Int32, *, loc=None, ip=None
 ):
@@ -255,6 +292,10 @@ def _routing_block_exclusive(
 # per-CTA counts are exchanged through ``chunk_counts`` (global scratch) at
 # one cluster barrier. 1 disables it.
 FUSED_ROUTE_CLUSTER = int(os.environ.get("MXFP4_FUSED_ROUTE_CLUSTER", "8"))
+# Exchange the per-CTA histograms through distributed shared memory (mapa +
+# ld.shared::cluster, two cluster barriers) instead of the ``chunk_counts``
+# global round trip. ``0`` keeps the global exchange.
+FUSED_ROUTE_DSM = os.environ.get("MXFP4_FUSED_ROUTE_DSM", "0") == "1"
 # Output-clear CTAs of the clustered kernel (grid-stride, 16-byte stores):
 # clusters are scheduled as units, so the one-word-per-thread grid of the
 # single-CTA kernel (3584 CTAs at T=1024) costs 4-5 us in cluster waves.
@@ -280,11 +321,13 @@ class _FusedRoutePreprocess:
         split_layout=False,
         max_rows=None,
         cluster=1,
+        dsm=False,
     ):
         self.single_tile_per_expert = single_tile_per_expert
         if cluster < 1 or cluster > 8:
             raise ValueError("cluster must be 1..8")
         self.cluster = cluster
+        self.dsm = bool(dsm) and cluster > 1
         # ``split_layout``: two-granularity row layout for the swap-AB split
         # form. Experts with more than ``wide_min_rows`` rows are laid out in
         # ``wide_tile``-row groups after the ``tile_size``-row groups of the
@@ -432,7 +475,8 @@ class _FusedRoutePreprocess:
                     cutlass.Int32(FUSED_ROUTE_CLEAR_CTAS),
                 )
                 blocks = (
-                    cute.ceil_div(self.cluster + clear_ctas, self.cluster) * self.cluster
+                    cute.ceil_div(self.cluster + clear_ctas, self.cluster)
+                    * self.cluster
                 )
             else:
                 blocks = cute.ceil_div(cute.size(output), self.threads)
@@ -539,7 +583,8 @@ class _FusedRoutePreprocess:
             chunk = cutlass.Int32(num_routes)
             if cutlass.const_expr(self.cluster > 1):
                 chunk = (
-                    cute.ceil_div(num_routes, self.cluster * self.threads) * self.threads
+                    cute.ceil_div(num_routes, self.cluster * self.threads)
+                    * self.threads
                 )
             r0 = block * chunk
             r1 = cutlass.min(r0 + chunk, num_routes)
@@ -620,14 +665,28 @@ class _FusedRoutePreprocess:
                 # Exchange the per-CTA histograms: ``count`` becomes the
                 # cluster total, ``pre`` the rows of this expert in the
                 # chunks of the lower-ranked CTAs.
-                chunk_counts[block * self.threads + tid] = count
-                _routing_cluster_sync()
-                count = cutlass.Int32(0)
-                for c in cutlass.range_constexpr(self.cluster):
-                    part = chunk_counts[c * self.threads + tid]
-                    count += part
-                    if c < block:
-                        pre += part
+                if cutlass.const_expr(self.dsm):
+                    # Peers read this CTA's ``counts`` in place; the second
+                    # barrier keeps every CTA resident until all reads landed.
+                    _routing_cluster_sync()
+                    count = cutlass.Int32(0)
+                    for c in cutlass.range_constexpr(self.cluster):
+                        part = _routing_ld_shared_cluster_i32(
+                            _routing_mapa_u32(counts.iterator + tid, cutlass.Int32(c))
+                        )
+                        count += part
+                        if c < block:
+                            pre += part
+                    _routing_cluster_sync()
+                else:
+                    chunk_counts[block * self.threads + tid] = count
+                    _routing_cluster_sync()
+                    count = cutlass.Int32(0)
+                    for c in cutlass.range_constexpr(self.cluster):
+                        part = chunk_counts[c * self.threads + tid]
+                        count += part
+                        if c < block:
+                            pre += part
             pre_buf[tid] = pre
             # Split layout: experts above ``wide_min_rows`` take no narrow
             # groups; their ``wide_tile``-row groups follow the narrow region.
@@ -1325,6 +1384,7 @@ def _plan_route_preprocess(
             max_routes,
             max_rows,
             cluster,
+            FUSED_ROUTE_DSM,
             out_align,
         )
         compiled = _route_preprocess_kernel_cache.get(cache_key)
@@ -1341,6 +1401,7 @@ def _plan_route_preprocess(
                     split_layout=split_layout is not None,
                     max_rows=max_rows,
                     cluster=cluster,
+                    dsm=FUSED_ROUTE_DSM,
                 )
                 if sorts_tokens
                 else _RoutePreprocess(mode, threads, clear=bool(clear_output))
