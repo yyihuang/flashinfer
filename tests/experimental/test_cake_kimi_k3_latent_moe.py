@@ -145,6 +145,11 @@ def test_prefill_tail_plan_and_trigger():
     # TP1 T=256: 112 GEMM CTAs next to 64 norm CTAs do not fit 148 SMs -> late trigger.
     tp1 = prefill_tail_plan(256, 1)
     assert tp1["gemm_grid"] == (tp1["num_items"]) * 2 and not tp1["early_trigger"]
+    assert plan["weights_evict_first"] and tp1["weights_evict_first"]
+    assert not prefill_tail_plan(2048, 1)["weights_evict_first"]
+    assert cb.weights_evict_first(112, SM_COUNT) and not cb.weights_evict_first(
+        224, SM_COUNT
+    )
     assert cb.norm_early_trigger(300, 64, SM_COUNT) and not cb.norm_early_trigger(
         112, 64, SM_COUNT
     )
@@ -162,10 +167,19 @@ def test_route_keys_cover_the_row_set():
         "tail_gemm",
     }
     assert "front:i6144" in keys and "front:i768" in keys
-    assert "tail_gemm:tp1" in keys and "tail_gemm:tp8" in keys
+    assert {k for k in keys if k.startswith("tail_gemm:")} == {
+        "tail_gemm:tp1e0",
+        "tail_gemm:tp1e1",
+        "tail_gemm:tp8e0",
+        "tail_gemm:tp8e1",
+    }
     assert route_kernel_keys("front", 1, 128)[0].startswith("decode:")
     assert route_kernel_keys("front", 1, 256) == ("front:i6144",)
-    assert route_kernel_keys("tail", 8, 256) == ("tail_norm:e1", "tail_gemm:tp8")
+    assert route_kernel_keys("tail", 8, 256) == ("tail_norm:e1", "tail_gemm:tp8e1")
+    # Single-wave grids (T = 256 / 512) stream the weights evict_first; persistent grids keep the default policy.
+    assert route_kernel_keys("tail", 1, 512)[1] == "tail_gemm:tp1e1"
+    assert route_kernel_keys("tail", 1, 1024)[1] == "tail_gemm:tp1e0"
+    assert route_kernel_keys("tail", 8, 1024)[1] == "tail_gemm:tp8e0"
     assert len(route_kernel_keys("tail", 1, 16384)) == 2
     for stage in ("front", "tail"):
         for tp in SUPPORTED_TP:

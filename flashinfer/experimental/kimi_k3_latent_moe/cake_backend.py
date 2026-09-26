@@ -442,8 +442,8 @@ def norm_kernel_key(early_trigger: bool) -> str:
     return f"tail_norm:e{1 if early_trigger else 0}"
 
 
-def tail_gemm_kernel_key(tp: int) -> str:
-    return f"tail_gemm:tp{int(tp)}"
+def tail_gemm_kernel_key(tp: int, weights_evict_first: bool) -> str:
+    return f"tail_gemm:tp{int(tp)}e{1 if weights_evict_first else 0}"
 
 
 def _sk_max_seg(sk_tiles: int, num_k: int, ipc: int) -> int:
@@ -503,6 +503,12 @@ def norm_early_trigger(gemm_ctas: int, norm_ctas: int, sm_count: int) -> bool:
     return gemm_ctas > sm_count or gemm_ctas + norm_ctas <= sm_count
 
 
+def weights_evict_first(gemm_ctas: int, sm_count: int) -> bool:
+    """Single-wave GEMM grids load the weight boxes with the ``evict_first`` L2 policy (every CTA
+    streams its weight columns once; multi-wave grids re-read weight blocks from L2)."""
+    return gemm_ctas <= sm_count
+
+
 def prefill_tail_plan(M: int, tp: int, sm_count: int = SM_COUNT) -> dict[str, Any]:
     """Host plan of the prefill tail chain (norm launch + persistent GEMM) for ``M`` tokens."""
     k_up = k_up_for_tp(tp)
@@ -512,7 +518,8 @@ def prefill_tail_plan(M: int, tp: int, sm_count: int = SM_COUNT) -> dict[str, An
     cluster_tiles = (m_tiles // CTA_GROUP) * TAIL_N_TILES
     num_k = (k_up + i_local) // BLOCK_K
     sk = split_plan(cluster_tiles, num_k, sm_count, min(GROUP_M, m_tiles) // CTA_GROUP)
-    early = norm_early_trigger(sk["num_items"] * CTA_GROUP, norm_grid, sm_count)
+    gemm_grid = sk["num_items"] * CTA_GROUP
+    early = norm_early_trigger(gemm_grid, norm_grid, sm_count)
     return dict(
         M=M,
         tp=tp,
@@ -522,8 +529,9 @@ def prefill_tail_plan(M: int, tp: int, sm_count: int = SM_COUNT) -> dict[str, An
         m_tiles=m_tiles,
         cluster_tiles=cluster_tiles,
         num_k=num_k,
-        gemm_grid=sk["num_items"] * CTA_GROUP,
+        gemm_grid=gemm_grid,
         early_trigger=bool(early),
+        weights_evict_first=bool(weights_evict_first(gemm_grid, sm_count)),
         **sk,
     )
 
@@ -556,7 +564,10 @@ def route_kernel_keys(
                 ),
             )
         plan = prefill_tail_plan(num_tokens, tp, sm_count)
-        return (norm_kernel_key(plan["early_trigger"]), tail_gemm_kernel_key(tp))
+        return (
+            norm_kernel_key(plan["early_trigger"]),
+            tail_gemm_kernel_key(tp, plan["weights_evict_first"]),
+        )
     raise ValueError(f"stage must be 'front' or 'tail', got {stage!r}")
 
 
@@ -1001,7 +1012,7 @@ def prepare_kimi_k3_latent_moe_tail(
             norm_module = kernel_module_name(arch, norm_key)
             norm_entry, norm_arguments = _bind(norm_module, norm_kwargs)
             ws, counters = _tail_workspace(device, plan["sk_tiles"], plan["sk_max_seg"])
-            gemm_key = tail_gemm_kernel_key(tp)
+            gemm_key = tail_gemm_kernel_key(tp, plan["weights_evict_first"])
             gemm_kwargs = dict(
                 A1=y_workspace,
                 B1=up_weight,
@@ -1104,4 +1115,5 @@ __all__ = [
     "route_kernel_keys",
     "split_plan",
     "tail_gemm_kernel_key",
+    "weights_evict_first",
 ]
