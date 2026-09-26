@@ -2153,3 +2153,95 @@ def test_swap_split_form_matches_default(
         for _ in range(5):
             graph.replay()
         torch.testing.assert_close(output, expected, atol=1e-2, rtol=1e-2)
+
+
+def _make_cluster_split_wrapper(case, split, enable_pdl):
+    from flashinfer.fused_moe.cute_dsl.mxfp4 import CuteDslMxfp4MoEWrapper
+
+    return CuteDslMxfp4MoEWrapper(
+        case.num_experts,
+        case.topk_ids.shape[1],
+        case.hidden_size,
+        case.intermediate_size,
+        num_local_experts=case.local_num_experts,
+        local_expert_offset=case.local_expert_offset,
+        swapab_max_tokens=0,  # dense path at every token count
+        dense_dual_tile=False,
+        dense_gemm1_cluster_split=split,
+        enable_pdl=enable_pdl,
+    )
+
+
+def _dense_gemm1_would_split(plan):
+    """Host-side mirror of the gather GEMM1's device decision (valid tiles
+    fit half the launched CTAs and the co-resident 2-CTA clusters)."""
+    from flashinfer.cute_dsl.utils import get_max_active_clusters
+
+    buffers = plan._kwargs["moe_sort_buffers"]
+    valid = int(buffers["out_num_non_exiting_tiles"].item())
+    permuted_m = int(plan._gather_args[-4])
+    n_tiles = (plan._kwargs["w1_weight"].shape[1] + 255) // 256
+    total = (permuted_m // 128) * n_tiles
+    grid_z = min(2 * total, get_max_active_clusters(1))
+    grid_z += grid_z % 2
+    return 2 * valid <= grid_z and valid <= get_max_active_clusters(2)
+
+
+@pytest.mark.parametrize("hidden", [256, 384])
+@pytest.mark.parametrize("enable_pdl", [False, True])
+@pytest.mark.parametrize("tokens", [256, 584])
+def test_dense_gemm1_cluster_split_k_matches_plain(hidden, enable_pdl, tokens):
+    """The dense gather GEMM1 of an expert-parallel rank launches (1, 1, 2)
+    clusters; while the routing's valid tiles fit half the CTAs (256 tokens:
+    32 / 64 tiles on the hot / balanced routing), the two CTAs of a cluster
+    take the two K halves of one tile (1 + 1 and 2 + 1 K steps at hidden 256 /
+    384) and the peer's partial crosses over DSMEM; with more tiles (584
+    tokens: 80 / 128) every CTA runs the plain schedule under the same cluster
+    launch. The output matches the plain launch on the same routing within
+    one BF16 floor, on repeated runs and on CUDA-graph replays whose routing
+    flips between two experts holding every route and every local expert
+    busy."""
+    _require_blackwell()
+    case = make_case(
+        tokens=tokens,
+        hidden=hidden,
+        intermediate=1024,
+        num_experts=16,
+        local_num_experts=8,
+        local_expert_offset=0,
+        top_k=2,
+    )
+    weights = prepare_cute_weights(case)
+    _set_routing(case, hot=True)
+    plain_plan, plain_output = _plan_dense(
+        _make_cluster_split_wrapper(case, False, enable_pdl), case, weights
+    )
+    split_plan, split_output = _plan_dense(
+        _make_cluster_split_wrapper(case, True, enable_pdl), case, weights
+    )
+    assert not plain_plan._kwargs["gemm1_cluster_split_k"]
+    assert split_plan._kwargs["gemm1_cluster_split_k"]
+    for hot in (True, False, True):
+        _set_routing(case, hot=hot)
+        for _ in range(2):
+            plain_plan.run()
+            split_plan.run()
+        torch.cuda.synchronize()
+        assert _dense_gemm1_would_split(split_plan) == (tokens == 256)
+        _assert_dual_tile_matches_single(
+            case, split_output, plain_output, reference_moe(case)
+        )
+    stream = torch.cuda.Stream()
+    stream.wait_stream(torch.cuda.current_stream())
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph, stream=stream):
+        split_plan.run()
+    torch.cuda.current_stream().wait_stream(stream)
+    for hot in (False, True, False):
+        _set_routing(case, hot=hot)
+        graph.replay()
+        plain_plan.run()
+        torch.cuda.synchronize()
+        _assert_dual_tile_matches_single(
+            case, split_output, plain_output, reference_moe(case)
+        )
