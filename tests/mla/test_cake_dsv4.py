@@ -541,7 +541,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             260,
             2,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-56",
         ),
         pytest.param(
@@ -574,7 +574,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             260,
             2,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-59",
         ),
         pytest.param(
@@ -673,7 +673,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             260,
             2,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-68",
         ),
         pytest.param(
@@ -706,7 +706,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             260,
             2,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-71",
         ),
         pytest.param(
@@ -778,7 +778,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             384,
             64,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-79",
         ),
         pytest.param(
@@ -789,7 +789,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             260,
             2,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-80",
         ),
         pytest.param(
@@ -811,7 +811,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             384,
             64,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-82",
         ),
         pytest.param(
@@ -822,7 +822,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             260,
             2,
-            "fp8_lowhead_split",
+            "fp8_lowhead_one_partition",
             id="case-83",
         ),
         pytest.param(
@@ -910,6 +910,19 @@ from flashinfer.mla.cake_dsv4 import (
             64,
             "fp8_h128_prefill_source_persistent",
             id="case-93",
+        ),
+        # Off-contract low-head width beyond three sparse tiles keeps the
+        # two-partition producer + reducer path.
+        pytest.param(
+            torch.float8_e4m3fn,
+            32,
+            3,
+            5,
+            True,
+            640,
+            64,
+            "fp8_lowhead_split",
+            id="lowhead-w640-split",
         ),
     ],
 )
@@ -1897,7 +1910,9 @@ def test_fp8_split_producer_writes_partials_through_o(monkeypatch):
     )
     monkeypatch.setattr(cake, "_target_arch", lambda device: "sm_103a")
     monkeypatch.setattr(cake, "_stream_ptr", lambda device: 0)
-    rows, compressed, heads = 4, 256, 32
+    # Width 128 + 512 = 640 = 5 sparse tiles: beyond the three tiles one
+    # partition owns, so the two-partition producer + reducer path is taken.
+    rows, compressed, heads = 4, 512, 32
     table, lens = _combined_metadata(rows, compressed)
     workspace = _aligned_u8(
         get_cake_dsv4_workspace_bytes(

@@ -784,8 +784,14 @@ def _route(
             if arch == "sm_100a" and sparse_topk >= 640:
                 return "fp8_lowhead_h64_split"
             return "fp8_lowhead_h64"
+        # One producer partition owns up to three sparse tiles (widths up to
+        # 384) and writes final O directly; the two-partition path splits
+        # three tiles as 2 + 1 and still pays the reducer launch, so it never
+        # shortens the critical path there (one partition measured 1.18-1.26x
+        # on the width-260 rows).  Mirrors the Cake seed's
+        # FP8_ONE_PARTITION_MAX_TILES = 3.
         return (
-            "fp8_lowhead_one_partition" if sparse_topk <= 256 else "fp8_lowhead_split"
+            "fp8_lowhead_one_partition" if sparse_topk <= 384 else "fp8_lowhead_split"
         )
     if dtype != torch.bfloat16:
         raise ValueError(f"unsupported CAKE DSv4 dtype: {dtype}")
