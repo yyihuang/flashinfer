@@ -781,6 +781,13 @@ def _route(
         if is_swa:
             return "fp8_lowhead_prefill"
         if num_heads == 64:
+            # 12-token decode rows with >= 3 complete sparse tiles: the
+            # persistent FP8 body (same kernel as FP8/H128, heads >= num_heads
+            # predicated) measured GB300 1.23-1.26x / B200 1.15x vs trtllm-gen
+            # where the per-token cluster body sat at 0.95-1.04x (CAKE-624 W5).
+            # Mirrors the Cake seed's H64_PERSISTENT_MIN_TILES / _MAX_TOKENS.
+            if sparse_topk >= 384 and num_query_tokens <= 12:
+                return "fp8_h128_prefill_source_persistent"
             if arch == "sm_100a" and sparse_topk >= 640:
                 return "fp8_lowhead_h64_split"
             return "fp8_lowhead_h64"

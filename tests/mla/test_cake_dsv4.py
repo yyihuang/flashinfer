@@ -14,6 +14,21 @@ from flashinfer.mla.cake_dsv4 import (
 
 
 # Both cache layouts and sink settings retain the same physical selection.
+def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> int:
+    """Query-token count of a canonical contract row.
+
+    Ragged rows follow the contract's ``linspace_half_to_max`` rule (request
+    lengths ``linspace(ceil(q/2), q, batch)`` rounded), so the 3 x q_len 5
+    decode rows carry 12 tokens; dense rows carry ``batch_size * max_q_len``.
+    """
+    if not ragged:
+        return batch_size * max_q_len
+    minimum = max(1, (max_q_len + 1) // 2)
+    return int(
+        torch.linspace(minimum, max_q_len, batch_size).round().to(torch.int32).sum()
+    )
+
+
 @pytest.mark.parametrize(
     "dtype,num_heads,batch_size,max_q_len,ragged,sparse_topk,page_size,expected",
     [
@@ -102,10 +117,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             640,
             64,
-            {
-                "sm_100a": "fp8_lowhead_h64_split",
-                "sm_103a": "fp8_lowhead_h64",
-            },
+            "fp8_h128_prefill_source_persistent",
             id="case-07",
         ),
         pytest.param(
@@ -130,10 +142,7 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             640,
             64,
-            {
-                "sm_100a": "fp8_lowhead_h64_split",
-                "sm_103a": "fp8_lowhead_h64",
-            },
+            "fp8_h128_prefill_source_persistent",
             id="case-10",
         ),
         pytest.param(
@@ -224,14 +233,19 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             640,
             64,
-            {
-                "sm_100a": "fp8_lowhead_h64_split",
-                "sm_103a": "fp8_lowhead_h64",
-            },
+            "fp8_h128_prefill_source_persistent",
             id="case-19",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 64, 3, 5, True, 388, 2, "fp8_lowhead_h64", id="case-20"
+            torch.float8_e4m3fn,
+            64,
+            3,
+            5,
+            True,
+            388,
+            2,
+            "fp8_h128_prefill_source_persistent",
+            id="case-20",
         ),
         pytest.param(
             torch.float8_e4m3fn,
@@ -252,14 +266,19 @@ from flashinfer.mla.cake_dsv4 import (
             True,
             640,
             64,
-            {
-                "sm_100a": "fp8_lowhead_h64_split",
-                "sm_103a": "fp8_lowhead_h64",
-            },
+            "fp8_h128_prefill_source_persistent",
             id="case-22",
         ),
         pytest.param(
-            torch.float8_e4m3fn, 64, 3, 5, True, 388, 2, "fp8_lowhead_h64", id="case-23"
+            torch.float8_e4m3fn,
+            64,
+            3,
+            5,
+            True,
+            388,
+            2,
+            "fp8_h128_prefill_source_persistent",
+            id="case-23",
         ),
         pytest.param(
             torch.bfloat16, 128, 3, 5, True, 128, 1, "bf16_h128_swa128", id="case-24"
@@ -911,6 +930,33 @@ from flashinfer.mla.cake_dsv4 import (
             "fp8_h128_prefill_source_persistent",
             id="case-93",
         ),
+        # FP8/H64 rows above the 12-token persistent envelope keep the H64
+        # cluster producers (dense 3 x 64 = 192 query tokens).
+        pytest.param(
+            torch.float8_e4m3fn,
+            64,
+            3,
+            64,
+            False,
+            640,
+            64,
+            {
+                "sm_100a": "fp8_lowhead_h64_split",
+                "sm_103a": "fp8_lowhead_h64",
+            },
+            id="h64-w640-192tok",
+        ),
+        pytest.param(
+            torch.float8_e4m3fn,
+            64,
+            3,
+            64,
+            False,
+            388,
+            2,
+            "fp8_lowhead_h64",
+            id="h64-w388-192tok",
+        ),
         # Off-contract low-head width beyond three sparse tiles keeps the
         # two-partition producer + reducer path.
         pytest.param(
@@ -939,9 +985,7 @@ def test_cake_dsv4_semantic_routes(
             ragged=ragged,
             sparse_topk=sparse_topk,
             compressed_page_size=page_size,
-            # Canonical rows: linspace(q/2, q) ragged lengths, well below the
-            # 128-token full-V threshold for BF16 H128 SWA rows.
-            num_query_tokens=batch_size * max_q_len,
+            num_query_tokens=_canonical_query_tokens(batch_size, max_q_len, ragged),
         ) == (expected[arch] if isinstance(expected, dict) else expected)
 
 
