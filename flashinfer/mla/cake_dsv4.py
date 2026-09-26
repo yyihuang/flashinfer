@@ -42,6 +42,7 @@ Host contract (flashinfer#4671 hardening)
 
 from __future__ import annotations
 
+import functools
 import threading
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Optional, Union
@@ -76,6 +77,34 @@ _BF16_TOPK128X_SPLIT_MAX_TOKENS = 16
 _BF16_H64_COMPRESSED_PREFILL_TOKENS = 24
 _BF16_H64_PREFILL_MAX_SPARSE_WIDTH = 640
 _PRIMED_ATTR = "_cake_dsv4_counters_primed"
+
+
+# Work feed of the BF16/H128 persistent prefill body (mirrors the Cake seed's
+# bf16_h128_prefill_uses_snake_feed, CAKE-624 W17).  With C = min(T, SMs // 2)
+# clusters the striped feed gives base = T // C strided PREFIX items to the
+# C - T % C regular clusters and base + 1 contiguous SUFFIX items to the T % C
+# tail clusters; when the tail clusters are the majority the few regular
+# clusters own a short heavy prefix (hardening-000037: 23-30 -> 17 critical
+# tiles), so the boustrophedon program is launched instead.  One-tile items
+# (SWA-only rows) deal identically under both feeds and keep the striped
+# program.
+def _bf16_h128_prefill_uses_snake_feed(
+    num_query_tokens: int, sparse_topk: int, num_clusters: int
+) -> bool:
+    tokens = int(num_query_tokens)
+    clusters = min(tokens, int(num_clusters))
+    if clusters <= 0 or tokens <= clusters:
+        return False
+    if (int(sparse_topk) + _TILE_KV - 1) // _TILE_KV < 2:
+        return False
+    return 2 * (tokens % clusters) > clusters
+
+
+@functools.lru_cache(maxsize=None)
+def _bf16_h128_prefill_num_clusters(device: torch.device) -> int:
+    props = torch.cuda.get_device_properties(device)
+    return max(int(props.multi_processor_count) // 2, 1)
+
 
 KERNEL_METADATA_PARAMS = (
     "swa_indices",
@@ -1276,6 +1305,13 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
     if route in ("bf16_h128_topk128x", "bf16_h128_topk4x_v52", "bf16_h128_prefill_v42"):
         num_splits = 5 if route == "bf16_h128_topk4x_v52" else 1
         program_variant = route
+        if route == "bf16_h128_prefill_v42" and _bf16_h128_prefill_uses_snake_feed(
+            T, topk, _bf16_h128_prefill_num_clusters(v["Q"].device)
+        ):
+            # CAKE-624 W17: boustrophedon work feed of the same body (see the
+            # predicate above); hardening-000037 0.77-0.90x -> 0.98-1.01x and
+            # hardening-000027 +8-10 % vs the striped program.
+            program_variant = "bf16_h128_prefill_v42_snake"
         # The two-stage split programs (disjoint full-V KV owners + one LSE
         # reducer) ship on both Blackwell targets: GB300 rows at width 260/388
         # measured 1.18-1.26x vs trtllm-gen against 0.83-1.05x for the

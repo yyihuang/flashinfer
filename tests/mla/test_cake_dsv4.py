@@ -2104,6 +2104,69 @@ def test_bf16_h128_topk128x_split_programs_dispatch_on_both_targets(
     ]
 
 
+@pytest.mark.parametrize("clusters", [74, 76])
+@pytest.mark.parametrize(
+    "num_query_tokens,sparse_topk,expected",
+    [
+        (512, 640, True),  # hardening-000037
+        (128, 640, True),  # hardening-000027
+        (256, 640, False),  # hardening-000033
+        (386, 1152, False),  # prefill-style-000088/92
+        (64, 640, False),  # T <= clusters: one item per cluster
+        (512, 128, False),  # one KV tile per item (SWA-only)
+        (128, 128, False),
+        (12, 1152, False),
+    ],
+)
+def test_bf16_h128_prefill_snake_feed_predicate(
+    clusters, num_query_tokens, sparse_topk, expected
+):
+    # CAKE-624 W17: mirrors the Cake seed's bf16_h128_prefill_uses_snake_feed.
+    assert (
+        cake._bf16_h128_prefill_uses_snake_feed(num_query_tokens, sparse_topk, clusters)
+        is expected
+    )
+
+
+@pytest.mark.parametrize("clusters", [74, 76])
+def test_bf16_h128_prefill_snake_feed_predicate_full_rounds(clusters):
+    assert cake._bf16_h128_prefill_uses_snake_feed(8 * clusters, 640, clusters) is False
+
+
+@pytest.mark.parametrize("arch", ["sm_100a", "sm_103a"])
+@pytest.mark.parametrize(
+    "num_query_tokens,sparse_topk,expected_program",
+    [
+        (512, 640, "bf16_h128_prefill_v42_snake"),  # hardening-000037
+        (128, 640, "bf16_h128_prefill_v42_snake"),  # hardening-000027
+        (256, 640, "bf16_h128_prefill_v42"),  # hardening-000033
+        (512, 128, "bf16_h128_prefill_v42"),  # hardening-000035 (SWA-only)
+        (386, 1152, "bf16_h128_prefill_v42"),  # prefill-style-000088/92
+    ],
+)
+def test_bf16_h128_prefill_launches_the_snake_program_for_tail_majority_rows(
+    monkeypatch, arch, num_query_tokens, sparse_topk, expected_program
+):
+    # CAKE-624 W17: the route id stays bf16_h128_prefill_v42; only the launched
+    # program alias changes.  74 clusters = B200 (148 SMs).
+    monkeypatch.setattr(cake, "_bf16_h128_prefill_num_clusters", lambda device: 74)
+    L = _RecordingLauncher(
+        arch,
+        Q=torch.empty(0),
+        num_query_tokens=num_query_tokens,
+        num_heads=128,
+        sparse_topk=sparse_topk,
+    )
+    cake._dispatch_route("bf16_h128_prefill_v42", L)
+    assert L.calls == [
+        (
+            "program",
+            expected_program,
+            {"total_work_items": num_query_tokens, "num_splits": 1},
+        )
+    ]
+
+
 @pytest.mark.parametrize(
     "num_query_tokens,page_size,sparse_topk,expected",
     [
