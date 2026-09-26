@@ -930,8 +930,10 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             "fp8_h128_prefill_source_persistent",
             id="case-93",
         ),
-        # FP8/H64 rows above the 12-token persistent envelope keep the H64
-        # cluster producers (dense 3 x 64 = 192 query tokens).
+        # FP8/H64 many-token rows (dense 3 x 64 = 192 query tokens) with
+        # >= 2 complete sparse tiles take the persistent FP8 body on both
+        # targets (CAKE-624 W10: the cluster producers sat at 0.19-0.79x
+        # vs trtllm-gen from 64 tokens on).
         pytest.param(
             torch.float8_e4m3fn,
             64,
@@ -940,10 +942,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             False,
             640,
             64,
-            {
-                "sm_100a": "fp8_lowhead_h64_split",
-                "sm_103a": "fp8_lowhead_h64",
-            },
+            "fp8_h128_prefill_source_persistent",
             id="h64-w640-192tok",
         ),
         pytest.param(
@@ -954,7 +953,7 @@ def _canonical_query_tokens(batch_size: int, max_q_len: int, ragged: bool) -> in
             False,
             388,
             2,
-            "fp8_lowhead_h64",
+            "fp8_h128_prefill_source_persistent",
             id="h64-w388-192tok",
         ),
         # Off-contract low-head width beyond three sparse tiles keeps the
@@ -2037,3 +2036,42 @@ def test_bf16_h128_topk128x_split_programs_dispatch_on_both_targets(
             {"total_work_items": 12 * expected_splits, "num_splits": expected_splits},
         )
     ]
+
+
+@pytest.mark.parametrize(
+    "num_query_tokens,page_size,sparse_topk,expected",
+    [
+        (12, 64, 640, "fp8_h128_prefill_source_persistent"),  # W5: 12 tokens, 5 tiles
+        (12, 2, 260, "fp8_lowhead_h64"),  # W5: 12 tokens, 2 tiles keep the cluster body
+        (16, 64, 640, "fp8_h128_prefill_source_persistent"),  # hardening-000018
+        (64, 64, 640, "fp8_h128_prefill_source_persistent"),  # hardening-000030
+        (128, 2, 260, "fp8_h128_prefill_source_persistent"),  # hardening-000022
+        (512, 2, 260, "fp8_h128_prefill_source_persistent"),  # hardening-000034
+        (
+            64,
+            None,
+            128,
+            "fp8_lowhead_prefill",
+        ),  # hardening-000020: SWA producer < 128 tokens
+        (128, None, 128, "fp8_h128_prefill_source_persistent"),  # hardening-000026
+        (256, None, 128, "fp8_h128_prefill_source_persistent"),  # hardening-000032
+    ],
+)
+def test_fp8_h64_rows_follow_the_persistent_body_rule(
+    num_query_tokens, page_size, sparse_topk, expected
+):
+    for arch in ("sm_100a", "sm_103a"):
+        assert (
+            _route(
+                arch=arch,
+                dtype=torch.float8_e4m3fn,
+                num_heads=64,
+                batch_size=8,
+                max_q_len=8,
+                ragged=True,
+                sparse_topk=sparse_topk,
+                compressed_page_size=page_size,
+                num_query_tokens=num_query_tokens,
+            )
+            == expected
+        )

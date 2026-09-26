@@ -579,6 +579,16 @@ _RETIRED_ARG_REASONS: Mapping[str, str] = {
 # Producers whose generated ABI reads request boundaries from cum_seq_lens_q
 # only; run_cake_dsv4 synthesizes the dense offsets for them.
 _RAGGED_ONLY_ROUTES = frozenset({"fp8_h128_prefill_source_persistent"})
+
+
+def _fp8_h64_uses_persistent_body(sparse_topk: int, num_query_tokens: int) -> bool:
+    """CAKE-624 FP8/H64 rule (Cake seed ``portfolio_v34.uses_persistent_body``)."""
+    full_tiles = sparse_topk // 128
+    if num_query_tokens <= 12:
+        return full_tiles >= 3
+    return full_tiles >= 2 or num_query_tokens >= 128
+
+
 _UNAVAILABLE_HINTS: Mapping[str, str] = {
     "sparse_indices": (
         "this binding predates the split-table metadata ABI and only accepts a "
@@ -778,16 +788,21 @@ def _route(
             return "fp8_h64_source_exact"
         if max_q_len >= 257:
             return "fp8_lowhead_prefill"
+        if num_heads == 64 and _fp8_h64_uses_persistent_body(
+            sparse_topk, num_query_tokens
+        ):
+            # Mirrors the Cake seed's H64_PERSISTENT_* rule (CAKE-624 W5 + W10):
+            # 12-token rows with >= 3 complete sparse tiles; every many-token
+            # compressed row (>= 2 complete tiles); SWA-only rows from 128
+            # tokens.  Same persistent FP8 body as FP8/H128 (heads >= num_heads
+            # predicated): GB300 1.23-1.26x / B200 1.15x on the 12-token rows,
+            # 1.02-1.92x on the 16-128-token hardening rows where the
+            # per-token cluster body and the SWA producer sat at 0.6-0.87x.
+            # Evaluated before the SWA-only test on purpose.
+            return "fp8_h128_prefill_source_persistent"
         if is_swa:
             return "fp8_lowhead_prefill"
         if num_heads == 64:
-            # 12-token decode rows with >= 3 complete sparse tiles: the
-            # persistent FP8 body (same kernel as FP8/H128, heads >= num_heads
-            # predicated) measured GB300 1.23-1.26x / B200 1.15x vs trtllm-gen
-            # where the per-token cluster body sat at 0.95-1.04x (CAKE-624 W5).
-            # Mirrors the Cake seed's H64_PERSISTENT_MIN_TILES / _MAX_TOKENS.
-            if sparse_topk >= 384 and num_query_tokens <= 12:
-                return "fp8_h128_prefill_source_persistent"
             if arch == "sm_100a" and sparse_topk >= 640:
                 return "fp8_lowhead_h64_split"
             return "fp8_lowhead_h64"
