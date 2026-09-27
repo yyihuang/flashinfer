@@ -139,6 +139,7 @@ def _blockscaled_kernel_disk_name(cache_key, batch_size, max_active_clusters):
         enable_pdl,
         out_dtype,
         per_token_alpha,
+        weight_l2_policy,
     ) = cache_key
     # On SM107 the use_tma_store slot is repurposed to carry the Rubin kernel
     # shape (inst_m, inst_n, inst_k, tiler_k, prefetch_dist), so render it as a
@@ -154,12 +155,13 @@ def _blockscaled_kernel_disk_name(cache_key, batch_size, max_active_clusters):
         tma = int(use_tma_store)
     dtype = str(out_dtype).removeprefix("torch.")
     alpha = "x" if per_token_alpha is None else per_token_alpha
+    l2 = "x" if weight_l2_policy is None else weight_l2_policy
     return (
         f"sf{sf_vec_size}_t{mma_tiler_mn[0]}x{mma_tiler_mn[1]}"
         f"_c{cluster_shape_mn[0]}x{cluster_shape_mn[1]}"
         f"_swap{int(swap_ab)}_pf{int(use_prefetch)}_{kernel_type}"
         f"_tma{tma}_pdl{int(enable_pdl)}_{dtype}"
-        f"_pta{alpha}"
+        f"_pta{alpha}_l2{l2}"
         f"_b{batch_size}_mac{max_active_clusters}"
     )
 
