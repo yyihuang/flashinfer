@@ -7828,8 +7828,8 @@ _SM100_SPLITK_KERNEL_TYPE = "sm100sk"
 # Deep-K persistent tactic: 8 MMA K instructions per stage (K tile 512 for FP4)
 # instead of 4, so every TMA row fetch is 256 B. Carried in the use_tma_store
 # slot of an "sm100" tactic. Wins for narrow (<= 32) token tiles once the
-# weight grid fills the machine (>= _SM100_DEEP_K_MIN_TILES weight tiles);
-# below that the longer pipeline fill/drain costs 1-2 %.
+# weight grid is about a wave or more (>= _SM100_DEEP_K_MIN_TILES weight
+# tiles); below that the longer pipeline fill/drain costs 1-2 %.
 _SM100_DEEP_K_INST = 8
 _SM100_DEEP_K_TILE = 512
 _SM100_DEEP_K_MIN_TILES = 128
@@ -7854,10 +7854,11 @@ def _select_sm100_mm_fp4_splitk_tactic(
       * otherwise up to sm_count/2 tiles with K >= 16384: two slices,
         1.03-1.09x (K = 8192 at 64 tiles is within noise, the 32-wide token
         tile below K = 16384 loses);
-      * otherwise, with _SM100_DEEP_K_MIN_TILES <= weight tiles <= sm_count
-        (one full wave) and K a multiple of 512, the persistent kernel with
-        the K tile 512 variant (1.01-1.02x; fewer tiles lose 1-2 % to the
-        longer fill/drain, more than one wave measures within noise);
+      * otherwise, with >= _SM100_DEEP_K_MIN_TILES weight tiles (about one
+        wave) and K a multiple of 512, the persistent kernel with the K tile
+        512 variant (1.01-1.02x on B200 and GB300 at 144 tiles, 1.01-1.02x on
+        B200 / within noise on GB300 at 224 tiles; 64 tiles lose 1-2 % to
+        the longer fill/drain);
       * SM103 only (sm_minor == 3): with <= sm_count/2 tiles and
         8192 <= K < 16384, M <= 16 takes two K slices (1.01-1.02x) and
         17 <= M <= 32 the persistent kernel with TMA prefetch (1.04x); both
@@ -7890,12 +7891,9 @@ def _select_sm100_mm_fp4_splitk_tactic(
         split_k_slices = 2
     else:
         persistent = None
-        if (
-            _SM100_DEEP_K_MIN_TILES <= n_tiles <= sm_count
-            and real_k % _SM100_DEEP_K_TILE == 0
-        ):
-            # One full wave of narrow tiles: the weight stream is DRAM-
-            # efficiency bound, take the K tile 512 variant.
+        if n_tiles >= _SM100_DEEP_K_MIN_TILES and real_k % _SM100_DEEP_K_TILE == 0:
+            # About a wave or more of narrow tiles: the weight stream is
+            # DRAM-efficiency bound, take the K tile 512 variant.
             persistent = _select_sm100_mm_fp4_cute_dsl_tactic(
                 m, n, real_k, sm_count, 16
             )

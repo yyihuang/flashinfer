@@ -548,15 +548,15 @@ def test_mm_fp4_per_token_alpha_splitk(m, n, k, res_dtype):
     )
 
 
-# Narrow token tiles over a weight grid of one full wave (128 <= tiles <=
-# sm_count) take the K tile 512 persistent variant (8 MMA K instructions per stage); same accumulation
+# Narrow token tiles over a weight grid of about a wave or more (>= 128
+# tiles) take the K tile 512 persistent variant (8 MMA K instructions per stage); same accumulation
 # order, so the per-token result must match the scalar path row by row and the
 # cutlass backend within the FP4 tolerance.
 @pytest.mark.parametrize(
     "m,n,k",
     [
         (8, 18432, 7168),
-        (17, 16896, 7168),
+        (17, 28672, 8192),
         (32, 18432, 7168),
     ],
 )
