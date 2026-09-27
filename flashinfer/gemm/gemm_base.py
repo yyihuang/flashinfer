@@ -7827,6 +7827,40 @@ _CUTE_DSL_MM_FP4_KERNEL_CACHE: dict[tuple, tuple] = {}
 _SM100_SPLITK_KERNEL_TYPE = "sm100sk"
 
 
+def _select_sm100_mm_fp4_splitk_tactic(m, n, real_k, sm_count, out_contiguous):
+    """Untuned low-M choice between the persistent kernel and cluster split-K.
+
+    Measured on B200 and GB300 (NVFP4, bf16 out, cold L2): split-K wins only
+    while the default tile grid leaves most SMs idle and the per-CTA K slice
+    stays long enough to amortise the cluster reduction:
+      * <= 20 weight tiles (N <= 2560) with an 8/16-wide token tile: four
+        K slices, 1.18-1.24x;
+      * otherwise up to sm_count/2 tiles with K >= 16384: two slices,
+        1.03-1.09x (K = 8192 at 64 tiles is within noise, the 32-wide token
+        tile below K = 16384 loses).
+    Returns the tactic tuple or None when the persistent kernel should run.
+    """
+    from .kernels.dense_blockscaled_gemm_sm100_splitk import (
+        Sm100BlockScaledSplitKGemmKernel as _SK,
+    )
+
+    if not out_contiguous or n % 8 != 0 or not _SK.supports_m(m):
+        return None
+    tile = _SK.mma_tiler_mn_for_m(m)
+    n_tiles = (n + 127) // 128
+    if tile[1] <= 16 and n_tiles <= 20:
+        split_k_slices = 4
+    elif n_tiles <= sm_count // 2 and real_k >= 16384:
+        split_k_slices = 2
+    else:
+        return None
+    import cutlass
+
+    if not _SK.is_valid_tactic(m, real_k, cutlass.Float4E2M1FN, split_k_slices):
+        return None
+    return (tile, (1, 1), True, False, _SM100_SPLITK_KERNEL_TYPE, split_k_slices)
+
+
 def _cute_dsl_gemm_fp4_runner(
     sm_major: int,
     sm_minor: int,
@@ -7943,7 +7977,7 @@ def _cute_dsl_gemm_fp4_runner(
             # carries the K-slice count). Its epilogue applies the per-token
             # alpha after the FP32 cluster reduction, so it stays valid for
             # per-token alpha.
-            if out.is_contiguous() and _SplitKKernel.supports_m(m):
+            if use_nvfp4 and out.is_contiguous() and _SplitKKernel.supports_m(m):
                 for split_k_slices in _SplitKKernel.SUPPORTED_SPLIT_K_SLICES:
                     if _SplitKKernel.is_valid_tactic(
                         m, real_k, ab_dtype, split_k_slices
@@ -8180,8 +8214,18 @@ def _cute_dsl_gemm_fp4_runner(
                         m, n, real_k, get_device_sm_count(a.device), sf_vec_size
                     )
                 else:
-                    tactic = _select_sm100_mm_fp4_cute_dsl_tactic(
-                        m, n, real_k, get_device_sm_count(a.device), sf_vec_size
+                    sm_count = get_device_sm_count(a.device)
+                    tactic = (
+                        (
+                            _select_sm100_mm_fp4_splitk_tactic(
+                                m, n, real_k, sm_count, out.is_contiguous()
+                            )
+                            if use_nvfp4
+                            else None
+                        )
+                        or _select_sm100_mm_fp4_cute_dsl_tactic(
+                            m, n, real_k, sm_count, sf_vec_size
+                        )
                     )
 
             (
