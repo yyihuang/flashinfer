@@ -45,6 +45,8 @@ from cutlass.cute.nvgpu import cpasync, tcgen05
 from .dense_blockscaled_gemm_sm100_common import _Sm100BlockScaledGemmCommon
 
 _CAKE691_TRACE_LAYOUT = os.environ.get("CAKE691_TRACE_LAYOUT") == "1"
+# exploration knob: MMA instructions per K block (4 -> 256-element FP4 K tile)
+_CAKE691_MMA_INST_TILE_K = int(os.environ.get("CAKE691_MMA_INST_TILE_K", "4"))
 
 
 def _per_token_fragment_plan(shape, stride, token_axis):
@@ -257,7 +259,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
 
         # Compute mma/cluster/tile shapes
-        mma_inst_tile_k = 4
+        mma_inst_tile_k = _CAKE691_MMA_INST_TILE_K
         self.mma_tiler = (
             self.mma_inst_shape_mnk[0],
             self.mma_inst_shape_mnk[1],
