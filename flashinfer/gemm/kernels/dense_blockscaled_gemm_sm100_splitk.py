@@ -365,6 +365,10 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
             self.mma_tiler_sfb[1],
             self.mma_tiler_sfb[2],
         )
+        # Number of CTA N tiles covered by one (128-wide) SFB tile
+        self.sfb_sub_tiles_per_tile = max(
+            1, self.cta_tile_shape_mnk_sfb[1] // self.cta_tile_shape_mnk[1]
+        )
 
         # Compute cluster layout
         self.cluster_layout_vmnk = cute.tiled_divide(
@@ -1006,6 +1010,10 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
                 slice_n = mma_tile_coord_mnl[1]
                 if cutlass.const_expr(self.cta_tile_shape_mnk[1] == 64):
                     slice_n = mma_tile_coord_mnl[1] // 2
+                elif cutlass.const_expr(self.cta_tile_shape_mnk[1] < 64):
+                    # Several narrow N tiles share one 128-wide SFB tile; the MMA
+                    # reads its sub-tile through a shifted TMEM address below.
+                    slice_n = mma_tile_coord_mnl[1] // self.sfb_sub_tiles_per_tile
                 # ((atom_v, rest_v), RestK)
                 tBgSFB_slice = tBgSFB[(None, slice_n, None, input_l)]
 
@@ -1202,6 +1210,24 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
                 elif cutlass.const_expr(self.cta_tile_shape_mnk[1] == 64):
                     # Move in increments of 64 columns of SFB
                     offset = cutlass.Int32((mma_tile_coord_mnl[1] % 2) * 2)
+                    shifted_ptr = cute.recast_ptr(
+                        acc_tmem_ptr
+                        + self.num_accumulator_tmem_cols
+                        + self.num_sfa_tmem_cols
+                        + offset,
+                        dtype=self.sf_dtype,
+                    )
+                    tCtSFB_mma = cute.make_tensor(shifted_ptr, tCtSFB_layout)
+                elif cutlass.const_expr(self.cta_tile_shape_mnk[1] < 64):
+                    # Sub-tile of the 128-wide SFB tile: one TMEM column per 32
+                    # tokens, plus a lane offset for the remainder (SF for token
+                    # 32*c + l lives in column c, lane l of every lane partition).
+                    tok_off = (
+                        mma_tile_coord_mnl[1] % self.sfb_sub_tiles_per_tile
+                    ) * self.cta_tile_shape_mnk[1]
+                    offset = cutlass.Int32(tok_off // 32) + (
+                        cutlass.Int32(tok_off % 32) << 16
+                    )
                     shifted_ptr = cute.recast_ptr(
                         acc_tmem_ptr
                         + self.num_accumulator_tmem_cols
