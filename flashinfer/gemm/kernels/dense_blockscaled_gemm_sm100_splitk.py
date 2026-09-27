@@ -369,6 +369,9 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
         self.sfb_sub_tiles_per_tile = max(
             1, self.cta_tile_shape_mnk_sfb[1] // self.cta_tile_shape_mnk[1]
         )
+        # The S2T copy of a sub-tile starts up to 31 token rows (16 B each) into
+        # the 512 B SF block and reads the same length, so pad sSFB by one block.
+        self.sfb_smem_pad_bytes = 512 if self.cta_tile_shape_mnk[1] < 64 else 0
 
         # Compute cluster layout
         self.cluster_layout_vmnk = cute.tiled_divide(
@@ -431,7 +434,7 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
             self.sf_vec_size,
             self.smem_capacity,
             self.occupancy,
-            1024 + self.reduce_smem_bytes,
+            1024 + self.reduce_smem_bytes + self.sfb_smem_pad_bytes,
         )
 
         # Compute A/B/SFA/SFB/C shared memory layout
@@ -592,7 +595,8 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
             # (MMA, MMA_N, MMA_K, STAGE)
             sSFB: cute.struct.Align[
                 cute.struct.MemRange[
-                    self.sf_dtype, cute.cosize(self.sfb_smem_layout_staged)
+                    self.sf_dtype,
+                    cute.cosize(self.sfb_smem_layout_staged) + self.sfb_smem_pad_bytes,
                 ],
                 self.buffer_align_bytes,
             ]
@@ -1192,6 +1196,7 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
                     acc_pipeline.producer_acquire(acc_producer_state)
 
                 tCtSFB_mma = tCtSFB
+                tCsSFB_s2t_tile = tCsSFB_compact_s2t
                 if cutlass.const_expr(self.cta_tile_shape_mnk[1] == 192):
                     # If this is an ODD tile, shift the TMEM start address for cta_tile_shape_n=192 case by two words (ignores first 64 columns of SFB)
                     offset = (
@@ -1219,15 +1224,15 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
                     )
                     tCtSFB_mma = cute.make_tensor(shifted_ptr, tCtSFB_layout)
                 elif cutlass.const_expr(self.cta_tile_shape_mnk[1] < 64):
-                    # Sub-tile of the 128-wide SFB tile: one TMEM column per 32
-                    # tokens, plus a lane offset for the remainder (SF for token
-                    # 32*c + l lives in column c, lane l of every lane partition).
+                    # Sub-tile of the 128-wide SFB tile. SF for token 32*c + l
+                    # lives in TMEM column c, lane l: shift the MMA's SFB address
+                    # by one column per 32 tokens and start the S2T copy's smem
+                    # source at the remaining token row (16 B per row of the
+                    # 32x4 SF block) so the sub-tile's first token lands in lane 0.
                     tok_off = (
                         mma_tile_coord_mnl[1] % self.sfb_sub_tiles_per_tile
                     ) * self.cta_tile_shape_mnk[1]
-                    offset = cutlass.Int32(tok_off // 32) + (
-                        cutlass.Int32(tok_off % 32) << 16
-                    )
+                    offset = cutlass.Int32(tok_off // 32)
                     shifted_ptr = cute.recast_ptr(
                         acc_tmem_ptr
                         + self.num_accumulator_tmem_cols
@@ -1236,6 +1241,13 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
                         dtype=self.sf_dtype,
                     )
                     tCtSFB_mma = cute.make_tensor(shifted_ptr, tCtSFB_layout)
+                    sSFB_shifted = cute.make_tensor(
+                        sSFB.iterator + cutlass.Int32(tok_off % 32) * 16,
+                        sSFB.layout,
+                    )
+                    _, tCsSFB_s2t_tile, _ = self.mainloop_s2t_copy_and_partition(
+                        sSFB_shifted, tCtSFB
+                    )
 
                 #
                 # Reset the ACCUMULATE field for each tile
@@ -1261,7 +1273,7 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
                             ab_consumer_state.index,
                         )
                         tCsSFA_compact_s2t_staged = tCsSFA_compact_s2t[s2t_stage_coord]
-                        tCsSFB_compact_s2t_staged = tCsSFB_compact_s2t[s2t_stage_coord]
+                        tCsSFB_compact_s2t_staged = tCsSFB_s2t_tile[s2t_stage_coord]
                         cute.copy(
                             tiled_copy_s2t_sfa,
                             tCsSFA_compact_s2t_staged,
