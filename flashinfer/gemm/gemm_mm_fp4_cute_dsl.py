@@ -302,6 +302,10 @@ def _mm_fp4_precompile_worker(payload):
             per_token_alpha,
         ) = payload["cache_key"]
 
+        # The use_tma_store slot of an "sm100" tactic carries the MMA K
+        # instructions per stage (None -> 4, 8 -> K tile 512); the worker must
+        # build the same kernel the runner would, since the disk name derives
+        # from the cache key.
         gemm = Sm100BlockScaledPersistentDenseGemmKernel(
             sf_vec_size,
             mma_tiler_mn,
@@ -309,6 +313,7 @@ def _mm_fp4_precompile_worker(payload):
             use_prefetch,
             enable_pdl,
             per_token_alpha,
+            mma_inst_tile_k=_use_tma_store or 4,
         )
         compile_fn = _make_blockscaled_gemm_compile_fn(
             gemm,
