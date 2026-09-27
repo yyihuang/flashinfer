@@ -30,7 +30,6 @@
 # with modifications for FlashInfer integration.
 # Original: https://github.com/NVIDIA/TensorRT-LLM
 
-import os
 from typing import Optional, Tuple, Type, Union
 
 import cuda.bindings.driver as cuda
@@ -312,18 +311,6 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
 
         self.epi_tile_n = cute.size(self.epi_tile[1])
-        # Narrow token tiles (the low-M swap_ab path, <= 32 tokens per CTA
-        # tile) store C straight from the t2r registers with predicated
-        # global stores instead of the smem round trip + TMA store: the tile
-        # is 2-8 KB and the TMA store's smem fences, two epilogue barriers
-        # and bulk-group wait dominate the epilogue for these one-tile CTAs.
-        self.direct_c_store = (
-            self.cta_tile_shape_mnk[1] <= 32
-            and os.environ.get("CAKE691_DIRECT_STORE", "0") == "1"
-        )
-        # Exploration knob: drop the C store entirely (wrong output) to bound
-        # what any epilogue-store change can gain.
-        self.skip_c_store = os.environ.get("CAKE691_SKIP_C_STORE", "0") == "1"
 
         # Setup A/B/C stage count in shared memory and ACC stage count in tensor memory
         self.num_acc_stage, self.num_ab_stage, self.num_c_stage = self._compute_stages(
@@ -536,7 +523,6 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             self.tile_sched_params,
             epilogue_op,
             alpha,
-            c_tensor,
         ).launch(
             grid=grid,
             block=[self.threads_per_cta, 1, 1],
@@ -575,7 +561,6 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         tile_sched_params: utils.PersistentTileSchedulerParams,
         epilogue_op: cutlass.Constexpr,
         alpha: cute.Tensor,
-        mC_plain: cute.Tensor,
     ):
         """
         GPU device kernel performing the Persistent batched GEMM computation.
@@ -762,9 +747,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         # (MMA, MMA_M, MMA_N, RestM, RestN, RestL)
         tCgC = thr_mma.partition_C(gC_mnl)
 
-        if cutlass.const_expr(
-            self.per_token_alpha is not None or self.direct_c_store
-        ):
+        if cutlass.const_expr(self.per_token_alpha is not None):
             # Identity tensor over C, partitioned like tCgC, so the epilogue can
             # recover each accumulator element's (m, n) coordinate.
             cC_mnl = cute.local_tile(
@@ -1351,10 +1334,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                 )
             )
 
-            alpha_token_per_tile = False
-            if cutlass.const_expr(
-                self.per_token_alpha is not None or self.direct_c_store
-            ):
+            if cutlass.const_expr(self.per_token_alpha is not None):
                 # Partitioned like tCgC, so this mirrors the t2r register
                 # fragment element for element.
                 # (T2R, T2R_M, T2R_N, EPI_M, EPI_N, RestM, RestN, RestL)
@@ -1363,7 +1343,6 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                         tCcC[((None, None), 0, 0, None, None, None)], epi_tile
                     )
                 )
-            if cutlass.const_expr(self.per_token_alpha is not None):
                 alpha_extent = (
                     mC_mnl.shape[0]
                     if cutlass.const_expr(self.per_token_alpha == "m")
@@ -1392,34 +1371,6 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             tiled_copy_r2s, tRS_rC, tRS_sC = self.epilog_smem_copy_and_partition(
                 tiled_copy_t2r, tTR_rC, epi_tidx, sC
             )
-            if cutlass.const_expr(self.direct_c_store):
-                # Register -> global copy for narrow token tiles: the plain
-                # (storable) C tensor tiled and partitioned like tCgC / tCcC,
-                # then partitioned like the t2r fragment with a 128-bit
-                # universal store atom; the identity partition gives the
-                # per-vector predicate for the M / N tails.
-                copy_atom_r2g = cute.make_copy_atom(
-                    cute.nvgpu.CopyUniversalOp(), self.c_dtype, num_bits_per_copy=128
-                )
-                tiled_copy_r2g = cute.make_tiled_copy_D(copy_atom_r2g, tiled_copy_t2r)
-                thr_copy_r2g = tiled_copy_r2g.get_slice(epi_tidx)
-                tRG_rC = tiled_copy_r2g.retile(tTR_rC)
-                gC_plain_mnl = cute.local_tile(
-                    mC_plain,
-                    cute.slice_(self.mma_tiler, (None, None, 0)),
-                    (None, None, None),
-                )
-                tCgC_plain = thr_mma.partition_C(gC_plain_mnl)
-                tRG_gC_partitioned = thr_copy_r2g.partition_D(
-                    cute.flat_divide(
-                        tCgC_plain[((None, None), 0, 0, None, None, None)], epi_tile
-                    )
-                )
-                tRG_cC_partitioned = thr_copy_r2g.partition_D(
-                    cute.flat_divide(
-                        tCcC[((None, None), 0, 0, None, None, None)], epi_tile
-                    )
-                )
             tma_atom_c, bSG_sC, bSG_gC_partitioned = (
                 self.epilog_gmem_copy_and_partition(
                     epi_tidx, tma_atom_c, tCgC, epi_tile, sC
@@ -1470,9 +1421,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                     )
                 ]
 
-                if cutlass.const_expr(
-                    self.per_token_alpha is not None or self.direct_c_store
-                ):
+                if cutlass.const_expr(self.per_token_alpha is not None):
                     # (T2R, T2R_M, T2R_N, (EPI_M, EPI_N))
                     tTR_cC = tTR_cC_partitioned[
                         (
@@ -1485,15 +1434,6 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                         )
                     ]
                     tTR_cC = cute.group_modes(tTR_cC, 3, cute.rank(tTR_cC))
-                    if cutlass.const_expr(self.direct_c_store):
-                        tRG_gC = tRG_gC_partitioned[
-                            (None, None, None, None, None, *mma_tile_coord_mnl)
-                        ]
-                        tRG_gC = cute.group_modes(tRG_gC, 3, cute.rank(tRG_gC))
-                        tRG_cC = tRG_cC_partitioned[
-                            (None, None, None, None, None, *mma_tile_coord_mnl)
-                        ]
-                        tRG_cC = cute.group_modes(tRG_cC, 3, cute.rank(tRG_cC))
                     if cutlass.const_expr(alpha_token_per_tile):
                         # Every element this thread holds in this tile has
                         # the same token: one clamped load per tile, applied
@@ -1586,84 +1526,51 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                                     cutlass.Float32
                                 )
 
-                    if cutlass.const_expr(self.skip_c_store):
-                        pass
-                    elif cutlass.const_expr(self.direct_c_store):
-                        #
-                        # Narrow tile: convert exactly like the TMA path (FP32
-                        # alpha multiply, then c_dtype) and store the fragment
-                        # straight to global memory with predicated vectors.
-                        #
-                        acc_vec = tiled_copy_r2g.retile(tTR_rAcc).load()
-                        acc_vec = epilogue_op((alpha_value * acc_vec).to(self.c_dtype))
-                        tRG_rC.store(acc_vec)
-                        tRG_gC_sub = tRG_gC[(None, None, None, real_subtile_idx)]
-                        tRG_cC_sub = tRG_cC[(None, None, None, real_subtile_idx)]
-                        tRG_pC = cute.make_rmem_tensor(
-                            cute.make_layout(
-                                (
-                                    cute.size(tRG_cC_sub, mode=[0, 1]),
-                                    cute.size(tRG_cC_sub, mode=[1]),
-                                    cute.size(tRG_cC_sub, mode=[2]),
-                                )
-                            ),
-                            cutlass.Boolean,
-                        )
-                        for vi in cutlass.range_constexpr(cute.size(tRG_pC, mode=[0])):
-                            for mi in cutlass.range_constexpr(cute.size(tRG_pC, mode=[1])):
-                                for ni in cutlass.range_constexpr(
-                                    cute.size(tRG_pC, mode=[2])
-                                ):
-                                    tRG_pC[vi, mi, ni] = cute.elem_less(
-                                        tRG_cC_sub[(0, vi), mi, ni], mC_mnl.shape
-                                    )
-                        cute.copy(tiled_copy_r2g, tRG_rC, tRG_gC_sub, pred=tRG_pC)
-                    else:
-                        #
-                        # Convert to C type
-                        #
-                        acc_vec = tiled_copy_r2s.retile(tTR_rAcc).load()
-                        # Multiply alpha in FP32 before converting to c_dtype to
-                        # avoid overflow when c_dtype is FP16 and acc values are large.
-                        acc_vec = epilogue_op((alpha_value * acc_vec).to(self.c_dtype))
-                        tRS_rC.store(acc_vec)
+                    #
+                    # Convert to C type
+                    #
+                    acc_vec = tiled_copy_r2s.retile(tTR_rAcc).load()
+                    # Multiply alpha in FP32 before converting to c_dtype to
+                    # avoid overflow when c_dtype is FP16 and acc values are large.
+                    acc_vec = epilogue_op((alpha_value * acc_vec).to(self.c_dtype))
+                    tRS_rC.store(acc_vec)
 
-                        #
-                        # Store C to shared memory
-                        #
-                        c_buffer = (num_prev_subtiles + subtile_idx) % self.num_c_stage
+                    #
+                    # Store C to shared memory
+                    #
+                    c_buffer = (num_prev_subtiles + subtile_idx) % self.num_c_stage
+                    cute.copy(
+                        tiled_copy_r2s,
+                        tRS_rC,
+                        tRS_sC[(None, None, None, c_buffer)],
+                    )
+                    # Fence and barrier to make sure shared memory store is visible to TMA store
+                    cute.arch.fence_proxy(
+                        "async.shared",
+                        space="cta",
+                    )
+                    epilog_threads = 32 * len(self.epilog_warp_id)
+                    cute.arch.barrier(
+                        barrier_id=self.epilog_sync_bar_id,
+                        number_of_threads=epilog_threads,
+                    )
+
+                    #
+                    # TMA store C to global memory
+                    #
+                    if warp_idx == self.epilog_warp_id[0]:
                         cute.copy(
-                            tiled_copy_r2s,
-                            tRS_rC,
-                            tRS_sC[(None, None, None, c_buffer)],
+                            tma_atom_c,
+                            bSG_sC[(None, c_buffer)],
+                            bSG_gC[(None, real_subtile_idx)],
                         )
                         # Fence and barrier to make sure shared memory store is visible to TMA store
-                        cute.arch.fence_proxy(
-                            "async.shared",
-                            space="cta",
-                        )
-                        epilog_threads = 32 * len(self.epilog_warp_id)
-                        cute.arch.barrier(
-                            barrier_id=self.epilog_sync_bar_id,
-                            number_of_threads=epilog_threads,
-                        )
-
-                        #
-                        # TMA store C to global memory
-                        #
-                        if warp_idx == self.epilog_warp_id[0]:
-                            cute.copy(
-                                tma_atom_c,
-                                bSG_sC[(None, c_buffer)],
-                                bSG_gC[(None, real_subtile_idx)],
-                            )
-                            # Fence and barrier to make sure shared memory store is visible to TMA store
-                            c_pipeline.producer_commit()
-                            c_pipeline.producer_acquire()
-                        cute.arch.barrier(
-                            barrier_id=self.epilog_sync_bar_id,
-                            number_of_threads=epilog_threads,
-                        )
+                        c_pipeline.producer_commit()
+                        c_pipeline.producer_acquire()
+                    cute.arch.barrier(
+                        barrier_id=self.epilog_sync_bar_id,
+                        number_of_threads=epilog_threads,
+                    )
 
                 #
                 # Async arrive accumulator buffer empty
