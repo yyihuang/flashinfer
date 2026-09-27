@@ -647,3 +647,23 @@ def test_mm_fp4_per_token_alpha_low_m_untuned(m, n, k, res_dtype):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_mm_fp4_weight_l2_policy_rule():
+    """The weight operand is loaded evict_first only while it is streamed at
+    most twice (<= 2 token tiles); other tactics keep the default policy."""
+    from flashinfer.gemm.gemm_mm_fp4_cute_dsl import mm_fp4_weight_l2_policy
+
+    # swap_ab: tokens are the kernel's N extent, weights the A operand
+    assert mm_fp4_weight_l2_policy(1, (128, 8), True, "sm100") == "a"
+    assert mm_fp4_weight_l2_policy(32, (128, 32), True, "sm100") == "a"
+    assert mm_fp4_weight_l2_policy(64, (128, 32), True, "sm100") == "a"
+    assert mm_fp4_weight_l2_policy(65, (128, 32), True, "sm100") is None
+    # no swap: tokens are the M extent, weights the B operand
+    assert mm_fp4_weight_l2_policy(130, (256, 128), False, "sm100") == "b"
+    assert mm_fp4_weight_l2_policy(512, (256, 256), False, "sm100") == "b"
+    assert mm_fp4_weight_l2_policy(513, (256, 256), False, "sm100") is None
+    assert mm_fp4_weight_l2_policy(2048, (256, 256), False, "sm100") is None
+    # other kernels are untouched
+    assert mm_fp4_weight_l2_policy(8, (128, 8), True, "sm100sk") is None
+    assert mm_fp4_weight_l2_policy(8, (128, 8), True, "sm103") is None

@@ -300,6 +300,7 @@ def _mm_fp4_precompile_worker(payload):
             enable_pdl,
             out_dtype,
             per_token_alpha,
+            weight_l2_policy,
         ) = payload["cache_key"]
 
         # The use_tma_store slot of an "sm100" tactic carries the MMA K
@@ -314,6 +315,8 @@ def _mm_fp4_precompile_worker(payload):
             enable_pdl,
             per_token_alpha,
             mma_inst_tile_k=_use_tma_store or 4,
+            a_l2_evict_first=weight_l2_policy == "a",
+            b_l2_evict_first=weight_l2_policy == "b",
         )
         compile_fn = _make_blockscaled_gemm_compile_fn(
             gemm,
@@ -450,13 +453,49 @@ def per_token_alpha_mode(per_token_alpha, swap_ab):
     return "n" if swap_ab else "m"
 
 
-def _mm_fp4_cache_key(sf_vec_size, tactic, enable_pdl, out_dtype, per_token_alpha=None):
+def _mm_fp4_cache_key(
+    sf_vec_size,
+    tactic,
+    enable_pdl,
+    out_dtype,
+    per_token_alpha=None,
+    weight_l2_policy=None,
+):
     """In-memory kernel-cache key for one mm_fp4 tactic tuple.
 
     Shared by the runner's forward path and the precompile path, which
     must agree byte-for-byte: the on-disk kernel name derives from it.
+    ``weight_l2_policy`` is :func:`mm_fp4_weight_l2_policy` for the shape.
     """
-    return (sf_vec_size, *tactic, enable_pdl, out_dtype, per_token_alpha)
+    return (
+        sf_vec_size,
+        *tactic,
+        enable_pdl,
+        out_dtype,
+        per_token_alpha,
+        weight_l2_policy,
+    )
+
+
+def mm_fp4_weight_l2_policy(m, mma_tiler_mn, swap_ab, kernel_type):
+    """L2 eviction policy for the weight operand of an ``"sm100"`` tactic.
+
+    The persistent kernel streams the weight matrix once per token tile
+    while every CTA of a column re-reads the same token tile and its scale
+    factors. With at most two token tiles the weights are read at most twice,
+    so loading them with ``evict_first`` keeps the shared token tile resident
+    instead of letting the 32-117 MB weight stream flush it (1.05-1.24x on
+    the M <= 512 rows of the projection shapes, both B200 and GB300). Shapes
+    with more token tiles re-read the weights through L2 and keep the default
+    policy. Returns ``"a"`` (weights are the kernel's A operand, ``swap_ab``),
+    ``"b"`` (B operand) or ``None``.
+    """
+    if kernel_type != "sm100":
+        return None
+    token_tile = mma_tiler_mn[1] if swap_ab else mma_tiler_mn[0]
+    if (m + token_tile - 1) // token_tile > 2:
+        return None
+    return "a" if swap_ab else "b"
 
 
 def precompile_mm_fp4_tactics(
@@ -515,6 +554,7 @@ def precompile_mm_fp4_tactics(
             enable_pdl,
             out_dtype,
             per_token_alpha_mode(per_token_alpha, swap_ab),
+            mm_fp4_weight_l2_policy(m, mma_tiler_mn, swap_ab, kernel_type),
         )
         if (device_index, cache_key) in kernel_cache:
             continue

@@ -59,6 +59,7 @@ from ..fused_moe.utils import (
 from .gemm_mm_fp4_cute_dsl import (
     _compile_block_scaled_gemm,
     _mm_fp4_cache_key,
+    mm_fp4_weight_l2_policy,
     _prepare_alpha_for_launch,
     per_token_alpha_mode,
     precompile_mm_fp4_tactics,
@@ -7833,18 +7834,6 @@ _SM100_SPLITK_KERNEL_TYPE = "sm100sk"
 _SM100_DEEP_K_INST = 8
 
 
-def _cake691_l2_policy_kwargs(mma_tiler_mn):
-    """Exploration knob (CAKE-691 round 8): CAKE691_L2POLICY in {a_ef, b_el, a_ef_b_el}
-    applies L2 eviction policies to the low-M (token tile <= 32) persistent kernel."""
-    v = os.environ.get("CAKE691_L2POLICY", "")
-    if not v:
-        return {}
-    if mma_tiler_mn[1] <= 32:  # swap_ab low-M path: A = weights
-        return {"a_l2_evict_first": "a_ef" in v, "b_l2_evict_last": "b_el" in v}
-    # no-swap path: B = weights
-    return {"b_l2_evict_first": "b_ef" in v}
-
-
 _SM100_DEEP_K_TILE = 512
 _SM100_DEEP_K_MIN_TILES = 128
 
@@ -8330,8 +8319,11 @@ def _cute_dsl_gemm_fp4_runner(
             sf_k = (real_k // sf_vec_size + 3) // 4
 
             alpha_mode = per_token_alpha_mode(per_token_alpha, swap_ab)
+            weight_l2_policy = mm_fp4_weight_l2_policy(
+                m, mma_tiler_mn, swap_ab, kernel_type
+            )
             cache_key = _mm_fp4_cache_key(
-                sf_vec_size, tactic, enable_pdl, out_dtype, alpha_mode
+                sf_vec_size, tactic, enable_pdl, out_dtype, alpha_mode, weight_l2_policy
             )
 
             split_k_slices = 1
@@ -8400,7 +8392,8 @@ def _cute_dsl_gemm_fp4_runner(
                     enable_pdl,
                     alpha_mode,
                     mma_inst_tile_k=deep_k_inst,
-                    **_cake691_l2_policy_kwargs(mma_tiler_mn),
+                    a_l2_evict_first=weight_l2_policy == "a",
+                    b_l2_evict_first=weight_l2_policy == "b",
                 )
 
             compiled_gemm, _ = _compile_block_scaled_gemm(
