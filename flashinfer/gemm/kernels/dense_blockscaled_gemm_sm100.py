@@ -30,6 +30,7 @@
 # with modifications for FlashInfer integration.
 # Original: https://github.com/NVIDIA/TensorRT-LLM
 
+import os
 from typing import Optional, Tuple, Type, Union
 
 import cuda.bindings.driver as cuda
@@ -256,6 +257,10 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
 
         # Compute mma/cluster/tile shapes
         mma_inst_tile_k = 4
+        # Exploration (CAKE-691 round 7): deeper K tile for narrow token tiles so
+        # every TMA row fetch is 256 B instead of 128 B (DRAM/L2 sector efficiency).
+        if self.mma_inst_shape_mnk[1] <= 32 and os.environ.get("CAKE691_KTILE", "4") == "8":
+            mma_inst_tile_k = 8
         self.mma_tiler = (
             self.mma_inst_shape_mnk[0],
             self.mma_inst_shape_mnk[1],
