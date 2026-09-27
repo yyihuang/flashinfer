@@ -7831,6 +7831,17 @@ _SM100_SPLITK_KERNEL_TYPE = "sm100sk"
 # weight grid is about a wave or more (>= _SM100_DEEP_K_MIN_TILES weight
 # tiles); below that the longer pipeline fill/drain costs 1-2 %.
 _SM100_DEEP_K_INST = 8
+
+
+def _cake691_l2_policy_kwargs(mma_tiler_mn):
+    """Exploration knob (CAKE-691 round 8): CAKE691_L2POLICY in {a_ef, b_el, a_ef_b_el}
+    applies L2 eviction policies to the low-M (token tile <= 32) persistent kernel."""
+    v = os.environ.get("CAKE691_L2POLICY", "")
+    if not v or mma_tiler_mn[1] > 32:
+        return {}
+    return {"a_l2_evict_first": "a_ef" in v, "b_l2_evict_last": "b_el" in v}
+
+
 _SM100_DEEP_K_TILE = 512
 _SM100_DEEP_K_MIN_TILES = 128
 
@@ -8386,6 +8397,7 @@ def _cute_dsl_gemm_fp4_runner(
                     enable_pdl,
                     alpha_mode,
                     mma_inst_tile_k=deep_k_inst,
+                    **_cake691_l2_policy_kwargs(mma_tiler_mn),
                 )
 
             compiled_gemm, _ = _compile_block_scaled_gemm(
