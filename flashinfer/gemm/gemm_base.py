@@ -7860,10 +7860,11 @@ def _select_sm100_mm_fp4_splitk_tactic(
         B200 / within noise on GB300 at 224 tiles; 64 tiles lose 1-2 % to
         the longer fill/drain);
       * SM103 only (sm_minor == 3): with <= sm_count/2 tiles and
-        8192 <= K < 16384, M <= 16 takes two K slices (1.01-1.02x) and
-        17 <= M <= 32 the persistent kernel with TMA prefetch (1.04x); both
-        measured neutral-to-negative on B200 (sm_minor 0), so they stay off
-        there.
+        8192 <= K < 16384, 17 <= M <= 32 takes the persistent kernel with
+        TMA prefetch (1.03x over six rounds; neutral-to-negative on B200, so
+        off there). Two K slices for M <= 16 on the same shapes looked like
+        1.01-1.02x in single-process probes but measured 0.99 in the paired
+        six-round final, so they are not taken.
     Returns the tactic tuple or None when the default persistent tactic
     should run.
     """
@@ -7882,13 +7883,6 @@ def _select_sm100_mm_fp4_splitk_tactic(
         split_k_slices = 2
     elif n_tiles <= sm_count // 2 and real_k >= 16384:
         split_k_slices = 2
-    elif (
-        sm_minor == 3
-        and n_tiles <= sm_count // 2
-        and 8192 <= real_k < 16384
-        and tile[1] <= 16
-    ):
-        split_k_slices = 2
     else:
         persistent = None
         if n_tiles >= _SM100_DEEP_K_MIN_TILES and real_k % _SM100_DEEP_K_TILE == 0:
@@ -7899,7 +7893,12 @@ def _select_sm100_mm_fp4_splitk_tactic(
             )
             if persistent is not None and persistent[0][1] <= 32:
                 return (*persistent[:5], _SM100_DEEP_K_INST)
-        if sm_minor == 3 and n_tiles <= sm_count // 2 and 8192 <= real_k < 16384:
+        if (
+            sm_minor == 3
+            and tile[1] == 32
+            and n_tiles <= sm_count // 2
+            and 8192 <= real_k < 16384
+        ):
             # SM103, 32-wide token tile: TMA prefetch of the next tile.
             persistent = _select_sm100_mm_fp4_cute_dsl_tactic(
                 m, n, real_k, sm_count, 16

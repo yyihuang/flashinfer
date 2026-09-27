@@ -629,9 +629,9 @@ def _check_per_token_alpha_untuned(m, n, k, res_dtype):
 
 
 
-# SM103-only low-M rules (8192 <= K < 16384, <= sm_count/2 weight tiles): two
-# K slices for M <= 16, TMA prefetch for 17 <= M <= 32. On other SMs the same
-# shapes take the default persistent tactic; either way the result is checked.
+# SM103-only low-M rule (8192 <= K < 16384, <= sm_count/2 weight tiles): TMA
+# prefetch for 17 <= M <= 32. On other SMs (and for M <= 16) the same shapes
+# take the default persistent tactic; either way the result is checked.
 @pytest.mark.parametrize(
     "m,n,k",
     [
