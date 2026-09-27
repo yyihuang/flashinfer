@@ -122,7 +122,7 @@ _NUM_KV_HEADS = 4
 # `general::kHeadCapacity` in csrc/msa_decode_nvfp4_specialized.cu; the binding
 # asserts the same bound, so a drift between the two copies is a launch error.
 _MAX_GQA_GROUP = 16
-# The top-k the PINNED family and the CuTe-DSL `scored_geom` fast path bake in.
+# The top-k the PINNED family and the CuTe-DSL `scored_geom` fast path build in.
 # Not a capability bound: any other value in [1, _MAX_TOPK] is served by the
 # parametric family instead.
 _TOPK = 16
