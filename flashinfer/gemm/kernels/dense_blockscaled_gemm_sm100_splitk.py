@@ -208,6 +208,24 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
         return (128, tile_n)
 
     @classmethod
+    def mma_tilers_for_m(cls, m: int) -> Tuple[Tuple[int, int], ...]:
+        """Return every supported MMA tile for M, widest-covering first.
+
+        Tiles narrower than M split the tokens over several N tiles (the SFB
+        sub-tile addressing in the mainloop covers this); the tile from
+        :meth:`mma_tiler_mn_for_m` is the one that covers M in a single tile.
+        """
+        max_tile_n = cls.mma_tiler_mn_for_m(m)[1]
+        return tuple(
+            t for t in cls.SUPPORTED_MMA_TILER_MN if t[1] <= max_tile_n
+        )
+
+    @classmethod
+    def supports_mma_tiler_for_m(cls, mma_tiler_mn: Tuple[int, int], m: int) -> bool:
+        """Return whether ``mma_tiler_mn`` is a valid tile for M."""
+        return cls.supports_m(m) and tuple(mma_tiler_mn) in cls.mma_tilers_for_m(m)
+
+    @classmethod
     def is_valid_tactic(
         cls,
         m: int,

@@ -7836,8 +7836,11 @@ def _select_sm100_mm_fp4_splitk_tactic(m, n, real_k, sm_count, out_contiguous):
     Measured on B200 and GB300 (NVFP4, bf16 out, cold L2): split-K wins only
     while the default tile grid leaves most SMs idle and the per-CTA K slice
     stays long enough to amortise the cluster reduction:
-      * <= 20 weight tiles (N <= 2560) with an 8/16-wide token tile: four
-        K slices, 1.18-1.24x;
+      * <= 20 weight tiles (N <= 2560) with M <= 16 (8/16-wide token tile):
+        four K slices, 1.18-1.24x;
+      * <= 20 weight tiles with 17 <= M <= 32: the 8-wide token tile split
+        over several N tiles (SFB sub-tile addressing), two K slices,
+        1.20-1.23x (the 32-wide single tile only reaches 17-20 CTAs);
       * otherwise up to sm_count/2 tiles with K >= 16384: two slices,
         1.03-1.09x (K = 8192 at 64 tiles is within noise, the 32-wide token
         tile below K = 16384 loses).
@@ -7853,6 +7856,9 @@ def _select_sm100_mm_fp4_splitk_tactic(m, n, real_k, sm_count, out_contiguous):
     n_tiles = (n + 127) // 128
     if tile[1] <= 16 and n_tiles <= 20:
         split_k_slices = 4
+    elif n_tiles <= 20:
+        tile = (128, 8)
+        split_k_slices = 2
     elif n_tiles <= sm_count // 2 and real_k >= 16384:
         split_k_slices = 2
     else:
@@ -7982,12 +7988,14 @@ def _cute_dsl_gemm_fp4_runner(
             # per-token alpha.
             if use_nvfp4 and out.is_contiguous() and _SplitKKernel.supports_m(m):
                 for split_k_slices in _SplitKKernel.SUPPORTED_SPLIT_K_SLICES:
-                    if _SplitKKernel.is_valid_tactic(
+                    if not _SplitKKernel.is_valid_tactic(
                         m, real_k, ab_dtype, split_k_slices
                     ):
+                        continue
+                    for sk_tile in _SplitKKernel.mma_tilers_for_m(m):
                         valid_tactics.append(
                             (
-                                _SplitKKernel.mma_tiler_mn_for_m(m),
+                                sk_tile,
                                 (1, 1),
                                 True,
                                 False,
@@ -8272,7 +8280,7 @@ def _cute_dsl_gemm_fp4_runner(
                     or not _SplitKKernel.is_valid_tactic(
                         m, real_k, cutlass.Float4E2M1FN, split_k_slices
                     )
-                    or mma_tiler_mn != _SplitKKernel.mma_tiler_mn_for_m(m)
+                    or not _SplitKKernel.supports_mma_tiler_for_m(mma_tiler_mn, m)
                 ):
                     raise ValueError(f"Invalid FP4 split-K tactic: {tactic}")
                 make_kernel = lambda: _SplitKKernel(

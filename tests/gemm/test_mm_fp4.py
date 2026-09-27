@@ -477,6 +477,11 @@ def test_mm_fp4_per_token_alpha_auto_misaligned_n_raises():
         (16, 1024, 4096),
         (17, 7168, 16384),
         (32, 4096, 16384),
+        # 17 <= M <= 32 with few weight tiles: 8-wide token tile over several
+        # N tiles (SFB sub-tile addressing), two K slices.
+        (17, 1536, 7168),
+        (32, 2112, 7168),
+        (24, 2048, 4096),
     ],
 )
 @pytest.mark.parametrize("res_dtype", [torch.bfloat16, torch.float16])
