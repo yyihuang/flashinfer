@@ -163,9 +163,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
 
         self.per_token_alpha = per_token_alpha
         if mma_inst_tile_k not in (4, 8):
-            raise ValueError(
-                f"mma_inst_tile_k must be 4 or 8, got {mma_inst_tile_k}"
-            )
+            raise ValueError(f"mma_inst_tile_k must be 4 or 8, got {mma_inst_tile_k}")
         # MMA K instructions per pipeline stage: 4 (K tile 256 for FP4) or 8
         # (K tile 512, a 256 B TMA row per operand row; used for narrow N tiles
         # whose weight stream is DRAM-efficiency bound).

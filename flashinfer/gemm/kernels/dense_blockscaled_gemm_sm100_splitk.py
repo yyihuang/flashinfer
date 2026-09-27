@@ -216,9 +216,7 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
         :meth:`mma_tiler_mn_for_m` is the one that covers M in a single tile.
         """
         max_tile_n = cls.mma_tiler_mn_for_m(m)[1]
-        return tuple(
-            t for t in cls.SUPPORTED_MMA_TILER_MN if t[1] <= max_tile_n
-        )
+        return tuple(t for t in cls.SUPPORTED_MMA_TILER_MN if t[1] <= max_tile_n)
 
     @classmethod
     def supports_mma_tiler_for_m(cls, mma_tiler_mn: Tuple[int, int], m: int) -> bool:
