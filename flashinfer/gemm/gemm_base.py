@@ -59,7 +59,7 @@ from ..fused_moe.utils import (
 from .gemm_mm_fp4_cute_dsl import (
     _compile_block_scaled_gemm,
     _mm_fp4_cache_key,
-    mm_fp4_weight_l2_policy,
+    mm_fp4_l2_policy,
     _prepare_alpha_for_launch,
     per_token_alpha_mode,
     precompile_mm_fp4_tactics,
@@ -7834,15 +7834,6 @@ _SM100_SPLITK_KERNEL_TYPE = "sm100sk"
 _SM100_DEEP_K_INST = 8
 
 
-def _cake691_l2_policy2_kwargs(mma_tiler_mn, weight_l2_policy):
-    """Exploration knob (CAKE-691 round 8b, not for the PR): CAKE691_L2POLICY2 in
-    {a_el, b_el, a_el_b_el} pins operands of the many-token-tile no-swap rows."""
-    v = os.environ.get("CAKE691_L2POLICY2", "")
-    if not v or mma_tiler_mn[1] <= 32 or weight_l2_policy is not None:
-        return {}
-    return {"a_l2_evict_last": "a_el" in v, "b_l2_evict_last": "b_el" in v}
-
-
 _SM100_DEEP_K_TILE = 512
 _SM100_DEEP_K_MIN_TILES = 128
 
@@ -8328,11 +8319,9 @@ def _cute_dsl_gemm_fp4_runner(
             sf_k = (real_k // sf_vec_size + 3) // 4
 
             alpha_mode = per_token_alpha_mode(per_token_alpha, swap_ab)
-            weight_l2_policy = mm_fp4_weight_l2_policy(
-                m, mma_tiler_mn, swap_ab, kernel_type
-            )
+            l2_policy = mm_fp4_l2_policy(m, mma_tiler_mn, swap_ab, kernel_type)
             cache_key = _mm_fp4_cache_key(
-                sf_vec_size, tactic, enable_pdl, out_dtype, alpha_mode, weight_l2_policy
+                sf_vec_size, tactic, enable_pdl, out_dtype, alpha_mode, l2_policy
             )
 
             split_k_slices = 1
@@ -8401,9 +8390,10 @@ def _cute_dsl_gemm_fp4_runner(
                     enable_pdl,
                     alpha_mode,
                     mma_inst_tile_k=deep_k_inst,
-                    a_l2_evict_first=weight_l2_policy == "a",
-                    b_l2_evict_first=weight_l2_policy == "b",
-                    **_cake691_l2_policy2_kwargs(mma_tiler_mn, weight_l2_policy),
+                    a_l2_evict_first=l2_policy == "a_ef",
+                    b_l2_evict_first=l2_policy == "b_ef",
+                    a_l2_evict_last=l2_policy == "ab_el",
+                    b_l2_evict_last=l2_policy == "ab_el",
                 )
 
             compiled_gemm, _ = _compile_block_scaled_gemm(
