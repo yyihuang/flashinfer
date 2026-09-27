@@ -548,5 +548,79 @@ def test_mm_fp4_per_token_alpha_splitk(m, n, k, res_dtype):
     )
 
 
+# Narrow token tiles over a weight grid that fills the machine take the K tile
+# 512 persistent variant (8 MMA K instructions per stage); same accumulation
+# order, so the per-token result must match the scalar path row by row and the
+# cutlass backend within the FP4 tolerance.
+@pytest.mark.parametrize(
+    "m,n,k",
+    [
+        (8, 18432, 7168),
+        (17, 28672, 8192),
+        (32, 18432, 7168),
+    ],
+)
+@pytest.mark.parametrize("res_dtype", [torch.bfloat16, torch.float16])
+def test_mm_fp4_per_token_alpha_deep_k(m, n, k, res_dtype):
+    _skip_unless_per_token_alpha_gpu()
+    from flashinfer.gemm.gemm_base import (
+        _SM100_DEEP_K_INST,
+        _select_sm100_mm_fp4_splitk_tactic,
+    )
+    from flashinfer.utils import get_device_sm_count
+
+    sm_count = get_device_sm_count(torch.device("cuda"))
+    tactic = _select_sm100_mm_fp4_splitk_tactic(m, n, k, sm_count, True)
+    assert tactic is not None and tactic[4] == "sm100", tactic
+    assert tactic[5] == _SM100_DEEP_K_INST and tactic[0][1] <= 32, tactic
+
+    torch.manual_seed(0)
+    a, b, a_fp4, a_s, b_fp4, b_s, alpha = _nvfp4_operands(m, n, k)
+    scalar_alpha = alpha.float().reshape(1)
+    row = 0.25 + torch.arange(m, device="cuda", dtype=torch.float32) / m
+    per_token_alpha = (scalar_alpha * row).contiguous()
+
+    out = torch.empty([m, n], device="cuda", dtype=res_dtype)
+    out_scalar = torch.empty([m, n], device="cuda", dtype=res_dtype)
+    for alpha_arg, dst in ((per_token_alpha, out), (scalar_alpha, out_scalar)):
+        mm_fp4(
+            a_fp4,
+            b_fp4.T,
+            a_s,
+            b_s.T,
+            alpha_arg,
+            res_dtype,
+            dst,
+            block_size=16,
+            backend="cute-dsl",
+            use_nvfp4=True,
+            skip_check=False,
+        )
+    torch.testing.assert_close(
+        out.float(),
+        out_scalar.float() * row[:, None],
+        rtol=2e-2,
+        atol=2e-2 * out_scalar.float().abs().max().item(),
+    )
+
+    out_ref = torch.empty([m, n], device="cuda", dtype=torch.bfloat16)
+    mm_fp4(
+        a_fp4,
+        b_fp4.T,
+        a_s,
+        b_s.T,
+        scalar_alpha,
+        torch.bfloat16,
+        out_ref,
+        block_size=16,
+        backend="cutlass",
+        use_nvfp4=True,
+        skip_check=False,
+    )
+    torch.testing.assert_close(
+        out_scalar.float(), out_ref.float(), rtol=1e-2, atol=1e-2
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

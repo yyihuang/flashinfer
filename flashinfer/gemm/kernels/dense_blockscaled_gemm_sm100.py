@@ -30,7 +30,6 @@
 # with modifications for FlashInfer integration.
 # Original: https://github.com/NVIDIA/TensorRT-LLM
 
-import os
 from typing import Optional, Tuple, Type, Union
 
 import cuda.bindings.driver as cuda
@@ -138,6 +137,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         use_prefetch: bool = False,
         enable_pdl: bool = True,
         per_token_alpha: Optional[str] = None,
+        mma_inst_tile_k: int = 4,
     ):
         """Initializes the configuration for a Blackwell dense GEMM kernel.
 
@@ -158,9 +158,18 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             per_token_alpha (Optional[str]): ``None`` for a scalar alpha, else
                 the extent ``alpha`` holds one scale per coordinate of: ``"m"``
                 per row of C, ``"n"`` per column (callers that swap A and B).
+            mma_inst_tile_k (int): MMA K instructions per pipeline stage (4 or 8).
         """
 
         self.per_token_alpha = per_token_alpha
+        if mma_inst_tile_k not in (4, 8):
+            raise ValueError(
+                f"mma_inst_tile_k must be 4 or 8, got {mma_inst_tile_k}"
+            )
+        # MMA K instructions per pipeline stage: 4 (K tile 256 for FP4) or 8
+        # (K tile 512, a 256 B TMA row per operand row; used for narrow N tiles
+        # whose weight stream is DRAM-efficiency bound).
+        self.mma_inst_tile_k = mma_inst_tile_k
         self.acc_dtype = cutlass.Float32
         self.sf_vec_size = sf_vec_size
         self.use_2cta_instrs = mma_tiler_mn[0] == 256
@@ -256,11 +265,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
 
         # Compute mma/cluster/tile shapes
-        mma_inst_tile_k = 4
-        # Exploration (CAKE-691 round 7): deeper K tile for narrow token tiles so
-        # every TMA row fetch is 256 B instead of 128 B (DRAM/L2 sector efficiency).
-        if self.mma_inst_shape_mnk[1] <= 32 and os.environ.get("CAKE691_KTILE", "4") == "8":
-            mma_inst_tile_k = 8
+        mma_inst_tile_k = self.mma_inst_tile_k
         self.mma_tiler = (
             self.mma_inst_shape_mnk[0],
             self.mma_inst_shape_mnk[1],
