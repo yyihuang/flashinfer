@@ -855,9 +855,13 @@ _PER_TOKEN_WIDE_MAX_M = 4096
 
 def _per_token_cta_threads(k: int, m: int) -> int:
     """CTA width of the per-token kernel for a row of ``k`` elements at ``m`` rows."""
-    env = os.environ.get("FLASHINFER_NVFP4_PER_TOKEN_THREADS")
-    if env:
-        return int(env)
+    if "FLASHINFER_NVFP4_PER_TOKEN_THREADS" in os.environ:
+        return int(os.environ["FLASHINFER_NVFP4_PER_TOKEN_THREADS"])
+    return _per_token_cta_threads_default(k, m)
+
+
+@functools.lru_cache(maxsize=None)
+def _per_token_cta_threads_default(k: int, m: int) -> int:
     num_blocks = k // NVFP4_SF_VEC_SIZE
     if m <= _PER_TOKEN_WIDE_MAX_M:
         threads = _PER_TOKEN_THREADS

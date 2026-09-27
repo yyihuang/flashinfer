@@ -7827,8 +7827,11 @@ _CUTE_DSL_MM_FP4_KERNEL_CACHE: dict[tuple, tuple] = {}
 _SM100_SPLITK_KERNEL_TYPE = "sm100sk"
 
 
+@functools.lru_cache(maxsize=None)
 def _select_sm100_mm_fp4_splitk_tactic(m, n, real_k, sm_count, out_contiguous):
     """Untuned low-M choice between the persistent kernel and cluster split-K.
+
+    Cached per shape: this sits on the eager launch path of every mm_fp4 call.
 
     Measured on B200 and GB300 (NVFP4, bf16 out, cold L2): split-K wins only
     while the default tile grid leaves most SMs idle and the per-CTA K slice
