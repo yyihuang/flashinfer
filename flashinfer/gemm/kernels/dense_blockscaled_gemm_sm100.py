@@ -47,6 +47,8 @@ from .dense_blockscaled_gemm_sm100_common import _Sm100BlockScaledGemmCommon
 _CAKE691_TRACE_LAYOUT = os.environ.get("CAKE691_TRACE_LAYOUT") == "1"
 # exploration knob: MMA instructions per K block (4 -> 256-element FP4 K tile)
 _CAKE691_MMA_INST_TILE_K = int(os.environ.get("CAKE691_MMA_INST_TILE_K", "4"))
+# exploration knob: L2 prefetch distance = num_ab_stage * mult
+_CAKE691_PREFETCH_MULT = int(os.environ.get("CAKE691_PREFETCH_MULT", "1"))
 
 
 def _per_token_fragment_plan(shape, stride, token_axis):
@@ -380,7 +382,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
 
         # TODO: [alel] Currently set prefetch dist to num_ab_stage, we may have more options for prefetch dist auto tuning
-        self.prefetch_dist = self.num_ab_stage
+        self.prefetch_dist = self.num_ab_stage * _CAKE691_PREFETCH_MULT
 
     @cute.jit
     def __call__(
