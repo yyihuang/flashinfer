@@ -7836,7 +7836,9 @@ _SM100_DEEP_K_MIN_TILES = 128
 
 
 @functools.lru_cache(maxsize=None)
-def _select_sm100_mm_fp4_splitk_tactic(m, n, real_k, sm_count, out_contiguous):
+def _select_sm100_mm_fp4_splitk_tactic(
+    m, n, real_k, sm_count, out_contiguous, sm_minor=0
+):
     """Untuned low-M choice between the persistent kernel and cluster split-K.
 
     Cached per shape: this sits on the eager launch path of every mm_fp4 call.
@@ -7852,9 +7854,15 @@ def _select_sm100_mm_fp4_splitk_tactic(m, n, real_k, sm_count, out_contiguous):
       * otherwise up to sm_count/2 tiles with K >= 16384: two slices,
         1.03-1.09x (K = 8192 at 64 tiles is within noise, the 32-wide token
         tile below K = 16384 loses);
-      * otherwise, with >= _SM100_DEEP_K_MIN_TILES weight tiles and K a
-        multiple of 512, the persistent kernel with the K tile 512 variant
-        (1.01-1.02x; below that tile count the longer fill/drain loses 1-2 %).
+      * otherwise, with _SM100_DEEP_K_MIN_TILES <= weight tiles <= sm_count
+        (one full wave) and K a multiple of 512, the persistent kernel with
+        the K tile 512 variant (1.01-1.02x; fewer tiles lose 1-2 % to the
+        longer fill/drain, more than one wave measures within noise);
+      * SM103 only (sm_minor == 3): with <= sm_count/2 tiles and
+        8192 <= K < 16384, M <= 16 takes two K slices (1.01-1.02x) and
+        17 <= M <= 32 the persistent kernel with TMA prefetch (1.04x); both
+        measured neutral-to-negative on B200 (sm_minor 0), so they stay off
+        there.
     Returns the tactic tuple or None when the default persistent tactic
     should run.
     """
@@ -7873,16 +7881,33 @@ def _select_sm100_mm_fp4_splitk_tactic(m, n, real_k, sm_count, out_contiguous):
         split_k_slices = 2
     elif n_tiles <= sm_count // 2 and real_k >= 16384:
         split_k_slices = 2
+    elif (
+        sm_minor == 3
+        and n_tiles <= sm_count // 2
+        and 8192 <= real_k < 16384
+        and tile[1] <= 16
+    ):
+        split_k_slices = 2
     else:
-        # Persistent kernel. With >= _SM100_DEEP_K_MIN_TILES weight tiles the
-        # narrow-tile stream is DRAM-efficiency bound: take the K tile 512
-        # variant (1.01-1.02x, bitwise identical).
-        if n_tiles >= _SM100_DEEP_K_MIN_TILES and real_k % _SM100_DEEP_K_TILE == 0:
+        persistent = None
+        if (
+            _SM100_DEEP_K_MIN_TILES <= n_tiles <= sm_count
+            and real_k % _SM100_DEEP_K_TILE == 0
+        ):
+            # One full wave of narrow tiles: the weight stream is DRAM-
+            # efficiency bound, take the K tile 512 variant.
             persistent = _select_sm100_mm_fp4_cute_dsl_tactic(
                 m, n, real_k, sm_count, 16
             )
             if persistent is not None and persistent[0][1] <= 32:
                 return (*persistent[:5], _SM100_DEEP_K_INST)
+        if sm_minor == 3 and n_tiles <= sm_count // 2 and 8192 <= real_k < 16384:
+            # SM103, 32-wide token tile: TMA prefetch of the next tile.
+            persistent = _select_sm100_mm_fp4_cute_dsl_tactic(
+                m, n, real_k, sm_count, 16
+            )
+            if persistent is not None and persistent[0][1] <= 32:
+                return (*persistent[:3], True, *persistent[4:])
         return None
     import cutlass
 
@@ -8258,7 +8283,7 @@ def _cute_dsl_gemm_fp4_runner(
                     sm_count = get_device_sm_count(a.device)
                     tactic = (
                         _select_sm100_mm_fp4_splitk_tactic(
-                            m, n, real_k, sm_count, out.is_contiguous()
+                            m, n, real_k, sm_count, out.is_contiguous(), sm_minor
                         )
                         if use_nvfp4
                         else None

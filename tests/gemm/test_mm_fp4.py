@@ -548,15 +548,15 @@ def test_mm_fp4_per_token_alpha_splitk(m, n, k, res_dtype):
     )
 
 
-# Narrow token tiles over a weight grid that fills the machine take the K tile
-# 512 persistent variant (8 MMA K instructions per stage); same accumulation
+# Narrow token tiles over a weight grid of one full wave (128 <= tiles <=
+# sm_count) take the K tile 512 persistent variant (8 MMA K instructions per stage); same accumulation
 # order, so the per-token result must match the scalar path row by row and the
 # cutlass backend within the FP4 tolerance.
 @pytest.mark.parametrize(
     "m,n,k",
     [
         (8, 18432, 7168),
-        (17, 28672, 8192),
+        (17, 16896, 7168),
         (32, 18432, 7168),
     ],
 )
@@ -574,6 +574,12 @@ def test_mm_fp4_per_token_alpha_deep_k(m, n, k, res_dtype):
     assert tactic is not None and tactic[4] == "sm100", tactic
     assert tactic[5] == _SM100_DEEP_K_INST and tactic[0][1] <= 32, tactic
 
+    _check_per_token_alpha_untuned(m, n, k, res_dtype)
+
+
+def _check_per_token_alpha_untuned(m, n, k, res_dtype):
+    """Per-token alpha through the untuned selector: per-token == scalar x row,
+    scalar == cutlass backend within the FP4 GEMM tolerance."""
     torch.manual_seed(0)
     a, b, a_fp4, a_s, b_fp4, b_s, alpha = _nvfp4_operands(m, n, k)
     scalar_alpha = alpha.float().reshape(1)
@@ -620,6 +626,24 @@ def test_mm_fp4_per_token_alpha_deep_k(m, n, k, res_dtype):
     torch.testing.assert_close(
         out_scalar.float(), out_ref.float(), rtol=1e-2, atol=1e-2
     )
+
+
+
+# SM103-only low-M rules (8192 <= K < 16384, <= sm_count/2 weight tiles): two
+# K slices for M <= 16, TMA prefetch for 17 <= M <= 32. On other SMs the same
+# shapes take the default persistent tactic; either way the result is checked.
+@pytest.mark.parametrize(
+    "m,n,k",
+    [
+        (8, 8192, 8192),
+        (17, 8192, 8192),
+        (32, 8192, 8192),
+    ],
+)
+@pytest.mark.parametrize("res_dtype", [torch.bfloat16, torch.float16])
+def test_mm_fp4_per_token_alpha_low_m_untuned(m, n, k, res_dtype):
+    _skip_unless_per_token_alpha_gpu()
+    _check_per_token_alpha_untuned(m, n, k, res_dtype)
 
 
 if __name__ == "__main__":
