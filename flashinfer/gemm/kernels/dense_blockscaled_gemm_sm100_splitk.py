@@ -215,7 +215,7 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
         split_k_slices: int,
     ) -> bool:
         """Return whether the MXFP8 shape satisfies this kernel's K tiling."""
-        if ab_dtype.width != 8:
+        if ab_dtype.width not in (4, 8):
             return False
         tile_k = (cls.MMA_INST_BITS_K * cls.MMA_INST_TILE_K) // ab_dtype.width
         return (
@@ -242,9 +242,10 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
         """
 
         self.acc_dtype = cutlass.Float32
-        if sf_vec_size != 32:
+        if sf_vec_size not in (16, 32):
             raise ValueError(
-                f"MXFP8 split-K requires sf_vec_size=32, got {sf_vec_size}"
+                f"block-scaled split-K requires sf_vec_size=16 (NVFP4) or 32 "
+                f"(MXFP8), got {sf_vec_size}"
             )
         self.sf_vec_size = sf_vec_size
         if mma_tiler_mn not in self.SUPPORTED_MMA_TILER_MN:
