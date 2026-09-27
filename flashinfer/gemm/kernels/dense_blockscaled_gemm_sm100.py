@@ -1354,6 +1354,34 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             tiled_copy_r2s, tRS_rC, tRS_sC = self.epilog_smem_copy_and_partition(
                 tiled_copy_t2r, tTR_rC, epi_tidx, sC
             )
+            if cutlass.const_expr(self.direct_c_store):
+                # Register -> global copy for narrow token tiles: the plain
+                # (storable) C tensor tiled and partitioned like tCgC / tCcC,
+                # then partitioned like the t2r fragment with a 128-bit
+                # universal store atom; the identity partition gives the
+                # per-vector predicate for the M / N tails.
+                copy_atom_r2g = cute.make_copy_atom(
+                    cute.nvgpu.CopyUniversalOp(), self.c_dtype, num_bits_per_copy=128
+                )
+                tiled_copy_r2g = cute.make_tiled_copy_D(copy_atom_r2g, tiled_copy_t2r)
+                thr_copy_r2g = tiled_copy_r2g.get_slice(epi_tidx)
+                tRG_rC = tiled_copy_r2g.retile(tTR_rC)
+                gC_plain_mnl = cute.local_tile(
+                    mC_plain,
+                    cute.slice_(self.mma_tiler, (None, None, 0)),
+                    (None, None, None),
+                )
+                tCgC_plain = thr_mma.partition_C(gC_plain_mnl)
+                tRG_gC_partitioned = thr_copy_r2g.partition_D(
+                    cute.flat_divide(
+                        tCgC_plain[((None, None), 0, 0, None, None, None)], epi_tile
+                    )
+                )
+                tRG_cC_partitioned = thr_copy_r2g.partition_D(
+                    cute.flat_divide(
+                        tCcC[((None, None), 0, 0, None, None, None)], epi_tile
+                    )
+                )
             tma_atom_c, bSG_sC, bSG_gC_partitioned = (
                 self.epilog_gmem_copy_and_partition(
                     epi_tidx, tma_atom_c, tCgC, epi_tile, sC
@@ -1419,6 +1447,15 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                         )
                     ]
                     tTR_cC = cute.group_modes(tTR_cC, 3, cute.rank(tTR_cC))
+                    if cutlass.const_expr(self.direct_c_store):
+                        tRG_gC = tRG_gC_partitioned[
+                            (None, None, None, None, None, *mma_tile_coord_mnl)
+                        ]
+                        tRG_gC = cute.group_modes(tRG_gC, 3, cute.rank(tRG_gC))
+                        tRG_cC = tRG_cC_partitioned[
+                            (None, None, None, None, None, *mma_tile_coord_mnl)
+                        ]
+                        tRG_cC = cute.group_modes(tRG_cC, 3, cute.rank(tRG_cC))
                     if cutlass.const_expr(alpha_token_per_tile):
                         # Every element this thread holds in this tile has
                         # the same token: one clamped load per tile, applied
@@ -1515,18 +1552,34 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                         pass
                     elif cutlass.const_expr(self.direct_c_store):
                         #
-                        # Narrow tile: predicated scalar global stores straight
-                        # from the t2r fragment (same FP32 multiply and
-                        # conversion as the TMA path, element for element).
+                        # Narrow tile: convert exactly like the TMA path (FP32
+                        # alpha multiply, then c_dtype) and store the fragment
+                        # straight to global memory with predicated vectors.
                         #
-                        tTR_cC_store = tTR_cC[(None, None, None, real_subtile_idx)]
-                        for i in cutlass.range_constexpr(cute.size(tTR_rAcc)):
-                            c_coord = tTR_cC_store[i]
-                            if c_coord[0] < mC_mnl.shape[0]:
-                                if c_coord[1] < mC_mnl.shape[1]:
-                                    mC_plain[c_coord] = epilogue_op(
-                                        (alpha_value * tTR_rAcc[i]).to(self.c_dtype)
+                        acc_vec = tiled_copy_r2g.retile(tTR_rAcc).load()
+                        acc_vec = epilogue_op((alpha_value * acc_vec).to(self.c_dtype))
+                        tRG_rC.store(acc_vec)
+                        tRG_gC_sub = tRG_gC[(None, None, None, real_subtile_idx)]
+                        tRG_cC_sub = tRG_cC[(None, None, None, real_subtile_idx)]
+                        tRG_pC = cute.make_rmem_tensor(
+                            cute.make_layout(
+                                (
+                                    cute.size(tRG_cC_sub, mode=[0, 1]),
+                                    cute.size(tRG_cC_sub, mode=[1]),
+                                    cute.size(tRG_cC_sub, mode=[2]),
+                                )
+                            ),
+                            cutlass.Boolean,
+                        )
+                        for vi in cutlass.range_constexpr(cute.size(tRG_pC, mode=[0])):
+                            for mi in cutlass.range_constexpr(cute.size(tRG_pC, mode=[1])):
+                                for ni in cutlass.range_constexpr(
+                                    cute.size(tRG_pC, mode=[2])
+                                ):
+                                    tRG_pC[vi, mi, ni] = cute.elem_less(
+                                        tRG_cC_sub[(0, vi), mi, ni], mC_mnl.shape
                                     )
+                        cute.copy(tiled_copy_r2g, tRG_rC, tRG_gC_sub, pred=tRG_pC)
                     else:
                         #
                         # Convert to C type
