@@ -49,6 +49,8 @@ _CAKE691_TRACE_LAYOUT = os.environ.get("CAKE691_TRACE_LAYOUT") == "1"
 _CAKE691_MMA_INST_TILE_K = int(os.environ.get("CAKE691_MMA_INST_TILE_K", "4"))
 # exploration knob: L2 prefetch distance = num_ab_stage * mult
 _CAKE691_PREFETCH_MULT = int(os.environ.get("CAKE691_PREFETCH_MULT", "1"))
+# exploration knob: CTAs per SM (2 -> half the smem stages, 256 TMEM columns, 2x persistent grid)
+_CAKE691_OCCUPANCY = int(os.environ.get("CAKE691_OCCUPANCY", "1"))
 
 
 def _per_token_fragment_plan(shape, stride, token_axis):
@@ -178,7 +180,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             tcgen05.CtaGroup.TWO if self.use_2cta_instrs else tcgen05.CtaGroup.ONE
         )
 
-        self.occupancy = 1
+        self.occupancy = _CAKE691_OCCUPANCY
         # Set specialized warp ids
         self.epilog_warp_id = (
             0,
@@ -207,7 +209,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
         self.smem_capacity = utils.get_smem_capacity_in_bytes("sm_100")
         SM100_TMEM_CAPACITY_COLUMNS = 512
-        self.num_tmem_alloc_cols = SM100_TMEM_CAPACITY_COLUMNS
+        self.num_tmem_alloc_cols = SM100_TMEM_CAPACITY_COLUMNS // self.occupancy
 
     def _setup_attributes(self):
         """Set up configurations that are dependent on GEMM inputs
@@ -443,7 +445,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             c_tensor,
             self.cta_tile_shape_mnk,
             self.cluster_shape_mn,
-            max_active_clusters,
+            max_active_clusters * self.occupancy,
         )
 
         self.buffer_align_bytes = 1024
@@ -526,7 +528,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             block=[self.threads_per_cta, 1, 1],
             cluster=(*self.cluster_shape_mn, 1),
             smem=self.shared_storage.size_in_bytes(),  # type: ignore[attr-defined]
-            min_blocks_per_mp=1,
+            min_blocks_per_mp=self.occupancy,
             stream=stream,
             use_pdl=self.enable_pdl,
         )
