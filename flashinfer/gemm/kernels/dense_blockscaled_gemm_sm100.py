@@ -163,6 +163,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         mma_inst_tile_k: int = 4,
         a_l2_evict_first: bool = False,
         b_l2_evict_last: bool = False,
+        b_l2_evict_first: bool = False,
     ):
         """Initializes the configuration for a Blackwell dense GEMM kernel.
 
@@ -188,6 +189,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                 ``evict_first`` policy: A is streamed exactly once per CTA.
             b_l2_evict_last (bool): issue the B (and SFB) TMA loads with an L2
                 ``evict_last`` policy: every CTA of a column re-reads the tile.
+            b_l2_evict_first (bool): issue the B (and SFB) TMA loads with an L2
+                ``evict_first`` policy (B streamed once, e.g. weights without
+                swap_ab when M fits one tile). Exclusive with b_l2_evict_last.
         """
 
         self.per_token_alpha = per_token_alpha
@@ -197,8 +201,11 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         # (K tile 512, a 256 B TMA row per operand row; used for narrow N tiles
         # whose weight stream is DRAM-efficiency bound).
         self.mma_inst_tile_k = mma_inst_tile_k
+        if b_l2_evict_first and b_l2_evict_last:
+            raise ValueError("b_l2_evict_first and b_l2_evict_last are exclusive")
         self.a_l2_evict_first = a_l2_evict_first
         self.b_l2_evict_last = b_l2_evict_last
+        self.b_l2_evict_first = b_l2_evict_first
         self.acc_dtype = cutlass.Float32
         self.sf_vec_size = sf_vec_size
         self.use_2cta_instrs = mma_tiler_mn[0] == 256
@@ -930,6 +937,8 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                 a_cache_policy = _l2_cache_policy("evict_first")
             if cutlass.const_expr(self.b_l2_evict_last):
                 b_cache_policy = _l2_cache_policy("evict_last")
+            if cutlass.const_expr(self.b_l2_evict_first):
+                b_cache_policy = _l2_cache_policy("evict_first")
 
             while work_tile.is_valid_tile:
                 # Get tile coord from tile scheduler

@@ -7837,9 +7837,12 @@ def _cake691_l2_policy_kwargs(mma_tiler_mn):
     """Exploration knob (CAKE-691 round 8): CAKE691_L2POLICY in {a_ef, b_el, a_ef_b_el}
     applies L2 eviction policies to the low-M (token tile <= 32) persistent kernel."""
     v = os.environ.get("CAKE691_L2POLICY", "")
-    if not v or mma_tiler_mn[1] > 32:
+    if not v:
         return {}
-    return {"a_l2_evict_first": "a_ef" in v, "b_l2_evict_last": "b_el" in v}
+    if mma_tiler_mn[1] <= 32:  # swap_ab low-M path: A = weights
+        return {"a_l2_evict_first": "a_ef" in v, "b_l2_evict_last": "b_el" in v}
+    # no-swap path: B = weights
+    return {"b_l2_evict_first": "b_ef" in v}
 
 
 _SM100_DEEP_K_TILE = 512
