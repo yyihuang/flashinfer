@@ -1261,6 +1261,13 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                     if cutlass.const_expr(self.per_token_alpha == "m")
                     else mC_mnl.shape[1]
                 )
+                if cutlass.const_expr(os.environ.get("CAKE691_TRACE_LAYOUT") == "1"):
+                    # trace-time layout dump (debug only)
+                    print("[cake691] per_token_alpha", self.per_token_alpha, "c_layout", self.c_layout)
+                    print("[cake691] tiled_copy_t2r", tiled_copy_t2r)
+                    print("[cake691] tTR_rAcc.layout", tTR_rAcc.layout)
+                    print("[cake691] tTR_cC_partitioned.layout", tTR_cC_partitioned.layout)
+                    print("[cake691] epi_tile", epi_tile, "cta_tile", self.cta_tile_shape_mnk)
 
             tTR_rC = cute.make_rmem_tensor(tTR_rAcc.shape, self.c_dtype)
             tiled_copy_r2s, tRS_rC, tRS_sC = self.epilog_smem_copy_and_partition(
