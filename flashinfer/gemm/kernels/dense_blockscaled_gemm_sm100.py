@@ -30,6 +30,7 @@
 # with modifications for FlashInfer integration.
 # Original: https://github.com/NVIDIA/TensorRT-LLM
 
+import os
 from typing import Optional, Tuple, Type, Union
 
 import cuda.bindings.driver as cuda
@@ -309,7 +310,13 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         # global stores instead of the smem round trip + TMA store: the tile
         # is 2-8 KB and the TMA store's smem fences, two epilogue barriers
         # and bulk-group wait dominate the epilogue for these one-tile CTAs.
-        self.direct_c_store = self.cta_tile_shape_mnk[1] <= 32
+        self.direct_c_store = (
+            self.cta_tile_shape_mnk[1] <= 32
+            and os.environ.get("CAKE691_DIRECT_STORE", "0") == "1"
+        )
+        # Exploration knob: drop the C store entirely (wrong output) to bound
+        # what any epilogue-store change can gain.
+        self.skip_c_store = os.environ.get("CAKE691_SKIP_C_STORE", "0") == "1"
 
         # Setup A/B/C stage count in shared memory and ACC stage count in tensor memory
         self.num_acc_stage, self.num_ab_stage, self.num_c_stage = self._compute_stages(
@@ -1504,7 +1511,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                                     cutlass.Float32
                                 )
 
-                    if cutlass.const_expr(self.direct_c_store):
+                    if cutlass.const_expr(self.skip_c_store):
+                        pass
+                    elif cutlass.const_expr(self.direct_c_store):
                         #
                         # Narrow tile: predicated scalar global stores straight
                         # from the t2r fragment (same FP32 multiply and
