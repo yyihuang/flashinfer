@@ -8219,16 +8219,13 @@ def _cute_dsl_gemm_fp4_runner(
                 else:
                     sm_count = get_device_sm_count(a.device)
                     tactic = (
-                        (
-                            _select_sm100_mm_fp4_splitk_tactic(
-                                m, n, real_k, sm_count, out.is_contiguous()
-                            )
-                            if use_nvfp4
-                            else None
+                        _select_sm100_mm_fp4_splitk_tactic(
+                            m, n, real_k, sm_count, out.is_contiguous()
                         )
-                        or _select_sm100_mm_fp4_cute_dsl_tactic(
-                            m, n, real_k, sm_count, sf_vec_size
-                        )
+                        if use_nvfp4
+                        else None
+                    ) or _select_sm100_mm_fp4_cute_dsl_tactic(
+                        m, n, real_k, sm_count, sf_vec_size
                     )
 
             (

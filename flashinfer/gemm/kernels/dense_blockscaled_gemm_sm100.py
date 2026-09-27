@@ -44,7 +44,6 @@ from cutlass.cute.nvgpu import cpasync, tcgen05
 from .dense_blockscaled_gemm_sm100_common import _Sm100BlockScaledGemmCommon
 
 
-
 def _per_token_fragment_plan(shape, stride, token_axis):
     """Static analysis of a t2r fragment of the identity tensor over C.
 
@@ -62,7 +61,7 @@ def _per_token_fragment_plan(shape, stride, token_axis):
         if isinstance(sh, (tuple, list)):
             if not isinstance(st, (tuple, list)) or len(sh) != len(st):
                 return False
-            return all(walk(a, b) for a, b in zip(sh, st))
+            return all(walk(a, b) for a, b in zip(sh, st, strict=True))
         if not isinstance(sh, int):
             return False
         mode = getattr(st, "mode", None)
@@ -91,6 +90,7 @@ def _per_token_fragment_plan(shape, stride, token_axis):
             rem //= extent
         offsets.append(off)
     return offsets, sorted(set(offsets))
+
 
 from cutlass.cute.arch import griddepcontrol_launch_dependents, griddepcontrol_wait
 from cutlass.pipeline import PipelineTmaUmma, PipelineUmmaAsync
@@ -1484,7 +1484,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                                 coord = tTR_cC_subtile[i]
                                 token = coord[token_axis]
                                 token = cutlass.min(token, alpha_extent - 1)
-                                tTR_rAcc[i] = tTR_rAcc[i] * alpha[token].to(cutlass.Float32)
+                                tTR_rAcc[i] = tTR_rAcc[i] * alpha[token].to(
+                                    cutlass.Float32
+                                )
 
                     #
                     # Convert to C type

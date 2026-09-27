@@ -1257,7 +1257,14 @@ class NVFP4QuantizePerTokenKernel:
             h0, h1, h2, h3, h4, h5, h6, h7 = words[j]
             if cutlass.const_expr(self.is_bfloat16):
                 scale_fp8, packed64 = _quantize_nvfp4_from_h2x8_bfloat(
-                    h0, h1, h2, h3, h4, h5, h6, h7,
+                    h0,
+                    h1,
+                    h2,
+                    h3,
+                    h4,
+                    h5,
+                    h6,
+                    h7,
                     global_encode_scale,
                     self.disable_fp4_quant_fast_math,
                     self.nvfp4_4over6_config,
@@ -1265,7 +1272,14 @@ class NVFP4QuantizePerTokenKernel:
                 )
             else:
                 scale_fp8, packed64 = _quantize_nvfp4_from_h2x8_half(
-                    h0, h1, h2, h3, h4, h5, h6, h7,
+                    h0,
+                    h1,
+                    h2,
+                    h3,
+                    h4,
+                    h5,
+                    h6,
+                    h7,
                     global_encode_scale,
                     self.disable_fp4_quant_fast_math,
                     self.nvfp4_4over6_config,

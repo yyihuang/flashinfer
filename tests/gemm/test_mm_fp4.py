@@ -471,7 +471,13 @@ def test_mm_fp4_per_token_alpha_auto_misaligned_n_raises():
 # result must still track the unquantised product.
 @pytest.mark.parametrize(
     "m,n,k",
-    [(1, 1536, 4096), (8, 2048, 8192), (16, 1024, 4096), (17, 7168, 16384), (32, 4096, 16384)],
+    [
+        (1, 1536, 4096),
+        (8, 2048, 8192),
+        (16, 1024, 4096),
+        (17, 7168, 16384),
+        (32, 4096, 16384),
+    ],
 )
 @pytest.mark.parametrize("res_dtype", [torch.bfloat16, torch.float16])
 def test_mm_fp4_per_token_alpha_splitk(m, n, k, res_dtype):
@@ -532,7 +538,9 @@ def test_mm_fp4_per_token_alpha_splitk(m, n, k, res_dtype):
         use_nvfp4=True,
         skip_check=False,
     )
-    torch.testing.assert_close(out_scalar.float(), out_ref.float(), rtol=1e-2, atol=1e-2)
+    torch.testing.assert_close(
+        out_scalar.float(), out_ref.float(), rtol=1e-2, atol=1e-2
+    )
 
 
 if __name__ == "__main__":

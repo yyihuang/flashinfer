@@ -1583,7 +1583,9 @@ class Sm100BlockScaledSplitKGemmKernel(_Sm100BlockScaledGemmCommon):
                             self.per_token_alpha is not None
                             and not alpha_token_per_tile
                         ):
-                            tTR_cC_subtile = tTR_cC[(None, None, None, real_subtile_idx)]
+                            tTR_cC_subtile = tTR_cC[
+                                (None, None, None, real_subtile_idx)
+                            ]
                             if cutlass.const_expr(alpha_plan is not None):
                                 # Static token offsets: one clamped load per
                                 # distinct token per subtile.
