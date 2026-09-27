@@ -521,6 +521,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             self.tile_sched_params,
             epilogue_op,
             alpha,
+            c_tensor,
         ).launch(
             grid=grid,
             block=[self.threads_per_cta, 1, 1],
@@ -559,6 +560,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         tile_sched_params: utils.PersistentTileSchedulerParams,
         epilogue_op: cutlass.Constexpr,
         alpha: cute.Tensor,
+        mC_plain: cute.Tensor,
     ):
         """
         GPU device kernel performing the Persistent batched GEMM computation.
@@ -1511,7 +1513,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                             c_coord = tTR_cC_store[i]
                             if c_coord[0] < mC_mnl.shape[0]:
                                 if c_coord[1] < mC_mnl.shape[1]:
-                                    mC_mnl[c_coord] = epilogue_op(
+                                    mC_plain[c_coord] = epilogue_op(
                                         (alpha_value * tTR_rAcc[i]).to(self.c_dtype)
                                     )
                     else:
