@@ -747,7 +747,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         # (MMA, MMA_M, MMA_N, RestM, RestN, RestL)
         tCgC = thr_mma.partition_C(gC_mnl)
 
-        if cutlass.const_expr(self.per_token_alpha is not None):
+        if cutlass.const_expr(
+            self.per_token_alpha is not None or self.direct_c_store
+        ):
             # Identity tensor over C, partitioned like tCgC, so the epilogue can
             # recover each accumulator element's (m, n) coordinate.
             cC_mnl = cute.local_tile(
