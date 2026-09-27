@@ -30,6 +30,7 @@
 # with modifications for FlashInfer integration.
 # Original: https://github.com/NVIDIA/TensorRT-LLM
 
+import os
 from typing import Optional, Tuple, Type, Union
 
 import cuda.bindings.driver as cuda
@@ -42,6 +43,8 @@ import cutlass.utils.blockscaled_layout as blockscaled_utils
 from cutlass.cute.nvgpu import cpasync, tcgen05
 
 from .dense_blockscaled_gemm_sm100_common import _Sm100BlockScaledGemmCommon
+
+_CAKE691_TRACE_LAYOUT = os.environ.get("CAKE691_TRACE_LAYOUT") == "1"
 
 from cutlass.cute.arch import griddepcontrol_launch_dependents, griddepcontrol_wait
 from cutlass.pipeline import PipelineTmaUmma, PipelineUmmaAsync
@@ -1261,7 +1264,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                     if cutlass.const_expr(self.per_token_alpha == "m")
                     else mC_mnl.shape[1]
                 )
-                if cutlass.const_expr(os.environ.get("CAKE691_TRACE_LAYOUT") == "1"):
+                if cutlass.const_expr(_CAKE691_TRACE_LAYOUT):
                     # trace-time layout dump (debug only)
                     print("[cake691] per_token_alpha", self.per_token_alpha, "c_layout", self.c_layout)
                     print("[cake691] tiled_copy_t2r", tiled_copy_t2r)
