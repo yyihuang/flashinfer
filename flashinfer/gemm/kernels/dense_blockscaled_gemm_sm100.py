@@ -30,7 +30,6 @@
 # with modifications for FlashInfer integration.
 # Original: https://github.com/NVIDIA/TensorRT-LLM
 
-import os
 from typing import Optional, Tuple, Type, Union
 
 import cuda.bindings.driver as cuda
@@ -44,13 +43,6 @@ from cutlass.cute.nvgpu import cpasync, tcgen05
 
 from .dense_blockscaled_gemm_sm100_common import _Sm100BlockScaledGemmCommon
 
-_CAKE691_TRACE_LAYOUT = os.environ.get("CAKE691_TRACE_LAYOUT") == "1"
-# exploration knob: MMA instructions per K block (4 -> 256-element FP4 K tile)
-_CAKE691_MMA_INST_TILE_K = int(os.environ.get("CAKE691_MMA_INST_TILE_K", "4"))
-# exploration knob: L2 prefetch distance = num_ab_stage * mult
-_CAKE691_PREFETCH_MULT = int(os.environ.get("CAKE691_PREFETCH_MULT", "1"))
-# exploration knob: CTAs per SM (2 -> half the smem stages, 256 TMEM columns, 2x persistent grid)
-_CAKE691_OCCUPANCY = int(os.environ.get("CAKE691_OCCUPANCY", "1"))
 
 
 def _per_token_fragment_plan(shape, stride, token_axis):
@@ -180,7 +172,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             tcgen05.CtaGroup.TWO if self.use_2cta_instrs else tcgen05.CtaGroup.ONE
         )
 
-        self.occupancy = _CAKE691_OCCUPANCY
+        self.occupancy = 1
         # Set specialized warp ids
         self.epilog_warp_id = (
             0,
@@ -209,7 +201,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
         self.smem_capacity = utils.get_smem_capacity_in_bytes("sm_100")
         SM100_TMEM_CAPACITY_COLUMNS = 512
-        self.num_tmem_alloc_cols = SM100_TMEM_CAPACITY_COLUMNS // self.occupancy
+        self.num_tmem_alloc_cols = SM100_TMEM_CAPACITY_COLUMNS
 
     def _setup_attributes(self):
         """Set up configurations that are dependent on GEMM inputs
@@ -263,7 +255,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
 
         # Compute mma/cluster/tile shapes
-        mma_inst_tile_k = _CAKE691_MMA_INST_TILE_K
+        mma_inst_tile_k = 4
         self.mma_tiler = (
             self.mma_inst_shape_mnk[0],
             self.mma_inst_shape_mnk[1],
@@ -384,7 +376,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         )
 
         # TODO: [alel] Currently set prefetch dist to num_ab_stage, we may have more options for prefetch dist auto tuning
-        self.prefetch_dist = self.num_ab_stage * _CAKE691_PREFETCH_MULT
+        self.prefetch_dist = self.num_ab_stage
 
     @cute.jit
     def __call__(
@@ -445,7 +437,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             c_tensor,
             self.cta_tile_shape_mnk,
             self.cluster_shape_mn,
-            max_active_clusters * self.occupancy,
+            max_active_clusters,
         )
 
         self.buffer_align_bytes = 1024
@@ -528,7 +520,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             block=[self.threads_per_cta, 1, 1],
             cluster=(*self.cluster_shape_mn, 1),
             smem=self.shared_storage.size_in_bytes(),  # type: ignore[attr-defined]
-            min_blocks_per_mp=self.occupancy,
+            min_blocks_per_mp=1,
             stream=stream,
             use_pdl=self.enable_pdl,
         )
@@ -1336,13 +1328,6 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
                     and _subtile_plan is not None
                     and _subtile_plan[1] == [0]
                 )
-                if cutlass.const_expr(_CAKE691_TRACE_LAYOUT):
-                    # trace-time layout dump (debug only)
-                    print("[cake691] per_token_alpha", self.per_token_alpha, "c_layout", self.c_layout)
-                    print("[cake691] tTR_rAcc.layout", tTR_rAcc.layout)
-                    print("[cake691] tTR_cC_partitioned.layout", tTR_cC_partitioned.layout)
-                    print("[cake691] epi_tile", epi_tile, "cta_tile", self.cta_tile_shape_mnk)
-                    print("[cake691] plan", alpha_plan and alpha_plan[1], "subtile", _subtile_plan and _subtile_plan[1], "per_tile", alpha_token_per_tile)
 
             tTR_rC = cute.make_rmem_tensor(tTR_rAcc.shape, self.c_dtype)
             tiled_copy_r2s, tRS_rC, tRS_sC = self.epilog_smem_copy_and_partition(
