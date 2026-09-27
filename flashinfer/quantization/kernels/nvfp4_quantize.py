@@ -847,6 +847,31 @@ _PER_TOKEN_MAX_THREADS = 512
 # 8 x 32-bit words per 16-element block kept in registers between the amax
 # pass and the quantisation pass; 8 blocks = 64 registers of row data.
 _PER_TOKEN_MAX_REG_BLOCKS = 8
+# Up to this many rows the launch is latency-bound (few CTAs per SM) and a
+# wide CTA that streams the whole row in one pass wins; above it the kernel
+# is throughput-bound and narrow CTAs with more blocks per thread win.
+_PER_TOKEN_WIDE_MAX_M = 4096
+
+
+def _per_token_cta_threads(k: int, m: int) -> int:
+    """CTA width of the per-token kernel for a row of ``k`` elements at ``m`` rows."""
+    env = os.environ.get("FLASHINFER_NVFP4_PER_TOKEN_THREADS")
+    if env:
+        return int(env)
+    num_blocks = k // NVFP4_SF_VEC_SIZE
+    if m <= _PER_TOKEN_WIDE_MAX_M:
+        threads = _PER_TOKEN_THREADS
+        while threads < _PER_TOKEN_MAX_THREADS and threads < num_blocks:
+            threads *= 2
+        return threads
+    # narrow: the smallest width that still keeps the row in registers
+    threads = _PER_TOKEN_THREADS
+    while (
+        threads < _PER_TOKEN_MAX_THREADS
+        and (num_blocks + threads - 1) // threads > _PER_TOKEN_MAX_REG_BLOCKS
+    ):
+        threads *= 2
+    return threads
 
 
 class NVFP4QuantizePerTokenKernel:
@@ -870,6 +895,7 @@ class NVFP4QuantizePerTokenKernel:
         disable_fp4_quant_fast_math: bool = False,
         nvfp4_4over6_config: NVFP44Over6Config | None = None,
         fold_out_scale: bool = False,
+        threads: int | None = None,
     ):
         self.dtype = dtype
         self.K = K
@@ -891,11 +917,11 @@ class NVFP4QuantizePerTokenKernel:
             self.padded_sf_cols = self.num_sf_blocks_per_row
         else:
             self.padded_sf_cols = ((self.num_sf_blocks_per_row + 3) // 4) * 4
-        # CTA width: one thread per 16-element block up to 512 threads, at
-        # least 128 so the padding-row/SF-column loops keep their stride.
-        threads = _PER_TOKEN_THREADS
-        while threads < _PER_TOKEN_MAX_THREADS and threads < self.num_sf_blocks_per_row:
-            threads *= 2
+        # CTA width (128..512): chosen by the host from K and M, see
+        # _per_token_cta_threads; the default is the latency-bound choice.
+        if threads is None:
+            threads = _per_token_cta_threads(K, 1)
+        assert threads in (128, 256, 512), threads
         self.threads = threads
         self.warps = threads // WARP_SIZE
         self.blocks_per_thread = (self.num_sf_blocks_per_row + threads - 1) // threads
@@ -1815,6 +1841,7 @@ def _nvfp4_kernel_name(
     smooth_quant: bool = False,
     pair_fp8_blocks: bool = False,
     fold_out_scale: bool = False,
+    threads: int | None = None,
 ) -> str:
     """Specialization name within the nvfp4_quantize module, encoding every
     parameter that affects codegen.
@@ -1836,6 +1863,8 @@ def _nvfp4_kernel_name(
         name += f"_4over6_{cfg.e4m3_max}_{err_mode}_{int(cfg.err_use_fast_math)}"
     if fold_out_scale:
         name += "_folded"
+    if threads is not None:
+        name += f"_t{threads}"
     return name
 
 
@@ -2269,6 +2298,7 @@ def _get_compiled_kernel_nvfp4_per_token(
     disable_fp4_quant_fast_math: bool = False,
     nvfp4_4over6_config: NVFP44Over6Config | None = None,
     fold_out_scale: bool = False,
+    threads: int | None = None,
 ) -> Callable:
     _dtype_map = {
         "float16": cutlass.Float16,
@@ -2307,6 +2337,7 @@ def _get_compiled_kernel_nvfp4_per_token(
         disable_fp4_quant_fast_math=disable_fp4_quant_fast_math,
         nvfp4_4over6_config=nvfp4_4over6_config,
         fold_out_scale=fold_out_scale,
+        threads=threads,
     )
 
     return build_and_load_cute_dsl_kernel(
@@ -2321,6 +2352,7 @@ def _get_compiled_kernel_nvfp4_per_token(
             silu_and_mul=False,
             nvfp4_4over6_config=nvfp4_4over6_config,
             fold_out_scale=fold_out_scale,
+            threads=threads,
         ),
         lambda: cute.compile(
             kernel_obj,
@@ -3122,6 +3154,7 @@ def nvfp4_quantize_per_token_cute_dsl(
         disable_fp4_quant_fast_math,
         nvfp4_4over6_config,
         fold_out_scale,
+        _per_token_cta_threads(k, m),
     )
 
     fp4_output = torch.empty(m, k // 2, dtype=torch.uint8, device=input.device)
