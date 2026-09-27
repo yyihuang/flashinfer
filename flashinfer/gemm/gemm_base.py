@@ -7834,6 +7834,15 @@ _SM100_SPLITK_KERNEL_TYPE = "sm100sk"
 _SM100_DEEP_K_INST = 8
 
 
+def _cake691_l2_policy2_kwargs(mma_tiler_mn, weight_l2_policy):
+    """Exploration knob (CAKE-691 round 8b, not for the PR): CAKE691_L2POLICY2 in
+    {a_el, b_el, a_el_b_el} pins operands of the many-token-tile no-swap rows."""
+    v = os.environ.get("CAKE691_L2POLICY2", "")
+    if not v or mma_tiler_mn[1] <= 32 or weight_l2_policy is not None:
+        return {}
+    return {"a_l2_evict_last": "a_el" in v, "b_l2_evict_last": "b_el" in v}
+
+
 _SM100_DEEP_K_TILE = 512
 _SM100_DEEP_K_MIN_TILES = 128
 
@@ -8394,6 +8403,7 @@ def _cute_dsl_gemm_fp4_runner(
                     mma_inst_tile_k=deep_k_inst,
                     a_l2_evict_first=weight_l2_policy == "a",
                     b_l2_evict_first=weight_l2_policy == "b",
+                    **_cake691_l2_policy2_kwargs(mma_tiler_mn, weight_l2_policy),
                 )
 
             compiled_gemm, _ = _compile_block_scaled_gemm(

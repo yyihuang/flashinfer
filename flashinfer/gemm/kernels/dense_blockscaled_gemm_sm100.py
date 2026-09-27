@@ -164,6 +164,7 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         a_l2_evict_first: bool = False,
         b_l2_evict_last: bool = False,
         b_l2_evict_first: bool = False,
+        a_l2_evict_last: bool = False,
     ):
         """Initializes the configuration for a Blackwell dense GEMM kernel.
 
@@ -203,6 +204,9 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
         self.mma_inst_tile_k = mma_inst_tile_k
         if b_l2_evict_first and b_l2_evict_last:
             raise ValueError("b_l2_evict_first and b_l2_evict_last are exclusive")
+        if a_l2_evict_first and a_l2_evict_last:
+            raise ValueError("a_l2_evict_first and a_l2_evict_last are exclusive")
+        self.a_l2_evict_last = a_l2_evict_last
         self.a_l2_evict_first = a_l2_evict_first
         self.b_l2_evict_last = b_l2_evict_last
         self.b_l2_evict_first = b_l2_evict_first
@@ -935,6 +939,8 @@ class Sm100BlockScaledPersistentDenseGemmKernel(_Sm100BlockScaledGemmCommon):
             b_cache_policy = None
             if cutlass.const_expr(self.a_l2_evict_first):
                 a_cache_policy = _l2_cache_policy("evict_first")
+            if cutlass.const_expr(self.a_l2_evict_last):
+                a_cache_policy = _l2_cache_policy("evict_last")
             if cutlass.const_expr(self.b_l2_evict_last):
                 b_cache_policy = _l2_cache_policy("evict_last")
             if cutlass.const_expr(self.b_l2_evict_first):
