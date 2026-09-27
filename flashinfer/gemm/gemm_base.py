@@ -7822,6 +7822,10 @@ def _cutedsl_low_latency_blockscaled_gemm_runner(
 #            kernel_type, use_tma_store, enable_pdl, out_dtype).
 _CUTE_DSL_MM_FP4_KERNEL_CACHE: dict[tuple, tuple] = {}
 
+# kernel_type of the low-M cluster split-K tactics of mm_fp4(backend="cute-dsl");
+# their use_tma_store slot carries the K-slice count (2 or 4).
+_SM100_SPLITK_KERNEL_TYPE = "sm100sk"
+
 
 def _cute_dsl_gemm_fp4_runner(
     sm_major: int,
@@ -7842,6 +7846,9 @@ def _cute_dsl_gemm_fp4_runner(
 
     from .kernels.dense_blockscaled_gemm_sm100 import (
         Sm100BlockScaledPersistentDenseGemmKernel,
+    )
+    from .kernels.dense_blockscaled_gemm_sm100_splitk import (
+        Sm100BlockScaledSplitKGemmKernel as _SplitKKernel,
     )
 
     sm_version = sm_major * 10 + sm_minor
@@ -7931,6 +7938,26 @@ def _cute_dsl_gemm_fp4_runner(
                 sm100_base = [t for t in sm100_base if t[0] in allowed_tiles and t[2]]
 
             valid_tactics = [(*t, "sm100", None) for t in sm100_base]
+
+            # Low-M cluster split-K (swap_ab only; the use_tma_store slot
+            # carries the K-slice count). Its epilogue applies the per-token
+            # alpha after the FP32 cluster reduction, so it stays valid for
+            # per-token alpha.
+            if out.is_contiguous() and _SplitKKernel.supports_m(m):
+                for split_k_slices in _SplitKKernel.SUPPORTED_SPLIT_K_SLICES:
+                    if _SplitKKernel.is_valid_tactic(
+                        m, real_k, ab_dtype, split_k_slices
+                    ):
+                        valid_tactics.append(
+                            (
+                                _SplitKKernel.mma_tiler_mn_for_m(m),
+                                (1, 1),
+                                True,
+                                False,
+                                _SM100_SPLITK_KERNEL_TYPE,
+                                split_k_slices,
+                            )
+                        )
 
             # Shared by the SM103 and SM107 tactic blocks below. Hoisted out of
             # the SM103 block: the two blocks have independent guards (the SM103
@@ -8077,7 +8104,11 @@ def _cute_dsl_gemm_fp4_runner(
                 # Only the SM100 kernel has the per-row alpha epilogue. The
                 # SM103/SM107 tactics would each raise in forward() and cost the
                 # tuner a profiling pass for a tactic that can never win.
-                valid_tactics = [t for t in valid_tactics if t[4] == "sm100"]
+                valid_tactics = [
+                    t
+                    for t in valid_tactics
+                    if t[4] in ("sm100", _SM100_SPLITK_KERNEL_TYPE)
+                ]
 
             # Rank individual tactics so the limit is an actual benchmark
             # budget. Group-counting with ``max_tactics // 2`` only produced
@@ -8185,8 +8216,29 @@ def _cute_dsl_gemm_fp4_runner(
                 sf_vec_size, tactic, enable_pdl, out_dtype, alpha_mode
             )
 
+            split_k_slices = 1
             make_kernel: Callable
-            if kernel_type == "sm107" and Sm107Kernel is not None:
+            if kernel_type == _SM100_SPLITK_KERNEL_TYPE:
+                split_k_slices = int(use_tma_store)
+                if (
+                    cluster_shape_mn != (1, 1)
+                    or not swap_ab
+                    or use_prefetch
+                    or not out.is_contiguous()
+                    or not _SplitKKernel.is_valid_tactic(
+                        m, real_k, cutlass.Float4E2M1FN, split_k_slices
+                    )
+                    or mma_tiler_mn != _SplitKKernel.mma_tiler_mn_for_m(m)
+                ):
+                    raise ValueError(f"Invalid FP4 split-K tactic: {tactic}")
+                make_kernel = lambda: _SplitKKernel(
+                    sf_vec_size,
+                    mma_tiler_mn,
+                    split_k_slices,
+                    enable_pdl,
+                    alpha_mode,
+                )
+            elif kernel_type == "sm107" and Sm107Kernel is not None:
                 if alpha_mode is not None:
                     raise ValueError(
                         "The SM107 FP4 CuTe-DSL kernel has no per-token alpha epilogue."
@@ -8236,6 +8288,7 @@ def _cute_dsl_gemm_fp4_runner(
                 sf_n=sf_n,
                 sf_k=sf_k,
                 batch_size=batch_size,
+                cluster_shape_k=split_k_slices,
                 cache_module_name="mm_fp4",
                 device_index=get_device_index(a.device),
                 per_token_alpha=alpha_mode,
