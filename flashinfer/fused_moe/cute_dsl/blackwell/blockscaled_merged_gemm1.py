@@ -47,6 +47,8 @@ after the acquire (the phase can only complete once the window's bytes
 landed as well).
 """
 
+import os
+import sys
 from typing import Optional, Tuple, Type
 
 import cuda.bindings.driver as cuda
@@ -403,6 +405,29 @@ class Sm100MergedGemm1Kernel:
         self.tiled_mma_sfb_d = tiled_mma_sfb_d
         self.tiled_mma_w = tiled_mma_w
         self.tiled_mma_sfb_w = tiled_mma_sfb_w
+        if os.environ.get("MERGED_DEBUG"):
+            print(
+                "[merged] stages ab=%d c=%d stage_bytes=%d (rows %d wts %d sf_rows %d "
+                "sf_wts %d) epi_bytes=%d window_epi=%d tmem acc=%d sf_d=%d sf_w=%d "
+                "early_release=%d"
+                % (
+                    self.num_ab_stage,
+                    self.num_c_stage,
+                    self.stage_bytes,
+                    self.rows_bytes,
+                    self.wts_bytes,
+                    self.sf_rows_bytes,
+                    self.sf_wts_bytes,
+                    self.epi_bytes,
+                    self.window_epilogue_bytes(),
+                    self.num_accumulator_tmem_cols_d,
+                    self.num_sf_tmem_cols_d,
+                    self.num_sf_tmem_cols_w,
+                    self.iter_acc_early_release_in_epilogue,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
 
     def window_epilogue_bytes(self) -> int:
         """Fragment exchange (32 x 64 threads F32) + e4m3 [tok][j] staging
