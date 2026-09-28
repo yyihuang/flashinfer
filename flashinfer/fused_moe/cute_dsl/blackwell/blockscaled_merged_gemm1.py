@@ -786,7 +786,7 @@ class Sm100MergedGemm1Kernel:
         a_copy_size_w = cute.size_in_bytes(self.w_dtype, a_smem_layout_w)
         sfa_copy_size_w = cute.size_in_bytes(self.sf_dtype, sfa_smem_layout_w)
         self.num_tma_load_bytes_w = (a_copy_size_w + sfa_copy_size_w) * self.cta_v
-        if self.num_tma_load_bytes_w > self.num_tma_load_bytes_d:
+        if cutlass.const_expr(self.num_tma_load_bytes_w > self.num_tma_load_bytes_d):
             raise ValueError("the window weight stage must not exceed the dense one")
         self.tma_tx_delta = self.num_tma_load_bytes_d - self.num_tma_load_bytes_w
 
@@ -845,7 +845,9 @@ class Sm100MergedGemm1Kernel:
             ]
 
         self.shared_storage = SharedStorage
-        if SharedStorage.size_in_bytes() > self.num_smem_capacity:  # type: ignore[attr-defined]
+        if cutlass.const_expr(
+            SharedStorage.size_in_bytes() > self.num_smem_capacity  # type: ignore[attr-defined]
+        ):
             raise ValueError(
                 f"merged GEMM1 shared storage {SharedStorage.size_in_bytes()} B exceeds "  # type: ignore[attr-defined]
                 f"{self.num_smem_capacity} B (stages {num_ab_stage})"
