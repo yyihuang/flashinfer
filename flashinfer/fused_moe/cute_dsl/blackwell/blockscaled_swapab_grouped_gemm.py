@@ -94,6 +94,7 @@ from .utils import (
     mbarrier_arrive_cluster,
     griddepcontrol_launch_dependents,
     griddepcontrol_wait,
+    thread_exit,
     native_situ_f32,
     native_tanh_f32,
     sigmoid_f32,
@@ -141,6 +142,7 @@ class Sm100BlockScaledSwapAbGroupedGemmKernel:
         remainder_split: bool = False,
         cluster_split: bool = False,
         two_cta: bool = False,
+        exit_when_empty: bool = False,
     ):
         if epilogue_kind not in EPILOGUE_KINDS:
             raise ValueError(f"unknown epilogue_kind {epilogue_kind!r}")
@@ -203,6 +205,11 @@ class Sm100BlockScaledSwapAbGroupedGemmKernel:
         # predecessor to trigger no earlier than after its own dependency wait
         # (``pdl_trigger_after_wait`` on it).
         self.late_dep_wait = bool(late_dep_wait)
+        # Empty work list (the routing emitted no 192-row windows for this
+        # launch): every thread waits on the dependency and exits before the
+        # shared-memory, barrier and TMEM setup, so the dead persistent grid
+        # does not hold the SMs the live dense GEMM of the same phase needs.
+        self.exit_when_empty = bool(exit_when_empty)
         # Device-side adaptive split-K (finalize epilogue only: its
         # ``red.global.add`` output makes K partials additive). Work items are
         # (m_chunk * split_k + split, row_group); the scheduler warp publishes
@@ -1164,6 +1171,10 @@ class Sm100BlockScaledSwapAbGroupedGemmKernel:
         warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
         if cutlass.const_expr(self.pdl_trigger_early):
             griddepcontrol_launch_dependents()
+        if cutlass.const_expr(self.exit_when_empty):
+            griddepcontrol_wait()
+            if num_non_exiting_tiles[0] == 0:
+                thread_exit()
         n_tile = self.n_tile
         hold_meta = self.hold_meta
 

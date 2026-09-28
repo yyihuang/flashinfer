@@ -563,6 +563,7 @@ def _get_compiled_swapab_kernel(
     cluster_split: bool = False,
     remainder_split: bool = False,
     two_cta: bool = False,
+    exit_when_empty: bool = False,
 ):
     import os
     import sys
@@ -612,6 +613,7 @@ def _get_compiled_swapab_kernel(
         cluster_split,
         remainder_split,
         two_cta,
+        exit_when_empty,
     )
     if key not in _swapab_kernel_cache:
         if os.environ.get("SWAPAB_DEBUG"):
@@ -646,6 +648,7 @@ def _get_compiled_swapab_kernel(
             cluster_split=cluster_split,
             remainder_split=remainder_split,
             two_cta=two_cta,
+            exit_when_empty=exit_when_empty,
         )
         _swapab_kernel_cache[key] = cute.compile(
             kernel.wrapper,
@@ -694,6 +697,7 @@ def swapab_gemm1_situ(
     pdl_trigger_after_wait: bool = False,
     cluster_split_k: bool = False,
     two_cta: Optional[bool] = None,
+    exit_when_empty: bool = False,
 ) -> None:
     """GEMM1 (up/gate) + SiTU + MXFP8 requantization on the swap path.
 
@@ -827,6 +831,7 @@ def swapab_gemm1_situ(
         cluster_split=cluster_split,
         remainder_split=bool(SWAP_REMAINDER_SPLIT) and cluster_split,
         two_cta=two_cta,
+        exit_when_empty=exit_when_empty,
     )
     if _prepared_launches is not None:
         _prepared_launches["swap_gemm1"] = (compiled, args)
@@ -863,6 +868,7 @@ def swapab_gemm2(
     pdl_trigger_after_wait: bool = False,
     split_k: int = 1,
     two_cta: Optional[bool] = None,
+    exit_when_empty: bool = False,
 ) -> None:
     """GEMM2 (down) on the swap path.
 
@@ -992,6 +998,7 @@ def swapab_gemm2(
         split_k=split_k,
         split_max_items=split_max_items,
         two_cta=two_cta,
+        exit_when_empty=exit_when_empty,
     )
     if _prepared_launches is not None:
         _prepared_launches["swap_gemm2"] = (compiled, args)

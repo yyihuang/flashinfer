@@ -159,6 +159,25 @@ def native_situ_f32(
 
 
 @dsl_user_op
+def thread_exit(loc=None, ip=None):
+    """PTX ``exit``: the calling thread terminates. Issued by every thread
+    of a grid whose routing-emitted work list is empty, before any shared
+    memory, barrier or TMEM allocation, so a dead persistent launch frees
+    its SMs for the live grid it would otherwise displace."""
+    llvm.inline_asm(
+        None,
+        [],
+        "exit;",
+        "",
+        has_side_effects=True,
+        is_align_stack=False,
+        asm_dialect=llvm.AsmDialect.AD_ATT,
+        loc=loc,
+        ip=ip,
+    )
+
+
+@dsl_user_op
 def blk_copy(dst_gemm, src_smem, size, loc=None, ip=None):
     llvm.inline_asm(
         None,

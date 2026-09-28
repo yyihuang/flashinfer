@@ -447,6 +447,13 @@ DENSE_DUAL_TILE_THRESHOLD_PERMILLE = int(
 # "0" = keep the zero-fill in the main stream everywhere.
 DENSE_ASYNC_MEMSET = os.environ.get("MXFP4_DENSE_ASYNC_MEMSET", "ep")
 
+# Round 29: the window chain's swap GEMM1 / GEMM2 exit at kernel entry when
+# the routing emitted no 192-row windows (PTX ``exit`` after the dependency
+# wait, before any shared-memory / barrier / TMEM setup), so a dead
+# persistent grid does not hold the SMs of the live dense GEMM it overlaps
+# (the rank's ``empty`` routings: single expert, no windows).
+SWAP_WIDE192_EXIT_EMPTY = os.environ.get("MXFP4_SWAP192_EXIT_EMPTY", "0") == "1"
+
 
 def _dense_async_memset(num_experts: int, num_local_experts: int) -> bool:
     if DENSE_ASYNC_MEMSET == "1":
@@ -1438,6 +1445,7 @@ class Mxfp4MoESwapAbPlan:
                 pdl_trigger_after_wait=pdl and self._dep_prefetch,
                 weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
                 _prepared_launches=launches,
+                exit_when_empty=bool(self.mixed192 and SWAP_WIDE192_EXIT_EMPTY),
                 # Every rank: a rank with remote experts sees single-group
                 # launches (the single-wave split) and, with the remainder-only
                 # split, the all-local shard's multi-wave decode launches split
@@ -1980,6 +1988,7 @@ class Mxfp4MoESwapAbPlan:
                 _prepared_launches=launches,
                 m_group=gemm2_m_group,
                 late_dep_wait=self._pdl and self._dep_prefetch,
+                exit_when_empty=bool(self.mixed192 and SWAP_WIDE192_EXIT_EMPTY),
                 split_k=(
                     SWAP_GEMM2_SPLIT_K
                     if (self._dep_prefetch and not self.wide192)
