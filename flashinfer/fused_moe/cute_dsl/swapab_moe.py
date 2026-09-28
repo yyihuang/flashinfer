@@ -24,6 +24,7 @@ import torch
 
 from flashinfer.cute_dsl.utils import get_max_active_clusters, make_ptr
 
+from .blackwell.blockscaled_merged_gemm1 import Sm100MergedGemm1Kernel
 from .blackwell.blockscaled_swapab_grouped_gemm import (
     Sm100BlockScaledSwapAbGroupedGemmKernel,
 )
@@ -835,6 +836,183 @@ def swapab_gemm1_situ(
     )
     if _prepared_launches is not None:
         _prepared_launches["swap_gemm1"] = (compiled, args)
+    compiled(*args, stream=stream)
+
+
+# Round 31: merged persistent GEMM1 (dense 2-CTA M256 x N256 tiles of the
+# alternate padding, then the 192-row swap-AB windows, in one launch).
+MERGED_TILE_STAGES = int(os.environ.get("MERGED_TILE_STAGES", "4"))
+MERGED_EXCH_BUFS = int(os.environ.get("MERGED_EXCH_BUFS", "1"))
+_merged_kernel_cache: Dict[Tuple, Any] = {}
+
+
+def merged_gemm1_situ(
+    *,
+    w1: torch.Tensor,
+    w1_sf: torch.Tensor,
+    x: torch.Tensor,
+    x_sf: torch.Tensor,
+    permuted_idx_to_expanded_idx: torch.Tensor,
+    act: torch.Tensor,
+    act_sf: torch.Tensor,
+    alt_tile_idx_to_expert_idx: torch.Tensor,
+    alt_tile_idx_to_mn_limit: torch.Tensor,
+    alt_wide_list: torch.Tensor,
+    alt_wide_count: torch.Tensor,
+    win_tile_idx_to_expert_idx: torch.Tensor,
+    win_tile_idx_to_mn_limit: torch.Tensor,
+    win_row_groups: torch.Tensor,
+    win_row_group_count: torch.Tensor,
+    alpha: torch.Tensor,
+    beta: torch.Tensor,
+    linear_beta: Optional[torch.Tensor],
+    top_k: int,
+    enable_pdl: bool = False,
+    dense_weight_l2_hint: Optional[int] = None,
+    window_weight_l2_hint: Optional[int] = None,
+    zero_fill_output: Optional[torch.Tensor] = None,
+    zero_fill_counters: Optional[torch.Tensor] = None,
+    zero_fill_other_tiles: Optional[torch.Tensor] = None,
+    zero_fill_secondary: bool = True,
+    pdl_trigger_early: bool = False,
+    group_rows: int = 128,
+    row_unit: int = 64,
+    _prepared_launches: Optional[Dict[str, Any]] = None,
+) -> None:
+    """GEMM1 (up/gate) + SiTU + MXFP8 requantization: the alternate padding's
+    dense 2-CTA M256 x N256 tiles (``alt_*``: 256-row group tables, work list
+    and count) followed by the 192-row swap-AB windows (``win_*``: 128-row
+    group tables, 64-row-unit window list and count) in ONE persistent
+    launch. Bit-identical to the dense gather GEMM1 over ``alt_wide_list``
+    plus ``swapab_gemm1_situ`` (n_tile 192, two_cta, sf_blocked).
+
+    ``w1`` is the prepared ``[L, 2I, H/2]`` interleaved weight (its tile-major
+    copy is cached by :func:`tile_major_weights`), ``x`` the unpermuted
+    ``[T, H]`` E4M3 activations with plain ``[T, H/32]`` UE8M0 scales, ``act``
+    the ``[R, I]`` E4M3 output with block-scaled ``act_sf``. ``zero_fill_*``
+    follow the dense gather GEMM1's alternate-launch semantics (fills when it
+    has tiles and the base launch has none).
+    """
+    num_local_experts, rows_w, packed_k = w1.shape
+    k = packed_k * 2
+    num_tokens = x.shape[0]
+    rows = act.shape[0]
+    intermediate = rows_w // 2
+    if rows_w % 256 or k % 128 or rows % 128 or intermediate % 128:
+        raise ValueError(
+            "merged GEMM1 needs 2I % 256 == 0, H % 128 == 0, R % 128 == 0, I % 128 == 0"
+        )
+    if x.shape[1] != k or x_sf.shape != (num_tokens, k // 32):
+        raise ValueError("x must be [T, H] with x_sf [T, H/32]")
+    if act.shape != (rows, intermediate) or act_sf.shape != (rows, intermediate // 32):
+        raise ValueError(
+            f"act must be [{rows}, {intermediate}] with act_sf [{rows}, {intermediate // 32}]"
+        )
+    if permuted_idx_to_expanded_idx.shape[0] < rows:
+        raise ValueError("permuted_idx_to_expanded_idx must cover every output row")
+    zero_fill = zero_fill_output is not None
+    zero_fill_num_words = 0
+    if zero_fill:
+        if (
+            zero_fill_output.dtype not in (torch.bfloat16, torch.float16)
+            or zero_fill_output.dim() != 2
+            or not zero_fill_output.is_contiguous()
+            or zero_fill_output.shape[1] % 8
+            or zero_fill_output.data_ptr() % 16
+            or zero_fill_counters is None
+            or zero_fill_other_tiles is None
+        ):
+            raise ValueError(
+                "zero_fill_output must be a contiguous 16-bit 2-D tensor with "
+                "16-byte rows, with zero_fill_counters and zero_fill_other_tiles"
+            )
+        zero_fill_num_words = zero_fill_output.numel() // 2
+    stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
+    max_active_clusters = get_max_active_clusters(2)
+    use_linear_beta = linear_beta is not None
+    beta_stride = int(beta.numel() != 1)
+    linear_beta_stride = int(linear_beta.numel() != 1) if use_linear_beta else 0
+    window_hint = _resolve_weight_l2_hint(window_weight_l2_hint)
+    args = (
+        _gmem_ptr(cutlass.Float8E4M3FN, x, 16),
+        _gmem_ptr(cutlass.Float8E8M0FNU, x_sf, 4),
+        _gmem_ptr(cutlass.Float4E2M1FN, w1, 32),
+        _gmem_ptr(cutlass.Float4E2M1FN, tile_major_weights(w1), 32),
+        _gmem_ptr(cutlass.Float8E8M0FNU, w1_sf, 16),
+        _gmem_ptr(cutlass.Float8E4M3FN, act, 32),
+        _gmem_ptr(cutlass.Uint8, act_sf, 16),
+        _gmem_ptr(cutlass.Float32, alpha, 4),
+        _gmem_ptr(cutlass.Float32, beta, 4),
+        _gmem_ptr(cutlass.Float32, linear_beta, 4),
+        _gmem_ptr(cutlass.Int32, alt_tile_idx_to_expert_idx, 4),
+        _gmem_ptr(cutlass.Int32, alt_tile_idx_to_mn_limit, 4),
+        _gmem_ptr(cutlass.Int32, alt_wide_list, 4),
+        _gmem_ptr(cutlass.Int32, alt_wide_count, 4),
+        _gmem_ptr(cutlass.Int32, win_tile_idx_to_expert_idx, 4),
+        _gmem_ptr(cutlass.Int32, win_tile_idx_to_mn_limit, 4),
+        _gmem_ptr(cutlass.Int32, win_row_groups, 4),
+        _gmem_ptr(cutlass.Int32, win_row_group_count, 4),
+        _gmem_ptr(cutlass.Int32, permuted_idx_to_expanded_idx, 4),
+        _gmem_ptr(cutlass.Uint32, zero_fill_output, 16),
+        _gmem_ptr(cutlass.Int32, zero_fill_counters, 4),
+        _gmem_ptr(cutlass.Int32, zero_fill_other_tiles, 4),
+        num_tokens,
+        k,
+        num_local_experts,
+        rows_w,
+        rows,
+        alt_tile_idx_to_expert_idx.shape[0],
+        alt_wide_list.shape[0],
+        win_tile_idx_to_expert_idx.shape[0],
+        win_row_groups.shape[0],
+        zero_fill_num_words,
+    )
+    key = (
+        top_k,
+        bool(enable_pdl),
+        use_linear_beta,
+        beta_stride,
+        linear_beta_stride,
+        dense_weight_l2_hint,
+        window_hint,
+        zero_fill,
+        bool(zero_fill_secondary),
+        bool(pdl_trigger_early),
+        MERGED_TILE_STAGES,
+        MERGED_EXCH_BUFS,
+        group_rows,
+        row_unit,
+    )
+    if key not in _merged_kernel_cache:
+        if os.environ.get("SWAPAB_DEBUG"):
+            print(f"[merged] compile {key}", file=sys.stderr, flush=True)
+        kernel = Sm100MergedGemm1Kernel(
+            topk=top_k,
+            enable_pdl=enable_pdl,
+            use_linear_beta=use_linear_beta,
+            dense_weight_l2_hint=dense_weight_l2_hint,
+            window_weight_l2_hint=window_hint,
+            zero_fill=zero_fill,
+            zero_fill_secondary=zero_fill_secondary,
+            pdl_trigger_early=pdl_trigger_early,
+            num_tile_stages=MERGED_TILE_STAGES,
+            window_exch_bufs=MERGED_EXCH_BUFS,
+            group_rows=group_rows,
+            row_unit=row_unit,
+        )
+        _merged_kernel_cache[key] = cute.compile(
+            kernel.wrapper,
+            *args,
+            beta_stride=beta_stride,
+            linear_beta_stride=linear_beta_stride,
+            max_active_clusters=max_active_clusters,
+            stream=stream,
+        )
+        if os.environ.get("SWAPAB_DEBUG"):
+            print(f"[merged] compiled {key}", file=sys.stderr, flush=True)
+    compiled = _merged_kernel_cache[key]
+    if _prepared_launches is not None:
+        _prepared_launches["merged_gemm1"] = (compiled, args)
     compiled(*args, stream=stream)
 
 

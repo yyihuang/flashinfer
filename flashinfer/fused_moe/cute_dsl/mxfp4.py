@@ -54,6 +54,7 @@ from .swapab_moe import (
     swap_two_cta,
     swapab_dispatch,
     swapab_dispatch_mixed,
+    merged_gemm1_situ,
     swapab_gemm1_situ,
     swapab_gemm2,
 )
@@ -315,6 +316,11 @@ SWAP_WIDE192_MIN_ROWS = int(os.environ.get("MXFP4_SWAP192_MIN_ROWS", "1024"))
 SWAP_WIDE192_DENSE_FIRST_MIN_TOKENS = int(
     os.environ.get("MXFP4_SWAP192_DENSE_FIRST_MIN_TOKENS", "16384")
 )
+# Round 31 (opt-in): the win layout's alternate-padding dense GEMM1 (2-CTA
+# M256 x N256 tiles) and the 192-row swap GEMM1 windows run as ONE persistent
+# launch on the caller's stream (``MXFP4_SWAP192_MERGED_GEMM1=1``); the base
+# dense GEMM1 and the swap GEMM2 keep their launches. Bit-identical outputs.
+SWAP_WIDE192_MERGED_GEMM1 = os.environ.get("MXFP4_SWAP192_MERGED_GEMM1", "0") == "1"
 # Mixed form: weight M-tiles per swap-GEMM2 work item. Measured on B300 (TP8
 # T=256/1024 balanced): with the 128-row groups the GEMM2 of the policy tile
 # loses 6-9 % at m_group 1 and is back at the 32-row-group time with 2.
@@ -1171,6 +1177,7 @@ class Mxfp4MoESwapAbPlan:
         self._dispatch_args = None
         self._gemm1_dense = None
         self._gemm1_dense_alt = None
+        self._gemm1_merged = None
         self._gemm1_dense_fills = False
         self._gemm2_wide = None
         self._gemm2_dense_alt = None
@@ -1200,6 +1207,15 @@ class Mxfp4MoESwapAbPlan:
             zero_fill = "route"
         zero_in_gemm1 = zero_fill == "gemm1"
         zero_in_dense = zero_fill == "dense"
+        # Merged GEMM1 (round 31): only the win layout with the dual padding
+        # has the alternate dense list and the windows it fuses.
+        self.merged_gemm1 = bool(
+            SWAP_WIDE192_MERGED_GEMM1
+            and self.mixed192_win_streams
+            and self.mixed192_dual is not None
+        )
+        if self.merged_gemm1 and not zero_in_dense:
+            raise ValueError("MXFP4_SWAP192_MERGED_GEMM1 needs MXFP4_SWAP192_ZF=dense")
         clear_output = (not self.two_stage or split_dense) and zero_fill == "route"
         if (self.finalize and not self.two_stage) or split_dense:
             clear_target = self.output
@@ -1431,41 +1447,42 @@ class Mxfp4MoESwapAbPlan:
                 self._token_index, self._token_index_args = launches["swap_token_index"]
                 token_idx = b["permuted_idx_to_token_idx"]
             chain_pdl = bool(pdl and (SWAP_WIDE192_CHAIN_PDL or not self.mixed192))
-            swapab_gemm1_situ(
-                w1=w1,
-                w1_sf=w1_sf,
-                x=x,
-                x_sf=x_sf,
-                permuted_idx_to_token_idx=token_idx,
-                permuted_idx_to_expanded_idx=b["out_permuted_idx_to_expanded_idx"],
-                act=b["gemm1_out"],
-                act_sf=b["gemm1_out_scale"],
-                tile_idx_to_expert_idx=b["out_tile_idx_to_expert_idx"],
-                tile_idx_to_mn_limit=b["out_tile_idx_to_mn_limit"],
-                alpha=b["w1_alpha"],
-                beta=self._beta,
-                linear_beta=self._linear_beta,
-                top_k=w.top_k,
-                zero_output=self.output if zero_in_gemm1 else None,
-                n_tile=self.n_tile,
-                enable_pdl=chain_pdl,
-                pdl_trigger_after_wait=chain_pdl and self._dep_prefetch,
-                weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
-                _prepared_launches=launches,
-                exit_when_empty=bool(self.mixed192 and SWAP_WIDE192_EXIT_EMPTY),
-                # Every rank: a rank with remote experts sees single-group
-                # launches (the single-wave split) and, with the remainder-only
-                # split, the all-local shard's multi-wave decode launches split
-                # their last partial wave too (B300 TP8 T=2 balanced / hot
-                # 0.947 / 0.932, T=4 hot 0.973, T=8 / 16 balanced 0.978 /
-                # 0.992; the unsplit rows pay the cluster image, <= 1 %).
-                cluster_split_k=SWAP_GEMM1_CLUSTER_SPLIT and self._dep_prefetch,
-                two_cta=swap_two_cta(self.n_tile),
-                **{
-                    "num_non_exiting_tiles": b["out_num_non_exiting_tiles"],
-                    **gemm1_lists,
-                },
-            )
+            if not self.merged_gemm1:
+                swapab_gemm1_situ(
+                    w1=w1,
+                    w1_sf=w1_sf,
+                    x=x,
+                    x_sf=x_sf,
+                    permuted_idx_to_token_idx=token_idx,
+                    permuted_idx_to_expanded_idx=b["out_permuted_idx_to_expanded_idx"],
+                    act=b["gemm1_out"],
+                    act_sf=b["gemm1_out_scale"],
+                    tile_idx_to_expert_idx=b["out_tile_idx_to_expert_idx"],
+                    tile_idx_to_mn_limit=b["out_tile_idx_to_mn_limit"],
+                    alpha=b["w1_alpha"],
+                    beta=self._beta,
+                    linear_beta=self._linear_beta,
+                    top_k=w.top_k,
+                    zero_output=self.output if zero_in_gemm1 else None,
+                    n_tile=self.n_tile,
+                    enable_pdl=chain_pdl,
+                    pdl_trigger_after_wait=chain_pdl and self._dep_prefetch,
+                    weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
+                    _prepared_launches=launches,
+                    exit_when_empty=bool(self.mixed192 and SWAP_WIDE192_EXIT_EMPTY),
+                    # Every rank: a rank with remote experts sees single-group
+                    # launches (the single-wave split) and, with the remainder-only
+                    # split, the all-local shard's multi-wave decode launches split
+                    # their last partial wave too (B300 TP8 T=2 balanced / hot
+                    # 0.947 / 0.932, T=4 hot 0.973, T=8 / 16 balanced 0.978 /
+                    # 0.992; the unsplit rows pay the cluster image, <= 1 %).
+                    cluster_split_k=SWAP_GEMM1_CLUSTER_SPLIT and self._dep_prefetch,
+                    two_cta=swap_two_cta(self.n_tile),
+                    **{
+                        "num_non_exiting_tiles": b["out_num_non_exiting_tiles"],
+                        **gemm1_lists,
+                    },
+                )
             if self.split:
                 # Split form: dense gather GEMM1 tiles over the wide experts'
                 # 128-row groups (slots listed by the routing kernel); they
@@ -1642,7 +1659,7 @@ class Mxfp4MoESwapAbPlan:
                 )
                 self._gemm1_dense = launches["gather"]
                 self._gemm1_dense_fills = zero_in_dense
-                if self.mixed192_dual is not None:
+                if self.mixed192_dual is not None and not self.merged_gemm1:
                     # Dense GEMM1 of the coarser tile (the dense path's M256
                     # two-CTA tactic) over the alternate wide list; it has
                     # tiles only when the routing chose that padding, and
@@ -1689,6 +1706,44 @@ class Mxfp4MoESwapAbPlan:
                         ),
                     )
                     self._gemm1_dense_alt = alt_launches["gather"]
+                if self.merged_gemm1:
+                    # Round 31: the alternate padding's dense tiles and the
+                    # 192-row windows in one launch (replaces the alternate
+                    # dense GEMM1 above and the swap GEMM1 of the window
+                    # chain); zero-fill semantics of the alternate launch.
+                    merged_launches = {}
+                    merged_gemm1_situ(
+                        w1=w1,
+                        w1_sf=w1_sf,
+                        x=x,
+                        x_sf=x_sf,
+                        permuted_idx_to_expanded_idx=b["out_permuted_idx_to_expanded_idx"],
+                        act=b["gemm1_out"],
+                        act_sf=b["gemm1_out_scale"],
+                        alt_tile_idx_to_expert_idx=b["out_alt_tile_idx_to_expert_idx"],
+                        alt_tile_idx_to_mn_limit=b["out_alt_tile_idx_to_mn_limit"],
+                        alt_wide_list=b["swap_alt_wide_list"],
+                        alt_wide_count=b["swap_alt_wide_count"],
+                        win_tile_idx_to_expert_idx=b["out_tile_idx_to_expert_idx"],
+                        win_tile_idx_to_mn_limit=b["out_tile_idx_to_mn_limit"],
+                        win_row_groups=b["swap_row_groups"],
+                        win_row_group_count=b["swap_row_group_count"],
+                        alpha=b["w1_alpha"],
+                        beta=self._beta,
+                        linear_beta=self._linear_beta,
+                        top_k=w.top_k,
+                        enable_pdl=pdl,
+                        dense_weight_l2_hint=DENSE_WEIGHT_L2_HINT,
+                        window_weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
+                        zero_fill_output=self.output,
+                        zero_fill_counters=self._zero_fill_counters,
+                        zero_fill_other_tiles=b["swap_wide_count"],
+                        zero_fill_secondary=True,
+                        group_rows=self.group_rows,
+                        row_unit=SWAP_WIDE192_ROW_UNIT,
+                        _prepared_launches=merged_launches,
+                    )
+                    self._gemm1_merged = merged_launches["merged_gemm1"]
             mixed192_dense_gemm2 = self.mixed192 and self.mixed192_gemm2 == "dense"
             # ``alt`` GEMM2 form: the swap finalize runs the windows only under
             # the base padding; under the coarser padding the alternate dense
@@ -1811,7 +1866,10 @@ class Mxfp4MoESwapAbPlan:
                         pdl,
                         wide=not self.mixed192_alt_gemm2,
                     )
-            self._gemm1, self._gemm1_args = launches["swap_gemm1"]
+            if self.merged_gemm1:
+                self._gemm1 = self._gemm1_args = None
+            else:
+                self._gemm1, self._gemm1_args = launches["swap_gemm1"]
             self._gemm2, self._gemm2_args = launches["swap_gemm2"]
             if self.two_stage:
                 self._finalize_rows = plan_finalize_rows(
@@ -2051,16 +2109,26 @@ class Mxfp4MoESwapAbPlan:
                         )
                     if self._token_index is not None:
                         self._token_index(*self._token_index_args, stream=side)
-                    self._gemm1(*self._gemm1_args, stream=side)
+                    if self._gemm1 is not None:
+                        self._gemm1(*self._gemm1_args, stream=side)
                     if self._gemm2_wide is None:
                         self._swap_gemm1_event.record(self._side_stream)
 
                 def dense_gemm1s():
+                    # Merged GEMM1 (windows + alternate dense tiles): before
+                    # the base dense GEMM1 when the windows lead (see
+                    # SWAP_WIDE192_DENSE_FIRST_MIN_TOKENS), after it otherwise.
+                    if self._gemm1_merged is not None and not self.mixed192_dense_first:
+                        compiled, args = self._gemm1_merged
+                        compiled(*args, stream=stream)
                     compiled, args, kwargs = self._gemm1_dense
                     compiled(*args, stream=stream, **kwargs)
                     if self._gemm1_dense_alt is not None:
                         compiled, args, kwargs = self._gemm1_dense_alt
                         compiled(*args, stream=stream, **kwargs)
+                    if self._gemm1_merged is not None and self.mixed192_dense_first:
+                        compiled, args = self._gemm1_merged
+                        compiled(*args, stream=stream)
 
                 if self.mixed192_dense_first:
                     dense_gemm1s()
