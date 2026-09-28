@@ -1013,7 +1013,19 @@ def merged_gemm1_situ(
     compiled = _merged_kernel_cache[key]
     if _prepared_launches is not None:
         _prepared_launches["merged_gemm1"] = (compiled, args)
+    if os.environ.get("MERGED_DEBUG"):
+        torch.cuda.synchronize()
+        print(
+            f"[merged] launch T={num_tokens} K={k} L={num_local_experts} 2I={rows_w} R={rows} "
+            f"alt_count={int(alt_wide_count[0].item())} win_count={int(win_row_group_count[0].item())} "
+            f"alt_cap={alt_wide_list.shape[0]} win_cap={win_row_groups.shape[0]} zero_fill={zero_fill}",
+            file=sys.stderr,
+            flush=True,
+        )
     compiled(*args, stream=stream)
+    if os.environ.get("MERGED_DEBUG"):
+        torch.cuda.synchronize()
+        print("[merged] first launch done", file=sys.stderr, flush=True)
 
 
 def swapab_gemm2(
