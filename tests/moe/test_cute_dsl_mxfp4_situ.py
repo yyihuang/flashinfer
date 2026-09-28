@@ -2629,6 +2629,90 @@ def test_swap_split_form_matches_default(
         torch.testing.assert_close(output, expected, atol=1e-2, rtol=1e-2)
 
 
+def _gemm1_valid_rows(plan):
+    """GEMM1 output rows / blocked row scales of the valid permuted rows
+    (``expanded_idx >= 0``): the merged GEMM1's bit-identity surface (padded
+    rows may hold stale operand data in either form)."""
+    b = plan._buffers
+    act = b["gemm1_out"]
+    act_sf = b["gemm1_out_scale"]
+    rows, interm = act.shape
+    valid = b["out_permuted_idx_to_expanded_idx"][:rows] >= 0
+    # Blocked scales: flat = kv + 4 rg + 16 r32 + 512 cb + 512 (I/128) rb.
+    sf = act_sf.reshape(rows // 128, interm // 128, 32, 4, 4)
+    sf_mask = valid.reshape(rows // 128, 4, 32).permute(0, 2, 1)
+    sf_mask = sf_mask[:, None, :, :, None].expand_as(sf)
+    return act[valid].clone(), sf[sf_mask].clone(), int(valid.sum())
+
+
+@pytest.mark.parametrize("tokens", [2048, 8192])
+@pytest.mark.parametrize("shard", ["tp", "ep"])
+def test_swap_wide192_merged_gemm1_bit_identical(monkeypatch, tokens, shard):
+    """Round 31: ``MXFP4_SWAP192_MERGED_GEMM1=1`` runs the win layout's
+    alternate-padding dense GEMM1 tiles and the 192-row swap GEMM1 windows
+    as one persistent launch. Its GEMM1 rows and blocked row scales are
+    bit-identical to the two launches on every valid row, on every routing
+    (dense tiles and windows both exercised), and the MoE output matches."""
+    _require_blackwell()
+    from flashinfer.fused_moe.cute_dsl import mxfp4
+
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MODE", "1")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIN_TOKENS", 2048)
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIXED", True)
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIXED_STREAMS", "win")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_ZERO_FILL", "dense")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_LISTS", "sort")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIN_ROWS", 0)
+    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE", True)
+    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE_MIN_TOKENS", 2048)
+    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE_MAX_SHARD", 1 << 30)
+    kwargs = {"intermediate": 1024} if shard == "ep" else {}
+    case = make_case(tokens=tokens, distribution="balanced", **kwargs)
+    prepared = prepare_cute_weights(case)
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MERGED_GEMM1", True)
+    merged, output, _ = prepare_candidate(case, prepared_weights=prepared)
+    assert merged.mixed192_win_streams and merged.mixed192_dual is not None
+    assert merged.merged_gemm1 and merged._gemm1_merged is not None
+    assert merged._gemm1 is None and merged._gemm1_dense_alt is None
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MERGED_GEMM1", False)
+    default, expected, _ = prepare_candidate(case, prepared_weights=prepared)
+    assert not default.merged_gemm1
+    assert default._gemm1 is not None and default._gemm1_dense_alt is not None
+    seen = {"dense": False, "windows": False}
+    for dist in ("balanced", "hot", "empty"):
+        ids, weights = make_routing(
+            tokens,
+            case.num_experts,
+            case.topk_ids.shape[1],
+            case.local_num_experts,
+            case.local_expert_offset,
+            dist,
+        )
+        case.topk_ids.copy_(ids)
+        case.topk_weights.copy_(weights)
+        merged.run()
+        torch.cuda.synchronize()
+        act_m, sf_m, n_m = _gemm1_valid_rows(merged)
+        counts = (
+            int(merged._buffers["swap_alt_wide_count"].item()),
+            int(merged._buffers["swap_row_group_count"].item()),
+        )
+        default.run()
+        torch.cuda.synchronize()
+        act_d, sf_d, n_d = _gemm1_valid_rows(default)
+        assert n_m == n_d > 0
+        assert torch.equal(act_m, act_d), (
+            f"{dist}: GEMM1 rows differ (alt tiles {counts[0]}, windows {counts[1]})"
+        )
+        assert torch.equal(sf_m, sf_d), (
+            f"{dist}: GEMM1 row scales differ (alt tiles {counts[0]}, windows {counts[1]})"
+        )
+        torch.testing.assert_close(output, expected, atol=1e-2, rtol=1e-2)
+        seen["dense"] |= counts[0] > 0
+        seen["windows"] |= counts[1] > 0
+    assert seen["dense"] and seen["windows"], seen
+
+
 def _make_cluster_split_wrapper(case, split, enable_pdl):
     from flashinfer.fused_moe.cute_dsl.mxfp4 import CuteDslMxfp4MoEWrapper
 
