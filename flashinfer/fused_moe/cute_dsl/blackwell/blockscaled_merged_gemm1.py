@@ -76,7 +76,6 @@ from .utils import (
     blk_copy_raw,
     griddepcontrol_launch_dependents,
     griddepcontrol_wait,
-    mbarrier_complete_tx_shared,
     native_situ_f32,
     native_tanh_f32,
     sigmoid_f32,
@@ -1734,7 +1733,7 @@ class Sm100MergedGemm1Kernel:
             cute.arch.fence_proxy("async.shared", space="cta")
             tile_info_pipeline.consumer_release(tile_info_consumer_state)
             tile_info_consumer_state.advance()
-            tx_delta = cutlass.Int32(self.tma_tx_delta)
+            tx_win = cutlass.Int32(self.num_tma_load_bytes_w)
 
             while is_valid_tile:
                 kind = cute.arch.make_warp_uniform(tile_info[0])
@@ -1812,11 +1811,11 @@ class Sm100MergedGemm1Kernel:
                         )
                     for k_tile in cutlass.range(0, k_tile_cnt, 1, unroll=1):  # noqa: B007
                         tma_bar = t_pipeline.producer_get_barrier(t_producer_state)
-                        t_pipeline.producer_acquire(t_producer_state, peek_ab_empty_status)
-                        if is_leader_cta:
-                            # The barrier expects the dense stage's bytes;
-                            # retire the window's shortfall.
-                            mbarrier_complete_tx_shared(tma_bar, tx_delta)
+                        # The ring was created with the dense stage's byte
+                        # count; the window stage expects its own.
+                        t_pipeline.producer_acquire(
+                            t_producer_state, peek_ab_empty_status, expected_tx=tx_win
+                        )
                         tAgA_k = tAgA_s0[(None, t_producer_state.count)]
                         tAgSFA_k = tAgSFA_s0[(None, t_producer_state.count)]
                         tAsA_pipe = tAsA_w[(None, t_producer_state.index)]
