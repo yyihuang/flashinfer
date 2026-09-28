@@ -188,7 +188,7 @@ __host__ __device__ inline bool routingDualTileEnabled(KernelParams const& param
          params.mPtrCtaIdxXyToBatchIdxAlt != nullptr;
 }
 
-template <int ExpertsPerThread, typename Scan, int NumThreads, typename KernelParams>
+template <int ExpertsPerThread, typename Scan, typename KernelParams>
 __device__ __forceinline__ int32_t routingDualTilePadding(
     KernelParams const& params, typename Scan::TempStorage& tempStorage,
     int32_t const (&count)[ExpertsPerThread], int32_t (&paddedOffset)[ExpertsPerThread],
@@ -217,6 +217,8 @@ __device__ __forceinline__ int32_t routingDualTilePadding(
   for (int e = 0; e < ExpertsPerThread; e++) {
     padded[e] = useAlt ? padAlt[e] : padBase[e];
   }
+  Scan(tempStorage).ExclusiveSum(padded, paddedOffset, paddedTotal);
+  __syncthreads();
   bool const mixed = params.mMixedNarrowTile > 0 && params.mPtrMixedNarrowList != nullptr;
   int32_t nwide[ExpertsPerThread];
   int32_t nnarrow[ExpertsPerThread];
@@ -225,19 +227,15 @@ __device__ __forceinline__ int32_t routingDualTilePadding(
   int32_t wideTotal = 0;
   int32_t narrowTotal = 0;
   // Row unit and tiles are powers of two (checked by the host), so the cover
-  // search and the list offsets use shifts. With the mixed lists the padded
-  // row offsets, the dense-tile counts and the window counts share ONE
-  // 64-bit block scan (rows << 24 | tiles << 12 | windows: padded rows per
-  // routing < 2^24, dense tiles and windows per routing < 4096), so the
-  // mixed form costs no extra scan pass over the plain dual-tile routing.
+  // search and the list offsets use shifts; the dense-tile and window counts
+  // share one block scan (windows per expert < 4, per routing < 4096).
   int32_t const log2Unit = mixed ? (__ffs(params.mMixedRowUnit) - 1) : 0;
   if (mixed) {
     int32_t const rows = 1 << log2Chosen;
     int32_t const narrow = params.mMixedNarrowTile;
     int32_t const gu = rows >> log2Unit;
-    int32_t const chosenTotal = useAlt ? totalAlt : totalBase;
-    bool const windows = chosenTotal >= params.mMixedMinTotalRows;
-    int64_t packed[ExpertsPerThread];
+    bool const windows = paddedTotal >= params.mMixedMinTotalRows;
+    int32_t packed[ExpertsPerThread];
 #pragma unroll
     for (int e = 0; e < ExpertsPerThread; e++) {
       int32_t const c = count[e];
@@ -263,27 +261,19 @@ __device__ __forceinline__ int32_t routingDualTilePadding(
       }
       nwide[e] = nw;
       nnarrow[e] = nn;
-      packed[e] = (static_cast<int64_t>(padded[e]) << 24) | (static_cast<int64_t>(nw) << 12) |
-                  static_cast<int64_t>(nn);
+      packed[e] = (nw << 12) | nn;
     }
-    using Scan64 = cub::BlockScan<int64_t, NumThreads, cub::BLOCK_SCAN_WARP_SCANS>;
-    __shared__ typename Scan64::TempStorage tempStorage64;
-    int64_t packedOffset[ExpertsPerThread];
-    int64_t packedTotal = 0;
-    Scan64(tempStorage64).ExclusiveSum(packed, packedOffset, packedTotal);
+    int32_t packedOffset[ExpertsPerThread];
+    int32_t packedTotal = 0;
+    Scan(tempStorage).ExclusiveSum(packed, packedOffset, packedTotal);
     __syncthreads();
 #pragma unroll
     for (int e = 0; e < ExpertsPerThread; e++) {
-      paddedOffset[e] = static_cast<int32_t>(packedOffset[e] >> 24);
-      wideOffset[e] = static_cast<int32_t>((packedOffset[e] >> 12) & 0xfff);
-      narrowOffset[e] = static_cast<int32_t>(packedOffset[e] & 0xfff);
+      wideOffset[e] = packedOffset[e] >> 12;
+      narrowOffset[e] = packedOffset[e] & 0xfff;
     }
-    paddedTotal = static_cast<int32_t>(packedTotal >> 24);
-    wideTotal = static_cast<int32_t>((packedTotal >> 12) & 0xfff);
-    narrowTotal = static_cast<int32_t>(packedTotal & 0xfff);
-  } else {
-    Scan(tempStorage).ExclusiveSum(padded, paddedOffset, paddedTotal);
-    __syncthreads();
+    wideTotal = packedTotal >> 12;
+    narrowTotal = packedTotal & 0xfff;
   }
 #pragma unroll
   for (int e = 0; e < ExpertsPerThread; e++) {
@@ -615,7 +605,7 @@ __device__ void routingPermutation(KernelParams params,
         clusterBlockRank == 0 && warpIdx == NumWarps - 1 && cute::elect_one_sync();
     int32_t paddedOffset[ExpertsPerThread];
     int32_t paddedTotal;
-    routingDualTilePadding<ExpertsPerThread, Scan, NumThreads>(params, tempStorage, count, paddedOffset,
+    routingDualTilePadding<ExpertsPerThread, Scan>(params, tempStorage, count, paddedOffset,
                                                    paddedTotal, clusterBlockRank,
                                                    NumBlocksPerCluster, writeCounts);
 #pragma unroll
@@ -913,7 +903,7 @@ __global__ void __launch_bounds__(KernelParams::MaxNumExperts <= 1024 ? KernelPa
         blockIdx.x == 0 && warpIdx == NumThreadsBlock / WarpSize - 1 && cute::elect_one_sync();
     int32_t paddedOffset[ExpertsPerThread];
     int32_t paddedTotal;
-    routingDualTilePadding<ExpertsPerThread, Scan, NumThreadsBlock>(params, tempStorage, count, paddedOffset,
+    routingDualTilePadding<ExpertsPerThread, Scan>(params, tempStorage, count, paddedOffset,
                                                    paddedTotal, blockIdx.x, gridDim.x, writeCounts);
 #pragma unroll
     for (int e = 0; e < ExpertsPerThread; e++) {
@@ -1355,7 +1345,7 @@ __global__ void __launch_bounds__(KernelParams::MaxNumExperts)
     int32_t const countArr[1] = {count};
     int32_t paddedOffset[1];
     int32_t paddedTotal;
-    routingDualTilePadding<1, Scan, NumThreads>(params, tempStorage, countArr, paddedOffset, paddedTotal,
+    routingDualTilePadding<1, Scan>(params, tempStorage, countArr, paddedOffset, paddedTotal,
                                     gridBlockIdx, numBlocks, writeCounts);
     smemExpertOffset[threadIdx.x] = paddedOffset[0] + blockExpertOffset;
   } else {
