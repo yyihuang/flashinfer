@@ -655,6 +655,7 @@ class Sm100MergedGemm1Kernel:
         zero_fill_words: Optional[cute.Tensor],
         zero_fill_counters: Optional[cute.Tensor],
         zero_fill_other_tiles: Optional[cute.Tensor],
+        trace: Optional[cute.Tensor],
         max_active_clusters: cutlass.Constexpr,
         stream: cuda.CUstream,
     ):
@@ -888,6 +889,7 @@ class Sm100MergedGemm1Kernel:
             zero_fill_words,
             zero_fill_counters,
             zero_fill_other_tiles,
+            trace,
             self.cluster_layout_vmnk,
             self.cluster_layout_sfb_vmnk,
             self.a_smem_layout_staged_d,
@@ -964,6 +966,7 @@ class Sm100MergedGemm1Kernel:
         zero_fill_words: Optional[cute.Tensor],
         zero_fill_counters: Optional[cute.Tensor],
         zero_fill_other_tiles: Optional[cute.Tensor],
+        trace: Optional[cute.Tensor],
         cluster_layout_vmnk: cute.Layout,
         cluster_layout_sfb_vmnk: cute.Layout,
         a_layout_d: cute.ComposedLayout,
@@ -1254,6 +1257,13 @@ class Sm100MergedGemm1Kernel:
         total_dense = num_dense_groups * n_tiles_d
         total_items = total_dense + num_windows * num_m_tiles_w
         gdx, gdy, gdz = cute.arch.grid_dim()
+        # Debug progress trace (MERGED_TRACE): 16 words per CTA.
+        tr_base = (bidx + gdx * (bidy + gdy * bidz)) * 16
+        if cutlass.const_expr(trace is not None):
+            if tidx == 0:
+                trace[tr_base + 0] = cutlass.Int32(2)
+        tr_a = cutlass.Int32(0)
+        tr_b = cutlass.Int32(0)
         n_cl_x = gdx // self.cta_v
         cluster_lin = bidx // self.cta_v + n_cl_x * (bidy + gdy * bidz)
         num_clusters = n_cl_x * gdy * gdz
@@ -1266,6 +1276,9 @@ class Sm100MergedGemm1Kernel:
                 pipeline.PipelineUserType.Producer, self.num_tile_stage
             )
             work = cutlass.Int32(cluster_lin)
+            if cutlass.const_expr(trace is not None):
+                if tidx == 320:
+                    trace[tr_base + 3] = total_items
             while work < total_items:
                 tile_info_pipeline.producer_acquire(tile_info_producer_state)
                 kind = cutlass.Int32(KIND_DENSE)
@@ -1307,6 +1320,13 @@ class Sm100MergedGemm1Kernel:
                 tile_info_pipeline.producer_commit(tile_info_producer_state)
                 tile_info_producer_state.advance()
                 work = work + num_clusters
+                tr_a = tr_a + 1
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 320:
+                        trace[tr_base + 1] = tr_a
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 320:
+                        trace[tr_base + 2] = kind
             tile_info_pipeline.producer_acquire(tile_info_producer_state)
             with cute.arch.elect_one():
                 sInfo[(0, tile_info_producer_state.index)] = cutlass.Int32(0)
@@ -1419,6 +1439,10 @@ class Sm100MergedGemm1Kernel:
 
             while is_valid_tile:
                 kind = cute.arch.make_warp_uniform(tile_info[0])
+                tr_a = tr_a + 1
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 128:
+                        trace[tr_base + 4] = tr_a
                 if kind == KIND_DENSE:
                     gToken_ml_tile = gToken_ml[(None, tile_info[1])]
                     for i in range(8):
@@ -1544,6 +1568,10 @@ class Sm100MergedGemm1Kernel:
                                 sfa_atom_copy, tAgSFA_slice, tAsSFA_slice, pred=sfa_tail_predicate
                             )
                         g_pipeline.producer_commit(g_producer_state)
+                        tr_b = tr_b + 1
+                        if cutlass.const_expr(trace is not None):
+                            if tidx == 128:
+                                trace[tr_base + 5] = tr_b
                         g_producer_state.advance()
                         peek_a_empty_status = cutlass.Boolean(1)
                         if g_producer_state.count < k_tile_cnt:
@@ -1617,6 +1645,10 @@ class Sm100MergedGemm1Kernel:
                                 pred1[0] = sf_ok[i]
                                 cute.copy_atom_call(sf_atom_copy, sf_g, sf_s, pred=pred1)
                         g_pipeline.producer_commit(g_producer_state)
+                        tr_b = tr_b + 1
+                        if cutlass.const_expr(trace is not None):
+                            if tidx == 128:
+                                trace[tr_base + 5] = tr_b
                         g_producer_state.advance()
 
                 tile_info_pipeline.consumer_wait(tile_info_consumer_state)
@@ -1651,6 +1683,10 @@ class Sm100MergedGemm1Kernel:
             tile_info_pipeline.consumer_release(tile_info_consumer_state)
             tile_info_consumer_state.advance()
             while is_valid_tile:
+                tr_a = tr_a + 1
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 352:
+                        trace[tr_base + 6] = tr_a
                 g_consumer_state.reset_count()
                 peek_g_full_status = cutlass.Boolean(1)
                 if g_consumer_state.count < k_tile_cnt:
@@ -1661,6 +1697,10 @@ class Sm100MergedGemm1Kernel:
                     # leader's tcgen05 (async proxy) reads of them.
                     cute.arch.fence_proxy("async.shared", space="cta")
                     r_pipeline.producer_commit(r_producer_state)
+                    tr_b = tr_b + 1
+                    if cutlass.const_expr(trace is not None):
+                        if tidx == 352:
+                            trace[tr_base + 7] = tr_b
                     r_producer_state.advance()
                     g_consumer_state.advance()
                     peek_g_full_status = cutlass.Boolean(1)
@@ -1698,6 +1738,10 @@ class Sm100MergedGemm1Kernel:
 
             while is_valid_tile:
                 kind = cute.arch.make_warp_uniform(tile_info[0])
+                tr_a = tr_a + 1
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 288:
+                        trace[tr_base + 8] = tr_a
                 if kind == KIND_DENSE:
                     tBgB_slice = tBgB[(None, tile_info[2], None, tile_info[3])]
                     tBgSFB_slice = tBgSFB[(None, tile_info[2], None, tile_info[3])]
@@ -1747,6 +1791,10 @@ class Sm100MergedGemm1Kernel:
                                 mcast_mask=sfb_full_mcast_mask,
                             )
                         t_producer_state.advance()
+                        tr_b = tr_b + 1
+                        if cutlass.const_expr(trace is not None):
+                            if tidx == 288:
+                                trace[tr_base + 9] = tr_b
                         peek_ab_empty_status = cutlass.Boolean(1)
                         if t_producer_state.count < k_tile_cnt:
                             peek_ab_empty_status = t_pipeline.producer_try_acquire(
@@ -1795,6 +1843,10 @@ class Sm100MergedGemm1Kernel:
                                 tma_atom_sfa_w, tAgSFA_k, tAsSFA_pipe, tma_bar_ptr=tma_bar
                             )
                         t_producer_state.advance()
+                        tr_b = tr_b + 1
+                        if cutlass.const_expr(trace is not None):
+                            if tidx == 288:
+                                trace[tr_base + 9] = tr_b
                         peek_ab_empty_status = cutlass.Boolean(1)
                         if t_producer_state.count < k_tile_cnt:
                             peek_ab_empty_status = t_pipeline.producer_try_acquire(
@@ -1912,6 +1964,10 @@ class Sm100MergedGemm1Kernel:
 
             while is_valid_tile:
                 kind = cute.arch.make_warp_uniform(tile_info[0])
+                tr_a = tr_a + 1
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 256:
+                        trace[tr_base + 10] = tr_a
                 g_consumer_state.reset_count()
                 r_consumer_state.reset_count()
                 t_consumer_state.reset_count()
@@ -1965,6 +2021,10 @@ class Sm100MergedGemm1Kernel:
                                 tiled_mma_d.set(tcgen05.Field.ACCUMULATE, True)
                             g_pipeline.consumer_release(g_consumer_state)
                             t_pipeline.consumer_release(t_consumer_state)
+                            tr_b = tr_b + 1
+                            if cutlass.const_expr(trace is not None):
+                                if tidx == 256:
+                                    trace[tr_base + 11] = tr_b
                         g_consumer_state.advance()
                         r_consumer_state.advance()
                         t_consumer_state.advance()
@@ -2014,6 +2074,10 @@ class Sm100MergedGemm1Kernel:
                                 tiled_mma_w.set(tcgen05.Field.ACCUMULATE, True)
                             g_pipeline.consumer_release(g_consumer_state)
                             t_pipeline.consumer_release(t_consumer_state)
+                            tr_b = tr_b + 1
+                            if cutlass.const_expr(trace is not None):
+                                if tidx == 256:
+                                    trace[tr_base + 11] = tr_b
                         g_consumer_state.advance()
                         r_consumer_state.advance()
                         t_consumer_state.advance()
@@ -2042,6 +2106,9 @@ class Sm100MergedGemm1Kernel:
         if warp_idx <= self.epilog_warp_id[-1]:
             tmem.allocate(self.num_tmem_alloc_cols)
             self.tmem_alloc_barrier.arrive_and_wait()
+            if cutlass.const_expr(trace is not None):
+                if tidx == 0:
+                    trace[tr_base + 15] = cutlass.Int32(1)
             tmem_ptr = tmem.retrieve_ptr(self.acc_dtype)
             tCtAcc_base_d = cute.make_tensor(tmem_ptr, tCtAcc_fake_d.layout)
             tCtAcc_base_w = cute.make_tensor(tmem_ptr, tCtAcc_fake_w.layout)
@@ -2163,6 +2230,10 @@ class Sm100MergedGemm1Kernel:
             while is_valid_tile:
                 kind = cute.arch.make_warp_uniform(tile_info[0])
                 expert_idx = tile_info[3]
+                tr_a = tr_a + 1
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 0:
+                        trace[tr_base + 12] = tr_a
                 alpha_val = alpha[expert_idx]
                 runtime_beta = situ_beta_tensor[expert_idx]
                 runtime_linear_beta = cutlass.Float32(1.0)
@@ -2314,6 +2385,10 @@ class Sm100MergedGemm1Kernel:
                             c_pipeline.producer_commit()
                             c_pipeline.producer_acquire()
                         self.epilog_sync_barrier.arrive_and_wait()
+                        tr_b = tr_b + 1
+                        if cutlass.const_expr(trace is not None):
+                            if tidx == 0:
+                                trace[tr_base + 13] = tr_b
                 else:
                     m_chunk = tile_info[1]
                     row_group = tile_info[2]
@@ -2413,11 +2488,18 @@ class Sm100MergedGemm1Kernel:
                                 mOutSF,
                             )
                             st_u8_pred(sf_dst, code_l, ok_l)
+                        tr_b = tr_b + 1
+                        if cutlass.const_expr(trace is not None):
+                            if tidx == 0:
+                                trace[tr_base + 13] = tr_b
                     cute.arch.fence_view_async_tmem_load()
                     tcgen05_fence_before_thread_sync()
                     acc_pipeline.consumer_release(acc_consumer_state)
                     acc_consumer_state.advance()
 
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 0:
+                        trace[tr_base + 14] = tr_a
                 if cutlass.const_expr(self.zero_fill):
                     if zf_do_fill:
                         if (zf_tile % len(self.epilog_warp_id)) == warp_idx:
@@ -2537,6 +2619,7 @@ class Sm100MergedGemm1Kernel:
         zero_fill_words_ptr: Optional[cute.Pointer],
         zero_fill_counters_ptr: Optional[cute.Pointer],
         zero_fill_other_tiles_ptr: Optional[cute.Pointer],
+        trace_ptr: Optional[cute.Pointer],
         num_tokens: cutlass.Int32,
         k: cutlass.Int32,
         num_local_experts: cutlass.Int32,
@@ -2547,6 +2630,7 @@ class Sm100MergedGemm1Kernel:
         win_capacity: cutlass.Int32,
         win_list_capacity: cutlass.Int32,
         zero_fill_num_words: cutlass.Int32,
+        trace_words: cutlass.Int32,
         beta_stride: cutlass.Constexpr,
         linear_beta_stride: cutlass.Constexpr,
         max_active_clusters: cutlass.Constexpr,
@@ -2625,6 +2709,9 @@ class Sm100MergedGemm1Kernel:
             zero_fill_other_tiles = cute.make_tensor(
                 zero_fill_other_tiles_ptr, layout=cute.make_layout((1,))
             )
+        trace = None
+        if cutlass.const_expr(trace_ptr is not None):
+            trace = cute.make_tensor(trace_ptr, layout=cute.make_layout((trace_words,)))
         self(
             x,
             x_sf,
@@ -2648,6 +2735,7 @@ class Sm100MergedGemm1Kernel:
             zero_fill_words,
             zero_fill_counters,
             zero_fill_other_tiles,
+            trace,
             max_active_clusters=max_active_clusters,
             stream=stream,
         )

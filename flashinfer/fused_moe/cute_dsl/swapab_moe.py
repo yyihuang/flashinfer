@@ -844,6 +844,9 @@ def swapab_gemm1_situ(
 MERGED_TILE_STAGES = int(os.environ.get("MERGED_TILE_STAGES", "4"))
 MERGED_EXCH_BUFS = int(os.environ.get("MERGED_EXCH_BUFS", "1"))
 _merged_kernel_cache: Dict[Tuple, Any] = {}
+# MERGED_TRACE=1: the kernel writes per-CTA progress counters (16 words per
+# CTA) into this pinned host buffer (UVA), readable while a launch is stuck.
+MERGED_TRACE_BUFFER: Optional[torch.Tensor] = None
 
 
 def merged_gemm1_situ(
@@ -933,6 +936,13 @@ def merged_gemm1_situ(
     beta_stride = int(beta.numel() != 1)
     linear_beta_stride = int(linear_beta.numel() != 1) if use_linear_beta else 0
     window_hint = _resolve_weight_l2_hint(window_weight_l2_hint)
+    global MERGED_TRACE_BUFFER
+    trace_buf = None
+    if os.environ.get("MERGED_TRACE"):
+        if MERGED_TRACE_BUFFER is None:
+            MERGED_TRACE_BUFFER = torch.zeros(4096 * 16, dtype=torch.int32, pin_memory=True)
+        MERGED_TRACE_BUFFER.zero_()
+        trace_buf = MERGED_TRACE_BUFFER
     args = (
         _gmem_ptr(cutlass.Float8E4M3FN, x, 16),
         _gmem_ptr(cutlass.Float8E8M0FNU, x_sf, 4),
@@ -956,6 +966,7 @@ def merged_gemm1_situ(
         _gmem_ptr(cutlass.Uint32, zero_fill_output, 16),
         _gmem_ptr(cutlass.Int32, zero_fill_counters, 4),
         _gmem_ptr(cutlass.Int32, zero_fill_other_tiles, 4),
+        _gmem_ptr(cutlass.Int32, trace_buf, 16),
         num_tokens,
         k,
         num_local_experts,
@@ -966,6 +977,7 @@ def merged_gemm1_situ(
         win_tile_idx_to_expert_idx.shape[0],
         win_row_groups.shape[0],
         zero_fill_num_words,
+        trace_buf.numel() if trace_buf is not None else 0,
     )
     key = (
         top_k,
@@ -982,6 +994,7 @@ def merged_gemm1_situ(
         MERGED_EXCH_BUFS,
         group_rows,
         row_unit,
+        trace_buf is not None,
     )
     if key not in _merged_kernel_cache:
         if os.environ.get("SWAPAB_DEBUG"):
