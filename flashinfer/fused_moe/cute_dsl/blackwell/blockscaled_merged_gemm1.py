@@ -1979,9 +1979,18 @@ class Sm100MergedGemm1Kernel:
                 # Overlapped accumulator: buffer = producer phase ^ 1 (dense
                 # buf0 [0, 256) / buf1 [208, 464); window parity 0 [0, 192) /
                 # parity 1 [256, 448)).
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 256:
+                        trace[tr_base + 2] = cutlass.Int32(98)
                 acc_stage_index = acc_producer_state.phase ^ 1
                 if is_leader_cta:
+                    if cutlass.const_expr(trace is not None):
+                        if tidx == 256:
+                            trace[tr_base + 2] = cutlass.Int32(99)
                     acc_pipeline.producer_acquire(acc_producer_state)
+                    if cutlass.const_expr(trace is not None):
+                        if tidx == 256:
+                            trace[tr_base + 2] = cutlass.Int32(100)
                     tcgen05_fence_after_thread_sync()
                 if cutlass.const_expr(trace is not None):
                     if tidx == 256:
