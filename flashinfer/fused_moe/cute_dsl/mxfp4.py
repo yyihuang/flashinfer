@@ -453,6 +453,12 @@ DENSE_ASYNC_MEMSET = os.environ.get("MXFP4_DENSE_ASYNC_MEMSET", "ep")
 # persistent grid does not hold the SMs of the live dense GEMM it overlaps
 # (the rank's ``empty`` routings: single expert, no windows).
 SWAP_WIDE192_EXIT_EMPTY = os.environ.get("MXFP4_SWAP192_EXIT_EMPTY", "0") == "1"
+# Round 29: launch the window chain's swap GEMM1 / GEMM2 without the
+# programmatic-dependent-launch attribute (their CTAs then become resident
+# only after the routing grid completes, so a dead chain never takes the
+# SMs the live dense GEMM1 prefetches on during the routing's tail; a live
+# chain loses ~2-3 us of prologue overlap per launch on rows of 1-6 ms).
+SWAP_WIDE192_CHAIN_PDL = os.environ.get("MXFP4_SWAP192_CHAIN_PDL", "1") == "1"
 
 
 def _dense_async_memset(num_experts: int, num_local_experts: int) -> bool:
@@ -1424,6 +1430,7 @@ class Mxfp4MoESwapAbPlan:
                 )
                 self._token_index, self._token_index_args = launches["swap_token_index"]
                 token_idx = b["permuted_idx_to_token_idx"]
+            chain_pdl = bool(pdl and (SWAP_WIDE192_CHAIN_PDL or not self.mixed192))
             swapab_gemm1_situ(
                 w1=w1,
                 w1_sf=w1_sf,
@@ -1441,8 +1448,8 @@ class Mxfp4MoESwapAbPlan:
                 top_k=w.top_k,
                 zero_output=self.output if zero_in_gemm1 else None,
                 n_tile=self.n_tile,
-                enable_pdl=pdl,
-                pdl_trigger_after_wait=pdl and self._dep_prefetch,
+                enable_pdl=chain_pdl,
+                pdl_trigger_after_wait=chain_pdl and self._dep_prefetch,
                 weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
                 _prepared_launches=launches,
                 exit_when_empty=bool(self.mixed192 and SWAP_WIDE192_EXIT_EMPTY),
@@ -1983,11 +1990,17 @@ class Mxfp4MoESwapAbPlan:
                 finalize=fused_finalize,
                 n_tile=self.n_tile,
                 k_blocks_per_stage=gemm2_k_blocks,
-                enable_pdl=self._pdl,
+                enable_pdl=bool(
+                    self._pdl and (SWAP_WIDE192_CHAIN_PDL or not self.mixed192)
+                ),
                 weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
                 _prepared_launches=launches,
                 m_group=gemm2_m_group,
-                late_dep_wait=self._pdl and self._dep_prefetch,
+                late_dep_wait=bool(
+                    self._pdl
+                    and (SWAP_WIDE192_CHAIN_PDL or not self.mixed192)
+                    and self._dep_prefetch
+                ),
                 exit_when_empty=bool(self.mixed192 and SWAP_WIDE192_EXIT_EMPTY),
                 split_k=(
                     SWAP_GEMM2_SPLIT_K
