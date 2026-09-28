@@ -41,10 +41,9 @@ item's release, which the epilogue warps issue after this item's drain, so
 one accumulator stage serves both kinds. Scale factors of both kinds sit in
 columns ``[464, 512)``.
 
-The weight TMA ring's transaction count is the dense stage's; a window stage
-retires the difference with ``mbarrier.complete_tx`` on the leader right
-after the acquire (the phase can only complete once the window's bytes
-landed as well).
+The weight TMA ring is created with the dense stage's transaction count; a
+window stage acquires its slot with the window's own byte count
+(``producer_acquire(..., expected_tx=)``).
 """
 
 import os
@@ -788,7 +787,6 @@ class Sm100MergedGemm1Kernel:
         self.num_tma_load_bytes_w = (a_copy_size_w + sfa_copy_size_w) * self.cta_v
         if cutlass.const_expr(self.num_tma_load_bytes_w > self.num_tma_load_bytes_d):
             raise ValueError("the window weight stage must not exceed the dense one")
-        self.tma_tx_delta = self.num_tma_load_bytes_d - self.num_tma_load_bytes_w
 
         # Grid: the dense kernel's persistent raster over the alternate list
         # capacity (2 CTAs per 256-row group x N tiles), cluster (2, 1).
@@ -1030,8 +1028,8 @@ class Sm100MergedGemm1Kernel:
             cta_layout_vmnk=cluster_layout_vmnk,
             defer_sync=True,
         )
-        # Weight ring (TMA): transaction count of the dense stage; window
-        # stages retire the difference with complete_tx.
+        # Weight ring (TMA): created with the dense stage's transaction count;
+        # window stages pass their own expected_tx at acquire.
         t_pipeline = pipeline.PipelineTmaUmma.create(
             barrier_storage=storage.t_mbar_ptr.data_ptr(),
             num_stages=self.num_ab_stage,

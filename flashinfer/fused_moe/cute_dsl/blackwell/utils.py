@@ -614,29 +614,6 @@ def cp_async_bulk_s2s_cluster(
 
 
 @dsl_user_op
-def mbarrier_complete_tx_shared(mbar_ptr, tx_i32, loc=None, ip=None):
-    """Retire ``tx`` transaction bytes on this CTA's mbarrier without an
-    arrival (``mbarrier.complete_tx``): a producer whose stage carries fewer
-    bytes than the barrier's fixed ``expect_tx`` count settles the difference
-    right after its arrive, so the phase completes once the smaller transfer
-    has landed."""
-    llvm.inline_asm(
-        None,
-        [
-            mbar_ptr.toint(loc=loc, ip=ip).ir_value(loc=loc, ip=ip),
-            tx_i32.ir_value(loc=loc, ip=ip),
-        ],
-        "mbarrier.complete_tx.relaxed.cta.shared::cta.b64 [$0], $1;",
-        "r,r",
-        has_side_effects=True,
-        is_align_stack=False,
-        asm_dialect=llvm.AsmDialect.AD_ATT,
-        loc=loc,
-        ip=ip,
-    )
-
-
-@dsl_user_op
 def mbarrier_arrive_cluster(remote_mbar_i32, loc=None, ip=None):
     """Release-arrive on a peer CTA's mbarrier (cluster scope)."""
     llvm.inline_asm(
