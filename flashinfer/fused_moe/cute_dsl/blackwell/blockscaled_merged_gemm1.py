@@ -1983,13 +1983,22 @@ class Sm100MergedGemm1Kernel:
                 if is_leader_cta:
                     acc_pipeline.producer_acquire(acc_producer_state)
                     tcgen05_fence_after_thread_sync()
+                if cutlass.const_expr(trace is not None):
+                    if tidx == 256:
+                        trace[tr_base + 2] = cutlass.Int32(101)
                 if kind == KIND_DENSE:
                     tCtAcc = tCtAcc_base_d[(None, None, None, acc_stage_index)]
                     tiled_mma_d.set(tcgen05.Field.ACCUMULATE, False)
                     for k_tile in cutlass.range(k_tile_cnt):  # noqa: B007
                         if is_leader_cta:
                             r_pipeline.consumer_wait(r_consumer_state, peek_r_full)
+                            if cutlass.const_expr(trace is not None):
+                                if tidx == 256:
+                                    trace[tr_base + 2] = cutlass.Int32(102)
                             t_pipeline.consumer_wait(t_consumer_state, peek_t_full)
+                            if cutlass.const_expr(trace is not None):
+                                if tidx == 256:
+                                    trace[tr_base + 2] = cutlass.Int32(103)
                             stage = t_consumer_state.index
                             s2t_stage_coord = (None, None, None, None, stage)
                             cute.copy(
@@ -2040,7 +2049,13 @@ class Sm100MergedGemm1Kernel:
                     for k_tile in cutlass.range(k_tile_cnt):  # noqa: B007
                         if is_leader_cta:
                             r_pipeline.consumer_wait(r_consumer_state, peek_r_full)
+                            if cutlass.const_expr(trace is not None):
+                                if tidx == 256:
+                                    trace[tr_base + 2] = cutlass.Int32(102)
                             t_pipeline.consumer_wait(t_consumer_state, peek_t_full)
+                            if cutlass.const_expr(trace is not None):
+                                if tidx == 256:
+                                    trace[tr_base + 2] = cutlass.Int32(103)
                             # cp.async (generic proxy) writes -> tcgen05 reads
                             cute.arch.fence_proxy("async.shared", space="cta")
                             stage = t_consumer_state.index
