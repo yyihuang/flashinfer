@@ -2682,7 +2682,9 @@ def test_swap_wide192_merged_gemm1_bit_identical(monkeypatch, tokens, shard):
     monkeypatch.setattr(mxfp4, "SWAP_WIDE192_LISTS", "sort")
     monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIN_ROWS", 0)
     monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE", True)
-    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE_MIN_TOKENS", 2048)
+    # ``_dual_enabled`` needs tokens > DENSE_DUAL_TILE_MIN_TOKENS: both test
+    # token counts qualify.
+    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE_MIN_TOKENS", 1024)
     monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE_MAX_SHARD", 1 << 30)
     kwargs = {"intermediate": 1024} if shard == "ep" else {}
     case = make_case(tokens=tokens, distribution="balanced", **kwargs)
@@ -2692,11 +2694,19 @@ def test_swap_wide192_merged_gemm1_bit_identical(monkeypatch, tokens, shard):
         mxfp4, "SWAP_WIDE192_MERGED_LAYOUTS", ("expert_parallel", "moe_tensor_parallel")
     )
     merged, output, _ = prepare_candidate(case, prepared_weights=prepared)
-    if not (merged.mixed192_win_streams and merged.mixed192_dual is not None):
+    if merged.mixed192_dual is None:
+        # The dual (alternate padding) form exists only where the dense path's
+        # base tactic is the 128-row tile: assert that this is the reason.
+        wrapper = merged._wrapper
+        assert wrapper._dual_enabled(tokens), (tokens, shard)
+        base = wrapper._tactic(tokens)
+        assert base[0] != 128, (tokens, shard, base)
         pytest.skip(
-            f"tokens={tokens} shard={shard}: no dual-tile mixed-192 form (no "
-            "alternate padding tactic for this shard), merged GEMM1 not applicable"
+            f"tokens={tokens} shard={shard}: the dense base tactic is the "
+            f"{base[0]}-row tile, so the routing has no alternate padding and "
+            "the merged GEMM1 does not apply"
         )
+    assert merged.mixed192_win_streams, (tokens, shard)
     assert merged.merged_gemm1 and merged._gemm1_merged is not None
     assert merged._gemm1 is None and merged._gemm1_dense_alt is None
     monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MERGED_GEMM1", False)
