@@ -2697,9 +2697,23 @@ def test_swap_wide192_merged_gemm1_bit_identical(monkeypatch, tokens, shard):
     )
     merged, output, _ = prepare_candidate(case, prepared_weights=prepared)
     if merged.mixed192_dual is None:
-        # The dual (alternate padding) form exists only where the dense path's
-        # base tactic is the 128-row tile: assert that this is the reason.
+        # The merged GEMM1 needs the mixed 192-row form with the dual
+        # (alternate padding) routing. Skip only for the one reason the
+        # wrapper's rules allow here, and assert that it is the reason.
         wrapper = merged._wrapper
+        if not wrapper._swap_wide192(tokens):
+            # Tokens up to swapab_max_tokens belong to the plain swap-AB form
+            # (the shard's small-token path); the wide form starts above it.
+            assert tokens <= wrapper.swapab_max_tokens, (
+                tokens,
+                shard,
+                wrapper.swapab_max_tokens,
+            )
+            pytest.skip(
+                f"tokens={tokens} shard={shard}: the swap-AB form owns tokens "
+                f"<= swapab_max_tokens={wrapper.swapab_max_tokens} on this "
+                "shard; the mixed 192-row form and the merged GEMM1 start above"
+            )
         assert wrapper._dual_enabled(tokens), (tokens, shard)
         base = wrapper._tactic(tokens)
         assert base[0] != 128, (tokens, shard, base)
