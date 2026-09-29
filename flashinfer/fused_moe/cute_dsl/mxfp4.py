@@ -1121,6 +1121,9 @@ class Mxfp4MoESwapAbPlan:
         # counters zeroed once and self-resetting, and a zero "other launch
         # tile count" so the launch always fills.
         self._zero_fill_counters = torch.zeros(2, dtype=torch.int32, device=self.device)
+        # "Other launch has tiles" for the base dense GEMM1 under the merged
+        # GEMM1: the merged kernel fills whenever the base list is empty.
+        self._zero_fill_ones = torch.ones(1, dtype=torch.int32, device=self.device)
         self._zero_fill_other_tiles = torch.zeros(
             1, dtype=torch.int32, device=self.device
         )
@@ -1648,7 +1651,9 @@ class Mxfp4MoESwapAbPlan:
                             zero_fill_output=self.output,
                             zero_fill_counters=self._zero_fill_counters,
                             zero_fill_other_tiles=(
-                                b["swap_alt_wide_count"]
+                                self._zero_fill_ones
+                                if self.merged_gemm1
+                                else b["swap_alt_wide_count"]
                                 if self.mixed192_dual is not None
                                 else self._zero_fill_other_tiles
                             ),
@@ -1739,6 +1744,7 @@ class Mxfp4MoESwapAbPlan:
                         zero_fill_counters=self._zero_fill_counters,
                         zero_fill_other_tiles=b["swap_wide_count"],
                         zero_fill_secondary=True,
+                        zero_fill_if_other_empty=True,
                         group_rows=self.group_rows,
                         row_unit=SWAP_WIDE192_ROW_UNIT,
                         _prepared_launches=merged_launches,

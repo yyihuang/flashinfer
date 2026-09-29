@@ -133,6 +133,7 @@ class Sm100MergedGemm1Kernel:
         window_weight_l2_hint: Optional[int] = None,
         zero_fill: bool = False,
         zero_fill_secondary: bool = False,
+        zero_fill_if_other_empty: bool = False,
         zero_fill_chunk_bytes: int = 65536,
         pdl_trigger_early: bool = False,
         num_tile_stages: int = 4,
@@ -151,6 +152,9 @@ class Sm100MergedGemm1Kernel:
         self.window_weight_l2_hint = window_weight_l2_hint
         self.zero_fill = bool(zero_fill)
         self.zero_fill_secondary = bool(zero_fill_secondary)
+        # Fill whenever the other (base) launch has no tiles: the windows-only
+        # fill then overlaps this kernel's tail instead of following it.
+        self.zero_fill_if_other_empty = bool(zero_fill_if_other_empty)
         self.zero_fill_chunk_bytes = int(zero_fill_chunk_bytes)
         self.vectorized_f32 = bool(vectorized_f32)
         if num_tile_stages < 2:
@@ -2356,7 +2360,9 @@ class Sm100MergedGemm1Kernel:
                 # fills when it has dense items and the base launch has none.
                 zf_my_tiles = alt_count[0]
                 zf_other_tiles = zero_fill_other_tiles[0]
-                if cutlass.const_expr(self.zero_fill_secondary):
+                if cutlass.const_expr(self.zero_fill_if_other_empty):
+                    zf_do_fill = zf_other_tiles == 0
+                elif cutlass.const_expr(self.zero_fill_secondary):
                     zf_do_fill = (zf_my_tiles > 0) & (zf_other_tiles == 0)
                 else:
                     zf_do_fill = (zf_my_tiles > 0) | (zf_other_tiles == 0)
