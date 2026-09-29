@@ -2674,6 +2674,9 @@ def test_swap_wide192_merged_gemm1_bit_identical(monkeypatch, tokens, shard):
     case = make_case(tokens=tokens, distribution="balanced", **kwargs)
     prepared = prepare_cute_weights(case)
     monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MERGED_GEMM1", True)
+    monkeypatch.setattr(
+        mxfp4, "SWAP_WIDE192_MERGED_LAYOUTS", ("expert_parallel", "moe_tensor_parallel")
+    )
     merged, output, _ = prepare_candidate(case, prepared_weights=prepared)
     assert merged.mixed192_win_streams and merged.mixed192_dual is not None
     assert merged.merged_gemm1 and merged._gemm1_merged is not None

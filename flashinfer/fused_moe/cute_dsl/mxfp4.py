@@ -321,6 +321,15 @@ SWAP_WIDE192_DENSE_FIRST_MIN_TOKENS = int(
 # launch on the caller's stream (``MXFP4_SWAP192_MERGED_GEMM1=1``); the base
 # dense GEMM1 and the swap GEMM2 keep their launches. Bit-identical outputs.
 SWAP_WIDE192_MERGED_GEMM1 = os.environ.get("MXFP4_SWAP192_MERGED_GEMM1", "0") == "1"
+# Layouts the merged GEMM1 applies to. Round 31: the expert-parallel rank only —
+# on the tensor-parallel shard the merged kernel's dense path is slower than
+# the dense gather GEMM1 (zero-window rows 1.06-1.2x at 16384/32768), while the
+# rank's window rows match the two-launch form and its empties gain.
+SWAP_WIDE192_MERGED_LAYOUTS = tuple(
+    x
+    for x in os.environ.get("MXFP4_SWAP192_MERGED_LAYOUTS", "expert_parallel").split(",")
+    if x
+)
 # Mixed form: weight M-tiles per swap-GEMM2 work item. Measured on B300 (TP8
 # T=256/1024 balanced): with the 128-row groups the GEMM2 of the policy tile
 # loses 6-9 % at m_group 1 and is back at the 32-row-group time with 2.
@@ -1214,6 +1223,7 @@ class Mxfp4MoESwapAbPlan:
         # has the alternate dense list and the windows it fuses.
         self.merged_gemm1 = bool(
             SWAP_WIDE192_MERGED_GEMM1
+            and w.layout.mode in SWAP_WIDE192_MERGED_LAYOUTS
             and self.mixed192_win_streams
             and self.mixed192_dual is not None
         )
