@@ -2630,9 +2630,12 @@ def test_swap_split_form_matches_default(
 
 
 def _gemm1_valid_rows(plan):
-    """GEMM1 output rows / blocked row scales of the valid permuted rows: the
-    merged GEMM1's bit-identity surface (padded rows may hold stale operand
-    data in either form)."""
+    """GEMM1 output rows / blocked row scales of the valid permuted rows, in
+    expanded-index order: the merged GEMM1's bit-identity surface. Padded rows
+    may hold stale operand data in either form, and the sort's row order
+    within an expert group is not reproducible between plans, so rows are
+    keyed by their expanded index (token * top_k + slot), not by position.
+    Returns (expanded ids sorted, rows, blocked scales per row, valid count)."""
     b = plan._buffers
     act = b["gemm1_out"]
     act_sf = b["gemm1_out_scale"]
@@ -2643,10 +2646,21 @@ def _gemm1_valid_rows(plan):
     row = torch.arange(rows, device=act.device)
     valid = row < limit[row // 128]
     # Blocked scales: flat = kv + 4 rg + 16 r32 + 512 cb + 512 (I/128) rb.
-    sf = act_sf.reshape(rows // 128, interm // 128, 32, 4, 4)
-    sf_mask = valid.reshape(rows // 128, 4, 32).permute(0, 2, 1)
-    sf_mask = sf_mask[:, None, :, :, None].expand_as(sf)
-    return act[valid].clone(), sf[sf_mask].clone(), int(valid.sum())
+    sf_rows = (
+        act_sf.reshape(rows // 128, interm // 128, 32, 4, 4)
+        .permute(0, 3, 2, 1, 4)
+        .reshape(rows, -1)
+    )
+    rows_v = valid.nonzero().flatten()
+    expanded = b["out_permuted_idx_to_expanded_idx"][:rows][rows_v].to(torch.int64)
+    order = torch.argsort(expanded)
+    rows_sorted = rows_v[order]
+    return (
+        expanded[order],
+        act[rows_sorted].clone(),
+        sf_rows[rows_sorted].clone(),
+        int(valid.sum()),
+    )
 
 
 @pytest.mark.parametrize("tokens", [2048, 8192])
@@ -2703,21 +2717,21 @@ def test_swap_wide192_merged_gemm1_bit_identical(monkeypatch, tokens, shard):
         case.topk_weights.copy_(weights)
         merged.run()
         torch.cuda.synchronize()
-        act_m, sf_m, n_m = _gemm1_valid_rows(merged)
+        exp_m, act_m, sf_m, n_m = _gemm1_valid_rows(merged)
         counts = (
             int(merged._buffers["swap_alt_wide_count"].item()),
             int(merged._buffers["swap_row_group_count"].item()),
         )
         default.run()
         torch.cuda.synchronize()
-        act_d, sf_d, n_d = _gemm1_valid_rows(default)
-        assert n_m == n_d > 0
-        assert torch.equal(act_m, act_d), (
-            f"{dist}: GEMM1 rows differ (alt tiles {counts[0]}, windows {counts[1]})"
+        exp_d, act_d, sf_d, n_d = _gemm1_valid_rows(default)
+        where = f"{dist}: alt tiles {counts[0]}, windows {counts[1]}"
+        assert n_m > 0 and n_d > 0, f"{where}: valid rows {n_m} / {n_d}"
+        assert torch.equal(exp_m, exp_d), (
+            f"{where}: valid expanded-row sets differ ({n_m} vs {n_d} rows)"
         )
-        assert torch.equal(sf_m, sf_d), (
-            f"{dist}: GEMM1 row scales differ (alt tiles {counts[0]}, windows {counts[1]})"
-        )
+        assert torch.equal(act_m, act_d), f"{where}: GEMM1 rows differ"
+        assert torch.equal(sf_m, sf_d), f"{where}: GEMM1 row scales differ"
         torch.testing.assert_close(output, expected, atol=1e-2, rtol=1e-2)
         seen["dense"] |= counts[0] > 0
         seen["windows"] |= counts[1] > 0
