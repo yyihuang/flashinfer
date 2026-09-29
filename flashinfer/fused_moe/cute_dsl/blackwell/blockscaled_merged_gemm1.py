@@ -1388,10 +1388,12 @@ class Sm100MergedGemm1Kernel:
                 expert_idx = cutlass.Int32(0)
                 mn_limit = cutlass.Int32(0)
                 if work < total_dense:
-                    # Raster along M (the gather kernel's raster_along_m):
-                    # concurrent clusters share the weight N tile.
-                    d_n = work // num_dense_groups
-                    d_m = work - d_n * num_dense_groups
+                    # N fastest within a cluster: its consecutive items reuse
+                    # the gathered rows (M group) across the N tiles. Measured
+                    # faster than rastering along M (TP8 16384 dense-only:
+                    # 2010 vs 2105 us span).
+                    d_m = work // n_tiles_d
+                    d_n = work - d_m * n_tiles_d
                     sched_group = alt_list[d_m]
                     coord0 = sched_group * self.cta_v + mma_tile_coord_v
                     coord1 = d_n
