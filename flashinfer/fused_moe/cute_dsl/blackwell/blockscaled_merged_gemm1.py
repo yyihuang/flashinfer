@@ -86,6 +86,27 @@ from .utils import (
 
 KIND_DENSE = 0
 KIND_WINDOW = 1
+
+
+def _restride_stages(layout, stage_bytes: int, dtype) -> "cute.Layout":
+    """Return ``layout`` (a staged smem layout, stage = last mode) with the
+    stage stride set to ``stage_bytes``. Both kinds share one smem region per
+    operand class; the region's slot stride is the larger kind's stage, so a
+    kind with a smaller stage must not pack its stages at its own stride
+    (its stage s would straddle the other kind's slots s-1/s, and the first
+    window fills after a dense item would overwrite that item's pending
+    k-tiles)."""
+    composed = isinstance(layout, cute.ComposedLayout)
+    outer = layout.outer if composed else layout
+    strides = tuple(outer.stride)
+    new_stride = stage_bytes * 8 // dtype.width
+    old_stride = strides[-1]
+    if not isinstance(old_stride, int) or new_stride < old_stride:
+        raise ValueError(f"stage stride {old_stride} elements exceeds the region slot {new_stride}")
+    new_outer = cute.make_layout(outer.shape, stride=strides[:-1] + (new_stride,))
+    if composed:
+        return cute.make_composed_layout(layout.inner, layout.offset, new_outer)
+    return new_outer
 # Tile-info words: kind, m coordinate (dense: 128-row CTA tile index;
 # window: weight chunk), n coordinate (dense: N tile; window: 64-row row
 # group), expert, valid, mn limit.
@@ -364,6 +385,35 @@ class Sm100MergedGemm1Kernel:
         self.sfb_smem_layout_staged_w = blockscaled_utils.make_smem_layout_sfb(
             tiled_mma_sfb_w, self.mma_tiler_sfb_w, self.sf_vec_size, self.num_ab_stage
         )
+        # One slot stride per shared region (see _restride_stages).
+        rows_slot = cute.round_up(self.rows_bytes, 1024)
+        wts_slot = cute.round_up(self.wts_bytes, 1024)
+        sf_rows_slot = cute.round_up(self.sf_rows_bytes, 1024)
+        sf_wts_slot = cute.round_up(self.sf_wts_bytes, 1024)
+        self.a_smem_layout_staged_d = _restride_stages(
+            self.a_smem_layout_staged_d, rows_slot, self.smem_x_dtype
+        )
+        self.b_smem_layout_staged_w = _restride_stages(
+            self.b_smem_layout_staged_w, rows_slot, self.smem_x_dtype
+        )
+        self.b_smem_layout_staged_d = _restride_stages(
+            self.b_smem_layout_staged_d, wts_slot, self.smem_w_dtype
+        )
+        self.a_smem_layout_staged_w = _restride_stages(
+            self.a_smem_layout_staged_w, wts_slot, self.smem_w_dtype
+        )
+        self.sfa_smem_layout_staged_d = _restride_stages(
+            self.sfa_smem_layout_staged_d, sf_rows_slot, self.sf_dtype
+        )
+        self.sfb_smem_layout_staged_w = _restride_stages(
+            self.sfb_smem_layout_staged_w, sf_rows_slot, self.sf_dtype
+        )
+        self.sfb_smem_layout_staged_d = _restride_stages(
+            self.sfb_smem_layout_staged_d, sf_wts_slot, self.sf_dtype
+        )
+        self.sfa_smem_layout_staged_w = _restride_stages(
+            self.sfa_smem_layout_staged_w, sf_wts_slot, self.sf_dtype
+        )
         if self.zero_fill:
             sc_bytes = self.num_c_stage * self.c_bytes_per_stage
             zb = 1 << (min(sc_bytes, 32768).bit_length() - 1)
@@ -422,6 +472,26 @@ class Sm100MergedGemm1Kernel:
                     self.num_sf_tmem_cols_d,
                     self.num_sf_tmem_cols_w,
                     self.iter_acc_early_release_in_epilogue,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+
+            def _sb(layout, dtype):
+                outer = layout.outer if isinstance(layout, cute.ComposedLayout) else layout
+                return tuple(outer.stride)[-1] * dtype.width // 8
+
+            print(
+                "[merged] stage strides (B): rows d=%d w=%d | wts d=%d w=%d | sf_rows d=%d w=%d | sf_wts d=%d w=%d"
+                % (
+                    _sb(self.a_smem_layout_staged_d, self.smem_x_dtype),
+                    _sb(self.b_smem_layout_staged_w, self.smem_x_dtype),
+                    _sb(self.b_smem_layout_staged_d, self.smem_w_dtype),
+                    _sb(self.a_smem_layout_staged_w, self.smem_w_dtype),
+                    _sb(self.sfa_smem_layout_staged_d, self.sf_dtype),
+                    _sb(self.sfb_smem_layout_staged_w, self.sf_dtype),
+                    _sb(self.sfb_smem_layout_staged_d, self.sf_dtype),
+                    _sb(self.sfa_smem_layout_staged_w, self.sf_dtype),
                 ),
                 file=sys.stderr,
                 flush=True,
