@@ -878,7 +878,10 @@ def _check_tensor(name, tensor, shape, dtype, device, *, contiguous=False):
     if not isinstance(tensor, torch.Tensor):
         raise TypeError(f"{name} must be a tensor")
     if tensor.device != device or tensor.dtype != dtype or tuple(tensor.shape) != shape:
-        raise ValueError(f"{name} must be {dtype} {shape} on {device}")
+        raise ValueError(
+            f"{name} must be {dtype} {shape} on {device}, got {tensor.dtype} "
+            f"{tuple(tensor.shape)} on {tensor.device}"
+        )
     if contiguous and not tensor.is_contiguous():
         raise ValueError(f"{name} must be contiguous")
     if any(stride < 0 for stride in tensor.stride()):

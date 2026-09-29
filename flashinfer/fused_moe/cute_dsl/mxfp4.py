@@ -1238,13 +1238,16 @@ class Mxfp4MoESwapAbPlan:
             clear_target = self.output[:num_tokens]
         # Mixed form on the fused-routing path: the routing kernel emits the
         # wide / narrow / all-sub-tile lists (no ``swapab_dispatch`` launch).
-        lists_from_routing = (
-            self.mixed
-            and SWAP_MIXED_FUSED_LISTS
-            and num_tokens * w.top_k <= w._fused_route_cap(num_tokens, self.finalize)
+        # The fused routing kernel emits single-padding lists only; the
+        # dual-tile (alternate padding) form sizes its tile lists from the
+        # coarser padding and routes through ``moe_sort``.
+        fused_route = (
+            num_tokens * w.top_k <= w._fused_route_cap(num_tokens, self.finalize)
+            and self.mixed192_dual is None
         )
+        lists_from_routing = self.mixed and SWAP_MIXED_FUSED_LISTS and fused_route
         with torch.cuda.device(self.device):
-            if num_tokens * w.top_k <= w._fused_route_cap(num_tokens, self.finalize):
+            if fused_route:
                 # Fused routing (T <= 512 for top-16 on the shard, T <= 1024
                 # on an expert-parallel rank or with the split form): ID unpack, FP32
                 # weights, n_tile-row groups and the output zero-fill in one
