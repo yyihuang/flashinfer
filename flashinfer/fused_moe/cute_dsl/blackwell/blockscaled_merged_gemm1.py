@@ -874,6 +874,7 @@ class Sm100MergedGemm1Kernel:
             r_mbar_ptr: cute.struct.MemRange[cutlass.Int64, num_ab_stage * 2]
             t_mbar_ptr: cute.struct.MemRange[cutlass.Int64, num_ab_stage * 2]
             acc_mbar_ptr: cute.struct.MemRange[cutlass.Int64, 2]
+            acc_w_mbar_ptr: cute.struct.MemRange[cutlass.Int64, 4]
             tile_info_mbar_ptr: cute.struct.MemRange[
                 cutlass.Int64, self.num_tile_stage * 2
             ]
@@ -1110,9 +1111,23 @@ class Sm100MergedGemm1Kernel:
             tx_count=self.num_tma_load_bytes_d,
             cta_layout_vmnk=cluster_layout_vmnk,
         )
+        # Dense accumulator ring: one stage, two overlapped N=256 buffers
+        # (buffer = phase ^ 1, the gather kernel's early-release scheme).
         acc_pipeline = pipeline.PipelineUmmaAsync.create(
             barrier_storage=storage.acc_mbar_ptr.data_ptr(),
             num_stages=1,
+            producer_group=pipeline.CooperativeGroup(pipeline.Agent.Thread),
+            consumer_group=pipeline.CooperativeGroup(
+                pipeline.Agent.Thread, self.num_epilog_threads * self.cta_v
+            ),
+            cta_layout_vmnk=cluster_layout_vmnk,
+        )
+        # Window accumulator ring: two stages (parity buffers [0, 192) and
+        # [256, 448)), the swap kernel's MMA / epilogue overlap. The MMA
+        # drains the dense ring before its first window (see the MMA warp).
+        acc_w_pipeline = pipeline.PipelineUmmaAsync.create(
+            barrier_storage=storage.acc_w_mbar_ptr.data_ptr(),
+            num_stages=2,
             producer_group=pipeline.CooperativeGroup(pipeline.Agent.Thread),
             consumer_group=pipeline.CooperativeGroup(
                 pipeline.Agent.Thread, self.num_epilog_threads * self.cta_v
@@ -1354,8 +1369,10 @@ class Sm100MergedGemm1Kernel:
                 expert_idx = cutlass.Int32(0)
                 mn_limit = cutlass.Int32(0)
                 if work < total_dense:
-                    d_m = work // n_tiles_d
-                    d_n = work - d_m * n_tiles_d
+                    # Raster along M (the gather kernel's raster_along_m):
+                    # concurrent clusters share the weight N tile.
+                    d_n = work // num_dense_groups
+                    d_m = work - d_n * num_dense_groups
                     sched_group = alt_list[d_m]
                     coord0 = sched_group * self.cta_v + mma_tile_coord_v
                     coord1 = d_n
@@ -2018,6 +2035,13 @@ class Sm100MergedGemm1Kernel:
             acc_producer_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Producer, 1
             )
+            acc_w_producer_state = pipeline.make_pipeline_state(
+                pipeline.PipelineUserType.Producer, 2
+            )
+            # 1 once a dense item was issued; 1 once the dense ring was
+            # drained (before the first window). Dense items precede windows.
+            mma_dense_seen = cutlass.Int32(0)
+            mma_drained = cutlass.Int32(0)
             tile_info_consumer_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Consumer, self.num_tile_stage
             )
@@ -2036,6 +2060,17 @@ class Sm100MergedGemm1Kernel:
                 if cutlass.const_expr(trace is not None):
                     if tidx == 256:
                         trace[tr_base + 10] = tr_a
+                if (kind == KIND_WINDOW) & (mma_dense_seen == 1) & (mma_drained == 0):
+                    # Dense -> window: the window buffers overlap both dense
+                    # buffers, so wait until the epilogue finished its last
+                    # dense item (its early release, then the extra release
+                    # it issues at the kind change) before the first window.
+                    if is_leader_cta:
+                        acc_pipeline.producer_acquire(acc_producer_state)
+                    acc_producer_state.advance()
+                    if is_leader_cta:
+                        acc_pipeline.producer_acquire(acc_producer_state)
+                    mma_drained = cutlass.Int32(1)
                 g_consumer_state.reset_count()
                 r_consumer_state.reset_count()
                 t_consumer_state.reset_count()
@@ -2044,18 +2079,23 @@ class Sm100MergedGemm1Kernel:
                 if r_consumer_state.count < k_tile_cnt and is_leader_cta:
                     peek_r_full = r_pipeline.consumer_try_wait(r_consumer_state)
                     peek_t_full = t_pipeline.consumer_try_wait(t_consumer_state)
-                # Overlapped accumulator: buffer = producer phase ^ 1 (dense
-                # buf0 [0, 256) / buf1 [208, 464); window parity 0 [0, 192) /
-                # parity 1 [256, 448)).
+                # Dense: overlapped accumulator, buffer = producer phase ^ 1
+                # (buf0 [0, 256) / buf1 [208, 464)). Window: the two-stage
+                # ring's stage (parity 0 [0, 192) / parity 1 [256, 448)).
                 if cutlass.const_expr(trace is not None):
                     if tidx == 256:
                         trace[tr_base + 2] = cutlass.Int32(98)
                 acc_stage_index = acc_producer_state.phase ^ 1
+                if kind == KIND_WINDOW:
+                    acc_stage_index = acc_w_producer_state.index
                 if is_leader_cta:
                     if cutlass.const_expr(trace is not None):
                         if tidx == 256:
                             trace[tr_base + 2] = cutlass.Int32(99)
-                    acc_pipeline.producer_acquire(acc_producer_state)
+                    if kind == KIND_DENSE:
+                        acc_pipeline.producer_acquire(acc_producer_state)
+                    else:
+                        acc_w_pipeline.producer_acquire(acc_w_producer_state)
                     if cutlass.const_expr(trace is not None):
                         if tidx == 256:
                             trace[tr_base + 2] = cutlass.Int32(100)
@@ -2179,9 +2219,15 @@ class Sm100MergedGemm1Kernel:
                             if is_leader_cta:
                                 peek_r_full = r_pipeline.consumer_try_wait(r_consumer_state)
                                 peek_t_full = t_pipeline.consumer_try_wait(t_consumer_state)
-                if is_leader_cta:
-                    acc_pipeline.producer_commit(acc_producer_state)
-                acc_producer_state.advance()
+                if kind == KIND_DENSE:
+                    if is_leader_cta:
+                        acc_pipeline.producer_commit(acc_producer_state)
+                    acc_producer_state.advance()
+                    mma_dense_seen = cutlass.Int32(1)
+                else:
+                    if is_leader_cta:
+                        acc_w_pipeline.producer_commit(acc_w_producer_state)
+                    acc_w_producer_state.advance()
 
                 tile_info_pipeline.consumer_wait(tile_info_consumer_state)
                 for i in cutlass.range_constexpr(INFO_WORDS):
@@ -2190,7 +2236,10 @@ class Sm100MergedGemm1Kernel:
                 cute.arch.fence_proxy("async.shared", space="cta")
                 tile_info_pipeline.consumer_release(tile_info_consumer_state)
                 tile_info_consumer_state.advance()
-            acc_pipeline.producer_tail(acc_producer_state)
+            # A drained dense ring has no further release to wait for.
+            if mma_drained == 0:
+                acc_pipeline.producer_tail(acc_producer_state)
+            acc_w_pipeline.producer_tail(acc_w_producer_state)
 
         #
         # Epilogue warps 0-3
@@ -2280,6 +2329,10 @@ class Sm100MergedGemm1Kernel:
             acc_consumer_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Consumer, 1
             )
+            acc_w_consumer_state = pipeline.make_pipeline_state(
+                pipeline.PipelineUserType.Consumer, 2
+            )
+            epi_dense_seen = cutlass.Int32(0)
             c_producer_group = pipeline.CooperativeGroup(
                 pipeline.Agent.Thread, 32 * len(self.epilog_warp_id)
             )
@@ -2340,8 +2393,18 @@ class Sm100MergedGemm1Kernel:
                     if warp_idx == self.epilog_warp_id[0]:
                         c_pipeline.producer_tail()
                     self.epilog_sync_barrier.arrive_and_wait()
+                    if epi_dense_seen == 1:
+                        # Dense -> window: the last dense item's accumulator
+                        # reads are complete; the extra release lets the MMA
+                        # drain the dense ring before its first window.
+                        cute.arch.fence_view_async_tmem_load()
+                        tcgen05_fence_before_thread_sync()
+                        acc_pipeline.consumer_release(acc_consumer_state)
+                        acc_consumer_state.advance()
                 prev_kind = kind
                 acc_stage_index = acc_consumer_state.phase
+                if kind == KIND_WINDOW:
+                    acc_stage_index = acc_w_consumer_state.index
 
                 if kind == KIND_DENSE:
                     mma_m = tile_info[1] // self.cta_v
@@ -2359,6 +2422,7 @@ class Sm100MergedGemm1Kernel:
                     subtile_cnt = cute.size(tTR_tAcc.shape, mode=[3])
                     acc_pipeline.consumer_wait(acc_consumer_state)
                     tcgen05_fence_after_thread_sync()
+                    epi_dense_seen = cutlass.Int32(1)
                     for subtile_idx in cutlass.range(0, subtile_cnt, 2):
                         real_subtile_idx = subtile_idx // 2
                         if reverse_subtile:
@@ -2497,7 +2561,7 @@ class Sm100MergedGemm1Kernel:
                         (None, None, None, None, None, acc_stage_index)
                     ]
                     tTR_tAcc_f = cute.group_modes(tTR_tAcc_f, 3, cute.rank(tTR_tAcc_f))
-                    acc_pipeline.consumer_wait(acc_consumer_state)
+                    acc_w_pipeline.consumer_wait(acc_w_consumer_state)
                     tcgen05_fence_after_thread_sync()
                     for sub in cutlass.range_constexpr(num_sub_w):
                         buf = sub % exch_bufs
@@ -2586,8 +2650,8 @@ class Sm100MergedGemm1Kernel:
                                 trace[tr_base + 13] = tr_b
                     cute.arch.fence_view_async_tmem_load()
                     tcgen05_fence_before_thread_sync()
-                    acc_pipeline.consumer_release(acc_consumer_state)
-                    acc_consumer_state.advance()
+                    acc_w_pipeline.consumer_release(acc_w_consumer_state)
+                    acc_w_consumer_state.advance()
 
                 if cutlass.const_expr(trace is not None):
                     if tidx == 0:
