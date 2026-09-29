@@ -2630,14 +2630,18 @@ def test_swap_split_form_matches_default(
 
 
 def _gemm1_valid_rows(plan):
-    """GEMM1 output rows / blocked row scales of the valid permuted rows
-    (``expanded_idx >= 0``): the merged GEMM1's bit-identity surface (padded
-    rows may hold stale operand data in either form)."""
+    """GEMM1 output rows / blocked row scales of the valid permuted rows: the
+    merged GEMM1's bit-identity surface (padded rows may hold stale operand
+    data in either form)."""
     b = plan._buffers
     act = b["gemm1_out"]
     act_sf = b["gemm1_out_scale"]
     rows, interm = act.shape
-    valid = b["out_permuted_idx_to_expanded_idx"][:rows] >= 0
+    # Valid rows from the routing's per-128-row-group limits: padded rows keep
+    # whatever the workspace held (the kernels predicate on the limits).
+    limit = b["out_tile_idx_to_mn_limit"][: rows // 128].to(torch.int64)
+    row = torch.arange(rows, device=act.device)
+    valid = row < limit[row // 128]
     # Blocked scales: flat = kv + 4 rg + 16 r32 + 512 cb + 512 (I/128) rb.
     sf = act_sf.reshape(rows // 128, interm // 128, 32, 4, 4)
     sf_mask = valid.reshape(rows // 128, 4, 32).permute(0, 2, 1)
