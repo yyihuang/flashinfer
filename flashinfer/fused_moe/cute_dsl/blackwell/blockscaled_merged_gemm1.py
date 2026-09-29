@@ -879,6 +879,7 @@ class Sm100MergedGemm1Kernel:
             t_mbar_ptr: cute.struct.MemRange[cutlass.Int64, num_ab_stage * 2]
             acc_mbar_ptr: cute.struct.MemRange[cutlass.Int64, 2]
             acc_w_mbar_ptr: cute.struct.MemRange[cutlass.Int64, 4]
+            drain_mbar_ptr: cute.struct.MemRange[cutlass.Int64, 2]
             tile_info_mbar_ptr: cute.struct.MemRange[
                 cutlass.Int64, self.num_tile_stage * 2
             ]
@@ -1129,6 +1130,20 @@ class Sm100MergedGemm1Kernel:
         # Window accumulator ring: two stages (parity buffers [0, 192) and
         # [256, 448)), the swap kernel's MMA / epilogue overlap. The MMA
         # drains the dense ring before its first window (see the MMA warp).
+        # Drain signal: a single-use ring the epilogue releases once after its
+        # last dense item's accumulator reads. It is separate from the dense
+        # ring on purpose: a second release on the one-stage dense barrier
+        # right after the last item's own release could complete two phases
+        # before the MMA observed the first (parity aliasing -> deadlock).
+        drain_pipeline = pipeline.PipelineUmmaAsync.create(
+            barrier_storage=storage.drain_mbar_ptr.data_ptr(),
+            num_stages=1,
+            producer_group=pipeline.CooperativeGroup(pipeline.Agent.Thread),
+            consumer_group=pipeline.CooperativeGroup(
+                pipeline.Agent.Thread, self.num_epilog_threads * self.cta_v
+            ),
+            cta_layout_vmnk=cluster_layout_vmnk,
+        )
         acc_w_pipeline = pipeline.PipelineUmmaAsync.create(
             barrier_storage=storage.acc_w_mbar_ptr.data_ptr(),
             num_stages=2,
@@ -2042,6 +2057,9 @@ class Sm100MergedGemm1Kernel:
             acc_w_producer_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Producer, 2
             )
+            drain_producer_state = pipeline.make_pipeline_state(
+                pipeline.PipelineUserType.Producer, 1
+            )
             # 1 once a dense item was issued; 1 once the dense ring was
             # drained (before the first window). Dense items precede windows.
             mma_dense_seen = cutlass.Int32(0)
@@ -2066,14 +2084,14 @@ class Sm100MergedGemm1Kernel:
                         trace[tr_base + 10] = tr_a
                 if (kind == KIND_WINDOW) & (mma_dense_seen == 1) & (mma_drained == 0):
                     # Dense -> window: the window buffers overlap both dense
-                    # buffers, so wait until the epilogue finished its last
-                    # dense item (its early release, then the extra release
-                    # it issues at the kind change) before the first window.
+                    # buffers, so wait for the epilogue's drain release (after
+                    # all accumulator reads of its last dense item) before the
+                    # first window. The first acquire passes on the fresh ring.
                     if is_leader_cta:
-                        acc_pipeline.producer_acquire(acc_producer_state)
-                    acc_producer_state.advance()
+                        drain_pipeline.producer_acquire(drain_producer_state)
+                    drain_producer_state.advance()
                     if is_leader_cta:
-                        acc_pipeline.producer_acquire(acc_producer_state)
+                        drain_pipeline.producer_acquire(drain_producer_state)
                     mma_drained = cutlass.Int32(1)
                 g_consumer_state.reset_count()
                 r_consumer_state.reset_count()
@@ -2240,7 +2258,8 @@ class Sm100MergedGemm1Kernel:
                 cute.arch.fence_proxy("async.shared", space="cta")
                 tile_info_pipeline.consumer_release(tile_info_consumer_state)
                 tile_info_consumer_state.advance()
-            # A drained dense ring has no further release to wait for.
+            # After a drain the dense ring's last release was observed via
+            # the drain ring (no further release to wait for).
             if mma_drained == 0:
                 acc_pipeline.producer_tail(acc_producer_state)
             acc_w_pipeline.producer_tail(acc_w_producer_state)
@@ -2336,6 +2355,9 @@ class Sm100MergedGemm1Kernel:
             acc_w_consumer_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Consumer, 2
             )
+            drain_consumer_state = pipeline.make_pipeline_state(
+                pipeline.PipelineUserType.Consumer, 1
+            )
             epi_dense_seen = cutlass.Int32(0)
             c_producer_group = pipeline.CooperativeGroup(
                 pipeline.Agent.Thread, 32 * len(self.epilog_warp_id)
@@ -2401,12 +2423,11 @@ class Sm100MergedGemm1Kernel:
                     self.epilog_sync_barrier.arrive_and_wait()
                     if epi_dense_seen == 1:
                         # Dense -> window: the last dense item's accumulator
-                        # reads are complete; the extra release lets the MMA
-                        # drain the dense ring before its first window.
+                        # reads are complete; the drain release lets the MMA
+                        # start the first window (see drain_pipeline).
                         cute.arch.fence_view_async_tmem_load()
                         tcgen05_fence_before_thread_sync()
-                        acc_pipeline.consumer_release(acc_consumer_state)
-                        acc_consumer_state.advance()
+                        drain_pipeline.consumer_release(drain_consumer_state)
                 prev_kind = kind
                 acc_stage_index = acc_consumer_state.phase
                 if kind == KIND_WINDOW:
