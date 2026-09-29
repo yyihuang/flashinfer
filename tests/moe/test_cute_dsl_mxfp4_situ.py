@@ -2640,11 +2640,13 @@ def _gemm1_valid_rows(plan):
     act = b["gemm1_out"]
     act_sf = b["gemm1_out_scale"]
     rows, interm = act.shape
-    # Valid rows from the routing's per-128-row-group limits: padded rows keep
-    # whatever the workspace held (the kernels predicate on the limits).
+    # Valid rows: below the routing's padded-row total (the tile lists beyond
+    # it are never written, so their limits are stale workspace contents) and
+    # below the per-128-row-group limit (the kernels predicate on it).
+    total = int(b["out_total_num_padded_tokens"].item())
     limit = b["out_tile_idx_to_mn_limit"][: rows // 128].to(torch.int64)
     row = torch.arange(rows, device=act.device)
-    valid = row < limit[row // 128]
+    valid = (row < total) & (row < limit[row // 128])
     # Blocked scales: flat = kv + 4 rg + 16 r32 + 512 cb + 512 (I/128) rb.
     sf_rows = (
         act_sf.reshape(rows // 128, interm // 128, 32, 4, 4)
