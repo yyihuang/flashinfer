@@ -1467,14 +1467,11 @@ class Sm100MergedGemm1Kernel:
             n_sf_w = (n_sf + num_gather - 1) // num_gather
             n_kt = self.win_k_blocks_per_stage // 4
             k_stage = self.mma_tiler_w[2]
-            b_bytes_per_stage = rows_cta * k_stage
             # Stage bases follow the shared regions' slot strides (the
             # staged layouts were restrided to them), not this kind's own.
             rows_slot_bytes = cute.round_up(self.rows_bytes, 1024)
             sf_rows_slot_bytes = cute.round_up(self.sf_rows_bytes, 1024)
-            n_sf_blocks = (n_tile + 127) // 128
             sf_block_bytes = 512 * n_kt
-            sf_bytes_per_stage = sf_block_bytes * n_sf_blocks
             num_rows_b = mX.shape[0]
             k_cols = mX.shape[1]
             sf_cols = mXSF.shape[1]
