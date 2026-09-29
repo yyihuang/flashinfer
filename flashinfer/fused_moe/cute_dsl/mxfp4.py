@@ -55,6 +55,7 @@ from .swapab_moe import (
     swapab_dispatch,
     swapab_dispatch_mixed,
     merged_gemm1_situ,
+    merged_gemm2_finalize,
     swapab_gemm1_situ,
     swapab_gemm2,
 )
@@ -330,6 +331,18 @@ SWAP_WIDE192_MERGED_LAYOUTS = tuple(
     for x in os.environ.get("MXFP4_SWAP192_MERGED_LAYOUTS", "expert_parallel").split(",")
     if x
 )
+# Round 31 S2 (opt-in, ``MXFP4_SWAP192_MERGED_GEMM2=1``): the win layout's
+# dense finalize GEMM2 over the 128-row wide list and the 192-row swap GEMM2
+# windows run as ONE persistent launch on the caller's stream (split GEMM2
+# form, layouts of MXFP4_SWAP192_MERGED_LAYOUTS); the alternate-padding
+# finalize keeps its launch. Same addends per output element as the two
+# launches (the atomic accumulation order is unordered in both forms).
+SWAP_WIDE192_MERGED_GEMM2 = os.environ.get("MXFP4_SWAP192_MERGED_GEMM2", "0") == "1"
+# Round 31 S2 U1 (opt-in, ``MXFP4_SWAP192_GEMM2_EARLY=1``, merged GEMM1 only):
+# the merged GEMM1 always zero-fills the output (the base dense GEMM1 never
+# does) and the swap GEMM2 on the side stream waits on an event recorded
+# right after the merged launch instead of after every main-stream GEMM1.
+SWAP_WIDE192_GEMM2_EARLY = os.environ.get("MXFP4_SWAP192_GEMM2_EARLY", "0") == "1"
 # Mixed form: weight M-tiles per swap-GEMM2 work item. Measured on B300 (TP8
 # T=256/1024 balanced): with the 128-row groups the GEMM2 of the policy tile
 # loses 6-9 % at m_group 1 and is back at the 32-row-group time with 2.
@@ -1133,6 +1146,9 @@ class Mxfp4MoESwapAbPlan:
         # "Other launch has tiles" for the base dense GEMM1 under the merged
         # GEMM1: the merged kernel fills whenever the base list is empty.
         self._zero_fill_ones = torch.ones(1, dtype=torch.int32, device=self.device)
+        # "Other launch has no tiles" for the merged GEMM1 under
+        # MXFP4_SWAP192_GEMM2_EARLY: it then always fills.
+        self._zero_fill_zero = torch.zeros(1, dtype=torch.int32, device=self.device)
         self._zero_fill_other_tiles = torch.zeros(
             1, dtype=torch.int32, device=self.device
         )
@@ -1193,6 +1209,7 @@ class Mxfp4MoESwapAbPlan:
         self._gemm1_dense_fills = False
         self._gemm2_wide = None
         self._gemm2_dense_alt = None
+        self._gemm2_merged = None
         self._token_index = None
         self._token_index_args = None
         self._packed_weight_view = (
@@ -1229,6 +1246,17 @@ class Mxfp4MoESwapAbPlan:
         )
         if self.merged_gemm1 and not zero_in_dense:
             raise ValueError("MXFP4_SWAP192_MERGED_GEMM1 needs MXFP4_SWAP192_ZF=dense")
+        # U1: the merged GEMM1 always fills; the swap GEMM2 waits on it alone.
+        self.merged_gemm1_early = bool(self.merged_gemm1 and SWAP_WIDE192_GEMM2_EARLY)
+        # Merged finalize GEMM2 (round 31 S2): the split GEMM2 form of the win
+        # layout (dense finalize over the wide list + swap GEMM2 windows).
+        self.merged_gemm2 = bool(
+            SWAP_WIDE192_MERGED_GEMM2
+            and w.layout.mode in SWAP_WIDE192_MERGED_LAYOUTS
+            and self.mixed192_win_streams
+            and self.mixed192_dual is not None
+            and self.mixed192_gemm2 == "split"
+        )
         clear_output = (not self.two_stage or split_dense) and zero_fill == "route"
         if (self.finalize and not self.two_stage) or split_dense:
             clear_target = self.output
@@ -1671,7 +1699,7 @@ class Mxfp4MoESwapAbPlan:
                                 else self._zero_fill_other_tiles
                             ),
                         )
-                        if zero_in_dense
+                        if zero_in_dense and not self.merged_gemm1_early
                         else {}
                     ),
                 )
@@ -1755,7 +1783,11 @@ class Mxfp4MoESwapAbPlan:
                         window_weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
                         zero_fill_output=self.output,
                         zero_fill_counters=self._zero_fill_counters,
-                        zero_fill_other_tiles=b["swap_wide_count"],
+                        zero_fill_other_tiles=(
+                            self._zero_fill_zero
+                            if self.merged_gemm1_early
+                            else b["swap_wide_count"]
+                        ),
                         zero_fill_secondary=True,
                         zero_fill_if_other_empty=True,
                         group_rows=self.group_rows,
@@ -1830,7 +1862,7 @@ class Mxfp4MoESwapAbPlan:
                     self._gemm2_dense_alt = self._prepare_dense_gemm2_alt(
                         w, b, w2, w2_sf, num_tokens, pdl, wide=False
                     )
-            else:
+            elif not self.merged_gemm2:
                 self._prepare_swap_gemm2(
                     w, b, w2, w2_sf, num_tokens, fused_finalize, launches
                 )
@@ -1843,35 +1875,66 @@ class Mxfp4MoESwapAbPlan:
                     gemm2_tactic = ((self.group_rows, 192), (1, 2), False)
                 gemm2_raster = w._gemm2_raster(num_tokens, gemm2_tactic[0][1])
                 wide_launches = {}
-                blockscaled_contiguous_grouped_gemm_finalize_fusion(
-                    a=b["gemm1_out"],
-                    b=w2,
-                    a_scale=b["gemm1_out_scale"],
-                    b_scale=w2_sf,
-                    alpha=b["w2_alpha"],
-                    tile_idx_to_expert_idx=b["out_tile_idx_to_expert_idx"],
-                    num_non_exiting_tiles=b["swap_wide_count"],
-                    tile_idx_to_mn_limit=b["out_tile_idx_to_mn_limit"],
-                    permuted_idx_to_expanded_idx=b["out_permuted_idx_to_expanded_idx"],
-                    token_final_scales=self._route_weights,
-                    out=self.output,
-                    a_dtype="float8_e4m3fn",
-                    b_dtype="float4_e2m1fn",
-                    sf_dtype="float8_e8m0fnu",
-                    sf_vec_size=32,
-                    out_dtype="bfloat16",
-                    mma_tiler_mn=gemm2_tactic[0],
-                    cluster_shape_mn=gemm2_tactic[1],
-                    enable_pdl=pdl,
-                    use_fused_finalize=True,
-                    weight_l2_hint=DENSE_WEIGHT_L2_HINT,
-                    tile_idx_to_row_group=b["swap_wide_list"],
-                    raster_along_m=gemm2_raster[0],
-                    swizzle_size=gemm2_raster[1],
-                    c_stages=DENSE_GEMM2_C_STAGES,
-                    _prepared_launches=wide_launches,
-                )
-                self._gemm2_wide = wide_launches["finalize"]
+                if self.merged_gemm2:
+                    # Round 31 S2: the dense finalize tiles of the wide list
+                    # and the 192-row swap GEMM2 windows in one launch (the
+                    # dense tile's N from the rank's GEMM2 tactic).
+                    merged_gemm2_finalize(
+                        w2=w2,
+                        w2_sf=w2_sf,
+                        act=b["gemm1_out"],
+                        act_sf=b["gemm1_out_scale"],
+                        out=self.output,
+                        alpha=b["w2_alpha"],
+                        token_final_scales=self._route_weights,
+                        permuted_idx_to_expanded_idx=b["out_permuted_idx_to_expanded_idx"],
+                        tile_idx_to_expert_idx=b["out_tile_idx_to_expert_idx"],
+                        tile_idx_to_mn_limit=b["out_tile_idx_to_mn_limit"],
+                        wide_list=b["swap_wide_list"],
+                        wide_count=b["swap_wide_count"],
+                        win_row_groups=b["swap_row_groups"],
+                        win_row_group_count=b["swap_row_group_count"],
+                        top_k=w.top_k,
+                        dense_n=gemm2_tactic[0][1],
+                        enable_pdl=pdl,
+                        dense_weight_l2_hint=DENSE_WEIGHT_L2_HINT,
+                        window_weight_l2_hint=w._swap_weight_l2_hint(num_tokens),
+                        c_stages=DENSE_GEMM2_C_STAGES,
+                        group_rows=self.group_rows,
+                        row_unit=SWAP_WIDE192_ROW_UNIT,
+                        _prepared_launches=wide_launches,
+                    )
+                    self._gemm2_merged = wide_launches["merged_gemm2"]
+                else:
+                    blockscaled_contiguous_grouped_gemm_finalize_fusion(
+                        a=b["gemm1_out"],
+                        b=w2,
+                        a_scale=b["gemm1_out_scale"],
+                        b_scale=w2_sf,
+                        alpha=b["w2_alpha"],
+                        tile_idx_to_expert_idx=b["out_tile_idx_to_expert_idx"],
+                        num_non_exiting_tiles=b["swap_wide_count"],
+                        tile_idx_to_mn_limit=b["out_tile_idx_to_mn_limit"],
+                        permuted_idx_to_expanded_idx=b["out_permuted_idx_to_expanded_idx"],
+                        token_final_scales=self._route_weights,
+                        out=self.output,
+                        a_dtype="float8_e4m3fn",
+                        b_dtype="float4_e2m1fn",
+                        sf_dtype="float8_e8m0fnu",
+                        sf_vec_size=32,
+                        out_dtype="bfloat16",
+                        mma_tiler_mn=gemm2_tactic[0],
+                        cluster_shape_mn=gemm2_tactic[1],
+                        enable_pdl=pdl,
+                        use_fused_finalize=True,
+                        weight_l2_hint=DENSE_WEIGHT_L2_HINT,
+                        tile_idx_to_row_group=b["swap_wide_list"],
+                        raster_along_m=gemm2_raster[0],
+                        swizzle_size=gemm2_raster[1],
+                        c_stages=DENSE_GEMM2_C_STAGES,
+                        _prepared_launches=wide_launches,
+                    )
+                    self._gemm2_wide = wide_launches["finalize"]
                 if self.mixed192_dual is not None:
                     # Dense finalize of the coarser tile over the alternate
                     # wide list (reduce-adds into the same output), or over
@@ -1889,7 +1952,10 @@ class Mxfp4MoESwapAbPlan:
                 self._gemm1 = self._gemm1_args = None
             else:
                 self._gemm1, self._gemm1_args = launches["swap_gemm1"]
-            self._gemm2, self._gemm2_args = launches["swap_gemm2"]
+            if self.merged_gemm2:
+                self._gemm2 = self._gemm2_args = None
+            else:
+                self._gemm2, self._gemm2_args = launches["swap_gemm2"]
             if self.two_stage:
                 self._finalize_rows = plan_finalize_rows(
                     self._partial_rows,
@@ -2140,6 +2206,10 @@ class Mxfp4MoESwapAbPlan:
                     if self._gemm1_merged is not None and not self.mixed192_dense_first:
                         compiled, args = self._gemm1_merged
                         compiled(*args, stream=stream)
+                        if self.merged_gemm1_early:
+                            # U1: the swap GEMM2 needs only the merged kernel
+                            # (window rows + the output fill).
+                            self._fill_event.record(main)
                     compiled, args, kwargs = self._gemm1_dense
                     compiled(*args, stream=stream, **kwargs)
                     if self._gemm1_dense_alt is not None:
@@ -2148,6 +2218,8 @@ class Mxfp4MoESwapAbPlan:
                     if self._gemm1_merged is not None and self.mixed192_dense_first:
                         compiled, args = self._gemm1_merged
                         compiled(*args, stream=stream)
+                        if self.merged_gemm1_early:
+                            self._fill_event.record(main)
 
                 if self.mixed192_dense_first:
                     dense_gemm1s()
@@ -2155,8 +2227,15 @@ class Mxfp4MoESwapAbPlan:
                 else:
                     window_chain()
                     dense_gemm1s()
-                if self._gemm2_wide is not None:
-                    self._fill_event.record(main)
+                if self._gemm2_merged is not None:
+                    # Merged finalize GEMM2 on the caller's stream after every
+                    # GEMM1 (the window chain joined through its event).
+                    main.wait_event(self._swap_gemm1_event)
+                    compiled, args = self._gemm2_merged
+                    compiled(*args, stream=stream)
+                elif self._gemm2_wide is not None:
+                    if not self.merged_gemm1_early:
+                        self._fill_event.record(main)
                     self._side_stream.wait_event(self._fill_event)
                     self._gemm2(*self._gemm2_args, stream=side)
                     compiled, args = self._gemm2_wide

@@ -2764,6 +2764,130 @@ def test_swap_wide192_merged_gemm1_bit_identical(monkeypatch, tokens, shard):
     assert seen["dense"] and seen["windows"], seen
 
 
+@pytest.mark.parametrize("tokens", [2048, 8192])
+@pytest.mark.parametrize("merged_gemm1", [False, True], ids=["gemm1_two", "gemm1_merged"])
+@pytest.mark.parametrize("shard", ["tp", "ep"])
+def test_swap_wide192_merged_gemm2_matches_two_launch(
+    monkeypatch, tokens, merged_gemm1, shard
+):
+    """Round 31 S2: ``MXFP4_SWAP192_MERGED_GEMM2=1`` runs the win layout's
+    dense finalize GEMM2 over the wide list and the 192-row swap GEMM2
+    windows as one persistent launch. Its MoE output matches the two-launch
+    form within the BF16 tolerance and the FP64 floor on every routing (dense
+    tiles and windows both exercised, with the two-launch and the merged
+    GEMM1), and a captured graph follows routing changes."""
+    _require_blackwell()
+    from flashinfer.fused_moe.cute_dsl import mxfp4
+
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MODE", "1")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIN_TOKENS", 2048)
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIXED", True)
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIXED_STREAMS", "win")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIXED_GEMM2", "split")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_ZERO_FILL", "dense")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_LISTS", "sort")
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MIN_ROWS", 0)
+    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE", True)
+    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE_MIN_TOKENS", 1024)
+    monkeypatch.setattr(mxfp4, "DENSE_DUAL_TILE_MAX_SHARD", 1 << 30)
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MERGED_GEMM1", merged_gemm1)
+    monkeypatch.setattr(
+        mxfp4, "SWAP_WIDE192_MERGED_LAYOUTS", ("expert_parallel", "moe_tensor_parallel")
+    )
+    kwargs = {"intermediate": 1024} if shard == "ep" else {}
+    case = make_case(tokens=tokens, distribution="balanced", **kwargs)
+    prepared = prepare_cute_weights(case)
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MERGED_GEMM2", True)
+    merged, output, _ = prepare_candidate(case, prepared_weights=prepared)
+    if merged.mixed192_dual is None:
+        wrapper = merged._wrapper
+        if not wrapper._swap_wide192(tokens):
+            assert tokens <= wrapper.swapab_max_tokens, (
+                tokens,
+                shard,
+                wrapper.swapab_max_tokens,
+            )
+            pytest.skip(
+                f"tokens={tokens} shard={shard}: the swap-AB form owns tokens "
+                f"<= swapab_max_tokens={wrapper.swapab_max_tokens} on this "
+                "shard; the mixed 192-row form and the merged GEMM2 start above"
+            )
+        assert wrapper._dual_enabled(tokens), (tokens, shard)
+        base = wrapper._tactic(tokens)
+        assert base[0] != 128, (tokens, shard, base)
+        pytest.skip(
+            f"tokens={tokens} shard={shard}: the dense base tactic is the "
+            f"{base[0]}-row tile, so the routing has no alternate padding and "
+            "the merged GEMM2 does not apply"
+        )
+    assert merged.mixed192_win_streams, (tokens, shard)
+    assert merged.merged_gemm2 and merged._gemm2_merged is not None
+    assert merged._gemm2 is None and merged._gemm2_wide is None
+    assert merged.merged_gemm1 is merged_gemm1
+    monkeypatch.setattr(mxfp4, "SWAP_WIDE192_MERGED_GEMM2", False)
+    default, expected, _ = prepare_candidate(case, prepared_weights=prepared)
+    assert not default.merged_gemm2
+    assert default._gemm2 is not None and default._gemm2_wide is not None
+    seen = {"dense": False, "windows": False}
+    for dist in ("balanced", "hot", "empty"):
+        ids, weights = make_routing(
+            tokens,
+            case.num_experts,
+            case.topk_ids.shape[1],
+            case.local_num_experts,
+            case.local_expert_offset,
+            dist,
+        )
+        case.topk_ids.copy_(ids)
+        case.topk_weights.copy_(weights)
+        merged.run()
+        torch.cuda.synchronize()
+        counts = (
+            int(merged._buffers["swap_wide_count"].item()),
+            int(merged._buffers["swap_row_group_count"].item()),
+        )
+        default.run()
+        torch.cuda.synchronize()
+        where = f"{dist}: dense tiles {counts[0]}, windows {counts[1]}"
+        assert not torch.isnan(output).any(), where
+        torch.testing.assert_close(output, expected, atol=1e-2, rtol=1e-2)
+        # The merged form reduces the same addends per output element as the
+        # two launches (the atomic accumulation order is unordered in both):
+        # its distance from the FP64 ideal stays within the two-launch form's
+        # plus the BF16 rounding floor.
+        ref = reference_moe(case)["ideal_fp64"]
+        floor = torch.linalg.vector_norm(ref.to(torch.bfloat16).double() - ref)
+        assert torch.linalg.vector_norm(output.double() - ref) <= (
+            torch.linalg.vector_norm(expected.double() - ref) + floor
+        ), where
+        seen["dense"] |= counts[0] > 0
+        seen["windows"] |= counts[1] > 0
+    assert seen["dense"] and seen["windows"], seen
+    # A captured graph of the merged form follows routing changes.
+    stream = torch.cuda.Stream()
+    stream.wait_stream(torch.cuda.current_stream())
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph, stream=stream):
+        merged.run()
+    torch.cuda.current_stream().wait_stream(stream)
+    for changed in ("hot", "balanced"):
+        ids, weights = make_routing(
+            tokens,
+            case.num_experts,
+            case.topk_ids.shape[1],
+            case.local_num_experts,
+            case.local_expert_offset,
+            changed,
+        )
+        case.topk_ids.copy_(ids)
+        case.topk_weights.copy_(weights)
+        default.run()
+        for _ in range(5):
+            graph.replay()
+        torch.cuda.synchronize()
+        torch.testing.assert_close(output, expected, atol=1e-2, rtol=1e-2)
+
+
 def _make_cluster_split_wrapper(case, split, enable_pdl):
     from flashinfer.fused_moe.cute_dsl.mxfp4 import CuteDslMxfp4MoEWrapper
 

@@ -25,6 +25,7 @@ import torch
 from flashinfer.cute_dsl.utils import get_max_active_clusters, make_ptr
 
 from .blackwell.blockscaled_merged_gemm1 import Sm100MergedGemm1Kernel
+from .blackwell.blockscaled_merged_gemm2 import Sm100MergedGemm2Kernel
 from .blackwell.blockscaled_swapab_grouped_gemm import (
     Sm100BlockScaledSwapAbGroupedGemmKernel,
 )
@@ -1042,6 +1043,168 @@ def merged_gemm1_situ(
     if os.environ.get("MERGED_DEBUG"):
         torch.cuda.synchronize()
         print("[merged] first launch done", file=sys.stderr, flush=True)
+
+
+# Round 31 S2: merged persistent finalize GEMM2 (dense M128 finalize tiles of
+# the wide list, then the 192-row swap GEMM2 windows, in one launch).
+MERGED2_TILE_STAGES = int(os.environ.get("MERGED2_TILE_STAGES", "4"))
+MERGED2_C_STAGES = os.environ.get("MERGED2_C_STAGES")
+MERGED2_MIN_AB_STAGES = int(os.environ.get("MERGED2_MIN_AB_STAGES", "4"))
+_merged2_kernel_cache: Dict[Tuple, Any] = {}
+
+
+def merged_gemm2_finalize(
+    *,
+    w2: torch.Tensor,
+    w2_sf: torch.Tensor,
+    act: torch.Tensor,
+    act_sf: torch.Tensor,
+    out: torch.Tensor,
+    alpha: torch.Tensor,
+    token_final_scales: torch.Tensor,
+    permuted_idx_to_expanded_idx: torch.Tensor,
+    tile_idx_to_expert_idx: torch.Tensor,
+    tile_idx_to_mn_limit: torch.Tensor,
+    wide_list: torch.Tensor,
+    wide_count: torch.Tensor,
+    win_row_groups: torch.Tensor,
+    win_row_group_count: torch.Tensor,
+    top_k: int,
+    dense_n: int,
+    enable_pdl: bool = False,
+    dense_weight_l2_hint: Optional[int] = None,
+    window_weight_l2_hint: Optional[int] = None,
+    c_stages: int = 1,
+    pdl_trigger_early: bool = False,
+    group_rows: int = 128,
+    row_unit: int = 64,
+    _prepared_launches: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Finalize GEMM2 (down) of the mixed 192-row form in ONE persistent
+    launch: the dense contiguous finalize tiles (``M128 x N{dense_n}``) of the
+    128-row groups in ``wide_list`` (``wide_count`` entries; the 128-row
+    tables ``tile_idx_to_*``) followed by the 192-row swap-AB finalize windows
+    of ``win_row_groups`` (``win_row_group_count`` entries, 64-row units).
+    Both reduce-add ``route_weight * acc`` into the zero-filled ``out[T, H]``
+    exactly as the two launches (the dense finalize additionally multiplies
+    by ``alpha``, the swap finalize does not; the runner's ``w2_alpha`` is
+    all ones).
+
+    ``act`` / ``act_sf`` are the permuted ``[R, I]`` E4M3 rows with
+    block-scaled ``[R, I/32]`` UE8M0 scales (the layout written by the mixed
+    GEMM1 forms); ``w2`` is the prepared ``[L, H, I/2]`` weight (its tile-major
+    copy is cached by :func:`tile_major_weights`).
+    """
+    num_local_experts, rows_w, packed_k = w2.shape
+    k = packed_k * 2
+    rows = act.shape[0]
+    num_tokens = token_final_scales.shape[0]
+    if rows_w % 256 or k % 128 or rows % 128:
+        raise ValueError("merged GEMM2 needs H % 256 == 0, I % 128 == 0, R % 128 == 0")
+    if act.shape[1] != k or act_sf.numel() != rows * (k // 32):
+        raise ValueError("act must be [R, I] with act_sf of R * I/32 bytes")
+    if out.shape != (num_tokens, rows_w) or out.dtype != torch.bfloat16:
+        raise ValueError("finalize output must be BF16 [T, H]")
+    if token_final_scales.dtype != torch.float32 or token_final_scales.shape[1] != top_k:
+        raise ValueError("token_final_scales must be float32 [T, top_k]")
+    if permuted_idx_to_expanded_idx.shape[0] < rows:
+        raise ValueError("permuted_idx_to_expanded_idx must cover every act row")
+    if tile_idx_to_expert_idx.shape[0] < rows // 128:
+        raise ValueError("the 128-row group tables must cover every act row")
+    stream = cuda.CUstream(torch.cuda.current_stream().cuda_stream)
+    max_active_clusters = get_max_active_clusters(2)
+    window_hint = _resolve_weight_l2_hint(window_weight_l2_hint)
+    c_stages_eff = int(MERGED2_C_STAGES) if MERGED2_C_STAGES else int(c_stages)
+    global MERGED_TRACE_BUFFER
+    trace_buf = None
+    if os.environ.get("MERGED_TRACE"):
+        if MERGED_TRACE_BUFFER is None:
+            MERGED_TRACE_BUFFER = torch.zeros(4096 * 16, dtype=torch.int32, pin_memory=True)
+        MERGED_TRACE_BUFFER.zero_()
+        trace_buf = MERGED_TRACE_BUFFER
+    args = (
+        _gmem_ptr(cutlass.Float8E4M3FN, act, 32),
+        _gmem_ptr(cutlass.Float8E8M0FNU, act_sf, 16),
+        _gmem_ptr(cutlass.Float4E2M1FN, w2, 32),
+        _gmem_ptr(cutlass.Float4E2M1FN, tile_major_weights(w2), 32),
+        _gmem_ptr(cutlass.Float8E8M0FNU, w2_sf, 16),
+        _gmem_ptr(cutlass.BFloat16, out, 32),
+        _gmem_ptr(cutlass.Float32, alpha, 4),
+        _gmem_ptr(cutlass.Float32, token_final_scales, 16),
+        _gmem_ptr(cutlass.Int32, permuted_idx_to_expanded_idx, 4),
+        _gmem_ptr(cutlass.Int32, tile_idx_to_expert_idx, 4),
+        _gmem_ptr(cutlass.Int32, tile_idx_to_mn_limit, 4),
+        _gmem_ptr(cutlass.Int32, wide_list, 4),
+        _gmem_ptr(cutlass.Int32, wide_count, 4),
+        _gmem_ptr(cutlass.Int32, win_row_groups, 4),
+        _gmem_ptr(cutlass.Int32, win_row_group_count, 4),
+        _gmem_ptr(cutlass.Int32, trace_buf, 16),
+        rows,
+        k,
+        num_local_experts,
+        rows_w,
+        num_tokens,
+        tile_idx_to_expert_idx.shape[0],
+        wide_list.shape[0],
+        win_row_groups.shape[0],
+        trace_buf.numel() if trace_buf is not None else 0,
+    )
+    key = (
+        top_k,
+        int(dense_n),
+        bool(enable_pdl),
+        dense_weight_l2_hint,
+        window_hint,
+        c_stages_eff,
+        bool(pdl_trigger_early),
+        MERGED2_TILE_STAGES,
+        MERGED2_MIN_AB_STAGES,
+        SWAP_FIN_BUFS,
+        group_rows,
+        row_unit,
+        trace_buf is not None,
+    )
+    if key not in _merged2_kernel_cache:
+        if os.environ.get("SWAPAB_DEBUG"):
+            print(f"[merged2] compile {key}", file=sys.stderr, flush=True)
+        kernel = Sm100MergedGemm2Kernel(
+            topk=top_k,
+            dense_n=int(dense_n),
+            enable_pdl=enable_pdl,
+            dense_weight_l2_hint=dense_weight_l2_hint,
+            window_weight_l2_hint=window_hint,
+            pdl_trigger_early=pdl_trigger_early,
+            num_tile_stages=MERGED2_TILE_STAGES,
+            c_stages=c_stages_eff,
+            min_ab_stages=MERGED2_MIN_AB_STAGES,
+            fin_bufs=SWAP_FIN_BUFS,
+            group_rows=group_rows,
+            row_unit=row_unit,
+        )
+        _merged2_kernel_cache[key] = cute.compile(
+            kernel.wrapper,
+            *args,
+            max_active_clusters=max_active_clusters,
+            stream=stream,
+        )
+        if os.environ.get("SWAPAB_DEBUG"):
+            print(f"[merged2] compiled {key}", file=sys.stderr, flush=True)
+    compiled = _merged2_kernel_cache[key]
+    if _prepared_launches is not None:
+        _prepared_launches["merged_gemm2"] = (compiled, args)
+    if os.environ.get("MERGED_DEBUG"):
+        torch.cuda.synchronize()
+        print(
+            f"[merged2] launch T={num_tokens} K={k} L={num_local_experts} H={rows_w} R={rows} "
+            f"N={dense_n} wide_count={int(wide_count[0].item())} win_count={int(win_row_group_count[0].item())} "
+            f"wide_cap={wide_list.shape[0]} win_cap={win_row_groups.shape[0]}",
+            file=sys.stderr,
+            flush=True,
+        )
+    compiled(*args, stream=stream)
+    if os.environ.get("MERGED_DEBUG"):
+        torch.cuda.synchronize()
+        print("[merged2] first launch done", file=sys.stderr, flush=True)
 
 
 def swapab_gemm2(
