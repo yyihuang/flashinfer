@@ -1468,6 +1468,10 @@ class Sm100MergedGemm1Kernel:
             n_kt = self.win_k_blocks_per_stage // 4
             k_stage = self.mma_tiler_w[2]
             b_bytes_per_stage = rows_cta * k_stage
+            # Stage bases follow the shared regions' slot strides (the
+            # staged layouts were restrided to them), not this kind's own.
+            rows_slot_bytes = cute.round_up(self.rows_bytes, 1024)
+            sf_rows_slot_bytes = cute.round_up(self.sf_rows_bytes, 1024)
             n_sf_blocks = (n_tile + 127) // 128
             sf_block_bytes = 512 * n_kt
             sf_bytes_per_stage = sf_block_bytes * n_sf_blocks
@@ -1677,8 +1681,8 @@ class Sm100MergedGemm1Kernel:
                         g_pipeline.producer_acquire(g_producer_state)
                         stage = g_producer_state.index
                         k0 = g_producer_state.count * k_stage
-                        sB_stage = sB_w.iterator + stage * b_bytes_per_stage
-                        sSFB_stage = sSFB_w.iterator + stage * sf_bytes_per_stage
+                        sB_stage = sB_w.iterator + stage * rows_slot_bytes
+                        sSFB_stage = sSFB_w.iterator + stage * sf_rows_slot_bytes
                         for kt in cutlass.range_constexpr(n_kt):
                             for i in cutlass.range_constexpr(n_pass_w):
                                 row = (gather_sub + num_gather * i) * 4 + row_in_pass
