@@ -1785,8 +1785,13 @@ class Sm100MergedGemm2Kernel:
                     if has_dense & (t_drained == 0):
                         # Dense -> window: every dense stage of this CTA has
                         # been consumed by its MMA before the gather warps
-                        # overwrite the shared row regions.
-                        t_d_pipeline.producer_tail(t_d_producer_state)
+                        # overwrite the shared row regions. The tail advances
+                        # its state argument in place; a clone keeps those
+                        # values inside this region (the DSL yields only names
+                        # written or called here, so the shared state would
+                        # otherwise leak a non-dominating value).
+                        t_d_tail_state = t_d_producer_state.clone()
+                        t_d_pipeline.producer_tail(t_d_tail_state)
                         sdrain_pipeline.producer_acquire(sdrain_producer_state)
                         sdrain_pipeline.producer_commit(sdrain_producer_state)
                         sdrain_producer_state.advance()
