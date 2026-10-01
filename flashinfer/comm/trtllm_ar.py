@@ -1085,8 +1085,8 @@ def trtllm_moe_allreduce_fusion(
       (``flashinfer.jit.cake_trtllm_moe_allreduce_union``); the route binds the
       workspace pointer table the way
       ``trtllm_create_ipc_workspace_for_all_reduce_fusion`` registers it and
-      needs no device readback. ``moe_allreduce_out=None`` is served by the same
-      kernels writing into a scratch tensor the union loader owns.
+      needs no device readback. ``moe_allreduce_out=None`` runs the same kernels
+      with the all-reduce store disabled at launch.
     """
 
     _check_cake_moe_allreduce_backend(backend)
