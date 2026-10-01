@@ -90,9 +90,52 @@ class Route(NamedTuple):
     cooperative: bool
 
 
-KERNELS: dict[str, Kernel] = {}
+KERNELS: dict[str, Kernel] = {
+    "ws2_bf16_wide_mlp": Kernel("bfloat16", 2, 224, 4),
+    "ws2_bf16_generic": Kernel("bfloat16", 2, 224, 4),
+    "ws2_bf16_pipe1_u4_b5": Kernel("bfloat16", 2, 224, 4),
+    "ws2_f16_generic": Kernel("float16", 2, 224, 4),
+    "ws2_f16_pipe1_u4_b5": Kernel("float16", 2, 224, 4),
+    "ws2_f16_wide_mlp": Kernel("float16", 2, 224, 4),
+    "ws4_bf16_wide_mlp": Kernel("bfloat16", 4, 224, 4),
+    "ws4_bf16_generic": Kernel("bfloat16", 4, 224, 4),
+    "ws4_bf16_pipe2_u4_b5": Kernel("bfloat16", 4, 224, 4),
+    "ws4_f16_pipe2_u4_b5": Kernel("float16", 4, 224, 4),
+    "ws4_f16_wide_mlp": Kernel("float16", 4, 224, 4),
+    "ws8_bf16_generic": Kernel("bfloat16", 8, 224, 4),
+    "ws8_bf16_sm103_t1": Kernel("bfloat16", 8, 224, 4),
+    "ws8_bf16_pipe1_u4_b5": Kernel("bfloat16", 8, 224, 4),
+    "ws8_f16_generic": Kernel("float16", 8, 224, 4),
+    "ws8_f16_pipe1_u4_b5": Kernel("float16", 8, 224, 4),
+}
 
-ROUTES: dict[tuple[str, int, str, bool, str], Route] = {}
+ROUTES: dict[tuple[str, int, str, bool, str], Route] = {
+    ("sm_103a", 2, "bfloat16", False, "wide_mlp"): Route("ws2_bf16_wide_mlp", 4, None, False),
+    ("sm_103a", 2, "bfloat16", True, "generic"): Route("ws2_bf16_generic", 5, None, False),
+    ("sm_103a", 2, "bfloat16", True, "pipe1_u4_b5"): Route("ws2_bf16_pipe1_u4_b5", 5, 175, False),
+    ("sm_103a", 2, "bfloat16", True, "wide_mlp"): Route("ws2_bf16_wide_mlp", 4, None, False),
+    ("sm_103a", 2, "float16", False, "generic"): Route("ws2_f16_generic", 5, None, False),
+    ("sm_103a", 2, "float16", False, "pipe1_u4_b5"): Route("ws2_f16_pipe1_u4_b5", 5, 175, False),
+    ("sm_103a", 2, "float16", True, "generic"): Route("ws2_f16_generic", 5, None, False),
+    ("sm_103a", 2, "float16", True, "pipe1_u4_b5"): Route("ws2_f16_pipe1_u4_b5", 5, 175, False),
+    ("sm_103a", 2, "float16", True, "wide_mlp"): Route("ws2_f16_wide_mlp", 4, None, False),
+    ("sm_103a", 4, "bfloat16", False, "wide_mlp"): Route("ws4_bf16_wide_mlp", 4, None, False),
+    ("sm_103a", 4, "bfloat16", True, "generic"): Route("ws4_bf16_generic", 5, None, False),
+    ("sm_103a", 4, "bfloat16", True, "pipe2_u4_b5"): Route("ws4_bf16_pipe2_u4_b5", 5, 175, False),
+    ("sm_103a", 4, "bfloat16", True, "wide_mlp"): Route("ws4_bf16_wide_mlp", 4, None, False),
+    ("sm_103a", 4, "float16", False, "pipe2_u4_b5"): Route("ws4_f16_pipe2_u4_b5", 5, 175, False),
+    ("sm_103a", 4, "float16", False, "wide_mlp"): Route("ws4_f16_wide_mlp", 4, None, False),
+    ("sm_103a", 4, "float16", True, "pipe2_u4_b5"): Route("ws4_f16_pipe2_u4_b5", 5, 175, False),
+    ("sm_103a", 4, "float16", True, "wide_mlp"): Route("ws4_f16_wide_mlp", 4, None, False),
+    ("sm_103a", 8, "bfloat16", False, "generic"): Route("ws8_bf16_generic", 4, None, False),
+    ("sm_103a", 8, "bfloat16", False, "sm103_t1"): Route("ws8_bf16_sm103_t1", 1, None, False),
+    ("sm_103a", 8, "bfloat16", True, "generic"): Route("ws8_bf16_generic", 4, None, False),
+    ("sm_103a", 8, "bfloat16", True, "pipe1_u4_b5"): Route("ws8_bf16_pipe1_u4_b5", 5, 175, False),
+    ("sm_103a", 8, "float16", False, "generic"): Route("ws8_f16_generic", 4, None, False),
+    ("sm_103a", 8, "float16", False, "pipe1_u4_b5"): Route("ws8_f16_pipe1_u4_b5", 5, 175, False),
+    ("sm_103a", 8, "float16", True, "generic"): Route("ws8_f16_generic", 4, None, False),
+    ("sm_103a", 8, "float16", True, "pipe1_u4_b5"): Route("ws8_f16_pipe1_u4_b5", 5, 175, False),
+}
 
 # (arch, world_size, dtype, launch_with_pdl, num_experts) ->
 #     ((token_lo, token_hi, specialization), ...)
@@ -100,23 +143,35 @@ ROUTES: dict[tuple[str, int, str, bool, str], Route] = {}
 # falls inside a range runs that specialization; every other launch runs the
 # class program.  Each range is the token span the specialization was measured
 # correct and at least 2 % faster than the class program over.
-_SPECIALIZATION_RULES: dict[
-    tuple[str, int, str, bool, int], tuple[tuple[int, int, str], ...]
-] = {}
+_SPECIALIZATION_RULES: dict[tuple[str, int, str, bool, int], tuple[tuple[int, int, str], ...]] = {
+    ("sm_103a", 2, "bfloat16", True, 8): ((32, 96, "wide_mlp"),),
+    ("sm_103a", 2, "bfloat16", True, 12): ((1536, 2048, "pipe1_u4_b5"),),
+    ("sm_103a", 2, "float16", False, 8): ((1536, 2048, "pipe1_u4_b5"),),
+    ("sm_103a", 2, "float16", True, 16): ((96, 192, "wide_mlp"), (1536, 2048, "pipe1_u4_b5")),
+    ("sm_103a", 4, "bfloat16", True, 8): ((32, 96, "wide_mlp"),),
+    ("sm_103a", 4, "bfloat16", True, 12): ((192, 384, "wide_mlp"), (1536, 2048, "pipe2_u4_b5")),
+    ("sm_103a", 4, "float16", False, 8): ((1536, 2048, "pipe2_u4_b5"),),
+    ("sm_103a", 4, "float16", True, 16): ((1536, 2048, "pipe2_u4_b5"),),
+    ("sm_103a", 8, "bfloat16", False, 8): ((1, 32, "sm103_t1"),),
+    ("sm_103a", 8, "bfloat16", True, 12): ((1536, 2048, "pipe1_u4_b5"),),
+    ("sm_103a", 8, "float16", False, 8): ((1536, 2048, "pipe1_u4_b5"),),
+    ("sm_103a", 8, "float16", True, 16): ((1536, 2048, "pipe1_u4_b5"),),
+}
 
 # (arch, world_size, dtype, launch_with_pdl) classes whose program is the
 # ``wide_mlp`` schedule for every token count outside the rules' ranges.
-_WIDE_MLP_CLASSES: tuple[tuple[str, int, str, bool], ...] = ()
-
-_EXPORTED_SCOPES: frozenset[tuple[str, int]] = frozenset(
-    (key[0], key[1]) for key in ROUTES
+_WIDE_MLP_CLASSES: tuple[tuple[str, int, str, bool], ...] = (
+    ("sm_103a", 2, "bfloat16", False),
+    ("sm_103a", 4, "bfloat16", False),
+    ("sm_103a", 4, "float16", False),
+    ("sm_103a", 4, "float16", True),
 )
+
+_EXPORTED_SCOPES: frozenset[tuple[str, int]] = frozenset((key[0], key[1]) for key in ROUTES)
 
 
 def arch_for_capability(device_capability: Sequence[int]) -> Optional[str]:
-    return ARCH_BY_CAPABILITY.get(
-        (int(device_capability[0]), int(device_capability[1]))
-    )
+    return ARCH_BY_CAPABILITY.get((int(device_capability[0]), int(device_capability[1])))
 
 
 def exported_arches() -> tuple[str, ...]:
@@ -141,31 +196,17 @@ def select_specialization(
 
     token_num = int(token_num)
     rules = _SPECIALIZATION_RULES.get(
-        (
-            str(arch),
-            int(world_size),
-            str(dtype_name),
-            bool(launch_with_pdl),
-            int(active_experts),
-        ),
-        (),
+        (str(arch), int(world_size), str(dtype_name), bool(launch_with_pdl), int(active_experts)), ()
     )
     for token_lo, token_hi, specialization in rules:
         if token_lo <= token_num <= token_hi:
             return specialization
-    if (
-        str(arch),
-        int(world_size),
-        str(dtype_name),
-        bool(launch_with_pdl),
-    ) in _WIDE_MLP_CLASSES:
+    if (str(arch), int(world_size), str(dtype_name), bool(launch_with_pdl)) in _WIDE_MLP_CLASSES:
         return SPECIALIZATION_WIDE_MLP
     return SPECIALIZATION_GENERIC
 
 
-def route_applies(
-    *, world_size: int, device_capability: Sequence[int], emit_moe_allreduce: bool
-) -> bool:
+def route_applies(*, world_size: int, device_capability: Sequence[int], emit_moe_allreduce: bool) -> bool:
     """Whether the union owns this Cake MoE all-reduce call.
 
     The union owns exactly the (architecture, world size) scopes it has routes
@@ -196,9 +237,7 @@ def route_for(
         int(world_size),
         str(dtype_name),
         bool(launch_with_pdl),
-        select_specialization(
-            arch, world_size, dtype_name, launch_with_pdl, token_num, active_experts
-        ),
+        select_specialization(arch, world_size, dtype_name, launch_with_pdl, token_num, active_experts),
     )
     route = ROUTES.get(key)
     if route is None:
@@ -251,9 +290,7 @@ def launch_grid_x(
             raise ValueError("cooperative routes record no persistent cluster cap")
         grid = int(token_num) * cluster
     else:
-        grid = (
-            min(int(sm_count) * ctas_per_sm, int(token_num) * cluster) // cluster
-        ) * cluster
+        grid = (min(int(sm_count) * ctas_per_sm, int(token_num) * cluster) // cluster) * cluster
         if max_persistent_clusters is not None:
             grid = min(grid, int(max_persistent_clusters) * cluster)
     if grid <= 0:
@@ -269,8 +306,7 @@ def _source_dir() -> Path:
     if checkout.is_dir():
         return checkout
     raise FileNotFoundError(
-        "Cake MoE all-reduce union CUDA sources were not found. Checked:\n"
-        f"  - {installed}\n  - {checkout}"
+        f"Cake MoE all-reduce union CUDA sources were not found. Checked:\n  - {installed}\n  - {checkout}"
     )
 
 
@@ -362,18 +398,12 @@ def run_cake_moe_allreduce_union(
     del scale_factor
     world_size = int(world_size)
     if world_size not in WORLD_SIZES:
-        raise ValueError(
-            f"the Cake MoE all-reduce union covers world sizes {WORLD_SIZES}"
-        )
+        raise ValueError(f"the Cake MoE all-reduce union covers world sizes {WORLD_SIZES}")
     if int(hidden_dim) != HIDDEN_DIM:
-        raise ValueError(
-            f"the Cake MoE all-reduce union requires hidden_dim={HIDDEN_DIM}"
-        )
+        raise ValueError(f"the Cake MoE all-reduce union requires hidden_dim={HIDDEN_DIM}")
     dtype_name = _DTYPE_NAME.get(moe_reduction_active_experts_token_input.dtype)
     if dtype_name is None:
-        raise ValueError(
-            "the Cake MoE all-reduce union supports float16 and bfloat16 only"
-        )
+        raise ValueError("the Cake MoE all-reduce union supports float16 and bfloat16 only")
     needed = WORKSPACE_CONTROL_INDEX_FACTOR * world_size + 1
     if workspace_ptrs.numel() < needed:
         raise ValueError(f"workspace_ptrs must contain at least {needed} pointers")

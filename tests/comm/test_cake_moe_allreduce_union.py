@@ -91,11 +91,7 @@ def test_kernel_sources_exist_and_define_their_symbol() -> None:
 
 
 def _class_program(arch: str, world_size: int, dtype: str, pdl: bool) -> str:
-    return (
-        _WIDE
-        if (arch, world_size, dtype, pdl) in set(union._WIDE_MLP_CLASSES)
-        else _GENERIC
-    )
+    return _WIDE if (arch, world_size, dtype, pdl) in set(union._WIDE_MLP_CLASSES) else _GENERIC
 
 
 def test_every_class_has_one_program_for_unreviewed_token_counts() -> None:
@@ -112,22 +108,9 @@ def test_every_class_has_one_program_for_unreviewed_token_counts() -> None:
                         assert (arch, world_size, dtype, pdl, _GENERIC) in keys
 
 
-def test_specialization_rules_are_sorted_disjoint_token_ranges_naming_exported_routes() -> (
-    None
-):
-    for (
-        arch,
-        world_size,
-        dtype,
-        pdl,
-        experts,
-    ), ranges in union._SPECIALIZATION_RULES.items():
-        assert (
-            arch in _ARCHES
-            and world_size in _WORLD_SIZES
-            and dtype in _DTYPES
-            and pdl in _PDL
-        )
+def test_specialization_rules_are_sorted_disjoint_token_ranges_naming_exported_routes() -> None:
+    for (arch, world_size, dtype, pdl, experts), ranges in union._SPECIALIZATION_RULES.items():
+        assert arch in _ARCHES and world_size in _WORLD_SIZES and dtype in _DTYPES and pdl in _PDL
         assert isinstance(experts, int) and experts >= 1
         assert len(ranges) >= 1
         previous_hi = 0
@@ -144,31 +127,17 @@ def test_specialization_rules_are_sorted_disjoint_token_ranges_naming_exported_r
 
 def test_every_route_is_a_class_program_or_named_by_a_rule() -> None:
     named: set[tuple[str, int, str, bool, str]] = set()
-    for (
-        arch,
-        world_size,
-        dtype,
-        pdl,
-        _experts,
-    ), ranges in union._SPECIALIZATION_RULES.items():
+    for (arch, world_size, dtype, pdl, _experts), ranges in union._SPECIALIZATION_RULES.items():
         named |= {(arch, world_size, dtype, pdl, spec) for _lo, _hi, spec in ranges}
     for arch, world_size, dtype, pdl, spec in union.ROUTES:
         if spec == _class_program(arch, world_size, dtype, pdl):
             continue
-        assert (arch, world_size, dtype, pdl, spec) in named, (
-            arch,
-            world_size,
-            dtype,
-            pdl,
-            spec,
-        )
+        assert (arch, world_size, dtype, pdl, spec) in named, (arch, world_size, dtype, pdl, spec)
 
 
 def test_exported_architectures_are_sm100_and_sm103() -> None:
     assert tuple(union.ARCHES) == tuple(_ARCHES)
-    assert {
-        capability: arch for arch, capability in _ARCHES.items()
-    } == union.ARCH_BY_CAPABILITY
+    assert {capability: arch for arch, capability in _ARCHES.items()} == union.ARCH_BY_CAPABILITY
     assert set(union.exported_arches()) == set(_ARCHES)
     for arch, capability in _ARCHES.items():
         assert union.arch_for_capability(capability) == arch
@@ -182,15 +151,64 @@ def test_exported_architectures_are_sm100_and_sm103() -> None:
         # token count per class outside its rules, and the reviewed token counts
         # of the S7 exact-shape decisions (kept rows at their specialization,
         # dropped rows at their class program).
+        ("sm_103a", 2, "bfloat16", False, 1, 8, "wide_mlp"),
+        ("sm_103a", 2, "bfloat16", False, 512, 8, "wide_mlp"),
+        ("sm_103a", 2, "bfloat16", True, 32, 8, "wide_mlp"),
+        ("sm_103a", 2, "bfloat16", True, 64, 8, "wide_mlp"),
+        ("sm_103a", 2, "bfloat16", True, 96, 8, "wide_mlp"),
+        ("sm_103a", 2, "bfloat16", True, 512, 8, "generic"),
+        ("sm_103a", 2, "bfloat16", True, 1536, 12, "pipe1_u4_b5"),
+        ("sm_103a", 2, "bfloat16", True, 2048, 12, "pipe1_u4_b5"),
+        ("sm_103a", 2, "float16", False, 512, 8, "generic"),
+        ("sm_103a", 2, "float16", False, 1536, 8, "pipe1_u4_b5"),
+        ("sm_103a", 2, "float16", False, 2048, 8, "pipe1_u4_b5"),
+        ("sm_103a", 2, "float16", True, 96, 16, "wide_mlp"),
+        ("sm_103a", 2, "float16", True, 128, 16, "wide_mlp"),
+        ("sm_103a", 2, "float16", True, 192, 16, "wide_mlp"),
+        ("sm_103a", 2, "float16", True, 512, 8, "generic"),
+        ("sm_103a", 2, "float16", True, 1536, 16, "pipe1_u4_b5"),
+        ("sm_103a", 2, "float16", True, 2048, 16, "pipe1_u4_b5"),
+        ("sm_103a", 4, "bfloat16", False, 1, 8, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", False, 512, 8, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", True, 32, 8, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", True, 64, 8, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", True, 96, 8, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", True, 192, 12, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", True, 256, 12, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", True, 384, 12, "wide_mlp"),
+        ("sm_103a", 4, "bfloat16", True, 512, 8, "generic"),
+        ("sm_103a", 4, "bfloat16", True, 1536, 12, "pipe2_u4_b5"),
+        ("sm_103a", 4, "bfloat16", True, 2048, 12, "pipe2_u4_b5"),
+        ("sm_103a", 4, "float16", False, 64, 12, "wide_mlp"),
+        ("sm_103a", 4, "float16", False, 512, 8, "wide_mlp"),
+        ("sm_103a", 4, "float16", False, 1536, 8, "pipe2_u4_b5"),
+        ("sm_103a", 4, "float16", False, 2048, 8, "pipe2_u4_b5"),
+        ("sm_103a", 4, "float16", True, 128, 16, "wide_mlp"),
+        ("sm_103a", 4, "float16", True, 512, 8, "wide_mlp"),
+        ("sm_103a", 4, "float16", True, 1536, 16, "pipe2_u4_b5"),
+        ("sm_103a", 4, "float16", True, 2048, 16, "pipe2_u4_b5"),
+        ("sm_103a", 8, "bfloat16", False, 1, 8, "sm103_t1"),
+        ("sm_103a", 8, "bfloat16", False, 32, 8, "sm103_t1"),
+        ("sm_103a", 8, "bfloat16", False, 128, 16, "generic"),
+        ("sm_103a", 8, "bfloat16", False, 256, 8, "generic"),
+        ("sm_103a", 8, "bfloat16", False, 512, 8, "generic"),
+        ("sm_103a", 8, "bfloat16", True, 64, 8, "generic"),
+        ("sm_103a", 8, "bfloat16", True, 256, 12, "generic"),
+        ("sm_103a", 8, "bfloat16", True, 512, 8, "generic"),
+        ("sm_103a", 8, "bfloat16", True, 1536, 12, "pipe1_u4_b5"),
+        ("sm_103a", 8, "bfloat16", True, 2048, 12, "pipe1_u4_b5"),
+        ("sm_103a", 8, "float16", False, 64, 12, "generic"),
+        ("sm_103a", 8, "float16", False, 512, 8, "generic"),
+        ("sm_103a", 8, "float16", False, 1536, 8, "pipe1_u4_b5"),
+        ("sm_103a", 8, "float16", False, 2048, 8, "pipe1_u4_b5"),
+        ("sm_103a", 8, "float16", True, 128, 16, "generic"),
+        ("sm_103a", 8, "float16", True, 512, 8, "generic"),
+        ("sm_103a", 8, "float16", True, 1536, 16, "pipe1_u4_b5"),
+        ("sm_103a", 8, "float16", True, 2048, 16, "pipe1_u4_b5"),
     ],
 )
-def test_select_specialization_rules(
-    arch, world_size, dtype_name, pdl, tokens, experts, expected
-) -> None:
-    assert (
-        union.select_specialization(arch, world_size, dtype_name, pdl, tokens, experts)
-        == expected
-    )
+def test_select_specialization_rules(arch, world_size, dtype_name, pdl, tokens, experts, expected) -> None:
+    assert union.select_specialization(arch, world_size, dtype_name, pdl, tokens, experts) == expected
     key, route = union.route_for(
         arch=arch,
         world_size=world_size,
@@ -225,23 +243,17 @@ def test_route_scope_is_sm100_sm103_with_or_without_allreduce_output(
     # The all-reduce output is runtime-optional in every union kernel.
     for emit_moe_allreduce in (True, False):
         assert union.route_applies(
-            world_size=world_size,
-            device_capability=capability,
-            emit_moe_allreduce=emit_moe_allreduce,
+            world_size=world_size, device_capability=capability, emit_moe_allreduce=emit_moe_allreduce
         )
         assert not union.route_applies(
-            world_size=world_size,
-            device_capability=_SM120,
-            emit_moe_allreduce=emit_moe_allreduce,
+            world_size=world_size, device_capability=_SM120, emit_moe_allreduce=emit_moe_allreduce
         )
 
 
 @pytest.mark.parametrize("world_size", (1, 3, 16))
 def test_route_scope_rejects_unexported_world_sizes(world_size: int) -> None:
     for arch, capability in _ARCHES.items():
-        assert not union.route_applies(
-            world_size=world_size, device_capability=capability, emit_moe_allreduce=True
-        )
+        assert not union.route_applies(world_size=world_size, device_capability=capability, emit_moe_allreduce=True)
         with pytest.raises(ValueError):
             union.route_for(
                 arch=arch,
@@ -282,12 +294,7 @@ def test_launch_grid_rule() -> None:
     for route in union.ROUTES.values():
         cluster = union.KERNELS[_kernel_names(route)[0]].cluster
         grid = union.launch_grid_x(
-            2048,
-            route.cooperative,
-            148,
-            route.persistent_ctas_per_sm,
-            cluster,
-            route.max_persistent_clusters,
+            2048, route.cooperative, 148, route.persistent_ctas_per_sm, cluster, route.max_persistent_clusters
         )
         assert grid > 0 and grid % cluster == 0
 
@@ -350,9 +357,7 @@ def test_run_rejects_unexported_world_sizes_before_touching_the_device() -> None
         union.run_cake_moe_allreduce_union(backend="cake", **arguments)
 
 
-def test_run_passes_an_absent_allreduce_output_to_the_launcher(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_run_passes_an_absent_allreduce_output_to_the_launcher(monkeypatch: pytest.MonkeyPatch) -> None:
     """``moe_allreduce_out=None`` reaches the launcher as a tvm-ffi ``Optional`` (the kernel's
     runtime ``emit_moe_allreduce_out`` flag is then cleared); the public ``scale_factor`` is not a
     launcher argument (the union kernels emit no quant output)."""
@@ -363,16 +368,8 @@ def test_run_passes_an_absent_allreduce_output_to_the_launcher(
     monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
     monkeypatch.setattr(union, "_device_arch", lambda index: arch)
     monkeypatch.setattr(union, "_sm_count", lambda index: 148)
-    monkeypatch.setattr(
-        union,
-        "route_for",
-        lambda **kwargs: ((arch, world_size, dtype_name, pdl, _spec), route),
-    )
-    monkeypatch.setattr(
-        union,
-        "load",
-        lambda name, arch: SimpleNamespace(run=lambda *args: runs.append(args)),
-    )
+    monkeypatch.setattr(union, "route_for", lambda **kwargs: ((arch, world_size, dtype_name, pdl, _spec), route))
+    monkeypatch.setattr(union, "load", lambda name, arch: SimpleNamespace(run=lambda *args: runs.append(args)))
     tokens = 4
     activation = torch.empty(2, tokens, union.HIDDEN_DIM, dtype=dtype)
     arguments = dict(
@@ -399,9 +396,7 @@ def test_run_passes_an_absent_allreduce_output_to_the_launcher(
 
     union.run_cake_moe_allreduce_union(**arguments)
     allreduce_out = torch.empty_like(activation[0])
-    union.run_cake_moe_allreduce_union(
-        **{**arguments, "moe_allreduce_out": allreduce_out}
-    )
+    union.run_cake_moe_allreduce_union(**{**arguments, "moe_allreduce_out": allreduce_out})
 
     assert len(runs) == 2
     absent, present = runs
@@ -440,26 +435,16 @@ def _arguments(world_size: int, *, emit_allreduce: bool) -> dict:
     )
 
 
-def _isolate_backends(
-    monkeypatch: pytest.MonkeyPatch, capability: tuple[int, int]
-) -> tuple[list, list]:
+def _isolate_backends(monkeypatch: pytest.MonkeyPatch, capability: tuple[int, int]) -> tuple[list, list]:
     union_calls: list[dict] = []
     legacy_calls: list[tuple] = []
     monkeypatch.setattr(trtllm_ar, "_validate_cake_moe_allreduce", lambda **kwargs: 0)
-    monkeypatch.setattr(
-        torch.cuda, "get_device_capability", lambda device=None: capability
-    )
-    monkeypatch.setattr(
-        union,
-        "run_cake_moe_allreduce_union",
-        lambda **kwargs: union_calls.append(kwargs),
-    )
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: capability)
+    monkeypatch.setattr(union, "run_cake_moe_allreduce_union", lambda **kwargs: union_calls.append(kwargs))
     monkeypatch.setattr(
         trtllm_ar,
         "get_cake_moe_allreduce_module",
-        lambda device_index: SimpleNamespace(
-            run_reduction=lambda *args: legacy_calls.append(args)
-        ),
+        lambda device_index: SimpleNamespace(run_reduction=lambda *args: legacy_calls.append(args)),
     )
     monkeypatch.setattr(
         trtllm_ar,
