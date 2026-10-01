@@ -82,6 +82,7 @@ def decode_kernel_key(
     pfx: int = 0,
     pfi: int = 0,
     qwarps: int = 8,
+    xbh: bool = False,
 ) -> str:
     key = f"decode:t{int(tok)}_p{int(stages)}"
     if fused:
@@ -92,6 +93,8 @@ def decode_kernel_key(
         key += "_res"
     if xb_stages:
         key += f"_r{int(xb_stages)}"
+        if xbh:
+            key += "_xh"  # round 6 continuation 9 (lever XBH): half-slot BF16 ring (table key ``xbh``; per-128-K-block loads and releases)
     if qlanes != 16:
         key += f"_q{int(qlanes)}"
     if epi_chunk and int(epi_chunk) != min(32, int(tok)):
