@@ -83,6 +83,7 @@ def decode_kernel_key(
     pfi: int = 0,
     qwarps: int = 8,
     xbh: bool = False,
+    qer: bool = False,
 ) -> str:
     key = f"decode:t{int(tok)}_p{int(stages)}"
     if fused:
@@ -95,6 +96,8 @@ def decode_kernel_key(
         key += f"_r{int(xb_stages)}"
         if xbh:
             key += "_xh"  # round 6 continuation 9 (lever XBH): half-slot BF16 ring (table key ``xbh``; per-128-K-block loads and releases)
+            if qer:
+                key += "_qe"  # round 6 continuation 10 (lever QER): the quantizing warps release each half slot right after their register loads (table key ``qer``)
     if qlanes != 16:
         key += f"_q{int(qlanes)}"
     if epi_chunk and int(epi_chunk) != min(32, int(tok)):
