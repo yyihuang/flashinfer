@@ -414,10 +414,13 @@ def test_expert_sorted_routes_match_reference_and_replay_bitwise(
         replay = plan.run().clone()
         torch.cuda.synchronize()
         assert torch.equal(replay, first)
-    # Launch counter advanced once per run (first run + 3 replays); the
-    # parity recorded for the last shrink is (launches - 1) & 1.
-    assert int(plan.route_index[0]) == 4
-    assert int(plan.route_index[1]) == 1
+    if not plan.grouped:
+        # Launch counter advanced once per run (first run + 3 replays); the
+        # parity recorded for the last shrink is (launches - 1) & 1.  The
+        # pair-grouped pipeline builds its own grouping each launch and does
+        # not publish the per-route index.
+        assert int(plan.route_index[0]) == 4
+        assert int(plan.route_index[1]) == 1
     plan.close()
 
 
