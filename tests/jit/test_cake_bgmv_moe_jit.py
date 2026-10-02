@@ -280,11 +280,16 @@ def test_generic_jit_spec_binds_generated_source_per_arch(
         "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL 37120",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64 ",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128 ",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_GROUP_BUILD ",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_GROUPED ",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_GROUPED ",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_COMBINE_GROUPED ",
     ):
         assert macro in body
-    # Route-index publication in both shrink kernels; the expand keeps one
-    # owner per output (no output atomics).
-    assert body.count("atomicAdd(") == 2
+    # Route-index publication in both shrink kernels plus the three grouping
+    # counters in group_build; the expands keep one owner per output (no
+    # output atomics).
+    assert body.count("atomicAdd(") == 5
     assert "atomicAdd(&reinterpret_cast<float" not in body
     binding = spec.sources[0].read_text()
     assert f'#define CAKE_BGMV_MOE_BODY_FILE "{metadata.body}"' in binding
@@ -395,13 +400,13 @@ def test_generic_shrink_launch_selection_rejects_bad_inputs():
 
 
 def test_grouped_workspace_sizing_and_selector():
-    assert cake_bgmv_moe.CAKE_BGMV_MOE_GROUP_TILE_TOKENS == 8
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_GROUP_TILE_TOKENS == 16
     assert cake_bgmv_moe.CAKE_BGMV_MOE_GROUP_BINS_MAX == 4096
     assert cake_bgmv_moe.CAKE_BGMV_MOE_GROUP_HEADER_WORDS == 4
     # 8192 routes over 1024 bins: 1024 + 1024 tiles at most
-    assert cake_bgmv_moe.cake_bgmv_moe_group_max_tiles(8192, 1024) == 2048
+    assert cake_bgmv_moe.cake_bgmv_moe_group_max_tiles(8192, 1024) == 1536
     words = cake_bgmv_moe.cake_bgmv_moe_grouped_workspace_words(8192, 4096, 1024)
-    assert words == 4 + 1024 + 1025 + 1024 + 2048 + 8192 + 4096 + 4096 * 16
+    assert words == 4 + 1024 + 1025 + 1024 + 1536 + 8192 + 4096 + 4096 * 16
     # weight reuse only pays off once routes clearly outnumber the bins
     assert cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(8192, 4096, 8, 128)
     assert cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(2048, 1024, 8, 128)

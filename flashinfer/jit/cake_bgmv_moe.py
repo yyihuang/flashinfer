@@ -95,7 +95,7 @@ CAKE_BGMV_MOE_SHRINK_SPLIT_COUNTER_WORDS = CAKE_BGMV_MOE_SHRINK_SPLIT_MAX_PAIRS 
 # table, grouped route ids, per-token route lists) rebuilt by the grouping kernel
 # on every launch, and FP32 per-route expand partials ``[num_pairs, hidden]``
 # that the deterministic per-token combine sums in ascending pair order.
-CAKE_BGMV_MOE_GROUP_TILE_TOKENS = 8
+CAKE_BGMV_MOE_GROUP_TILE_TOKENS = 16
 CAKE_BGMV_MOE_GROUP_BINS_MAX = 4096
 CAKE_BGMV_MOE_GROUP_HEADER_WORDS = 4
 CAKE_BGMV_MOE_GROUPED_MIN_PAIRS = 2048
