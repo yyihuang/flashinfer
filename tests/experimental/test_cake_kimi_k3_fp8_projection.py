@@ -594,10 +594,11 @@ def test_decode_config_round6_continuation_rules(arch):
             and plan.pairs == SM_COUNT // 2
             and plan.grid == 2 * plan.dp
         )
-        assert (
-            0 < plan.rem <= plan.pairs - plan.rem
-            and plan.ksplit == (num_k_iters + 1) // 2
+        expected_ks = (
+            int(sk_rows[key].get("gemm_sk_ksplit", 0)) or (num_k_iters + 1) // 2
         )
+        assert 0 < plan.rem <= plan.pairs - plan.rem and plan.ksplit == expected_ks
+        assert 2 <= plan.ksplit <= num_k_iters - 2
         assert plan.dp + plan.rem == (cb._m_tiles(bucket) // 2) * (n_tiles128 // 2)
     # 96 tiles over 74 pairs: 22 tail tiles, head 14 of 28 K iterations; below one wave or untabulated: plain schedule
     assert cb.gemm_stream_k_plan(4096, 12, 28, arch, 148, cb._m_tiles(4096), 6) == (
