@@ -197,7 +197,7 @@ def bwd_cast_grid(num_queries, num_kv, topk):
     return (max(1, -(-(num_kv * 18) // 256)), 1, 1)
 
 
-STAGE_ARGS: dict[str, tuple[str, ...]] = {
+STAGE_ARGS: dict[str, list[str]] = {
     "fwd": [
         "q_latent",
         "q_rope",

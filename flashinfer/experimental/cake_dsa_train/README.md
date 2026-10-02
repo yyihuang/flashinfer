@@ -59,9 +59,11 @@ materializes when the caller passes none) and, per call, allocate the outputs
 and the backward scratch from the caching allocator and launch the stages
 through the generated positional launchers of `cake_launch.py`.  During
 CUDA-graph capture the eager entry points plan privately and leave the cache
-untouched.  The bindings encode the tensor maps by value, so a step is exactly
-its kernels (one launch for the forward, `2 + 2 x passes` for the backward)
-plus the two fills of the FP32 dK/dV accumulators.  A call without query rows
+untouched.  The bindings encode the tensor maps by value, so a step is its
+kernels -- one launch for the forward; three for the single-pass backward
+(`bwd_delta`, `bwd_main`, `bwd_cast`); `2 + 2 x passes` for the key-range-pass
+backward (`bwd_delta`, then `bwd_main_pass` + `bwd_compact` per pass, `bwd_cast`)
+-- plus the two fills of the FP32 dK/dV accumulators.  A call without query rows
 (`T == 0`) returns empty outputs and zero gradients without launching; `S == 0`
 is rejected.
 
@@ -73,7 +75,8 @@ shapes shows the same cost, and no synchronization is involved.  In a
 GPU-bound training step this is hidden behind the backward kernels (6-8 ms at
 4k tokens).  Host-bound loops should call `cake_backend.forward` /
 `cake_backend.backward` directly or capture the prepared runner into a CUDA
-graph (`benchmarks/bench_cake_dsa_train.py --host-calls` reports both).
+graph (`benchmarks/bench_cake_dsa_train.py --host-us` reports both; `--host-calls`
+/ `--host-rounds` set the sample size).
 
 graph.
 
@@ -137,10 +140,10 @@ pass stages serves the single pass only.
   per stage, over the kernels' own argument names.
 * `cake_backend.py` -- validation, workspace layout, varlen index offsetting,
   the prepared runner, the autograd `Function` and the eager entry points.
-* `csrc/cake_dsa_h64_train/` -- generated kernel and binding translation units,
-  one pair per stage for every architecture (`.clang-format` disables
-  formatting: the sources are identity-checked by the registry's closure
-  digests).
+* `csrc/cake_dsa_h64_train/` -- generated kernel and binding translation units:
+  six pairs, one per stage, shared by `sm_100a` and `sm_103a` and compiled once
+  per architecture (`.clang-format` disables formatting: the sources are
+  identity-checked by the registry's closure digests).
 
 ## Status
 

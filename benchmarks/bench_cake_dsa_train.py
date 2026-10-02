@@ -37,7 +37,8 @@ the chunked FP64 reference (iid 4k x 4k and peaked-attention cases).
 ``backward``, the public ``dsa_sparse_attention`` forward / autograd backward /
 step) and of a prepared runner as wall-clock microseconds per call with the GPU
 running asynchronously (``--host-rounds`` rounds of ``--host-calls`` calls
-each), and checks that both paths produce the same results and the same
+each, the order of the entry points rotated every round and recorded per
+round), and checks that both paths produce the same results and the same
 kernel-only time.
 
 Usage::
@@ -536,8 +537,14 @@ def measure_host_path(inp, *, calls, rounds, kernel_steps):
             ("autograd_step", autograd_step),
         ]
     samples = {name: [] for name, _ in entry_points}
-    for _ in range(rounds):
-        for name, fn in entry_points:
+    orders = []
+    for r in range(rounds):
+        # rotate the measurement order every round so no entry point always runs
+        # first (cache state and clock drift would otherwise favour one position)
+        start = r % len(entry_points)
+        order = entry_points[start:] + entry_points[:start]
+        orders.append([name for name, _ in order])
+        for name, fn in order:
             fn()  # warm the entry point; measured calls follow
             samples[name].append(_host_us_per_call(fn, calls))
     # same results from both paths
@@ -584,6 +591,7 @@ def measure_host_path(inp, *, calls, rounds, kernel_steps):
     return dict(
         calls=calls,
         rounds=rounds,
+        order_per_round=orders,
         host_us=host_us,
         same_results=same,
         kernel_ms=kernel_ms,
