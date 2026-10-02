@@ -821,7 +821,8 @@ def gemm_n_tiles(prepared: "PreparedProjectionWeight", bn: int) -> int:
 class StreamKPlan(NamedTuple):
     """Round 6 continuation 12 (lever SKO): the ordered stream-K split of one GEMM launch (host mirror of the Cake
     ``gemm_stream_k_plan`` dict): ``pairs`` resident CTA pairs, ``rem`` tail tiles (one head + one tail chunk each),
-    ``ksplit`` head K iterations, ``dp`` data-parallel tiles, ``grid`` launched CTAs (2 x pairs)."""
+    ``ksplit`` head K iterations, ``dp`` data-parallel tiles, ``grid`` launched CTAs (2 x ``dp``: one CTA pair per
+    data-parallel tile, as the plain schedule; the tail tiles are taken after them)."""
 
     pairs: int
     rem: int
@@ -864,7 +865,11 @@ def gemm_stream_k_plan(
     if full < 1 or rem == 0 or rem > pairs - rem:
         return None
     return StreamKPlan(
-        pairs, rem, (int(num_k_iters) + 1) // 2, full * pairs, pairs * CTA_GROUP
+        pairs,
+        rem,
+        (int(num_k_iters) + 1) // 2,
+        full * pairs,
+        full * pairs * CTA_GROUP,
     )
 
 

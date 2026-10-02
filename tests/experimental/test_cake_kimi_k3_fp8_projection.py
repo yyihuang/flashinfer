@@ -590,7 +590,9 @@ def test_decode_config_round6_continuation_rules(arch):
             n_tiles128 // 2,
         )
         assert (
-            plan is not None and plan.pairs == SM_COUNT // 2 and plan.grid == SM_COUNT
+            plan is not None
+            and plan.pairs == SM_COUNT // 2
+            and plan.grid == 2 * plan.dp
         )
         assert (
             0 < plan.rem <= plan.pairs - plan.rem
@@ -600,6 +602,10 @@ def test_decode_config_round6_continuation_rules(arch):
     # 96 tiles over 74 pairs: 22 tail tiles, head 14 of 28 K iterations; below one wave or untabulated: plain schedule
     assert cb.gemm_stream_k_plan(4096, 12, 28, arch, 148, cb._m_tiles(4096), 6) == (
         cb.StreamKPlan(74, 22, 14, 74, 148) if "12,28,4096" in sk_rows else None
+    )
+    # 448 tiles over 74 pairs: 6 full waves (888 CTAs, one pair per data-parallel tile) + 4 tail tiles, head 24 of 48
+    assert cb.gemm_stream_k_plan(4096, 56, 48, arch, 148, cb._m_tiles(4096), 28) == (
+        cb.StreamKPlan(74, 4, 24, 444, 888) if "56,48,4096" in sk_rows else None
     )
     assert cb.gemm_stream_k_plan(2048, 12, 28, arch, 148, cb._m_tiles(2048), 6) is None
     assert cb.gemm_stream_k_plan(4096, 96, 28, arch, 148, cb._m_tiles(4096), 48) is None
@@ -720,7 +726,7 @@ def test_projection_matches_reference(tp, module, M, stride_pad):
             else 0
         )
         # Round 6 continuation 12 (lever SKO): the tabulated ``gemm_sk`` rows inside the stream-K wave window launch the
-        # ``_sk`` instance over 2 x pairs CTAs with the hand-off area behind the activation scale tiles.
+        # ``_sk`` instance over 2 x dp CTAs with the hand-off area behind the activation scale tiles.
         sk = cb.gemm_stream_k_plan(
             M,
             _prepared.n_tiles128,
