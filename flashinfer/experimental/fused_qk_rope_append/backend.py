@@ -8,6 +8,8 @@ import torch
 
 from .jit import load_fused_qk_rope_append_module
 
+_FP8_BACKENDS = frozenset({"hpc", "cake"})
+
 
 @functools.cache
 def _get_hpc_rope_module():
@@ -104,6 +106,7 @@ def fused_qk_norm_rope_quantize_fp8_append_paged_kv_cache(
     out_v: Optional[torch.Tensor] = None,
     q_scale: Optional[torch.Tensor] = None,
     split_k_flag: Optional[torch.Tensor] = None,
+    backend: str = "hpc",
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     r"""Fused QK-Norm/RoPE, FP8 quantization, and paged KV append.
 
@@ -117,6 +120,107 @@ def fused_qk_norm_rope_quantize_fp8_append_paged_kv_cache(
     ``(0, 448]``. Validation stays asynchronous: if ``q_indptr`` is malformed
     or any request exceeds ``max_seqlen``, the kernel leaves Q/K/V outputs
     untouched and returns ``split_k_flag`` filled with ``-1``.
+
+    ``backend`` selects the implementation: ``"hpc"`` (default) runs the
+    kernel ported from Tencent hpc-ops; ``"cake"`` runs the Cake-generated
+    kernel for the exact device architecture (sm_90a, sm_100a, sm_103a) with
+    the same argument contract and return tuple.
+    """
+    if backend not in _FP8_BACKENDS:
+        raise ValueError(
+            f"backend must be one of {sorted(_FP8_BACKENDS)}, got {backend!r}"
+        )
+    out_q, q_scale, split_k_flag = prepare_fp8_outputs(
+        qkv,
+        seq_lens,
+        paged_kv_cache,
+        is_prefill,
+        quant_policy,
+        max_seqlen,
+        upper_max,
+        q_scale_inv,
+        out_q,
+        q_scale,
+        split_k_flag,
+        zero_split_k_flag=backend == "hpc",
+    )
+    if backend == "cake":
+        from .cake_backend import launch_cake_fp8
+
+        launch_cake_fp8(
+            out_q,
+            q_scale,
+            split_k_flag,
+            paged_kv_cache,
+            qkv,
+            cos_sin_cache,
+            seq_lens,
+            q_indptr,
+            page_indices,
+            is_prefill,
+            k_scale,
+            v_scale,
+            quant_policy,
+            max_seqlen,
+            upper_max,
+            q_scale_inv,
+            q_norm_weight,
+            k_norm_weight,
+            out_k,
+            out_v,
+            qk_norm_policy,
+        )
+        return out_q, q_scale, split_k_flag
+    key_cache, value_cache = paged_kv_cache
+    _get_hpc_rope_module().hpc_rope_norm_store_kv_fp8(
+        out_q,
+        q_scale,
+        split_k_flag,
+        key_cache,
+        value_cache,
+        qkv,
+        cos_sin_cache,
+        seq_lens,
+        q_indptr,
+        page_indices,
+        is_prefill,
+        k_scale,
+        v_scale,
+        quant_policy,
+        max_seqlen,
+        upper_max,
+        q_scale_inv,
+        q_norm_weight,
+        k_norm_weight,
+        out_k,
+        out_v,
+        qk_norm_policy,
+    )
+    return out_q, q_scale, split_k_flag
+
+
+def prepare_fp8_outputs(
+    qkv: torch.Tensor,
+    seq_lens: torch.Tensor,
+    paged_kv_cache: Tuple[torch.Tensor, torch.Tensor],
+    is_prefill: bool,
+    quant_policy: int,
+    max_seqlen: int,
+    upper_max: float,
+    q_scale_inv: Optional[torch.Tensor],
+    out_q: Optional[torch.Tensor],
+    q_scale: Optional[torch.Tensor],
+    split_k_flag: Optional[torch.Tensor],
+    *,
+    zero_split_k_flag: bool,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Validate the FP8 entry arguments and allocate missing output buffers.
+
+    Shared by the hpc and Cake backends so both raise identical ``ValueError``s
+    and allocate identical default buffers. ``zero_split_k_flag`` selects
+    whether ``split_k_flag`` is cleared on the host side: the hpc kernel only
+    re-zeroes flags of non-empty requests and relies on the wrapper memset,
+    while the Cake kernel writes every flag itself.
     """
     if len(paged_kv_cache) != 2:
         raise ValueError("paged_kv_cache must be (key_cache, value_cache)")
@@ -154,33 +258,10 @@ def fused_qk_norm_rope_quantize_fp8_append_paged_kv_cache(
         else:
             q_scale = torch.empty(0, dtype=torch.float32, device=qkv.device)
     if split_k_flag is None:
-        split_k_flag = torch.zeros(
+        allocate = torch.zeros if zero_split_k_flag else torch.empty
+        split_k_flag = allocate(
             (num_requests, num_kv_heads), dtype=torch.int32, device=qkv.device
         )
-    else:
+    elif zero_split_k_flag:
         split_k_flag.zero_()
-    _get_hpc_rope_module().hpc_rope_norm_store_kv_fp8(
-        out_q,
-        q_scale,
-        split_k_flag,
-        key_cache,
-        value_cache,
-        qkv,
-        cos_sin_cache,
-        seq_lens,
-        q_indptr,
-        page_indices,
-        is_prefill,
-        k_scale,
-        v_scale,
-        quant_policy,
-        max_seqlen,
-        upper_max,
-        q_scale_inv,
-        q_norm_weight,
-        k_norm_weight,
-        out_k,
-        out_v,
-        qk_norm_policy,
-    )
     return out_q, q_scale, split_k_flag

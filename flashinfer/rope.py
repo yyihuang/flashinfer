@@ -1860,12 +1860,16 @@ def fused_qk_rmsnorm_rope_quantize_fp8_append_paged_kv_cache(
     out_v: Optional[torch.Tensor] = None,
     q_scale: Optional[torch.Tensor] = None,
     split_k_flag: Optional[torch.Tensor] = None,
+    backend: str = "hpc",
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     r"""Fuse QK-Norm/RoPE, FP8 quantization, and paged K/V append.
 
     ``quant_policy=1`` produces dynamic per-token/per-Q-head scales;
     ``quant_policy=2`` consumes scalar ``q_scale_inv``. Malformed packed-row
     metadata is reported asynchronously by filling ``split_k_flag`` with -1.
+    ``backend`` is ``"hpc"`` (default, the kernel ported from Tencent hpc-ops)
+    or ``"cake"`` (the Cake-generated kernel for sm_90a/sm_100a/sm_103a); both
+    share the argument contract and return tuple.
     See the experimental backend README for the complete shape contract.
     """
     from .experimental.fused_qk_rope_append import (
@@ -1894,4 +1898,5 @@ def fused_qk_rmsnorm_rope_quantize_fp8_append_paged_kv_cache(
         out_v,
         q_scale,
         split_k_flag,
+        backend=backend,
     )
