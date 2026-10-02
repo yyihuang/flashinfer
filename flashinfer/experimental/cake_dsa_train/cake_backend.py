@@ -12,73 +12,41 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
-Cake backend: native 64-query-head DeepSeek Sparse Attention (top-k sparse
-MLA with absorbed queries) forward and backward for training on SM100 / SM103
-(flashinfer-ai/flashinfer#5657; GLM-5.2 geometry).
-
-Contract
---------
-* ``q_latent [T, 64, 512]`` and ``q_rope [T, 64, 64]`` BF16 -- may be views of
-  a packed ``q [T, 64, 576]`` (row stride 576); ``kv_latent [S, 512]`` (K = V)
-  and ``k_rope [S, 64]`` BF16 -- may be views of a packed ``kv [S, 576]``.
-* ``indices [T, topk]`` int32: **global** key rows into ``kv_*``; ``-1`` or
-  ``>= S`` marks an invalid slot, anywhere in the row.  ``topk_length [T]``
-  int32 (optional) invalidates slots ``>= topk_length[t]``.  ``topk`` is any
-  positive integer.
-* ``softmax_scale`` defaults to ``576 ** -0.5``.
-* Forward writes ``out [T, 64, 512]`` BF16, ``lse [T, 64]`` FP32 = natural-log
-  logsumexp over the valid keys, and ``o_lo [T, 64, 512]`` BF16 =
-  ``bf16(fp32(O) - bf16(O))``, the output residual the backward uses to form
-  ``delta = rowsum(dO * (O + O_lo))`` (FA-style exact delta).  Fully masked
-  rows give ``out = 0``, ``lse = -inf``, ``o_lo = 0``.
-* Backward returns ``dq_latent [T, 64, 512]`` and ``dq_rope [T, 64, 64]`` BF16
-  (computed once per row: no atomics, bitwise deterministic) and
-  ``dkv_latent [S, 512]`` / ``dk_rope [S, 64]`` BF16 (FP32 ``red.global``
-  accumulation then a cast).  ``dkv_fp32=True`` returns natural-layout FP32
-  gradients instead: the accumulators themselves when the program accumulates
-  in natural row-major layout, or the cast's FP32 outputs when it accumulates
-  in an internal permuted layout (registry field ``dkv_acc_layout``); the raw
-  accumulators of a permuted program never cross the API boundary.
-* BF16 operands into the MMAs (Q, K, V, P, dS), FP32 accumulation; S is
-  recomputed in the backward from the BF16 Q and K.
-
-Every allocation happens in :func:`prepare_dsa_train`; the returned runner
-launches with no CUDA allocation and no host synchronization, so a runner
-(or a CUDA graph capturing it) replays for new values written into the bound
-tensors.  Kernels are reached through the argument plans of the registry
-records in ``cake_jit.MODULES``; the ``abi`` field of a record names the
-keyword set its kernels expect (see :data:`ABI_CONTRACT`).
-
-The eager entry points (:func:`forward`, :func:`backward`, the autograd
-``Function`` behind ``dsa_sparse_attention``) validate and bind once per
-*input binding* and remember the result in :data:`BINDING_CACHE` (see
-:class:`BindingCache`): a later call whose inputs have the same
-``(data_ptr, shape, stride, dtype)`` and scale slots the current tensors,
-freshly allocated outputs and per-call scratch into the remembered argument
-plans and launches.  A call without query rows (``T == 0``) returns empty
-outputs and zero gradients from the eager entry points without binding or
-launching anything.
 """
+
+# Host backend of the Cake DSA sparse-attention training program (SM100 /
+# SM103): input validation, workspace layout, varlen index offsetting, the
+# prepared runner, the eager entry points and the autograd Function.
+#
+# * Forward writes ``out [T, 64, 512]`` BF16, ``lse [T, 64]`` FP32 (natural
+#   log over the valid keys; ``-inf`` for a fully masked row, whose ``out`` is
+#   zero) and the BF16 output residual ``o_lo = bf16(fp32(O) - bf16(O))``.
+# * Backward returns ``dq_latent [T, 64, 512]``, ``dq_rope [T, 64, 64]`` BF16
+#   (written once per row: bitwise deterministic) and ``dkv_latent [S, 512]``,
+#   ``dk_rope [S, 64]`` (FP32 ``red.global`` accumulation in the kernels'
+#   internal permuted layout, un-permuted by the cast stage into natural-layout
+#   BF16 or, with ``dkv_fp32=True``, FP32 outputs).
+# * Every launch goes through ``cake_launch`` (generated next to the registry:
+#   one positional launcher per stage over the kernel's own argument names)
+#   with a grid computed in Python; the bindings encode the tensor maps by
+#   value, so no launch allocates, synchronizes or touches a descriptor
+#   workspace.
 
 from __future__ import annotations
 
+import functools
 import math
 import os
+import threading
 from collections import OrderedDict
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 import torch
 import tvm_ffi
 
-from .cake_jit import (
-    FORWARD_STAGES,
-    MODULES,
-    load_cake_dsa_train_module,
-    registered_stages,
-    select_module,
-)
+from . import cake_jit, cake_launch
+from .cake_jit import FORWARD_STAGES
 
 NUM_HEADS = 64
 D_LATENT = 512
@@ -87,89 +55,18 @@ D_QK = D_LATENT + D_ROPE
 LOG2E = 1.4426950408889634
 WORKSPACE_ALIGN = 256
 SUPPORTED_COMPUTE_CAPABILITIES = {(10, 0): "sm_100a", (10, 3): "sm_103a"}
+# Raw-pointer operands are read in 16-byte vectors: eight int32 index slots,
+# eight BF16 rope elements.  ``indices`` may start anywhere (the kernels take
+# the element offset below a vector-aligned base and fall back to scalar loads
+# when the row stride or the offset is not a multiple of eight); ``k_rope``
+# rows and their start must be vector aligned.
+POINTER_GRANULE = 8
 
-# Host binding profiles.  ``ABI_CONTRACT`` is the keyword set of the native
-# training kernels (the names below are what the host provides; a kernel's
-# argument plan selects from them).  ``ABI_SEED`` is the profile of the
-# forward-only FlashMLA-derived prefill program that stands in while the
-# native kernels are being written: it needs packed ``q``/``kv`` operands, a
-# top-k that is a multiple of 64, produces no output residual and reports
-# ``+inf`` LSE for empty rows (rewritten to ``-inf`` here).
-ABI_CONTRACT = "dsa_h64_v1"
-ABI_SEED = "flashmla_v41_prefill_seed"
-SUPPORTED_ABIS = (ABI_CONTRACT, ABI_SEED)
-
-# Keyword names the contract profile offers to every stage.  Tensor kinds in
-# the argument plan are ``buffer`` / ``tma_buffer`` (the binding encodes the
-# tensor map itself), scalars are ``parameter``; ``grid_x/y/z`` are ``grid``.
-CONTRACT_TENSORS = (
-    "q_latent",
-    "q_rope",
-    "kv_latent",
-    "k_rope",
-    "indices",
-    "topk_length",
-    "out",
-    "o_lo",
-    "lse",
-    "dout",
-    "delta",
-    "dq_latent",
-    "dq_rope",
-    "dkv_latent_acc",
-    "dk_rope_acc",
-    "dkv_latent",
-    "dk_rope",
-    "dkv_latent_fp32",  # bwd_cast: natural-layout FP32 outputs of the dkv_fp32 mode (out_f32 = 1); otherwise a placeholder
-    "dk_rope_fp32",
-    # Key-range passes (bwd_compact / bwd_main_pass): the FP32 dQ partials, the per-pass compacted keys and their
-    # counts, carved from the workspace when the plan has more than one pass.  The single-pass kernel (bwd_main) never
-    # reads them and receives, like its production launcher, ``delta`` and the indices storage as inert placeholders
-    # (see _inert_pass_values).
-    "dq_partial",
-    "key_scratch",
-    "pass_counts",
-    "workspace",  # kernel-private scratch of the backward main stage (record field workspace_bytes)
-    "tma_descriptor_workspace",
-)
-CONTRACT_SCALARS = (
-    "num_queries",
-    "num_kv",
-    "topk",
-    "softmax_scale",
-    "softmax_scale_log2",
-    "idx_stride",  # indices row stride (elements)
-    "indices_offset",  # element offset of indices inside the storage alias the host passes (0 when the tensor starts its storage)
-    "k_rope_stride",  # k_rope row stride (elements); k_rope is passed as its storage alias
-    "k_rope_offset",  # element offset of k_rope inside that storage (0 when the tensor starts its storage)
-    "has_topk_length",  # 1 when the caller supplied topk_length
-    "q_latent_row_stride",
-    "q_rope_row_stride",
-    "kv_latent_row_stride",
-    "num_rows",  # bwd_delta: num_queries * 64 (token, head) rows
-    "latent_vecs",  # bwd_cast: num_kv * 512 / 16 sixteen-element vectors
-    "rope_vecs",  # bwd_cast: num_kv * 64 / 16
-    "latent_groups",  # bwd_cast: num_kv * 512 / 32 permuted 32-element groups
-    "rope_groups",  # bwd_cast: num_kv * 64 / 32
-    "out_f32",  # bwd_cast: 1 when the cast writes natural-layout FP32 outputs (dkv_fp32 mode of a permuted program)
-    "token_base",  # bwd_main: token = token_base + token_step * blockIdx.x (0, 1: one CTA per token in row order)
-    "token_step",
-    # bwd_main / bwd_main_pass: key-range-pass controls.  The single-pass kernel is launched with the whole key range and
-    # dq_mode 0 (direct BF16 dQ output) and does not read them; the pass stages receive the pass's key range [pass_lo,
-    # pass_hi) and dq_mode 1 (first pass: store the FP32 dQ partial) / 2 (middle: load-add-store) / 3 (last: load-add,
-    # BF16 output).
-    "pass_lo",
-    "pass_hi",
-    "dq_mode",
-    "num_tokens",  # bwd_compact: tokens of the launch (= num_queries: passes run over the whole row)
-)
-# FP32 dK/dV accumulator layouts a backward record declares (``dkv_acc_layout``).
-DKV_ACC_LAYOUTS = ("natural", "permuted")
 # Key-range passes of the backward (the DRAM regime of the main stage).  A
-# program that registers ``bwd_compact`` and ``bwd_main_pass`` can run the
-# backward of every token in P passes over disjoint key ranges: per pass the
-# compaction stage writes the token's keys inside the range (slot order; the
-# validity rules of the main kernel) to ``key_scratch`` and their number to
+# program with ``bwd_compact`` and ``bwd_main_pass`` can run the backward of
+# every token in P passes over disjoint key ranges: per pass the compaction
+# stage writes the token's keys inside the range (slot order; the validity
+# rules of the main kernel) to ``key_scratch`` and their number to
 # ``pass_counts``, and the pass variant of the main stage consumes them,
 # carrying the FP32 dQ / dQ_rope partial of every token in ``dq_partial``
 # between passes (dq_mode 1 store, 2 load-add-store, 3 load-add and BF16
@@ -289,46 +186,29 @@ def key_pass_dq_mode(index: int, passes: int) -> int:
     return 1 if index == 0 else (2 if index < passes - 1 else 3)
 
 
-# Accepted spellings of the same host value (kernel side -> host side).
-CONTRACT_ALIASES = {
-    "sm_scale": "softmax_scale",
-    "scale": "softmax_scale",
-    "scale_log2": "softmax_scale_log2",
-    "sm_scale_log2": "softmax_scale_log2",
-    "total_q": "num_queries",
-    "total_kv": "num_kv",
-    "num_keys": "num_kv",
-    "seqlen_kv": "num_kv",
-    "lengths": "topk_length",
-    "indices_stride": "idx_stride",
-    "k_rope_row_stride": "k_rope_stride",
-    "dkv_latent_f32": "dkv_latent_acc",
-    "dk_rope_f32": "dk_rope_acc",
-    "dkv_f32": "dkv_latent_acc",
-    "dkr_f32": "dk_rope_acc",
-    "src_latent": "dkv_latent_acc",
-    "src_rope": "dk_rope_acc",
-    "dst_latent": "dkv_latent",
-    "dst_rope": "dk_rope",
-    "dst_latent_f32": "dkv_latent_fp32",
-    "dst_rope_f32": "dk_rope_fp32",
-    "do": "dout",
-    "d_out": "dout",
-}
-
-
 # ---------------------------------------------------------------------------
 # Device / registry queries
 # ---------------------------------------------------------------------------
+
+
+@functools.cache
+def _arch_of(device_index: int) -> Optional[str]:
+    return SUPPORTED_COMPUTE_CAPABILITIES.get(
+        torch.cuda.get_device_capability(device_index)
+    )
+
+
+def _device_index(device: Optional[torch.device]) -> int:
+    if device is None or device.index is None:
+        return torch.cuda.current_device()
+    return int(device.index)
 
 
 def arch_for(device: Optional[torch.device] = None) -> Optional[str]:
     """Architecture tag of ``device`` (``None`` when unsupported or without CUDA)."""
     if not torch.cuda.is_available():
         return None
-    if device is None:
-        device = torch.device("cuda", torch.cuda.current_device())
-    return SUPPORTED_COMPUTE_CAPABILITIES.get(torch.cuda.get_device_capability(device))
+    return _arch_of(_device_index(device))
 
 
 def default_softmax_scale() -> float:
@@ -336,51 +216,33 @@ def default_softmax_scale() -> float:
 
 
 def record_for(device: Optional[torch.device] = None) -> tuple[str, dict[str, Any]]:
-    """``(module_name, record)`` registered for ``device``; raises when absent."""
+    """``(program name, registry record)`` serving ``device``."""
     arch = arch_for(device)
     if arch is None:
-        raise ValueError(
-            "DSA sparse-attention training requires compute capability 10.0 or 10.3"
+        raise NotImplementedError(
+            "DSA sparse-attention training needs a compute capability 10.0 / 10.3 device"
         )
-    name = select_module(arch)
-    return name, MODULES[name]
+    record = cake_jit.record()
+    if arch not in record["arches"]:
+        raise NotImplementedError(
+            f"the generated DSA training program is registered for {record['arches']}, not {arch}"
+        )
+    return cake_jit.PROGRAM, record
 
 
 def generated_program_available(
     device: Optional[torch.device] = None, *, backward: bool = False
 ) -> bool:
-    """True when this checkout registers the program for ``device`` (and its
-    backward stages when ``backward``)."""
-    arch = arch_for(device)
-    if arch is None:
+    """Whether ``device`` is served (with the backward stages when ``backward``)."""
+    try:
+        _, record = record_for(device)
+    except NotImplementedError:
         return False
-    names = [n for n, r in MODULES.items() if r["arch"] == arch]
-    if len(names) != 1:
-        return False
-    stages = registered_stages(names[0])
-    if "fwd" not in stages:
-        return False
-    return not backward or ("bwd_main" in stages and "bwd_delta" in stages)
-
-
-def record_abi(record: dict[str, Any]) -> str:
-    abi = str(record.get("abi", ABI_CONTRACT))
-    if abi not in SUPPORTED_ABIS:
-        raise NotImplementedError(f"unsupported host binding profile {abi!r}")
-    return abi
-
-
-def record_dkv_acc_layout(record: dict[str, Any]) -> str:
-    """Layout of the backward's FP32 dK/dV accumulators: ``"natural"`` (row-major
-    ``[S, 512]`` / ``[S, 64]``, returnable as FP32 gradients) or ``"permuted"``
-    (internal to the kernels; only ``bwd_cast`` yields natural-layout outputs).
-    A record with a backward must declare it."""
-    layout = record.get("dkv_acc_layout")
-    if layout not in DKV_ACC_LAYOUTS:
-        raise ValueError(
-            f"registry record declares dkv_acc_layout {layout!r}; expected one of {DKV_ACC_LAYOUTS}"
-        )
-    return str(layout)
+    stages = cake_jit.registered_stages()
+    needed = ("fwd", "bwd_delta", "bwd_main", "bwd_cast") if backward else ("fwd",)
+    return all(stage in stages for stage in needed) and (
+        not backward or "key_pass_policy" in record
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -393,11 +255,19 @@ def _check_head_tensor(t: torch.Tensor, name: str, last: int) -> None:
         raise ValueError(f"{name} must be a BF16 [T, {NUM_HEADS}, {last}] tensor")
     if t.dtype != torch.bfloat16:
         raise ValueError(f"{name} must be bfloat16")
-    # Heads are ``last`` apart in a contiguous tensor and ``D_QK`` apart in a view of a packed [T, 64, 576] tensor.
-    if t.stride(2) != 1 or t.stride(1) not in (last, D_QK):
+    # Heads and tokens may be any 16-byte multiple apart (the tensor maps carry both strides):
+    # contiguous tensors and views of a packed [T, 64, >= 576] tensor alike.
+    if (
+        t.stride(2) != 1
+        or t.stride(1) < last
+        or t.stride(1) % POINTER_GRANULE
+        or t.stride(0) < NUM_HEADS * t.stride(1)
+        or t.stride(0) % POINTER_GRANULE
+    ):
         raise ValueError(
-            f"{name} must be contiguous within a token row (a view of a packed "
-            f"[T, {NUM_HEADS}, {D_QK}] tensor is allowed)"
+            f"{name} must be contiguous within a head row, with head and token strides that are "
+            f"multiples of {POINTER_GRANULE} elements (a view of a packed [T, {NUM_HEADS}, {D_QK}] "
+            "tensor is allowed)"
         )
 
 
@@ -406,9 +276,14 @@ def _check_key_tensor(t: torch.Tensor, name: str, last: int) -> None:
         raise ValueError(f"{name} must be a BF16 [S, {last}] tensor")
     if t.dtype != torch.bfloat16:
         raise ValueError(f"{name} must be bfloat16")
-    if t.stride(1) != 1:
+    if t.stride(1) != 1 or t.stride(0) < last or t.stride(0) % POINTER_GRANULE:
         raise ValueError(
-            f"{name} rows must be contiguous (a view of a packed [S, {D_QK}] tensor is allowed)"
+            f"{name} rows must be contiguous and {POINTER_GRANULE * 2}-byte aligned "
+            f"(a view of a packed [S, {D_QK}] tensor is allowed)"
+        )
+    if t.storage_offset() % POINTER_GRANULE:
+        raise ValueError(
+            f"{name} must start at a {POINTER_GRANULE * 2}-byte aligned element of its storage"
         )
 
 
@@ -423,15 +298,17 @@ def validate_dsa_train_inputs(
     dout: Optional[torch.Tensor] = None,
     allow_empty_queries: bool = False,
 ) -> tuple[int, int, int]:
-    """Shape / dtype validation shared by the entry points.
+    """Shape / dtype / layout validation shared by the entry points.
 
     Returns ``(T, S, topk)``.  Device placement is checked separately so this
-    runs on host tensors.  Zero key rows (``S == 0``) are rejected: the
-    kernels index at least one key row and the FP32 dK/dV accumulators would
-    be empty.  Zero query rows (``T == 0``) are rejected unless
-    ``allow_empty_queries``: the launch grids clamp to one CTA that would read
-    a query row that does not exist, so only the eager entry points, which
-    return empty outputs for ``T == 0`` without launching, accept it.
+    runs on host tensors.  ``indices`` rows must be contiguous (any row stride;
+    a column slice of a wider index buffer is accepted).  Zero key rows
+    (``S == 0``) are rejected: the kernels index at least one key row and the
+    FP32 dK/dV accumulators would be empty.  Zero query rows (``T == 0``) are
+    rejected unless ``allow_empty_queries``: the launch grids clamp to one CTA
+    that would read a query row that does not exist, so only the eager entry
+    points, which return empty outputs for ``T == 0`` without launching,
+    accept it.
     """
     _check_head_tensor(q_latent, "q_latent", D_LATENT)
     _check_head_tensor(q_rope, "q_rope", D_ROPE)
@@ -456,11 +333,11 @@ def validate_dsa_train_inputs(
         or int(indices.shape[0]) != num_queries
     ):
         raise ValueError("indices must be an int32 [T, topk] tensor")
-    if not indices.is_contiguous():
-        raise ValueError("indices must be contiguous")
     topk = int(indices.shape[1])
     if topk <= 0:
         raise ValueError("topk must be positive")
+    if indices.stride(1) != 1 or (num_queries > 1 and indices.stride(0) < topk):
+        raise ValueError("indices rows must be contiguous (any row stride)")
     if topk_length is not None and (
         topk_length.shape != (num_queries,)
         or topk_length.dtype != torch.int32
@@ -472,7 +349,9 @@ def validate_dsa_train_inputs(
         if int(dout.shape[0]) != num_queries:
             raise ValueError("dout must have T rows")
         if not dout.is_contiguous():
-            raise ValueError("dout must be contiguous (call .contiguous() first)")
+            # bwd_delta reads dout as a dense [T * 64, 512] array (the main stage reads it
+            # through a stride-carrying tensor map); the eager entry copies a strided dout.
+            raise ValueError("dout must be contiguous")
     return num_queries, num_kv, topk
 
 
@@ -491,7 +370,7 @@ def _check_output(t: Optional[torch.Tensor], name: str, shape: tuple, dtype) -> 
 
 
 def _align(nbytes: int) -> int:
-    return (nbytes + WORKSPACE_ALIGN - 1) // WORKSPACE_ALIGN * WORKSPACE_ALIGN
+    return -(-int(nbytes) // WORKSPACE_ALIGN) * WORKSPACE_ALIGN
 
 
 def workspace_layout(
@@ -499,22 +378,16 @@ def workspace_layout(
     num_kv: int,
     topk: int,
     *,
-    abi: str = ABI_CONTRACT,
     backward: bool = True,
-    tma_workspace_bytes: int = 0,
-    scratch_bytes: int = 0,
     key_passes: int = 1,
 ) -> dict:
     """Byte ``(offset, size)`` of every workspace region plus ``"total"``.
 
-    ``delta`` and the FP32 dK/dV accumulators exist for the backward; the
-    ``topk_length`` region backs a full-length vector when the caller passes
-    none; ``tma_descriptor_workspace`` is the caller-owned descriptor storage
-    of pointer-ABI programs.  A backward with more than one key-range pass adds
-    the FP32 dQ partials (``num_queries`` x 147,456 B), the compacted keys of
-    one pass (``num_queries`` x ``topk`` int32) and their per-token counts.  The
-    seed profile adds the packed ``q``/``kv`` operands, an auxiliary row-max
-    buffer and an (unused) sink vector.
+    The ``topk_length`` region backs a full-length vector when the caller
+    passes none; ``delta`` and the FP32 dK/dV accumulators exist for the
+    backward.  A backward with more than one key-range pass adds the FP32 dQ
+    partials (``num_queries`` x 147,456 B), the compacted keys of one pass
+    (``num_queries`` x ``topk`` int32) and their per-token counts.
     """
     sizes = [("topk_length", num_queries * 4)]
     if backward:
@@ -529,17 +402,6 @@ def workspace_layout(
                 ("key_scratch", num_queries * int(topk) * 4),
                 ("pass_counts", num_queries * 4),
             ]
-    if abi == ABI_SEED:
-        sizes += [
-            ("packed_q", num_queries * NUM_HEADS * D_QK * 2),
-            ("packed_kv", num_kv * D_QK * 2),
-            ("aux_logits", num_queries * NUM_HEADS * 4),
-            ("sinks", NUM_HEADS * 4),
-        ]
-    if backward and scratch_bytes:
-        sizes.append(("workspace", int(scratch_bytes)))
-    if tma_workspace_bytes:
-        sizes.append(("tma_descriptor_workspace", int(tma_workspace_bytes)))
     layout: dict = {}
     offset = 0
     for name, nbytes in sizes:
@@ -547,17 +409,6 @@ def workspace_layout(
         offset += _align(nbytes)
     layout["total"] = offset
     return layout
-
-
-def _record_tma_bytes(record: dict[str, Any], stages: tuple[str, ...]) -> int:
-    return max(
-        (int(record[s].get("tma_workspace_bytes", 0)) for s in stages), default=0
-    )
-
-
-def _record_scratch_bytes(record: dict[str, Any], stages: tuple[str, ...]) -> int:
-    """Kernel-private scratch declared by the backward stages (``workspace_bytes``; 0 when none)."""
-    return max((int(record[s].get("workspace_bytes", 0)) for s in stages), default=0)
 
 
 def dsa_train_workspace_size(
@@ -573,8 +424,8 @@ def dsa_train_workspace_size(
 
     ``key_passes`` as in :func:`prepare_dsa_train` (``None`` = the record's policy).
     """
-    name, record = record_for(device)
-    stages = registered_stages(name)
+    _, record = record_for(device)
+    stages = cake_jit.registered_stages()
     passes = (
         plan_key_passes(record, stages, num_queries, num_kv, topk, key_passes)
         if backward
@@ -582,21 +433,24 @@ def dsa_train_workspace_size(
     )
     return int(
         workspace_layout(
-            num_queries,
-            num_kv,
-            topk,
-            abi=record_abi(record),
-            backward=backward,
-            tma_workspace_bytes=_record_tma_bytes(record, stages),
-            scratch_bytes=_record_scratch_bytes(record, stages) if backward else 0,
-            key_passes=passes,
+            num_queries, num_kv, topk, backward=backward, key_passes=passes
         )["total"]
     )
 
 
+def _alloc(shape, dtype, device, *, zero: bool = False) -> torch.Tensor:
+    """The backend's allocation site: outputs of the functional entry points, the
+    per-call backward scratch of the eager path and the workspace of a prepared
+    runner come from the caching allocator through it (``zero``: filled on the
+    stream in the same op)."""
+    if zero:
+        return torch.zeros(shape, dtype=dtype, device=device)
+    return torch.empty(shape, dtype=dtype, device=device)
+
+
 def _carve(flat: torch.Tensor, layout: dict, name: str, dtype, shape) -> torch.Tensor:
     offset, nbytes = layout[name]
-    needed = math.prod(shape) * torch.empty((), dtype=dtype).element_size()
+    needed = math.prod(shape) * dtype.itemsize
     if needed > nbytes:
         raise ValueError(
             f"workspace region {name!r} holds {nbytes} bytes, {needed} needed"
@@ -622,7 +476,7 @@ def offset_gather_kv_indices(
     ``d``, key positions relative to the document's first key
     (``cu_seqlens_k[d]``); ``-1`` or a position ``>= seqlen_k[d]`` is invalid.
     The result addresses the packed ``kv_*`` tensors; invalid slots become
-    ``-1``.  Runs on device without a host synchronization.
+    ``-1``.  Runs on device in int32 without a host synchronization.
     """
     if gather_kv_indices.ndim != 2 or gather_kv_indices.dtype != torch.int32:
         raise ValueError("gather_kv_indices must be an int32 [T, topk] tensor")
@@ -634,21 +488,14 @@ def offset_gather_kv_indices(
             "cu_seqlens_q and cu_seqlens_k must describe the same documents"
         )
     total_q = int(gather_kv_indices.shape[0])
-    num_docs = int(cu_seqlens_q.numel()) - 1
     device = gather_kv_indices.device
-    seqlens_q = (cu_seqlens_q[1:] - cu_seqlens_q[:-1]).to(torch.int64)
-    doc_of_row = torch.repeat_interleave(
-        torch.arange(num_docs, device=device), seqlens_q, output_size=total_q
-    )
-    key_base = cu_seqlens_k[:-1].to(torch.int64)[doc_of_row][:, None]
-    key_len = (cu_seqlens_k[1:] - cu_seqlens_k[:-1]).to(torch.int64)[doc_of_row][
-        :, None
-    ]
-    local = gather_kv_indices.to(torch.int64)
+    rows = torch.arange(total_q, dtype=torch.int32, device=device)
+    doc_of_row = torch.bucketize(rows, cu_seqlens_q[1:], right=True)
+    key_base = cu_seqlens_k[:-1][doc_of_row][:, None]
+    key_len = (cu_seqlens_k[1:] - cu_seqlens_k[:-1])[doc_of_row][:, None]
+    local = gather_kv_indices
     valid = (local >= 0) & (local < key_len)
-    result = torch.where(valid, local + key_base, torch.full_like(local, -1)).to(
-        torch.int32
-    )
+    result = torch.where(valid, local + key_base, -1)
     if out is None:
         return result
     out.copy_(result)
@@ -656,141 +503,36 @@ def offset_gather_kv_indices(
 
 
 # ---------------------------------------------------------------------------
-# Launch binding
+# Launches
 # ---------------------------------------------------------------------------
 
 
-def grid_dims(rule, scalars: dict[str, Any], num_sms: int) -> tuple[int, int, int]:
-    """Evaluate a registry grid rule.
+def _pointer_operand(
+    tensor: torch.Tensor, granule: int = POINTER_GRANULE
+) -> tuple[torch.Tensor, int]:
+    """``(view, element offset)`` of a raw-pointer operand.
 
-    Each of the three entries is an integer, ``"sms"``, ``"sms*<n>"`` or
-    ``"<name>[*<a>][/<b>]"``: a scalar name (``"num_queries"``) optionally
-    multiplied by ``a`` and then divided by ``b`` with rounding up
-    (``"num_kv*36/256"``).
+    The kernels' vector loads are gated on the row stride and the element
+    offset they receive (``((stride | offset) & 7) == 0``) and assume a vector
+    aligned pointer.  A tensor that starts inside its storage is therefore
+    passed as the zero-copy view that starts at the nearest aligned element
+    below it, plus the offset the kernel adds; a tensor whose start is aligned
+    is passed as is.
     """
-
-    def term(value) -> int:
-        if isinstance(value, bool):
-            raise ValueError("grid rule entries must be integers or expressions")
-        if isinstance(value, int):
-            return int(value)
-        text = str(value)
-        if text == "sms":
-            return int(num_sms)
-        if text.startswith("sms*"):
-            return int(num_sms) * int(text[4:])
-        name, _, divisor = text.partition("/")
-        name, _, factor = name.partition("*")
-        value = int(scalars[name]) * (int(factor) if factor else 1)
-        return -(-value // int(divisor)) if divisor else value
-
-    if len(rule) != 3:
-        raise ValueError("grid rule must have three entries")
-    x, y, z = (term(v) for v in rule)
-    return max(1, x), max(1, y), max(1, z)
-
-
-# Host values that a remembered binding re-supplies at every launch: the
-# contract tensors (caller tensors, fresh outputs and cache-owned scratch) and
-# the storage alias / element offset pairs of the raw-pointer operands.
-REBIND_KEYS = frozenset(CONTRACT_TENSORS) | frozenset(
-    ("indices_storage", "indices_offset", "k_rope_storage", "k_rope_offset")
-)
-
-
-@dataclass(frozen=True)
-class _Launch:
-    stage: str
-    module: str
-    entry: Callable[..., Any] = field(repr=False)
-    arguments: tuple = field(repr=False)
-    grid: tuple[int, int, int]
-    # Descriptor-preparation entry of a pointer-ABI module (same arguments).
-    prepare: Optional[Callable[..., Any]] = field(default=None, repr=False)
-    # ``(argument index, host value name)`` of every argument in REBIND_KEYS.
-    slots: tuple[tuple[int, str], ...] = ()
-
-    def __call__(self) -> None:
-        self.entry(*self.arguments)
-
-    def templated(self) -> "_Launch":
-        """Copy whose re-bindable arguments are ``None`` placeholders (holds no tensor)."""
-        arguments = list(self.arguments)
-        for index, _ in self.slots:
-            arguments[index] = None
-        return replace(self, arguments=tuple(arguments))
-
-    def arguments_for(self, values: dict[str, Any]) -> list:
-        """The argument list with every slot filled from ``values`` (fails closed on a missing one)."""
-        arguments = list(self.arguments)
-        for index, key in self.slots:
-            value = values.get(key)
-            if value is None:
-                raise RuntimeError(
-                    f"stage {self.stage!r} of {self.module!r}: the remembered argument plan needs "
-                    f"{key!r} (argument {index}) and the call provides no value for it"
-                )
-            arguments[index] = value
-        return arguments
-
-
-def bind_stage(
-    module_name: str, stage: str, values: dict[str, Any], grid: tuple[int, int, int]
-) -> _Launch:
-    """Order ``values`` by the generated argument plan of ``stage`` and load its entry.
-
-    Fails closed: a keyword the kernel expects that the host does not provide
-    raises ``KeyError`` naming both sides.  The returned launch records which
-    argument positions hold re-bindable host values (:data:`REBIND_KEYS`).
-    """
-    physical = MODULES[module_name][stage]
-    grid_values = dict(zip(("grid_x", "grid_y", "grid_z"), grid, strict=True))
-    arguments = []
-    slots = []
-    for kind, name in physical["arg_plan"]:
-        # A profile may provide the kernel's own name (seed profile) or the contract name behind an alias.
-        key = name if name in values else CONTRACT_ALIASES.get(name, name)
-        if kind == "grid":
-            arguments.append(grid_values[name])
-        elif (
-            key in values and values[key] is not None
-        ):  # buffer / tma_buffer / workspace / parameter
-            value = values[key]
-            if kind == "buffer" and f"{key}_storage" in values:
-                key = f"{key}_storage"  # raw pointer: whole storage + <name>_offset elements
-                value = values[key]
-            if key in REBIND_KEYS:
-                slots.append((len(arguments), key))
-            arguments.append(value)
-        else:
-            raise KeyError(
-                f"generated module {module_name!r} stage {stage!r} expects argument "
-                f"{name!r} ({kind}); the host binding provides {sorted(k for k, v in values.items() if v is not None)}"
-            )
-    module = load_cake_dsa_train_module(module_name, stage)
-    prepare_entry = physical.get("tma_prepare_entry")
-    prepare = getattr(module, prepare_entry) if prepare_entry else None
-    return _Launch(
-        stage,
-        module_name,
-        getattr(module, physical["ffi_entry"]),
-        tuple(arguments),
-        grid,
-        prepare,
-        tuple(slots),
+    offset = tensor.storage_offset() % granule
+    if offset == 0:
+        return tensor, 0
+    view = tensor.as_strided(
+        tensor.shape, tensor.stride(), tensor.storage_offset() - offset
     )
+    return view, offset
 
 
 _FFI_DEVICES: dict[int, Any] = {}
 
 
 def _ffi_stream_context(index: int):
-    """tvm-ffi environment-stream context for torch's current stream on device ``index``.
-
-    Same effect as ``tvm_ffi.use_torch_stream()`` without its per-entry
-    ``torch.cuda.Stream`` wrapper and device-string parse: the raw handle comes
-    from ``torch._C._cuda_getCurrentRawStream`` and the FFI device is cached.
-    """
+    """tvm-ffi environment-stream context for torch's current stream on device ``index``."""
     device = _FFI_DEVICES.get(index)
     if device is None:
         device = _FFI_DEVICES[index] = tvm_ffi.device(f"cuda:{index}")
@@ -803,6 +545,310 @@ def _ffi_stream_context(index: int):
     return tvm_ffi.use_raw_stream(device, raw)
 
 
+@dataclass(frozen=True)
+class _StageEntry:
+    """The loaded entry of one stage for one architecture: generated launcher, binding entry, grid."""
+
+    stage: str
+    launcher: Callable[..., None] = field(repr=False)
+    run: Callable[..., Any] = field(repr=False)
+    grid: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class _Launch:
+    """One stage launch: the generated positional launcher over bound host values."""
+
+    stage: str
+    launcher: Callable[..., None] = field(repr=False)
+    run: Callable[..., Any] = field(repr=False)
+    values: dict[str, Any] = field(repr=False)
+    grid: tuple[int, int, int]
+
+    def __call__(self) -> None:
+        self.launcher(self.run, self.values, self.grid)
+
+
+def _stage_entry(stage: str, arch: str, scalars: dict) -> _StageEntry:
+    """Resolve ``stage`` for ``arch``: the generated launcher, its grid and the entry of the loaded module."""
+    grid = cake_launch.GRID[stage](
+        scalars["num_queries"], scalars["num_kv"], scalars["topk"]
+    )
+    cluster = cake_jit.record()[stage]["launch"]["cluster"]
+    if any(g % c for g, c in zip(grid, cluster, strict=True)):
+        raise ValueError(
+            f"stage {stage!r}: grid {grid} is not a multiple of the cluster shape "
+            f"{tuple(cluster)} baked into the module"
+        )
+    module = cake_jit.load_cake_dsa_train_module(stage, arch)
+    entry = getattr(module, cake_jit.record()[stage]["ffi_entry"])
+    return _StageEntry(stage, cake_launch.LAUNCH[stage], entry, grid)
+
+
+# ---------------------------------------------------------------------------
+# Plans: the tensor-free part of a binding
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Plan:
+    """Everything a binding of one input geometry needs that does not depend on
+    which storage the tensors live in: the validated sizes, the key-range
+    passes, the workspace layout, the launch constants, and the resolved stage
+    entries.  :func:`prepare_dsa_train` binds a plan to the caller's tensors;
+    the eager entry points keep plans in :data:`BINDING_CACHE` and bind them to
+    the tensors of every call.
+    """
+
+    module_name: str
+    arch: str
+    stages: tuple[str, ...]
+    num_queries: int
+    num_kv: int
+    topk: int
+    softmax_scale: float
+    backward: bool
+    dkv_fp32: bool
+    has_topk_length: bool
+    key_passes: int
+    device_index: int
+    layout: dict = field(repr=False)
+    scalars: dict = field(repr=False)
+    # Launch values that follow from the geometry alone (every stage selects from them).
+    constants: dict[str, Any] = field(repr=False)
+    # ``(pass_lo, pass_hi, dq_mode)`` overrides of every key-range pass (empty for one pass).
+    pass_overrides: tuple[dict[str, int], ...]
+    entries: dict[str, _StageEntry] = field(repr=False)
+    backward_order: tuple
+
+    def launch_keys(self) -> tuple:
+        return tuple(FORWARD_STAGES) + self.backward_order
+
+
+def _geometry(t: Optional[torch.Tensor]) -> Optional[tuple]:
+    """What validation and the launch constants read from a tensor: shape, strides,
+    dtype, device and the vector alignment of its start (``None`` for an absent one)."""
+    if t is None:
+        return None
+    return (
+        t.shape,
+        t.stride(),
+        t.dtype,
+        t.get_device(),
+        t.storage_offset() % POINTER_GRANULE,
+    )
+
+
+def _plan(
+    q_latent: torch.Tensor,
+    q_rope: torch.Tensor,
+    kv_latent: torch.Tensor,
+    k_rope: torch.Tensor,
+    indices: torch.Tensor,
+    *,
+    topk_length: Optional[torch.Tensor],
+    dout: Optional[torch.Tensor],
+    softmax_scale: Optional[float],
+    outputs: dict[str, Optional[torch.Tensor]],
+    dkv_fp32: bool,
+    backward: bool,
+    key_passes: Optional[int],
+) -> _Plan:
+    """Validate one geometry and resolve its plan (no allocation, no launch)."""
+    num_queries, num_kv, topk = validate_dsa_train_inputs(
+        q_latent, q_rope, kv_latent, k_rope, indices, topk_length, dout=dout
+    )
+    if backward and dout is None:
+        raise ValueError("a backward binding needs dout")
+    device = q_latent.device
+    tensors = [q_latent, q_rope, kv_latent, k_rope, indices, topk_length, dout]
+    tensors += list(outputs.values())
+    if not all(t.is_cuda and t.device == device for t in tensors if t is not None):
+        raise ValueError("Expected all tensors on one CUDA device")
+    module_name, record = record_for(device)
+    arch = arch_for(device)
+    stages = cake_jit.registered_stages()
+    if backward and not generated_program_available(device, backward=True):
+        raise NotImplementedError(
+            f"the registered DSA training program {module_name!r} has no backward stages "
+            f"(registered: {stages}); forward-only use is available"
+        )
+    if softmax_scale is None:
+        softmax_scale = default_softmax_scale()
+    passes = (
+        plan_key_passes(record, stages, num_queries, num_kv, topk, key_passes)
+        if backward
+        else 1
+    )
+    _check_output(
+        outputs.get("out"), "out", (num_queries, NUM_HEADS, D_LATENT), torch.bfloat16
+    )
+    _check_output(outputs.get("lse"), "lse", (num_queries, NUM_HEADS), torch.float32)
+    _check_output(
+        outputs.get("o_lo"), "o_lo", (num_queries, NUM_HEADS, D_LATENT), torch.bfloat16
+    )
+    _check_output(
+        outputs.get("dq_latent"),
+        "dq_latent",
+        (num_queries, NUM_HEADS, D_LATENT),
+        torch.bfloat16,
+    )
+    _check_output(
+        outputs.get("dq_rope"),
+        "dq_rope",
+        (num_queries, NUM_HEADS, D_ROPE),
+        torch.bfloat16,
+    )
+    _check_output(
+        outputs.get("dkv_latent"), "dkv_latent", (num_kv, D_LATENT), torch.bfloat16
+    )
+    _check_output(outputs.get("dk_rope"), "dk_rope", (num_kv, D_ROPE), torch.bfloat16)
+    layout = workspace_layout(
+        num_queries, num_kv, topk, backward=backward, key_passes=passes
+    )
+    has_topk_length = topk_length is not None
+    scalars = dict(
+        num_queries=num_queries,
+        num_kv=num_kv,
+        topk=topk,
+        softmax_scale=float(softmax_scale),
+        has_topk_length=int(has_topk_length),
+        out_f32=int(bool(backward and dkv_fp32)),
+    )
+    scale = float(softmax_scale)
+    T, S = num_queries, num_kv
+    constants: dict[str, Any] = dict(
+        indices_offset=indices.storage_offset() % POINTER_GRANULE,
+        idx_stride=int(indices.stride(0)),
+        k_rope_stride=int(k_rope.stride(0)),
+        k_rope_offset=0,  # k_rope starts vector aligned (validated)
+        num_queries=T,
+        num_kv=S,
+        topk=topk,
+        has_topk_length=int(has_topk_length),
+        sm_scale=scale,
+        scale_log2=scale * LOG2E,
+        num_rows=T * NUM_HEADS,  # bwd_delta: (token, head) rows
+        latent_groups=S * D_LATENT // 32,  # bwd_cast: permuted 32-element groups
+        rope_groups=S * D_ROPE // 32,
+        out_f32=scalars["out_f32"],
+        token_base=0,  # one CTA per token, token = blockIdx.x
+        token_step=1,
+        num_tokens=T,  # bwd_compact: the whole row per pass
+    )
+    pass_overrides: tuple[dict[str, int], ...] = ()
+    if backward and passes == 1:
+        # The single-pass kernel never reads the pass operands; it receives, like its
+        # production launcher, the whole key range and dq_mode 0.
+        constants.update(pass_lo=0, pass_hi=S, dq_mode=0)
+    elif backward:
+        pass_overrides = tuple(
+            dict(pass_lo=lo, pass_hi=hi, dq_mode=key_pass_dq_mode(index, passes))
+            for index, (lo, hi) in enumerate(key_pass_ranges(num_kv, passes))
+        )
+    entries = {"fwd": _stage_entry("fwd", arch, scalars)}
+    backward_order: list = []
+    if backward:
+        entries["bwd_delta"] = _stage_entry("bwd_delta", arch, scalars)
+        backward_order.append("bwd_delta")
+        if passes == 1:
+            entries["bwd_main"] = _stage_entry("bwd_main", arch, scalars)
+            backward_order.append("bwd_main")
+        else:
+            for stage in KEY_PASS_STAGES:
+                entries[stage] = _stage_entry(stage, arch, scalars)
+            for index in range(passes):
+                backward_order += [(stage, index) for stage in KEY_PASS_STAGES]
+        entries["bwd_cast"] = _stage_entry("bwd_cast", arch, scalars)
+        backward_order.append("bwd_cast")
+    return _Plan(
+        module_name=module_name,
+        arch=arch,
+        stages=stages,
+        num_queries=num_queries,
+        num_kv=num_kv,
+        topk=topk,
+        softmax_scale=scale,
+        backward=bool(backward),
+        dkv_fp32=bool(dkv_fp32),
+        has_topk_length=has_topk_length,
+        key_passes=int(passes),
+        device_index=_device_index(device),
+        layout=layout,
+        scalars=scalars,
+        constants=constants,
+        pass_overrides=pass_overrides,
+        entries=entries,
+        backward_order=tuple(backward_order),
+    )
+
+
+def _bound_values(plan: _Plan, t: dict[str, torch.Tensor]) -> dict[str, Any]:
+    """Launch values of ``plan`` over the tensors ``t`` (the kernels' own argument names)."""
+    indices, _ = _pointer_operand(t["indices"])
+    values: dict[str, Any] = dict(plan.constants)
+    values.update(t, indices=indices)
+    if plan.backward:
+        acc_latent, acc_rope = t["dkv_latent_acc"], t["dk_rope_acc"]
+        values.update(
+            dkv_f32=acc_latent,
+            dkr_f32=acc_rope,
+            src_latent=acc_latent,
+            src_rope=acc_rope,
+            dst_latent=t["dkv_latent"],
+            dst_rope=t["dk_rope"],
+            dst_latent_f32=t["dkv_latent_fp32"],
+            dst_rope_f32=t["dk_rope_fp32"],
+        )
+        if plan.key_passes == 1:
+            # never-dereferenced placeholders of the single-pass kernel: contiguous
+            # tensors of the argument dtypes
+            values.update(
+                dq_partial=t["delta"],
+                key_scratch=t["topk_length"],
+                pass_counts=t["topk_length"],
+            )
+    return values
+
+
+def _launches(plan: _Plan, values: dict[str, Any]) -> dict[Any, _Launch]:
+    """The launches of ``plan`` over ``values``, keyed as :class:`DSATrainRunner` documents."""
+    launches: dict[Any, _Launch] = {}
+    for key in plan.launch_keys():
+        stage, stage_values = key, values
+        if isinstance(key, tuple):
+            stage, index = key
+            stage_values = dict(values, **plan.pass_overrides[index])
+        e = plan.entries[stage]
+        launches[key] = _Launch(stage, e.launcher, e.run, stage_values, e.grid)
+    return launches
+
+
+def _scratch(plan: _Plan, flat: torch.Tensor) -> dict[str, torch.Tensor]:
+    """The backward scratch regions of ``plan`` carved from the workspace ``flat``."""
+    T, S, topk, layout = plan.num_queries, plan.num_kv, plan.topk, plan.layout
+    t = dict(
+        delta=_carve(flat, layout, "delta", torch.float32, (T, NUM_HEADS)),
+        dkv_latent_acc=_carve(
+            flat, layout, "dkv_latent_acc", torch.float32, (S, D_LATENT)
+        ),
+        dk_rope_acc=_carve(flat, layout, "dk_rope_acc", torch.float32, (S, D_ROPE)),
+    )
+    if plan.key_passes > 1:
+        t.update(
+            dq_partial=_carve(
+                flat,
+                layout,
+                "dq_partial",
+                torch.float32,
+                (T, DQ_PARTIAL_BYTES_PER_TOKEN // 4),
+            ),
+            key_scratch=_carve(flat, layout, "key_scratch", torch.int32, (T, topk)),
+            pass_counts=_carve(flat, layout, "pass_counts", torch.int32, (T,)),
+        )
+    return t
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -813,14 +859,12 @@ class DSATrainRunner:
     """The prepared forward / backward launches of one tensor binding.
 
     ``forward()`` writes ``out``, ``lse`` and ``o_lo``; ``backward()`` writes
-    ``dq_latent``, ``dq_rope``, ``dkv_latent`` and ``dk_rope`` (the BF16 casts
-    of the FP32 accumulators ``dkv_latent_acc`` / ``dk_rope_acc``; prepared
-    with ``dkv_fp32=True`` it returns natural-layout FP32 gradients -- the
-    accumulators themselves for a ``natural`` program, the cast's FP32 outputs
-    ``dkv_latent_fp32`` / ``dk_rope_fp32`` for a ``permuted`` one); ``step()``
-    runs both.  No launch allocates or synchronizes; capture into a CUDA graph
-    belongs to the caller.  Prepare a new runner when a shape, dtype or tensor
-    binding changes; values may change freely.
+    ``dq_latent``, ``dq_rope`` and ``dkv_latent`` / ``dk_rope`` (BF16 casts of
+    the FP32 accumulators, or natural-layout FP32 outputs when prepared with
+    ``dkv_fp32=True``); ``step()`` runs both.  No launch allocates or
+    synchronizes; capture into a CUDA graph belongs to the caller.  Prepare a
+    new runner when a shape, dtype or tensor binding changes; values may change
+    freely.
 
     ``launches`` is keyed by stage name; the launches of a multi-pass backward
     are keyed ``(stage, pass index)`` and ``backward_order`` lists every
@@ -830,7 +874,6 @@ class DSATrainRunner:
     """
 
     module_name: str
-    abi: str
     num_queries: int
     num_kv: int
     topk: int
@@ -844,12 +887,9 @@ class DSATrainRunner:
     # The flat workspace the scratch regions of ``tensors`` are carved from, and their byte layout.
     workspace: torch.Tensor = field(repr=False)
     layout: dict = field(repr=False)
-    # True when the program accumulates dK/dV in an internal permuted layout (the dkv_fp32 outputs come from the cast).
-    dkv_acc_permuted: bool = False
     # Key-range passes of the backward main stage (1 = the single-pass stage) and the backward launch keys in order.
     key_passes: int = 1
     backward_order: tuple = ()
-    _tma_prepared: bool = False
 
     @property
     def out(self) -> torch.Tensor:
@@ -860,73 +900,35 @@ class DSATrainRunner:
         return self.tensors["lse"]
 
     @property
-    def o_lo(self) -> Optional[torch.Tensor]:
-        return self.tensors.get("o_lo")
+    def o_lo(self) -> torch.Tensor:
+        return self.tensors["o_lo"]
 
     @property
     def has_backward(self) -> bool:
         return bool(self.backward_order)
 
-    def prepare_tma(self) -> None:
-        """Encode the descriptors of pointer-ABI stages once (idempotent)."""
-        if self._tma_prepared:
-            return
-        with _ffi_stream_context(self.device_index):
-            for launch in self.launches.values():
-                if launch.prepare is not None:
-                    launch.prepare(*launch.arguments)
-        self._tma_prepared = True
-
     def _run(self, keys: tuple) -> None:
-        self.prepare_tma()
+        launches = self.launches
         with _ffi_stream_context(self.device_index):
             for key in keys:
-                launch = self.launches.get(key)
-                if launch is not None:
-                    launch()
+                launches[key]()
 
-    def forward(self) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-        t = self.tensors
-        if self.abi == ABI_SEED:
-            # Placeholder profile: packed operands, no residual, +inf LSE on
-            # empty rows.  The copies are host glue and count in its timing.
-            t["packed_q"][:, :, :D_LATENT].copy_(t["q_latent"])
-            t["packed_q"][:, :, D_LATENT:].copy_(t["q_rope"])
-            t["packed_kv"][:, :D_LATENT].copy_(t["kv_latent"])
-            t["packed_kv"][:, D_LATENT:].copy_(t["k_rope"])
+    def forward(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         self._run(FORWARD_STAGES)
-        if self.abi == ABI_SEED:
-            lse = t["lse"]
-            torch.isposinf(
-                lse, out=t["lse_mask"]
-            )  # empty rows; no temporaries (launch path allocates nothing)
-            lse.masked_fill_(t["lse_mask"], float("-inf"))
-        return t["out"], t["lse"], t.get("o_lo")
+        t = self.tensors
+        return t["out"], t["lse"], t["o_lo"]
 
     def backward(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if not self.has_backward:
             raise NotImplementedError(
-                "the registered DSA training program has no backward stages "
-                f"(registered: {self.stages}); backward is unavailable in this checkout"
+                "this runner was prepared without the backward (pass dout / backward=True)"
             )
         t = self.tensors
         t["dkv_latent_acc"].zero_()
         t["dk_rope_acc"].zero_()
         self._run(self.backward_order)
         if self.dkv_fp32:
-            if (
-                self.dkv_acc_permuted
-            ):  # natural-layout FP32 written by bwd_cast (out_f32 = 1)
-                return (
-                    t["dq_latent"],
-                    t["dq_rope"],
-                    t["dkv_latent_fp32"],
-                    t["dk_rope_fp32"],
-                )
-            return t["dq_latent"], t["dq_rope"], t["dkv_latent_acc"], t["dk_rope_acc"]
-        if "bwd_cast" not in self.launches:
-            t["dkv_latent"].copy_(t["dkv_latent_acc"])
-            t["dk_rope"].copy_(t["dk_rope_acc"])
+            return t["dq_latent"], t["dq_rope"], t["dkv_latent_fp32"], t["dk_rope_fp32"]
         return t["dq_latent"], t["dq_rope"], t["dkv_latent"], t["dk_rope"]
 
     def step(self):
@@ -934,107 +936,6 @@ class DSATrainRunner:
         return self.backward()
 
     __call__ = step
-
-
-def _pointer_alias(tensor: torch.Tensor) -> tuple[torch.Tensor, int]:
-    """Contiguous zero-copy alias of ``tensor``'s storage plus its element offset.
-
-    Raw pointer arguments are checked for contiguity at the FFI boundary, and
-    the kernels take the pointer they receive for the aligned base of the
-    storage: their vector index-tile loads are gated on ``((idx_stride |
-    indices_offset) & 7) == 0``, not on the pointer itself.  A contiguous
-    tensor that starts its storage is therefore passed as is with offset 0;
-    a strided view (the rope columns of a packed ``[S, 576]`` tensor) or a
-    contiguous view that starts inside its storage (a slice of a larger
-    buffer) is passed as the whole storage viewed flat plus the element offset
-    the kernel adds.
-    """
-    if tensor.is_contiguous() and tensor.storage_offset() == 0:
-        return tensor, 0
-    flat = torch.empty(0, dtype=tensor.dtype, device=tensor.device)
-    flat.set_(tensor.untyped_storage())
-    return flat, int(tensor.storage_offset())
-
-
-def _inert_pass_values(values: dict[str, Any], num_kv: int) -> dict[str, Any]:
-    """Key-range-pass operands of the backward main stage for the single-pass program: the whole key range,
-    ``dq_mode`` 0, and never-dereferenced placeholders (``delta`` for the FP32 dQ partials, the indices storage for
-    the compacted keys and their counts) -- exactly what the production launcher passes for one pass."""
-    values["pass_lo"], values["pass_hi"], values["dq_mode"] = 0, int(num_kv), 0
-    if values.get("delta") is not None:
-        values["dq_partial"] = values["delta"]
-    if values.get("indices_storage") is not None:
-        values["key_scratch"] = values["pass_counts"] = values["indices_storage"]
-    return values
-
-
-def _pass_values(
-    values: dict[str, Any], index: int, passes: int, key_range: tuple[int, int]
-) -> dict[str, Any]:
-    """The host values of one key-range pass: its key range and ``dq_mode``."""
-    lo, hi = key_range
-    return dict(
-        values,
-        pass_lo=int(lo),
-        pass_hi=int(hi),
-        dq_mode=key_pass_dq_mode(index, passes),
-    )
-
-
-def _contract_values(
-    t: dict[str, torch.Tensor], scalars: dict[str, Any], *, key_passes: int = 1
-) -> dict[str, Any]:
-    values: dict[str, Any] = {name: t.get(name) for name in CONTRACT_TENSORS}
-    values.update(scalars)
-    values["softmax_scale_log2"] = float(scalars["softmax_scale"]) * LOG2E
-    for name, key in (
-        ("q_latent", "q_latent_row_stride"),
-        ("q_rope", "q_rope_row_stride"),
-        ("kv_latent", "kv_latent_row_stride"),
-    ):
-        values[key] = int(t[name].stride(0))
-    values["idx_stride"] = int(t["indices"].stride(0))
-    values["indices_storage"], values["indices_offset"] = _pointer_alias(t["indices"])
-    values["k_rope_stride"] = int(t["k_rope"].stride(0))
-    values["k_rope_storage"], values["k_rope_offset"] = _pointer_alias(t["k_rope"])
-    values["num_rows"] = int(scalars["num_queries"]) * NUM_HEADS
-    values["latent_vecs"] = int(scalars["num_kv"]) * D_LATENT // 16
-    values["rope_vecs"] = int(scalars["num_kv"]) * D_ROPE // 16
-    values["latent_groups"] = int(scalars["num_kv"]) * D_LATENT // 32
-    values["rope_groups"] = int(scalars["num_kv"]) * D_ROPE // 32
-    values["out_f32"] = int(scalars.get("out_f32", 0))
-    values["token_base"], values["token_step"] = (
-        0,
-        1,
-    )  # one CTA per token, token = blockIdx.x
-    values["num_tokens"] = int(
-        scalars["num_queries"]
-    )  # bwd_compact: the whole row per pass
-    if int(key_passes) > 1:
-        return values  # dq_partial / key_scratch / pass_counts are the carved regions; pass_lo/hi and dq_mode per launch
-    return _inert_pass_values(values, int(scalars["num_kv"]))
-
-
-def _seed_values(t: dict[str, torch.Tensor], scalars: dict[str, Any]) -> dict[str, Any]:
-    packed_q = t["packed_q"]
-    return dict(
-        q=packed_q,
-        kv=t["packed_kv"],
-        q_rope=packed_q[:, :, D_LATENT:],
-        kv_ptr=t["packed_kv"],
-        out=t["out"],
-        indices=t["indices"],
-        lengths=t["topk_length"],
-        sinks=t["sinks"],
-        max_logits=t["aux_logits"],
-        lse=t["lse"],
-        num_queries=scalars["num_queries"],
-        num_kv=scalars["num_kv"],
-        topk=scalars["topk"],
-        has_sinks=0,
-        scale_log2=float(scalars["softmax_scale"]) * LOG2E,
-        tma_descriptor_workspace=t.get("tma_descriptor_workspace"),
-    )
 
 
 def prepare_dsa_train(
@@ -1062,104 +963,54 @@ def prepare_dsa_train(
 ) -> DSATrainRunner:
     """Validate one binding and prepare its launches.
 
-    ``backward`` defaults to ``dout is not None``; a backward binding requires
-    the backward stages to be registered.  Missing outputs and the workspace
-    are allocated here (the only allocations of the backend).  Pass
-    ``workspace_buffer`` of :func:`dsa_train_workspace_size` bytes to reuse
-    storage across steps.  ``dkv_fp32=True`` makes ``backward()`` return
-    natural-layout FP32 dK/dV gradients (see :func:`record_dkv_acc_layout`).
-    ``key_passes`` overrides the record's key-range-pass policy for the
-    backward (``None`` = policy, 1 = the single-pass stage; see
-    :func:`plan_key_passes`).
+    ``backward`` defaults to ``dout is not None``.  Missing outputs and the
+    workspace are allocated here (the only allocations of a prepared runner).
+    Pass ``workspace_buffer`` of :func:`dsa_train_workspace_size` bytes to
+    reuse storage across steps.  ``dkv_fp32=True`` makes ``backward()`` return
+    natural-layout FP32 dK/dV gradients.  ``key_passes`` overrides the record's
+    key-range-pass policy for the backward (``None`` = policy, 1 = the
+    single-pass stage; see :func:`plan_key_passes`).
     """
     if backend != "cake":
         raise ValueError("DSA sparse-attention training supports backend='cake'")
-    num_queries, num_kv, topk = validate_dsa_train_inputs(
-        q_latent, q_rope, kv_latent, k_rope, indices, topk_length, dout=dout
-    )
     if backward is None:
         backward = dout is not None
-    if backward and dout is None:
-        raise ValueError("a backward binding needs dout")
-    device = q_latent.device
-    tensors = [q_latent, q_rope, kv_latent, k_rope, indices]
-    tensors += [
-        t
-        for t in (
-            topk_length,
-            dout,
-            workspace_buffer,
-            out,
-            lse,
-            o_lo,
-            dq_latent,
-            dq_rope,
-            dkv_latent,
-            dk_rope,
-        )
-        if t is not None
-    ]
-    if not all(t.is_cuda and t.device == device for t in tensors):
-        raise ValueError("Expected all tensors on one CUDA device")
-    module_name, record = record_for(device)
-    abi = record_abi(record)
-    stages = registered_stages(module_name)
-    if backward and ("bwd_main" not in stages or "bwd_delta" not in stages):
-        raise NotImplementedError(
-            f"the registered DSA training program {module_name!r} has no backward stages "
-            f"(registered: {stages}); forward-only use is available"
-        )
-    if abi == ABI_SEED and (topk < 128 or topk % 64):
-        raise NotImplementedError(
-            "the placeholder forward program serves top-k values that are multiples of 64 and >= 128"
-        )
-    permuted = backward and record_dkv_acc_layout(record) == "permuted"
-    if backward and dkv_fp32 and permuted and "bwd_cast" not in stages:
-        raise NotImplementedError(
-            f"program {module_name!r} accumulates dK/dV in a permuted layout and registers no cast stage; "
-            "dkv_fp32 outputs are unavailable"
-        )
-    if softmax_scale is None:
-        softmax_scale = default_softmax_scale()
-    passes = (
-        plan_key_passes(record, stages, num_queries, num_kv, topk, key_passes)
-        if backward
-        else 1
+    outputs = dict(
+        out=out,
+        lse=lse,
+        o_lo=o_lo,
+        dq_latent=dq_latent,
+        dq_rope=dq_rope,
+        dkv_latent=dkv_latent,
+        dk_rope=dk_rope,
     )
-    if passes > 1 and "bwd_dq" in stages:
-        raise NotImplementedError(
-            "key-range passes are defined for programs whose main stage carries the dQ pass (no bwd_dq stage)"
-        )
-
-    _check_output(out, "out", (num_queries, NUM_HEADS, D_LATENT), torch.bfloat16)
-    _check_output(lse, "lse", (num_queries, NUM_HEADS), torch.float32)
-    _check_output(o_lo, "o_lo", (num_queries, NUM_HEADS, D_LATENT), torch.bfloat16)
-    _check_output(
-        dq_latent, "dq_latent", (num_queries, NUM_HEADS, D_LATENT), torch.bfloat16
-    )
-    _check_output(dq_rope, "dq_rope", (num_queries, NUM_HEADS, D_ROPE), torch.bfloat16)
-    _check_output(dkv_latent, "dkv_latent", (num_kv, D_LATENT), torch.bfloat16)
-    _check_output(dk_rope, "dk_rope", (num_kv, D_ROPE), torch.bfloat16)
-
-    layout = workspace_layout(
-        num_queries,
-        num_kv,
-        topk,
-        abi=abi,
+    plan = _plan(
+        q_latent,
+        q_rope,
+        kv_latent,
+        k_rope,
+        indices,
+        topk_length=topk_length,
+        dout=dout,
+        softmax_scale=softmax_scale,
+        outputs=outputs,
+        dkv_fp32=dkv_fp32,
         backward=backward,
-        tma_workspace_bytes=_record_tma_bytes(record, stages),
-        scratch_bytes=_record_scratch_bytes(record, stages) if backward else 0,
-        key_passes=passes,
+        key_passes=key_passes,
     )
+    device = q_latent.device
+    layout = plan.layout
     if workspace_buffer is None:
-        workspace_buffer = torch.empty(
-            layout["total"], dtype=torch.uint8, device=device
-        )
+        workspace_buffer = _alloc(layout["total"], torch.uint8, device)
     flat = workspace_buffer.view(-1).view(torch.uint8)
     if flat.numel() < layout["total"]:
         raise ValueError(
             f"workspace_buffer needs {layout['total']} bytes, got {flat.numel()}"
         )
+    num_queries, num_kv = plan.num_queries, plan.num_kv
+
+    def fresh(shape, dtype):
+        return _alloc(shape, dtype, device)
 
     t: dict[str, torch.Tensor] = dict(
         q_latent=q_latent,
@@ -1168,205 +1019,103 @@ def prepare_dsa_train(
         k_rope=k_rope,
         indices=indices,
     )
-    has_topk_length = int(topk_length is not None)
     if topk_length is None:
         topk_length = _carve(flat, layout, "topk_length", torch.int32, (num_queries,))
-        topk_length.fill_(topk)
+        topk_length.fill_(plan.topk)
     t["topk_length"] = topk_length
     t["out"] = (
         out
         if out is not None
-        else torch.empty(
-            (num_queries, NUM_HEADS, D_LATENT), dtype=torch.bfloat16, device=device
-        )
+        else fresh((num_queries, NUM_HEADS, D_LATENT), torch.bfloat16)
     )
     t["lse"] = (
-        lse
-        if lse is not None
-        else torch.empty((num_queries, NUM_HEADS), dtype=torch.float32, device=device)
+        lse if lse is not None else fresh((num_queries, NUM_HEADS), torch.float32)
     )
-    if abi == ABI_CONTRACT:
-        t["o_lo"] = o_lo if o_lo is not None else torch.empty_like(t["out"])
-    else:
-        t["packed_q"] = _carve(
-            flat, layout, "packed_q", torch.bfloat16, (num_queries, NUM_HEADS, D_QK)
-        )
-        t["packed_kv"] = _carve(
-            flat, layout, "packed_kv", torch.bfloat16, (num_kv, D_QK)
-        )
-        t["aux_logits"] = _carve(
-            flat, layout, "aux_logits", torch.float32, (num_queries, NUM_HEADS)
-        )
-        t["sinks"] = _carve(flat, layout, "sinks", torch.float32, (NUM_HEADS,))
-        t["lse_mask"] = torch.empty(
-            (num_queries, NUM_HEADS), dtype=torch.bool, device=device
-        )  # +inf -> -inf rewrite scratch
+    t["o_lo"] = (
+        o_lo
+        if o_lo is not None
+        else fresh((num_queries, NUM_HEADS, D_LATENT), torch.bfloat16)
+    )
     if backward:
         t["dout"] = dout
-        t["delta"] = _carve(
-            flat, layout, "delta", torch.float32, (num_queries, NUM_HEADS)
-        )
-        t["dkv_latent_acc"] = _carve(
-            flat, layout, "dkv_latent_acc", torch.float32, (num_kv, D_LATENT)
-        )
-        t["dk_rope_acc"] = _carve(
-            flat, layout, "dk_rope_acc", torch.float32, (num_kv, D_ROPE)
-        )
+        t.update(_scratch(plan, flat))
         t["dq_latent"] = (
             dq_latent
             if dq_latent is not None
-            else torch.empty(
-                (num_queries, NUM_HEADS, D_LATENT), dtype=torch.bfloat16, device=device
-            )
+            else fresh((num_queries, NUM_HEADS, D_LATENT), torch.bfloat16)
         )
         t["dq_rope"] = (
             dq_rope
             if dq_rope is not None
-            else torch.empty(
-                (num_queries, NUM_HEADS, D_ROPE), dtype=torch.bfloat16, device=device
-            )
+            else fresh((num_queries, NUM_HEADS, D_ROPE), torch.bfloat16)
         )
-        if not dkv_fp32:
-            t["dkv_latent"] = (
-                dkv_latent
-                if dkv_latent is not None
-                else torch.empty(
-                    (num_kv, D_LATENT), dtype=torch.bfloat16, device=device
-                )
-            )
-            t["dk_rope"] = (
-                dk_rope
-                if dk_rope is not None
-                else torch.empty((num_kv, D_ROPE), dtype=torch.bfloat16, device=device)
-            )
-            # the cast's FP32 output pointers are not dereferenced when out_f32 = 0: alias the accumulators
-            t["dkv_latent_fp32"], t["dk_rope_fp32"] = (
-                t["dkv_latent_acc"],
-                t["dk_rope_acc"],
-            )
-        elif permuted:
-            # natural-layout FP32 outputs written by bwd_cast (out_f32 = 1); its BF16 output pointers are not dereferenced
-            t["dkv_latent_fp32"] = torch.empty(
-                (num_kv, D_LATENT), dtype=torch.float32, device=device
-            )
-            t["dk_rope_fp32"] = torch.empty(
-                (num_kv, D_ROPE), dtype=torch.float32, device=device
-            )
-            t["dkv_latent"] = torch.empty((0,), dtype=torch.bfloat16, device=device)
-            t["dk_rope"] = torch.empty((0,), dtype=torch.bfloat16, device=device)
-    if passes > 1:
-        t["dq_partial"] = _carve(
-            flat,
-            layout,
-            "dq_partial",
-            torch.float32,
-            (num_queries, DQ_PARTIAL_BYTES_PER_TOKEN // 4),
-        )
-        t["key_scratch"] = _carve(
-            flat, layout, "key_scratch", torch.int32, (num_queries, topk)
-        )
-        t["pass_counts"] = _carve(
-            flat, layout, "pass_counts", torch.int32, (num_queries,)
-        )
-    if layout.get("workspace"):
-        t["workspace"] = _carve(
-            flat, layout, "workspace", torch.uint8, (layout["workspace"][1],)
-        )
-    if layout.get("tma_descriptor_workspace"):
-        t["tma_descriptor_workspace"] = _carve(
-            flat,
-            layout,
-            "tma_descriptor_workspace",
-            torch.uint8,
-            (layout["tma_descriptor_workspace"][1],),
-        )
-
-    scalars = dict(
-        num_queries=num_queries,
-        num_kv=num_kv,
-        topk=topk,
-        softmax_scale=float(softmax_scale),
-        has_topk_length=has_topk_length,
-        out_f32=int(bool(backward and dkv_fp32 and permuted)),
-    )
-    values = (
-        _seed_values(t, scalars)
-        if abi == ABI_SEED
-        else _contract_values(t, scalars, key_passes=passes)
-    )
-    num_sms = int(torch.cuda.get_device_properties(device).multi_processor_count)
-    launches: dict[Any, _Launch] = {}
-
-    def bind(stage: str, key: Any, stage_values: dict[str, Any]) -> None:
-        physical = record[stage]
-        grid = grid_dims(physical.get("grid", ["num_queries", 1, 1]), scalars, num_sms)
-        cluster = physical.get("launch", {}).get("cluster")
-        if cluster and any(g % c for g, c in zip(grid, cluster, strict=True)):
-            raise ValueError(
-                f"stage {stage!r}: grid {grid} is not a multiple of the cluster shape {tuple(cluster)} baked into the module"
-            )
-        launches[key] = bind_stage(module_name, stage, stage_values, grid)
-
-    for stage in FORWARD_STAGES:
-        if stage in stages:
-            bind(stage, stage, values)
-    backward_order: list = []
-    if backward:
-        bind("bwd_delta", "bwd_delta", values)
-        backward_order.append("bwd_delta")
-        if passes == 1:
-            for stage in ("bwd_main", "bwd_dq"):
-                if stage in stages:
-                    bind(stage, stage, values)
-                    backward_order.append(stage)
-        else:
-            for index, key_range in enumerate(key_pass_ranges(num_kv, passes)):
-                pass_values = _pass_values(values, index, passes, key_range)
-                for stage in KEY_PASS_STAGES:
-                    bind(stage, (stage, index), pass_values)
-                    backward_order.append((stage, index))
-        # with natural-layout FP32 accumulators as the outputs the cast is skipped
-        if "bwd_cast" in stages and not (dkv_fp32 and not permuted):
-            bind("bwd_cast", "bwd_cast", values)
-            backward_order.append("bwd_cast")
+        t.update(_dkv_outputs(plan, t, dkv_latent, dk_rope, fresh))
+    values = _bound_values(plan, t)
     return DSATrainRunner(
-        module_name=module_name,
-        abi=abi,
+        module_name=plan.module_name,
         num_queries=num_queries,
         num_kv=num_kv,
-        topk=topk,
-        softmax_scale=float(softmax_scale),
+        topk=plan.topk,
+        softmax_scale=plan.softmax_scale,
         tensors=t,
-        launches=launches,
-        stages=stages,
-        dkv_fp32=bool(dkv_fp32),
-        has_topk_length=bool(has_topk_length),
-        device_index=int(
-            device.index if device.index is not None else torch.cuda.current_device()
-        ),
+        launches=_launches(plan, values),
+        stages=plan.stages,
+        dkv_fp32=plan.dkv_fp32,
+        has_topk_length=plan.has_topk_length,
+        device_index=plan.device_index,
         workspace=flat,
         layout=layout,
-        dkv_acc_permuted=bool(permuted),
-        key_passes=int(passes),
-        backward_order=tuple(backward_order),
+        key_passes=plan.key_passes,
+        backward_order=plan.backward_order,
+    )
+
+
+def _dkv_outputs(
+    plan: _Plan,
+    t: dict[str, torch.Tensor],
+    dkv_latent: Optional[torch.Tensor],
+    dk_rope: Optional[torch.Tensor],
+    fresh: Callable[..., torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    """The dK/dV output tensors of a backward binding (BF16 casts, or natural-layout FP32)."""
+    S = plan.num_kv
+    if plan.dkv_fp32:
+        # natural-layout FP32 outputs written by bwd_cast (out_f32 = 1); its BF16 output
+        # pointers are not dereferenced
+        return dict(
+            dkv_latent_fp32=fresh((S, D_LATENT), torch.float32),
+            dk_rope_fp32=fresh((S, D_ROPE), torch.float32),
+            dkv_latent=fresh((0,), torch.bfloat16),
+            dk_rope=fresh((0,), torch.bfloat16),
+        )
+    # the cast's FP32 output pointers are not dereferenced when out_f32 = 0: alias the accumulators
+    return dict(
+        dkv_latent=dkv_latent
+        if dkv_latent is not None
+        else fresh((S, D_LATENT), torch.bfloat16),
+        dk_rope=dk_rope if dk_rope is not None else fresh((S, D_ROPE), torch.bfloat16),
+        dkv_latent_fp32=t["dkv_latent_acc"],
+        dk_rope_fp32=t["dk_rope_acc"],
     )
 
 
 # ---------------------------------------------------------------------------
-# Binding cache of the eager entry points
+# Eager entry points: a bounded cache of plans, bound to the tensors of every call
 # ---------------------------------------------------------------------------
 
-BINDING_CACHE_ENV = (
-    "FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE"  # "0" disables the cache at import
-)
-BINDING_CACHE_CAPACITY_ENV = "FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE_CAPACITY"  # bindings kept (a positive integer)
-# Enough for the forward and the backward binding of every layer of a deep model (a binding holds a few kilobytes).
-BINDING_CACHE_DEFAULT_CAPACITY = 256
+# Plans the eager entry points remember, keyed by the input geometry (see
+# :func:`_geometry`) and the call options.  A remembered plan owns no
+# problem-sized storage: only the full-length ``topk_length`` vector it
+# materializes when the caller passes none (4 bytes per query row).  Outputs
+# and the backward scratch come from the caching allocator per call, so a
+# call never shares storage with another call that is still in flight.
+BINDING_CACHE_DEFAULT_CAPACITY = 64
+BINDING_CACHE_CAPACITY_ENV = "FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE_CAPACITY"
 
 
 def binding_cache_capacity() -> int:
-    """Capacity of :data:`BINDING_CACHE`: ``FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE_CAPACITY`` when set, else
-    :data:`BINDING_CACHE_DEFAULT_CAPACITY`."""
+    """Capacity of :data:`BINDING_CACHE`: ``FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE_CAPACITY``
+    when set, else :data:`BINDING_CACHE_DEFAULT_CAPACITY`."""
     raw = os.environ.get(BINDING_CACHE_CAPACITY_ENV)
     if raw is None or not raw.strip():
         return BINDING_CACHE_DEFAULT_CAPACITY
@@ -1381,10 +1130,6 @@ def binding_cache_capacity() -> int:
     return capacity
 
 
-def _meta(t: torch.Tensor) -> tuple:
-    return (t.data_ptr(), t.shape, t.stride(), t.dtype)
-
-
 def forward_binding_key(
     q_latent: torch.Tensor,
     q_rope: torch.Tensor,
@@ -1394,18 +1139,16 @@ def forward_binding_key(
     topk_length: Optional[torch.Tensor],
     softmax_scale: float,
 ) -> tuple:
-    """Cache key of a forward binding: ``(data_ptr, shape, stride, dtype)`` of
-    every input (``None`` for an absent ``topk_length``) plus the scale.  Two
-    tensors at one address with another shape, stride or dtype (a buffer freed
-    and re-allocated for another problem) never share a key."""
+    """Cache key of a forward plan: the :func:`_geometry` of every input (``None`` for
+    an absent ``topk_length``) and the scale.  Data pointers are not part of it."""
     return (
         "fwd",
-        _meta(q_latent),
-        _meta(q_rope),
-        _meta(kv_latent),
-        _meta(k_rope),
-        _meta(indices),
-        None if topk_length is None else _meta(topk_length),
+        _geometry(q_latent),
+        _geometry(q_rope),
+        _geometry(kv_latent),
+        _geometry(k_rope),
+        _geometry(indices),
+        _geometry(topk_length),
         float(softmax_scale),
     )
 
@@ -1425,148 +1168,66 @@ def backward_binding_key(
     dkv_fp32: bool,
     key_passes: Optional[int] = None,
 ) -> tuple:
-    """Cache key of a backward binding: the forward key's inputs plus the saved
-    forward outputs, ``dout``, the ``dkv_fp32`` option and the ``key_passes``
-    override (``None`` = policy)."""
+    """Cache key of a backward plan: the forward key's inputs plus the saved forward
+    outputs, ``dout``, the ``dkv_fp32`` option and the ``key_passes`` override."""
     return (
         "bwd",
-        _meta(q_latent),
-        _meta(q_rope),
-        _meta(kv_latent),
-        _meta(k_rope),
-        _meta(indices),
-        _meta(out),
-        _meta(o_lo),
-        _meta(lse),
-        _meta(dout),
-        None if topk_length is None else _meta(topk_length),
+        _geometry(q_latent),
+        _geometry(q_rope),
+        _geometry(kv_latent),
+        _geometry(k_rope),
+        _geometry(indices),
+        _geometry(out),
+        _geometry(o_lo),
+        _geometry(lse),
+        _geometry(dout),
+        _geometry(topk_length),
         float(softmax_scale),
         bool(dkv_fp32),
         None if key_passes is None else int(key_passes),
     )
 
 
-# Values a remembered binding owns (the caller never sees them): the caller-owned descriptor workspace of the
-# pointer-ABI stages (every launch re-encodes its tensor maps into it), kernel-private scratch a record declares
-# (``workspace_bytes``) and, when the caller passes no ``topk_length``, the materialized full-length vector.  Every
-# other scratch of a launch -- ``delta``, the FP32 dK/dV accumulators, the key-range-pass regions -- is allocated
-# per call from the caching allocator like the outputs, so a binding holds a few kilobytes whatever the problem size.
-_OWNED_VALUES = ("workspace", "tma_descriptor_workspace")
-
-
-@dataclass
 class _Binding:
-    """One remembered input binding of the contract profile.
+    """A remembered plan plus the one value it owns (the materialized ``topk_length``)."""
 
-    Holds the templated launches (argument plans with ``None`` at every
-    re-bindable position: no caller tensor is pinned), the few values the
-    binding owns (:data:`_OWNED_VALUES` and a materialized ``topk_length``;
-    no problem-sized scratch) and the plain facts a launch needs.  ``forward``
-    / ``backward`` allocate the outputs and the per-call scratch, slot them
-    and the current tensors into the templates and launch; storage aliases
-    and element offsets of the raw-pointer operands are re-read from the
-    current tensors every call.
-    """
+    __slots__ = ("plan", "topk_length")
 
-    num_queries: int
-    num_kv: int
-    topk: int
-    device: torch.device
-    device_index: int
-    dkv_fp32: bool
-    launches: dict[Any, _Launch] = field(repr=False)
-    owned: dict[str, torch.Tensor] = field(repr=False)
-    owned_bytes: int = 0
-    dkv_acc_permuted: bool = False
-    key_passes: int = 1
-    backward_order: tuple = ()
+    def __init__(self, plan: _Plan, topk_length: Optional[torch.Tensor]):
+        self.plan = plan
+        self.topk_length = topk_length
 
-    @classmethod
-    def from_runner(cls, runner: DSATrainRunner) -> "_Binding":
-        if runner.abi != ABI_CONTRACT:
-            raise ValueError(f"only the {ABI_CONTRACT!r} profile can be remembered")
-        t = runner.tensors
-        # Own separate allocations, never views of the runner's workspace: a view would keep the whole
-        # workspace alive.  The descriptor workspace needs no content (every launch encodes into it).
-        owned = {name: torch.empty_like(t[name]) for name in _OWNED_VALUES if name in t}
-        if not runner.has_topk_length:
-            owned["topk_length"] = t["topk_length"].clone()
-        if runner.dkv_fp32 and runner.dkv_acc_permuted:
-            # zero-element BF16 placeholders of the cast (not dereferenced when out_f32 = 1)
-            for name in ("dkv_latent", "dk_rope"):
-                owned[name] = t[name]
-        return cls(
-            num_queries=runner.num_queries,
-            num_kv=runner.num_kv,
-            topk=runner.topk,
-            device=t["q_latent"].device,
-            device_index=runner.device_index,
-            dkv_fp32=runner.dkv_fp32,
-            launches={
-                key: launch.templated() for key, launch in runner.launches.items()
-            },
-            owned=owned,
-            owned_bytes=sum(v.numel() * v.element_size() for v in owned.values()),
-            dkv_acc_permuted=runner.dkv_acc_permuted,
-            key_passes=runner.key_passes,
-            backward_order=runner.backward_order,
-        )
-
-    def holds_no_tensor(self) -> bool:
-        return not any(
-            isinstance(a, torch.Tensor)
-            for launch in self.launches.values()
-            for a in launch.arguments
-        )
-
-    def rebind_values(self, current: dict[str, torch.Tensor]) -> dict[str, Any]:
-        """Host values of one launch: the owned values, the current tensors (inputs,
-        outputs and per-call scratch) and the storage alias / element offset of the
-        raw-pointer operands, re-read now."""
-        values: dict[str, Any] = dict(self.owned)
-        values.update(current)
-        values["indices_storage"], values["indices_offset"] = _pointer_alias(
-            current["indices"]
-        )
-        values["k_rope_storage"], values["k_rope_offset"] = _pointer_alias(
-            current["k_rope"]
-        )
-        if self.key_passes > 1:
-            return values  # the owned dq_partial / key_scratch / pass_counts regions; pass scalars are baked per launch
-        return _inert_pass_values(values, self.num_kv)
-
-    def _launch(self, current: dict[str, torch.Tensor], keys: tuple) -> None:
-        values = self.rebind_values(current)
-        with _ffi_stream_context(self.device_index):
+    def _run(self, values: dict[str, Any], keys: tuple) -> None:
+        plan = self.plan
+        with _ffi_stream_context(plan.device_index):
             for key in keys:
-                launch = self.launches.get(key)
-                if launch is None:
-                    continue
-                arguments = launch.arguments_for(values)
-                if (
-                    launch.prepare is not None
-                ):  # descriptors of a pointer-ABI stage see the fresh outputs
-                    launch.prepare(*arguments)
-                launch.entry(*arguments)
+                if isinstance(key, tuple):
+                    stage, index = key
+                    e = plan.entries[stage]
+                    e.launcher(
+                        e.run, dict(values, **plan.pass_overrides[index]), e.grid
+                    )
+                else:
+                    e = plan.entries[key]
+                    e.launcher(e.run, values, e.grid)
 
     def forward(self, q_latent, q_rope, kv_latent, k_rope, indices, topk_length):
-        shape = (self.num_queries, NUM_HEADS, D_LATENT)
-        out = torch.empty(shape, dtype=torch.bfloat16, device=self.device)
-        o_lo = torch.empty(shape, dtype=torch.bfloat16, device=self.device)
-        lse = torch.empty(shape[:2], dtype=torch.float32, device=self.device)
-        current = dict(
+        T, device = self.plan.num_queries, q_latent.device
+        out = _alloc((T, NUM_HEADS, D_LATENT), torch.bfloat16, device)
+        lse = _alloc((T, NUM_HEADS), torch.float32, device)
+        o_lo = _alloc((T, NUM_HEADS, D_LATENT), torch.bfloat16, device)
+        t = dict(
             q_latent=q_latent,
             q_rope=q_rope,
             kv_latent=kv_latent,
             k_rope=k_rope,
             indices=indices,
+            topk_length=topk_length if topk_length is not None else self.topk_length,
             out=out,
-            o_lo=o_lo,
             lse=lse,
+            o_lo=o_lo,
         )
-        if topk_length is not None:
-            current["topk_length"] = topk_length
-        self._launch(current, FORWARD_STAGES)
+        self._run(_bound_values(self.plan, t), FORWARD_STAGES)
         return out, lse, o_lo
 
     def backward(
@@ -1582,154 +1243,102 @@ class _Binding:
         dout,
         topk_length,
     ):
-        T, S, device = self.num_queries, self.num_kv, self.device
-        dq_latent = torch.empty(
-            (T, NUM_HEADS, D_LATENT), dtype=torch.bfloat16, device=device
-        )
-        dq_rope = torch.empty(
-            (T, NUM_HEADS, D_ROPE), dtype=torch.bfloat16, device=device
-        )
-        # Per-call scratch from the caching allocator: the FP32 dK/dV accumulators are one zero-filled span
-        # (a single fill kernel, as on the prepared runner's path); delta and the key-range-pass regions are
-        # fully written before they are read.
-        acc = torch.zeros((S * D_QK,), dtype=torch.float32, device=device)
-        acc_latent = acc[: S * D_LATENT].view(S, D_LATENT)
-        acc_rope = acc[S * D_LATENT :].view(S, D_ROPE)
-        current = dict(
+        plan = self.plan
+        T, S, device = plan.num_queries, plan.num_kv, q_latent.device
+
+        def fresh(shape, dtype):
+            return _alloc(shape, dtype, device)
+
+        t = dict(
             q_latent=q_latent,
             q_rope=q_rope,
             kv_latent=kv_latent,
             k_rope=k_rope,
             indices=indices,
+            topk_length=topk_length if topk_length is not None else self.topk_length,
             out=out,
-            o_lo=o_lo,
             lse=lse,
+            o_lo=o_lo,
             dout=dout,
-            dq_latent=dq_latent,
-            dq_rope=dq_rope,
-            delta=torch.empty((T, NUM_HEADS), dtype=torch.float32, device=device),
-            dkv_latent_acc=acc_latent,
-            dk_rope_acc=acc_rope,
+            dq_latent=fresh((T, NUM_HEADS, D_LATENT), torch.bfloat16),
+            dq_rope=fresh((T, NUM_HEADS, D_ROPE), torch.bfloat16),
         )
-        if topk_length is not None:
-            current["topk_length"] = topk_length
-        if self.key_passes > 1:
-            current["dq_partial"] = torch.empty(
-                (T, DQ_PARTIAL_BYTES_PER_TOKEN // 4), dtype=torch.float32, device=device
-            )
-            current["key_scratch"] = torch.empty(
-                (T, self.topk), dtype=torch.int32, device=device
-            )
-            current["pass_counts"] = torch.empty((T,), dtype=torch.int32, device=device)
-        if self.dkv_fp32:
-            if (
-                self.dkv_acc_permuted
-            ):  # fresh natural-layout FP32 outputs from the cast (out_f32 = 1)
-                current["dkv_latent_fp32"] = torch.empty(
-                    (S, D_LATENT), dtype=torch.float32, device=device
-                )
-                current["dk_rope_fp32"] = torch.empty(
-                    (S, D_ROPE), dtype=torch.float32, device=device
-                )
-                self._launch(current, self.backward_order)
-                return (
-                    dq_latent,
-                    dq_rope,
-                    current["dkv_latent_fp32"],
-                    current["dk_rope_fp32"],
-                )
-            self._launch(
-                current, self.backward_order
-            )  # natural layout: the accumulators are the outputs
-            return dq_latent, dq_rope, acc_latent, acc_rope
-        dkv_latent = torch.empty((S, D_LATENT), dtype=torch.bfloat16, device=device)
-        dk_rope = torch.empty((S, D_ROPE), dtype=torch.bfloat16, device=device)
-        current["dkv_latent"] = dkv_latent
-        current["dk_rope"] = dk_rope
-        # the cast's FP32 output pointers are not dereferenced when out_f32 = 0: alias the accumulators
-        current["dkv_latent_fp32"], current["dk_rope_fp32"] = acc_latent, acc_rope
-        self._launch(current, self.backward_order)
-        if "bwd_cast" not in self.launches:
-            dkv_latent.copy_(acc_latent)
-            dk_rope.copy_(acc_rope)
-        return dq_latent, dq_rope, dkv_latent, dk_rope
+        # The backward scratch is allocated per region (the prepared runner carves it
+        # from one workspace): the FP32 dK/dV accumulators zero-filled, the rest plain.
+        t["delta"] = fresh((T, NUM_HEADS), torch.float32)
+        t["dkv_latent_acc"] = _alloc((S, D_LATENT), torch.float32, device, zero=True)
+        t["dk_rope_acc"] = _alloc((S, D_ROPE), torch.float32, device, zero=True)
+        if plan.key_passes > 1:
+            t["dq_partial"] = fresh((T, DQ_PARTIAL_BYTES_PER_TOKEN // 4), torch.float32)
+            t["key_scratch"] = fresh((T, plan.topk), torch.int32)
+            t["pass_counts"] = fresh((T,), torch.int32)
+        t.update(_dkv_outputs(plan, t, None, None, fresh))
+        self._run(_bound_values(plan, t), plan.backward_order)
+        if plan.dkv_fp32:
+            return t["dq_latent"], t["dq_rope"], t["dkv_latent_fp32"], t["dk_rope_fp32"]
+        return t["dq_latent"], t["dq_rope"], t["dkv_latent"], t["dk_rope"]
 
 
-class BindingCache:
-    """Remembered input bindings of the eager entry points.
+class _BindingCache:
+    """Bounded, lock-protected LRU of :class:`_Binding` by call key."""
 
-    The first call for a binding goes through :func:`prepare_dsa_train` (full
-    validation, workspace allocation, argument-plan binding) and launches
-    through its runner; the runner's launches are then remembered as
-    templates keyed by :func:`forward_binding_key` /
-    :func:`backward_binding_key`.  A later call with the same key skips the
-    Python-level validation and binding: it allocates fresh outputs, slots
-    them and the current tensors into the templates and launches (the module,
-    its descriptor encoding and the cubin are those of the validating path).
-    A binding pins no caller tensor and holds no problem-sized scratch: the
-    outputs, ``delta``, the FP32 dK/dV accumulators and the key-range-pass
-    regions are allocated per call from the caching allocator, and a binding
-    owns only the descriptor workspace of the pointer-ABI stages and, when the
-    caller passes no ``topk_length``, the materialized vector (a few
-    kilobytes; see :class:`_Binding`).  The cache keeps at most ``capacity``
-    bindings (:data:`BINDING_CACHE_DEFAULT_CAPACITY`, or the value of
-    ``FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE_CAPACITY``) and evicts the least
-    recently used one first -- a hit refreshes its binding -- so a model whose
-    layers cycle through up to ``capacity`` bindings per step binds each of
-    them once.  ``FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE=0`` or
-    ``enabled = False`` routes every call through the validating path.
-    """
-
-    def __init__(self, capacity: Optional[int] = None, enabled: bool = True):
+    def __init__(self, capacity: Optional[int] = None):
         self.capacity = binding_cache_capacity() if capacity is None else int(capacity)
-        if self.capacity < 1:
-            raise ValueError(
-                "BindingCache needs a capacity of at least one binding (use enabled=False to bypass it)"
-            )
-        self.enabled = bool(enabled)
-        self.hits = 0
-        self.misses = 0
-        self._bindings: OrderedDict[tuple, _Binding] = OrderedDict()
+        self._lock = threading.Lock()
+        self._entries: "OrderedDict[tuple, _Binding]" = OrderedDict()
 
-    def __len__(self) -> int:
-        return len(self._bindings)
+    def get(self, key: tuple) -> Optional[_Binding]:
+        with self._lock:
+            binding = self._entries.get(key)
+            if binding is not None:
+                self._entries.move_to_end(key)
+            return binding
 
-    @property
-    def owned_bytes(self) -> int:
-        return sum(b.owned_bytes for b in self._bindings.values())
+    def put(self, key: tuple, binding: _Binding) -> None:
+        with self._lock:
+            self._entries[key] = binding
+            self._entries.move_to_end(key)
+            while len(self._entries) > self.capacity:
+                self._entries.popitem(last=False)
 
     def clear(self) -> None:
-        self._bindings.clear()
+        with self._lock:
+            self._entries.clear()
 
-    def lookup(self, key: tuple) -> Optional[_Binding]:
-        """The binding remembered for ``key`` (counts a hit or a miss); a hit becomes the most recently used."""
-        binding = self._bindings.get(key)
-        if binding is None:
-            self.misses += 1
-        else:
-            self.hits += 1
-            self._bindings.move_to_end(key)
-        return binding
-
-    def peek(self, key: tuple) -> Optional[_Binding]:
-        """The binding remembered for ``key`` without touching the counters or the recency order (inspection)."""
-        return self._bindings.get(key)
-
-    def remember(self, key: tuple, binding: _Binding) -> _Binding:
-        """Remember ``binding`` as the most recently used; evict the least recently used beyond ``capacity``."""
-        self._bindings.pop(key, None)
-        self._bindings[key] = binding
-        while len(self._bindings) > self.capacity:
-            self._bindings.popitem(last=False)
-        return binding
+    def __len__(self) -> int:
+        return len(self._entries)
 
 
-BINDING_CACHE = BindingCache(enabled=os.environ.get(BINDING_CACHE_ENV, "1") != "0")
+BINDING_CACHE = _BindingCache()
 
 
-# ---------------------------------------------------------------------------
-# Eager entry points (allocate, launch, return)
-# ---------------------------------------------------------------------------
+def _binding(key: tuple, make_plan: Callable[[], _Plan]) -> _Binding:
+    """The cached binding of ``key``, planned on a miss.
+
+    During CUDA-graph capture the plan is built privately and neither read from
+    nor stored in the cache: its ``topk_length`` vector would live in the graph's
+    memory pool, and a replay must not share storage with eager calls.
+    """
+    capturing = torch.cuda.is_current_stream_capturing()
+    binding = None if capturing else BINDING_CACHE.get(key)
+    if binding is None:
+        plan = make_plan()
+        topk_length = None
+        if not plan.has_topk_length:
+            # Everything a cached entry materializes is a function of the key and the
+            # call options alone, never of tensor contents: this vector holds ``topk``
+            # (a shape) in every row, so calls with other index / activation contents
+            # of the same geometry share it.
+            topk_length = _alloc(
+                (plan.num_queries,),
+                torch.int32,
+                torch.device("cuda", plan.device_index),
+            )
+            topk_length.fill_(plan.topk)
+        binding = _Binding(plan, topk_length)
+        if not capturing:
+            BINDING_CACHE.put(key, binding)
+    return binding
 
 
 def _no_query_rows(q_latent: torch.Tensor) -> bool:
@@ -1749,11 +1358,10 @@ def _empty_forward(
         topk_length,
         allow_empty_queries=True,
     )
-    out = torch.empty(
-        (0, NUM_HEADS, D_LATENT), dtype=torch.bfloat16, device=q_latent.device
-    )
-    lse = torch.empty((0, NUM_HEADS), dtype=torch.float32, device=q_latent.device)
-    return out, lse, torch.empty_like(out)
+    device = q_latent.device
+    out = _alloc((0, NUM_HEADS, D_LATENT), torch.bfloat16, device)
+    lse = _alloc((0, NUM_HEADS), torch.float32, device)
+    return out, lse, _alloc((0, NUM_HEADS, D_LATENT), torch.bfloat16, device)
 
 
 def _empty_backward(
@@ -1786,10 +1394,10 @@ def _empty_backward(
     device, num_kv = q_latent.device, int(kv_latent.shape[0])
     dtype = torch.float32 if dkv_fp32 else torch.bfloat16
     return (
-        torch.empty((0, NUM_HEADS, D_LATENT), dtype=torch.bfloat16, device=device),
-        torch.empty((0, NUM_HEADS, D_ROPE), dtype=torch.bfloat16, device=device),
-        torch.zeros((num_kv, D_LATENT), dtype=dtype, device=device),
-        torch.zeros((num_kv, D_ROPE), dtype=dtype, device=device),
+        _alloc((0, NUM_HEADS, D_LATENT), torch.bfloat16, device),
+        _alloc((0, NUM_HEADS, D_ROPE), torch.bfloat16, device),
+        _alloc((num_kv, D_LATENT), dtype, device).zero_(),
+        _alloc((num_kv, D_ROPE), dtype, device).zero_(),
     )
 
 
@@ -1802,44 +1410,37 @@ def forward(
     *,
     topk_length: Optional[torch.Tensor] = None,
     softmax_scale: Optional[float] = None,
-) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-    """Forward pass: ``(out, lse, o_lo)``; ``o_lo`` is ``None`` for the placeholder program.
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Forward pass: ``(out, lse, o_lo)``.
 
-    The first call for an input binding validates and binds through
-    :func:`prepare_dsa_train`; later calls with the same binding take the
-    remembered launch (:data:`BINDING_CACHE`).  A call without query rows
-    returns empty outputs without binding or launching.
+    Allocates the outputs and launches over the remembered plan of the input
+    geometry (validated and resolved on the first call of that geometry); a
+    call without query rows returns empty outputs without launching.
     """
     if _no_query_rows(q_latent):
         return _empty_forward(q_latent, q_rope, kv_latent, k_rope, indices, topk_length)
-    scale = (
-        float(softmax_scale) if softmax_scale is not None else default_softmax_scale()
+    scale = default_softmax_scale() if softmax_scale is None else float(softmax_scale)
+    key = forward_binding_key(
+        q_latent, q_rope, kv_latent, k_rope, indices, topk_length, scale
     )
-    cache = BINDING_CACHE
-    key = None
-    if cache.enabled:
-        key = forward_binding_key(
-            q_latent, q_rope, kv_latent, k_rope, indices, topk_length, scale
-        )
-        binding = cache.lookup(key)
-        if binding is not None:
-            return binding.forward(
-                q_latent, q_rope, kv_latent, k_rope, indices, topk_length
-            )
-    runner = prepare_dsa_train(
-        q_latent,
-        q_rope,
-        kv_latent,
-        k_rope,
-        indices,
-        topk_length=topk_length,
-        softmax_scale=scale,
-        backward=False,
+    binding = _binding(
+        key,
+        lambda: _plan(
+            q_latent,
+            q_rope,
+            kv_latent,
+            k_rope,
+            indices,
+            topk_length=topk_length,
+            dout=None,
+            softmax_scale=scale,
+            outputs={},
+            dkv_fp32=False,
+            backward=False,
+            key_passes=None,
+        ),
     )
-    result = runner.forward()
-    if key is not None and runner.abi == ABI_CONTRACT:
-        cache.remember(key, _Binding.from_runner(runner))
-    return result
+    return binding.forward(q_latent, q_rope, kv_latent, k_rope, indices, topk_length)
 
 
 def backward(
@@ -1860,19 +1461,14 @@ def backward(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Backward pass from the saved forward outputs: ``(dq_latent, dq_rope, dkv_latent, dk_rope)``.
 
-    Validates and binds once per input binding like :func:`forward`.  With
-    ``dkv_fp32=True`` the dK/dV gradients are natural-layout FP32 tensors
-    (fresh per call, never the kernels' internal accumulators).  ``key_passes``
-    overrides the key-range-pass policy of the main stage (``None`` = the
-    registered policy; see :func:`plan_key_passes`).  A call without query
-    rows returns empty ``dq`` and zero ``dkv`` gradients without binding or
-    launching.
+    With ``dkv_fp32=True`` the dK/dV gradients are natural-layout FP32 tensors.
+    ``key_passes`` overrides the key-range-pass policy of the main stage
+    (``None`` = the registered policy; see :func:`plan_key_passes`).  A strided
+    ``dout`` is copied once (the delta stage reads it densely); a call without
+    query rows returns empty ``dq`` and zero ``dkv`` gradients without launching.
     """
-    if o_lo is None:
-        raise NotImplementedError(
-            "the forward produced no output residual (placeholder program); backward is unavailable"
-        )
-    dout = dout.contiguous()
+    if not dout.is_contiguous():
+        dout = dout.contiguous()
     if _no_query_rows(q_latent):
         return _empty_backward(
             q_latent,
@@ -1887,71 +1483,45 @@ def backward(
             topk_length,
             dkv_fp32,
         )
-    scale = (
-        float(softmax_scale) if softmax_scale is not None else default_softmax_scale()
-    )
-    cache = BINDING_CACHE
-    key = None
-    if cache.enabled:
-        key = backward_binding_key(
-            q_latent,
-            q_rope,
-            kv_latent,
-            k_rope,
-            indices,
-            out,
-            o_lo,
-            lse,
-            dout,
-            topk_length,
-            scale,
-            dkv_fp32,
-            key_passes,
-        )
-        binding = cache.lookup(key)
-        if binding is not None:
-            return binding.backward(
-                q_latent,
-                q_rope,
-                kv_latent,
-                k_rope,
-                indices,
-                out,
-                o_lo,
-                lse,
-                dout,
-                topk_length,
-            )
-    _check_output(out, "out", (q_latent.shape[0], NUM_HEADS, D_LATENT), torch.bfloat16)
-    _check_output(
-        o_lo, "o_lo", (q_latent.shape[0], NUM_HEADS, D_LATENT), torch.bfloat16
-    )
-    _check_output(lse, "lse", (q_latent.shape[0], NUM_HEADS), torch.float32)
-    runner = prepare_dsa_train(
+    scale = default_softmax_scale() if softmax_scale is None else float(softmax_scale)
+    key = backward_binding_key(
         q_latent,
         q_rope,
         kv_latent,
         k_rope,
         indices,
-        topk_length=topk_length,
-        dout=dout,
-        softmax_scale=scale,
-        out=out,
-        lse=lse,
-        o_lo=o_lo,
-        dkv_fp32=dkv_fp32,
-        backward=True,
-        key_passes=key_passes,
+        out,
+        o_lo,
+        lse,
+        dout,
+        topk_length,
+        scale,
+        dkv_fp32,
+        key_passes,
     )
-    result = runner.backward()
-    if key is not None and runner.abi == ABI_CONTRACT:
-        cache.remember(key, _Binding.from_runner(runner))
-    return result
+    binding = _binding(
+        key,
+        lambda: _plan(
+            q_latent,
+            q_rope,
+            kv_latent,
+            k_rope,
+            indices,
+            topk_length=topk_length,
+            dout=dout,
+            softmax_scale=scale,
+            outputs=dict(out=out, lse=lse, o_lo=o_lo),
+            dkv_fp32=dkv_fp32,
+            backward=True,
+            key_passes=key_passes,
+        ),
+    )
+    return binding.backward(
+        q_latent, q_rope, kv_latent, k_rope, indices, out, o_lo, lse, dout, topk_length
+    )
 
 
 class DSASparseAttentionFunction(torch.autograd.Function):
-    """Autograd wrapper: saves ``out``, ``o_lo``, ``lse`` and the inputs for the backward."""
-
     @staticmethod
     def forward(
         ctx,
@@ -1979,10 +1549,8 @@ class DSASparseAttentionFunction(torch.autograd.Function):
         ctx.softmax_scale = softmax_scale
         ctx.key_passes = key_passes
         ctx.has_topk_length = topk_length is not None
-        saved = [q_latent, q_rope, kv_latent, k_rope, indices, out, lse]
-        saved.append(o_lo if o_lo is not None else out.new_empty(0))
+        saved = [q_latent, q_rope, kv_latent, k_rope, indices, out, lse, o_lo]
         saved.append(topk_length if topk_length is not None else indices.new_empty(0))
-        ctx.has_o_lo = o_lo is not None
         ctx.save_for_backward(*saved)
         return out, lse
 
@@ -1997,10 +1565,6 @@ class DSASparseAttentionFunction(torch.autograd.Function):
         q_latent, q_rope, kv_latent, k_rope, indices, out, lse, o_lo, topk_length = (
             ctx.saved_tensors
         )
-        if not ctx.has_o_lo:
-            raise NotImplementedError(
-                "backward is unavailable: the registered program is forward-only (placeholder)"
-            )
         dq_latent, dq_rope, dkv_latent, dk_rope = backward(
             q_latent,
             q_rope,
@@ -2030,9 +1594,8 @@ def dsa_sparse_attention(
     return_lse: bool = False,
     key_passes: Optional[int] = None,
 ):
-    """Differentiable sparse attention over global key indices (see the module docstring).
+    """Autograd entry of the flat form (see :mod:`flashinfer.dsa_sparse_attention`).
 
-    Inputs are validated on the first call for a binding (see :class:`BindingCache`).
     ``key_passes`` overrides the backward's key-range-pass policy (``None`` =
     the registered policy, 1 = single pass; see :func:`plan_key_passes`).
     """
@@ -2067,7 +1630,7 @@ def dsa_sparse_attention_varlen(
     return_lse: bool = False,
     key_passes: Optional[int] = None,
 ):
-    """Packed multi-document form: per-document ``gather_kv_indices`` are offset by
+    """Packed multi-document form: per-document key indices are offset by
     ``cu_seqlens_k`` on device (this glue counts in the step time), then the flat
     kernels run over the packed rows.  ``max_seqlen_q/k`` are accepted for
     signature parity and not used on the host."""

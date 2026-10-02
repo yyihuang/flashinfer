@@ -25,7 +25,7 @@ out = dsa_sparse_attention_varlen(q_latent, q_rope, kv_latent, k_rope, gather_kv
 * `q_latent [T, 64, 512]`, `q_rope [T, 64, 64]` BF16 (views of a packed
   `q [T, 64, 576]` are accepted); `kv_latent [S, 512]` (K = V) and
   `k_rope [S, 64]` BF16 (views of a packed `kv [S, 576]` are accepted).
-* `indices [T, topk]` int32 hold **global** key rows; `-1` or `>= S` marks an
+* `indices [T, topk]` int32 (any row stride) hold **global** key rows; `-1` or `>= S` marks an
   invalid slot anywhere in the row; `topk_length [T]` int32 optionally
   invalidates slots `>= topk_length[t]`; any positive `topk`.
 * The varlen form takes per-document indices (`gather_kv_indices`, relative
@@ -48,35 +48,33 @@ out = dsa_sparse_attention_varlen(q_latent, q_rope, kv_latent, k_rope, gather_kv
 
 Explicit forward / backward entry points without autograd, a prepared
 allocation-free runner (`prepare_dsa_train`, CUDA-graph capturable) and the
-workspace sizing helper live in `cake_backend.py`.  The eager entry points
-(and the autograd wrapper behind the public API) validate and bind once per
-input binding -- `(data_ptr, shape, stride, dtype)` of every input plus the
-scale -- and launch later calls from the remembered argument plans with
-freshly allocated outputs and per-call scratch (`cake_backend.BINDING_CACHE`).
-A remembered binding pins no caller tensor and holds no problem-sized
-scratch: `delta`, the FP32 dK/dV accumulators and the key-range-pass regions
-come from the caching allocator on every call like the outputs, and the
-binding owns only the descriptor workspace and a materialized `topk_length`
-(kilobytes).  The cache keeps up to 256 bindings
-(`FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE_CAPACITY` sets the capacity) and
-evicts the least recently used one, so a model whose layers cycle through up
-to that many forward / backward bindings per step binds each of them once;
-`FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE=0` disables it.  A call without
-query rows (`T == 0`) returns empty outputs and zero gradients without binding
-or launching; `S == 0` is rejected.
+workspace sizing helper live in `cake_backend.py`.  A binding is validated and
+resolved once per input geometry (shapes, strides, dtypes, device, alignment
+and the call options): the prepared runner carves its scratch from the
+workspace it is given; the eager entry points keep the resolved plans in a
+bounded, lock-protected cache (`BINDING_CACHE`, 64 entries by default,
+`FLASHINFER_CAKE_DSA_TRAIN_BINDING_CACHE_CAPACITY` sets the capacity, least
+recently used first out; a plan owns only the full-length `topk_length` vector it
+materializes when the caller passes none) and, per call, allocate the outputs
+and the backward scratch from the caching allocator and launch the stages
+through the generated positional launchers of `cake_launch.py`.  During
+CUDA-graph capture the eager entry points plan privately and leave the cache
+untouched.  The bindings encode the tensor maps by value, so a step is exactly
+its kernels (one launch for the forward, `2 + 2 x passes` for the backward)
+plus the two fills of the FP32 dK/dV accumulators.  A call without query rows
+(`T == 0`) returns empty outputs and zero gradients without launching; `S == 0`
+is rejected.
 
 Host cost through the autograd wrapper: the `Function.backward` runs on
-PyTorch's autograd device thread, where the two thread handoffs (about 30 us
-each with an idle GPU, about 170 us each while kernels are queued on the
-stream) and the Python body (3-4x slower there than on the main thread) add
-roughly 400 us per backward at 4k tokens on B200 that are not in this package
+PyTorch's autograd device thread, where the two thread handoffs and the Python
+body add a few hundred microseconds per backward that are not in this package
 -- a trivial `autograd.Function` with the same saved tensors and gradient
 shapes shows the same cost, and no synchronization is involved.  In a
 GPU-bound training step this is hidden behind the backward kernels (6-8 ms at
 4k tokens).  Host-bound loops should call `cake_backend.forward` /
-`cake_backend.backward` directly (about 25 / 55-90 us per call with a
-remembered binding on B200 -- the backward figure grows with the per-call
-scratch of the key-range-pass rows) or capture the prepared runner into a CUDA
+`cake_backend.backward` directly or capture the prepared runner into a CUDA
+graph (`benchmarks/bench_cake_dsa_train.py --host-calls` reports both).
+
 graph.
 
 ## Kernel structure of one training step
@@ -100,10 +98,10 @@ graph.
 * `bwd_cast`: converts the FP32 accumulators to the natural `[S, 512]` /
   `[S, 64]` BF16 outputs (or FP32 in the `dkv_fp32` mode).
 
-Grid rules live in the registry record (`num_queries` CTAs for `fwd`,
-`bwd_main` and `bwd_main_pass`, `num_queries*8` for `bwd_delta`,
-`num_queries/4` for `bwd_compact`, `num_kv*18/256` for `bwd_cast`) and are
-evaluated by the host from the problem scalars.
+Launch grids are functions of the problem scalars in `cake_launch.py`
+(`num_queries` CTAs for `fwd`, `bwd_main` and `bwd_main_pass`,
+`num_queries * 8` for `bwd_delta`, `ceil(num_queries / 4)` for `bwd_compact`,
+`ceil(num_kv * 18 / 256)` for `bwd_cast`).
 
 ### Key-range passes for the DRAM regime
 
@@ -132,25 +130,24 @@ pass stages serves the single pass only.
 
 ## Layout of this package
 
-* `cake_jit.py` -- `MODULES` registry (one record per architecture, filled by
-  the generated-program export), stage names and the JIT specs.
+* `cake_jit.py` -- the `MODULES` registry (one record for both architectures,
+  filled by the generated-program export), stage names and the JIT specs
+  (compiled per architecture with its exact flag set).
+* `cake_launch.py` -- generated positional launchers and grid functions, one
+  per stage, over the kernels' own argument names.
 * `cake_backend.py` -- validation, workspace layout, varlen index offsetting,
-  argument-plan binding, the prepared runner, the autograd `Function` and the
-  eager entry points.
-* `csrc/cake_dsa_h64_train/<arch>/` -- generated kernel and binding
-  translation units (`.clang-format` disables formatting: the sources are
-  identity-checked by the registry's closure digests).
+  the prepared runner, the autograd `Function` and the eager entry points.
+* `csrc/cake_dsa_h64_train/` -- generated kernel and binding translation units,
+  one pair per stage for every architecture (`.clang-format` disables
+  formatting: the sources are identity-checked by the registry's closure
+  digests).
 
 ## Status
 
-The registry holds one record per architecture (`sm_100a`, `sm_103a`) with the
-forward, backward preprocess, backward main (single-pass and key-range-pass
-form with its compaction) and cast stages plus the key-range-pass policy,
-exported from the kernel snapshot named in the pull request.  The host
-binding supports two argument profiles, selected by the record's `abi` field:
-`dsa_h64_v1` (the native kernels) and `flashmla_v41_prefill_seed` (a
-forward-only FlashMLA-derived prefill program used to exercise the export
-pipeline; it produces no output residual, so backward is unavailable with it).
+The registry holds one program for `sm_100a` and `sm_103a` with the forward,
+backward preprocess, backward main (single-pass and key-range-pass form with
+its compaction) and cast stages plus the key-range-pass policy, exported from
+the kernel snapshot named in the pull request.
 
 Tests: `tests/experimental/test_cake_dsa_train.py` (skips without a registered
 program or a compute capability 10.0 / 10.3 device).  Benchmark:
