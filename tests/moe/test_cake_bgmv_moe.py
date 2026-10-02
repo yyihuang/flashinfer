@@ -469,7 +469,7 @@ _GROUPED_CASES = [
     (768, 8, 256, torch.bfloat16, False, False, 2),  # dense bins (2 LoRAs x 128 experts)
     (2048, 64, 192, torch.bfloat16, False, False, 2),
     (1344, 16, 160, torch.float16, True, False, 2),  # interleaved pair order, masked tail
-    (3072, 32, 300, torch.bfloat16, False, True, 2),  # expert-sorted dispatch order
+    (4096, 32, 300, torch.bfloat16, False, True, 2),  # expert-sorted dispatch order (generic hidden)
     (736, 32, 40, torch.float16, True, False, 20),  # > 16 routes per token: scan combine
     (2112, 64, 64, torch.float16, False, True, 4),
 ]

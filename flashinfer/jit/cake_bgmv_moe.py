@@ -99,6 +99,9 @@ CAKE_BGMV_MOE_GROUP_TILE_TOKENS = 16
 CAKE_BGMV_MOE_GROUP_BINS_MAX = 4096
 CAKE_BGMV_MOE_GROUP_HEADER_WORDS = 4
 CAKE_BGMV_MOE_GROUPED_MIN_PAIRS = 2048
+CAKE_BGMV_MOE_GROUPED_MIN_ROUTES_PER_BIN = 4
+CAKE_BGMV_MOE_GROUPED_MIN_WEIGHT_ELEMS = 24576
+CAKE_BGMV_MOE_GROUPED_MIN_WEIGHT_ELEMS_R8 = 32768
 
 
 def cake_bgmv_moe_group_max_tiles(num_pairs: int, bins: int) -> int:
@@ -124,20 +127,38 @@ def cake_bgmv_moe_grouped_workspace_words(num_pairs: int, num_tokens: int, bins:
 
 
 def select_cake_bgmv_moe_generic_grouped(
-    num_pairs: int, num_tokens: int, num_loras: int, num_experts: int
+    num_pairs: int,
+    num_tokens: int,
+    num_loras: int,
+    num_experts: int,
+    hidden_size: int,
+    rank: int,
 ) -> bool:
     """True when the generic plan should run the pair-grouped pipeline.
 
-    Mirrors the Cake generator's ``select_generic_grouped``: weight reuse only
-    pays off once the routes clearly outnumber the ``num_loras * num_experts``
-    bins (``CAKE_BGMV_MOE_GROUPED_MIN_PAIRS``), and the single-CTA grouping
-    prologue bounds the bin count by ``CAKE_BGMV_MOE_GROUP_BINS_MAX``.
+    Mirrors the Cake generator's ``select_generic_grouped``: weight reuse pays
+    off once the routes clearly outnumber the ``num_loras * num_experts`` bins
+    (``CAKE_BGMV_MOE_GROUPED_MIN_PAIRS`` routes and
+    ``CAKE_BGMV_MOE_GROUPED_MIN_ROUTES_PER_BIN`` routes per bin) and the
+    per-pair weights (``hidden_size * rank``) are large enough for the saved
+    traffic to exceed the fixed grouping prologue and the FP32 partials round
+    trip; the single-CTA grouping prologue bounds the bin count by
+    ``CAKE_BGMV_MOE_GROUP_BINS_MAX``.
     """
 
     bins = int(num_loras) * int(num_experts)
     if bins <= 0 or bins > CAKE_BGMV_MOE_GROUP_BINS_MAX:
         return False
     if int(num_pairs) < CAKE_BGMV_MOE_GROUPED_MIN_PAIRS:
+        return False
+    if int(num_pairs) < CAKE_BGMV_MOE_GROUPED_MIN_ROUTES_PER_BIN * bins:
+        return False
+    min_elems = (
+        CAKE_BGMV_MOE_GROUPED_MIN_WEIGHT_ELEMS
+        if int(rank) >= 16
+        else CAKE_BGMV_MOE_GROUPED_MIN_WEIGHT_ELEMS_R8
+    )
+    if int(hidden_size) * int(rank) < min_elems:
         return False
     if (int(num_pairs) + CAKE_BGMV_MOE_GROUP_TILE_TOKENS - 1) // CAKE_BGMV_MOE_GROUP_TILE_TOKENS >= 65536:
         return False

@@ -408,11 +408,20 @@ def test_grouped_workspace_sizing_and_selector():
     words = cake_bgmv_moe.cake_bgmv_moe_grouped_workspace_words(8192, 4096, 1024)
     assert words == 4 + 1024 + 1025 + 1024 + 1536 + 8192 + 4096 + 4096 * 16
     # weight reuse only pays off once routes clearly outnumber the bins
-    assert cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(8192, 4096, 8, 128)
-    assert cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(2048, 1024, 8, 128)
-    assert not cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(1024, 512, 8, 128)
-    assert not cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(8192, 4096, 64, 128)
-    assert not cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(8192, 4096, 0, 128)
+    select = cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped
+    assert select(8192, 4096, 8, 128, 4096, 32)
+    assert select(4096, 2048, 8, 128, 3072, 32)  # 4 routes per bin
+    assert not select(2048, 1024, 8, 128, 3072, 32)  # 2 routes per bin
+    assert not select(1024, 512, 8, 128, 4096, 32)
+    assert not select(8192, 4096, 64, 128, 4096, 32)  # too many bins
+    assert not select(8192, 4096, 0, 128, 4096, 32)
+    # small per-pair weights: the fixed grouping cost exceeds the reuse win
+    assert not select(8192, 4096, 8, 128, 768, 8)
+    assert not select(8192, 4096, 8, 128, 3072, 8)
+    assert select(8192, 4096, 8, 128, 4096, 8)
+    assert not select(8192, 4096, 8, 128, 768, 16)
+    assert select(8192, 4096, 8, 128, 2048, 16)
+    assert select(8192, 4096, 8, 128, 768, 32)
     for rank in cake_bgmv_moe.CAKE_BGMV_MOE_GENERIC_RANKS:
         metadata = cake_bgmv_moe._generic_metadata(rank, "bfloat16")
         body = (cake_bgmv_moe._get_csrc_dir() / metadata.body).read_text()

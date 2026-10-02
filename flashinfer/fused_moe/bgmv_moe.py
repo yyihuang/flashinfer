@@ -861,6 +861,8 @@ def prepare_bgmv_moe(
                 num_tokens,
                 int(lora_a_weights[0].shape[0]),
                 int(lora_a_weights[0].shape[1]),
+                hidden_size,
+                rank,
             )
         else:
             use_grouped = bool(grouped)
