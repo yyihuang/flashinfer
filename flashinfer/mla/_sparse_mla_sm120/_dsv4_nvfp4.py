@@ -35,6 +35,7 @@ from ...utils import (
 
 from ._execution import (
     dsv4_nvfp4_format_info,
+    get_sparse_mla_dsv4_nvfp4_cache_ops_module,
     get_sparse_mla_dsv4_nvfp4_module,
 )
 
@@ -231,7 +232,7 @@ def _cache_shape(cache: torch.Tensor) -> tuple[int, int, str]:
     return int(num_pages), int(page_size), layout
 
 
-@supported_compute_capability([120, 121])
+@supported_compute_capability([100, 103, 120, 121])
 @flashinfer_api
 def nvfp4_quantize_pack_sparse_mla_cache(
     latent_kv: torch.Tensor,
@@ -239,6 +240,9 @@ def nvfp4_quantize_pack_sparse_mla_cache(
     kv_layout: str = "HND",
 ) -> torch.Tensor:
     r"""Quantize complete DeepSeek-V4 latent-KV pages to the NVFP4 cache ABI.
+
+    Runs on SM100 / SM103 (consumed by ``backend="cake"``) and SM120 / SM121
+    (``backend="sparse"``); the packed bytes are identical on every architecture.
 
     Parameters
     ----------
@@ -290,13 +294,13 @@ def nvfp4_quantize_pack_sparse_mla_cache(
     cache = torch.empty(cache_shape, dtype=torch.uint8, device=latent_kv.device)
     if int(num_pages) == 0 or int(page_size) == 0:
         return cache
-    get_sparse_mla_dsv4_nvfp4_module().sparse_mla_sm120_nvfp4_quantize_pack(
+    get_sparse_mla_dsv4_nvfp4_cache_ops_module().sparse_mla_sm120_nvfp4_quantize_pack(
         latent_kv, cache
     )
     return cache
 
 
-@supported_compute_capability([120, 121])
+@supported_compute_capability([100, 103, 120, 121])
 @flashinfer_api
 def nvfp4_quantize_append_sparse_mla_cache(
     latent_kv: torch.Tensor,
@@ -341,7 +345,7 @@ def nvfp4_quantize_append_sparse_mla_cache(
     if num_pages * page_size == 0 and slot_mapping.numel() != 0:
         raise ValueError("cannot append to an empty cache")
 
-    get_sparse_mla_dsv4_nvfp4_module().sparse_mla_sm120_nvfp4_quantize_append(
+    get_sparse_mla_dsv4_nvfp4_cache_ops_module().sparse_mla_sm120_nvfp4_quantize_append(
         latent_kv, slot_mapping, cache
     )
 
