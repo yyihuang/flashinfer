@@ -417,9 +417,9 @@ def test_grouped_workspace_sizing_and_selector():
     assert not select(8192, 4096, 0, 128, 4096, 32)
     # small per-pair weights: the fixed grouping cost exceeds the reuse win
     assert not select(8192, 4096, 8, 128, 768, 8)
-    assert not select(8192, 4096, 8, 128, 3072, 8)
-    assert select(8192, 4096, 8, 128, 4096, 8)
-    assert not select(8192, 4096, 8, 128, 768, 16)
+    assert not select(8192, 4096, 8, 128, 4096, 8)  # B200/GB300 tie at hidden 4096
+    assert select(8192, 4096, 8, 128, 5888, 8)
+    assert select(8192, 4096, 8, 128, 768, 16)
     assert select(8192, 4096, 8, 128, 2048, 16)
     assert select(8192, 4096, 8, 128, 768, 32)
     for rank in cake_bgmv_moe.CAKE_BGMV_MOE_GENERIC_RANKS:
