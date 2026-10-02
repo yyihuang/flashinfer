@@ -511,10 +511,11 @@ def test_grouped_pipeline_matches_reference_and_replays_bitwise(
     torch.testing.assert_close(first, expected, atol=1e-2, rtol=1e-2)
     reference_run = baseline.run().clone()
     torch.cuda.synchronize()
-    # The grouped shrink sums the same exact FP32 products in a different
-    # (tensor-core, k-split) order; agreement is within the output tolerance.
-    torch.testing.assert_close(plan.shrink_out.float(), baseline.shrink_out.float(), atol=1e-2, rtol=1e-2)
-    torch.testing.assert_close(first, reference_run, atol=1e-2, rtol=1e-2)
+    # The grouped shrink runs the per-route kernel's exact FP32 FMA chain and
+    # reduction per lane, so every route's shrink row is bitwise identical to
+    # the ungrouped kernel's; only the expand's FP32 summation order differs.
+    assert torch.equal(plan.shrink_out, baseline.shrink_out)
+    torch.testing.assert_close(first, reference_run, atol=1e-5, rtol=1e-5)
     for _ in range(3):
         replay = plan.run().clone()
         torch.cuda.synchronize()
@@ -534,7 +535,17 @@ def test_grouped_pipeline_is_selected_for_wide_generic_prefill():
     assert plan.variant == "generic"
     assert plan.grouped, "2048 routes over 256 (lora, expert) bins should group"
     assert plan.group_partials.numel() == 2048 * 2048
-    torch.testing.assert_close(plan.run(), _reference(wide), atol=1e-2, rtol=1e-2)
+    # Same numerics as the per-route pipeline (bitwise shrink, FP32-reordered
+    # expand). The FP64 reference is covered by the forced-grouped test; at this
+    # 2M-element shape the bf16 shrink intermediate shared by both pipelines can
+    # leave a cancelling two-route element ~1e-2 off with |ref| ~3e-3, which the
+    # 1e-2 tolerance cannot absorb (seen on GB300, whose torch.randn stream
+    # differs from H100/B200 for the same seed).
+    ungrouped = prepare_bgmv_moe(*wide, backend="cake", fallback=False, grouped=False)
+    assert not ungrouped.grouped
+    torch.testing.assert_close(plan.run(), ungrouped.run(), atol=1e-5, rtol=1e-5)
+    assert torch.equal(plan.shrink_out, ungrouped.shrink_out)
+    ungrouped.close()
     plan.close()
     narrow = _make_inputs(2048, 64, torch.bfloat16, rank=16)
     plan = prepare_bgmv_moe(*narrow, backend="cake", fallback=False)
