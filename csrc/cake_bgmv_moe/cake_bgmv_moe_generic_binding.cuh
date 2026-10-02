@@ -82,6 +82,59 @@ constexpr int32_t kShrinkSplitMax = 8;
 constexpr int32_t kShrinkSplitMaxPairs = 128;
 constexpr int32_t kShrinkSplitPartialWords = kShrinkSplitMax * kShrinkSplitMaxPairs * 64;
 constexpr int32_t kShrinkSplitCounterWords = kShrinkSplitMaxPairs * (64 / kRankTile);
+// Pair-grouped pipeline (round 5): routes grouped by their unique (LoRA,
+// expert) pair so each pair's weights are streamed once per tile of
+// kGroupTileTokens routes.  Plan-owned int32 workspace (see
+// flashinfer/jit/cake_bgmv_moe.py ``cake_bgmv_moe_grouped_workspace_words``):
+// header, bin counts, bin offsets, bin fill counters, tile table, grouped route
+// ids, per-token route counts and per-token route lists; plus FP32 per-route
+// expand partials [num_pairs][hidden].  Rebuilt by the grouping kernel on every
+// launch (no memset node); the deterministic combine sums each token's route
+// partials in ascending pair order.
+constexpr int32_t kGroupThreads = 1024;
+constexpr int32_t kGroupTileTokens = 8;
+constexpr int32_t kGroupBinsMax = 4096;
+constexpr int32_t kGroupHeaderWords = 4;
+constexpr int32_t kGroupExpandThreads = 256;
+constexpr int32_t kGroupCombineThreads = 256;
+constexpr int32_t kGroupBuildSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_GROUP_BUILD;
+constexpr int32_t kShrinkGroupedSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_GROUPED;
+constexpr int32_t kExpandGroupedSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_GROUPED;
+constexpr int32_t kCombineGroupedSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_COMBINE_GROUPED;
+
+struct GroupedOffsets {
+  int64_t group_count;
+  int64_t group_offset;
+  int64_t fill;
+  int64_t tile_table;
+  int64_t sorted_routes;
+  int64_t token_count;
+  int64_t token_routes;
+  int64_t numel;
+  int64_t max_tiles;
+};
+
+inline GroupedOffsets ComputeGroupedOffsets(int64_t num_pairs, int64_t num_tokens, int64_t bins) {
+  GroupedOffsets off{};
+  off.max_tiles = (num_pairs + kGroupTileTokens - 1) / kGroupTileTokens + bins;
+  int64_t cursor = kGroupHeaderWords;
+  off.group_count = cursor;
+  cursor += bins;
+  off.group_offset = cursor;
+  cursor += bins + 1;
+  off.fill = cursor;
+  cursor += bins;
+  off.tile_table = cursor;
+  cursor += off.max_tiles;
+  off.sorted_routes = cursor;
+  cursor += num_pairs;
+  off.token_count = cursor;
+  cursor += num_tokens;
+  off.token_routes = cursor;
+  cursor += num_tokens * kRouteIndexMaxRoutes;
+  off.numel = cursor;
+  return off;
+}
 
 enum class Schedule : int32_t {
   kTokenOwnedT64 = 0,
@@ -125,6 +178,14 @@ void Configure() {
       cudaFuncSetAttribute(CAKE_BGMV_MOE_SHRINK_DECODE, cudaFuncAttributeMaxDynamicSharedMemorySize,
                            kShrinkDecodeSmemBytes),
       "cudaFuncSetAttribute(Cake BGMV MoE decode shrink)");
+  TVM_FFI_ICHECK(max_dynamic_smem >= kShrinkGroupedSmemBytes)
+      << "Cake BGMV MoE grouped shrink requires " << kShrinkGroupedSmemBytes
+      << " bytes of dynamic shared memory, but device " << device_id << " supports "
+      << max_dynamic_smem;
+  CheckCuda(cudaFuncSetAttribute(CAKE_BGMV_MOE_SHRINK_GROUPED,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                 kShrinkGroupedSmemBytes),
+            "cudaFuncSetAttribute(Cake BGMV MoE grouped shrink)");
 }
 
 inline void CheckCompact(const TensorView& tensor, const char* name) {
@@ -137,6 +198,7 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
          TensorView lora_b, TensorView sorted_token_ids, TensorView expert_ids,
          TensorView lora_indices, TensorView topk_weights, TensorView route_index,
          int64_t schedule_value, int64_t shrink_decode, int64_t shrink_splits,
+         int64_t grouped, TensorView group_workspace, TensorView group_partials,
          int64_t cuda_stream) {
   TVM_FFI_ICHECK(cuda_stream >= 0) << "cuda_stream must be a non-negative stream handle";
   CHECK_CUDA(x);
@@ -240,6 +302,64 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   constexpr int32_t kRouteAdvance = 1;
 
   const int32_t num_tiles = (hidden + kShrinkTileElements - 1) / kShrinkTileElements;
+  if (grouped != 0) {
+    // Pair-grouped pipeline: group_build -> grouped shrink -> grouped expand -> combine.
+    CHECK_CUDA(group_workspace);
+    CHECK_CUDA(group_partials);
+    CHECK_DEVICE(x, group_workspace);
+    CHECK_DEVICE(x, group_partials);
+    CHECK_INPUT_TYPE(group_workspace, dl_int32);
+    CHECK_INPUT_TYPE(group_partials, dl_float32);
+    CheckCompact(group_workspace, "group_workspace");
+    CheckCompact(group_partials, "group_partials");
+    const int64_t num_loras = lora_a.size(0);
+    const int64_t bins = num_loras * static_cast<int64_t>(num_experts);
+    TVM_FFI_ICHECK(bins >= 1 && bins <= kGroupBinsMax)
+        << "the grouped pipeline supports at most " << kGroupBinsMax
+        << " (lora, expert) bins, got " << bins;
+    const GroupedOffsets off = ComputeGroupedOffsets(num_pairs, num_tokens, bins);
+    TVM_FFI_ICHECK(group_workspace.ndim() == 1 && group_workspace.size(0) >= off.numel)
+        << "group_workspace must hold at least " << off.numel << " int32 words";
+    TVM_FFI_ICHECK(group_partials.ndim() == 1 &&
+                   group_partials.size(0) >= static_cast<int64_t>(num_pairs) * hidden)
+        << "group_partials must hold at least num_pairs * hidden = "
+        << static_cast<int64_t>(num_pairs) * hidden << " floats";
+    TVM_FFI_ICHECK(off.max_tiles < (int64_t{1} << 31) &&
+                   (num_pairs + kGroupTileTokens - 1) / kGroupTileTokens < 65536)
+        << "grouped tile table out of range for num_pairs=" << num_pairs;
+    auto* ws_ptr = static_cast<unsigned int*>(group_workspace.data_ptr());
+    auto* partials_ptr = static_cast<float*>(group_partials.data_ptr());
+    const int32_t max_tiles = static_cast<int32_t>(off.max_tiles);
+    CAKE_BGMV_MOE_GROUP_BUILD<<<1, kGroupThreads, kGroupBuildSmemBytes, stream>>>(
+        token_ptr, expert_ptr, lora_ptr, shrink_ptr, num_pairs, num_tokens, num_experts,
+        static_cast<int32_t>(num_loras), ws_ptr, static_cast<int32_t>(off.group_count),
+        static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.fill),
+        static_cast<int32_t>(off.tile_table), static_cast<int32_t>(off.sorted_routes),
+        static_cast<int32_t>(off.token_count), static_cast<int32_t>(off.token_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped group_build launch");
+    const dim3 shrink_grid(max_tiles, kRank / kRankTile, 1);
+    CAKE_BGMV_MOE_SHRINK_GROUPED<<<shrink_grid, kShrinkThreads, kShrinkGroupedSmemBytes, stream>>>(
+        shrink_ptr, x_ptr, a_ptr, token_ptr, num_pairs, num_experts, hidden, num_tiles, ws_ptr,
+        static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.tile_table),
+        static_cast<int32_t>(off.sorted_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped shrink launch");
+    const dim3 expand_grid(max_tiles, (hidden + kGroupExpandThreads - 1) / kGroupExpandThreads, 1);
+    CAKE_BGMV_MOE_EXPAND_GROUPED<<<expand_grid, kGroupExpandThreads, kExpandGroupedSmemBytes,
+                                   stream>>>(
+        partials_ptr, shrink_ptr, b_ptr, num_pairs, num_experts, hidden, ws_ptr,
+        static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.tile_table),
+        static_cast<int32_t>(off.sorted_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped expand launch");
+    const int32_t output_stride = hidden;
+    const int32_t output_offset = 0;
+    CAKE_BGMV_MOE_COMBINE_GROUPED<<<num_tokens, kGroupCombineThreads, kCombineGroupedSmemBytes,
+                                    stream>>>(
+        y_ptr, partials_ptr, token_ptr, lora_ptr, weight_ptr, num_pairs, num_tokens, hidden,
+        output_stride, output_offset, ws_ptr, static_cast<int32_t>(off.token_count),
+        static_cast<int32_t>(off.token_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped combine launch");
+    return;
+  }
   TVM_FFI_ICHECK(shrink_splits >= 1 && shrink_splits <= kShrinkSplitMax &&
                  shrink_splits <= num_tiles)
       << "shrink_splits must be in [1, min(" << kShrinkSplitMax << ", num_tiles=" << num_tiles

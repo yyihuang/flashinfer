@@ -392,3 +392,36 @@ def test_generic_shrink_launch_selection_rejects_bad_inputs():
         cake_bgmv_moe.select_cake_bgmv_moe_generic_shrink(0, 32, 3072)
     with pytest.raises(ValueError):
         cake_bgmv_moe.select_cake_bgmv_moe_generic_shrink(8, 24, 3072)
+
+
+def test_grouped_workspace_sizing_and_selector():
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_GROUP_TILE_TOKENS == 8
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_GROUP_BINS_MAX == 4096
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_GROUP_HEADER_WORDS == 4
+    # 8192 routes over 1024 bins: 1024 + 1024 tiles at most
+    assert cake_bgmv_moe.cake_bgmv_moe_group_max_tiles(8192, 1024) == 2048
+    words = cake_bgmv_moe.cake_bgmv_moe_grouped_workspace_words(8192, 4096, 1024)
+    assert words == 4 + 1024 + 1025 + 1024 + 2048 + 8192 + 4096 + 4096 * 16
+    # weight reuse only pays off once routes clearly outnumber the bins
+    assert cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(8192, 4096, 8, 128)
+    assert cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(2048, 1024, 8, 128)
+    assert not cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(1024, 512, 8, 128)
+    assert not cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(8192, 4096, 64, 128)
+    assert not cake_bgmv_moe.select_cake_bgmv_moe_generic_grouped(8192, 4096, 0, 128)
+    for rank in cake_bgmv_moe.CAKE_BGMV_MOE_GENERIC_RANKS:
+        metadata = cake_bgmv_moe._generic_metadata(rank, "bfloat16")
+        body = (cake_bgmv_moe._get_csrc_dir() / metadata.body).read_text()
+        for symbol in (
+            metadata.group_build_symbol,
+            metadata.shrink_grouped_symbol,
+            metadata.expand_grouped_symbol,
+            metadata.combine_grouped_symbol,
+        ):
+            assert body.count(f"{symbol}(") == 1, symbol
+        for macro in (
+            "CAKE_BGMV_MOE_GENERIC_SMEM_GROUP_BUILD",
+            "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_GROUPED",
+            "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_GROUPED",
+            "CAKE_BGMV_MOE_GENERIC_SMEM_COMBINE_GROUPED",
+        ):
+            assert f"#define {macro} " in body, macro

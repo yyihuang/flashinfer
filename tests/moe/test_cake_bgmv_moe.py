@@ -461,6 +461,87 @@ def test_generic_variant_matches_reference_and_replays_bitwise(
     plan.close()
 
 
+_GROUPED_CASES = [
+    # (hidden, rank, tokens, dtype, arbitrary_routes, expert_sorted, top_k)
+    (768, 8, 256, torch.bfloat16, False, False, 2),  # dense bins (2 LoRAs x 128 experts)
+    (2048, 64, 192, torch.bfloat16, False, False, 2),
+    (1344, 16, 160, torch.float16, True, False, 2),  # interleaved pair order, masked tail
+    (3072, 32, 300, torch.bfloat16, False, True, 2),  # expert-sorted dispatch order
+    (736, 32, 40, torch.float16, True, False, 20),  # > 16 routes per token: scan combine
+    (2112, 64, 64, torch.float16, False, True, 4),
+]
+
+
+@pytest.mark.parametrize(
+    ("hidden_size", "rank", "num_tokens", "dtype", "arbitrary_routes", "expert_sorted", "top_k"),
+    _GROUPED_CASES,
+    ids=[
+        f"h{h}_r{r}_t{t}_{str(d).split('.')[-1]}{'_arb' if a else ''}{'_es' if e else ''}_k{k}"
+        for h, r, t, d, a, e, k in _GROUPED_CASES
+    ],
+)
+def test_grouped_pipeline_matches_reference_and_replays_bitwise(
+    hidden_size, rank, num_tokens, dtype, arbitrary_routes, expert_sorted, top_k
+):
+    """Pair-grouped generic pipeline (forced): correct, bitwise-stable, shrink equal to per-route."""
+
+    _require_cake_arch()
+    inputs = _make_inputs(
+        hidden_size,
+        num_tokens,
+        dtype,
+        rank=rank,
+        arbitrary_routes=arbitrary_routes,
+        expert_sorted=expert_sorted,
+        top_k=top_k,
+    )
+    expected = _reference(inputs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        plan = prepare_bgmv_moe(*inputs, backend="cake", fallback=False, grouped=True)
+        baseline = prepare_bgmv_moe(*inputs, backend="cake", fallback=False, grouped=False)
+    assert isinstance(plan, BGMVMoECakePlan)
+    assert plan.variant == "generic" and plan.grouped
+    assert baseline.variant == "generic" and not baseline.grouped
+    first = plan.run().clone()
+    torch.cuda.synchronize()
+    torch.testing.assert_close(first, expected, atol=1e-2, rtol=1e-2)
+    reference_run = baseline.run().clone()
+    torch.cuda.synchronize()
+    # The grouped shrink keeps the per-route shrink's FMA chains and reduction order.
+    assert torch.equal(plan.shrink_out, baseline.shrink_out)
+    torch.testing.assert_close(first, reference_run, atol=1e-2, rtol=1e-2)
+    for _ in range(3):
+        replay = plan.run().clone()
+        torch.cuda.synchronize()
+        assert torch.equal(replay, first)
+    # Replays consume current tensor contents through the same pointers (the
+    # grouping is rebuilt every launch).
+    inputs[0].mul_(0.5)
+    torch.testing.assert_close(plan.run(), _reference(inputs), atol=1e-2, rtol=1e-2)
+    plan.close()
+    baseline.close()
+
+
+def test_grouped_pipeline_is_selected_for_wide_generic_prefill():
+    _require_cake_arch()
+    wide = _make_inputs(2048, 1024, torch.bfloat16, rank=16)
+    plan = prepare_bgmv_moe(*wide, backend="cake", fallback=False)
+    assert plan.variant == "generic"
+    assert plan.grouped, "2048 routes over 256 (lora, expert) bins should group"
+    assert plan.group_partials.numel() == 2048 * 2048
+    torch.testing.assert_close(plan.run(), _reference(wide), atol=1e-2, rtol=1e-2)
+    plan.close()
+    narrow = _make_inputs(2048, 64, torch.bfloat16, rank=16)
+    plan = prepare_bgmv_moe(*narrow, backend="cake", fallback=False)
+    assert plan.variant == "generic" and not plan.grouped
+    assert plan.group_partials.numel() == 1
+    plan.close()
+    forced_off = prepare_bgmv_moe(*wide, backend="cake", fallback=False, grouped=False)
+    assert not forced_off.grouped
+    forced_off.close()
+
+
 @pytest.mark.parametrize("hidden_size", [2688, 3072])
 def test_specialized_variant_is_preferred_at_rank_32(hidden_size):
     _require_cake_arch()

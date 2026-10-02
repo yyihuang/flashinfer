@@ -88,6 +88,62 @@ CAKE_BGMV_MOE_SHRINK_SPLIT_COUNTER_WORDS = CAKE_BGMV_MOE_SHRINK_SPLIT_MAX_PAIRS 
 )
 
 
+# Pair-grouped pipeline (generic bundles, round 5): routes are grouped by their
+# unique (LoRA, expert) pair so each pair's A/B weights are streamed once per tile
+# of ``CAKE_BGMV_MOE_GROUP_TILE_TOKENS`` routes instead of once per route. The
+# plan owns an int32 grouping workspace (header, bin counts/offsets/fill, tile
+# table, grouped route ids, per-token route lists) rebuilt by the grouping kernel
+# on every launch, and FP32 per-route expand partials ``[num_pairs, hidden]``
+# that the deterministic per-token combine sums in ascending pair order.
+CAKE_BGMV_MOE_GROUP_TILE_TOKENS = 8
+CAKE_BGMV_MOE_GROUP_BINS_MAX = 4096
+CAKE_BGMV_MOE_GROUP_HEADER_WORDS = 4
+CAKE_BGMV_MOE_GROUPED_MIN_PAIRS = 2048
+
+
+def cake_bgmv_moe_group_max_tiles(num_pairs: int, bins: int) -> int:
+    """Upper bound on the (group, token chunk) tiles of the grouped kernels."""
+
+    return (int(num_pairs) + CAKE_BGMV_MOE_GROUP_TILE_TOKENS - 1) // CAKE_BGMV_MOE_GROUP_TILE_TOKENS + int(bins)
+
+
+def cake_bgmv_moe_grouped_workspace_words(num_pairs: int, num_tokens: int, bins: int) -> int:
+    """int32 words of the grouping workspace (mirrors the binding's ComputeGroupedOffsets)."""
+
+    num_pairs, num_tokens, bins = int(num_pairs), int(num_tokens), int(bins)
+    return (
+        CAKE_BGMV_MOE_GROUP_HEADER_WORDS
+        + bins  # bin counts
+        + bins + 1  # bin offsets
+        + bins  # fill counters
+        + cake_bgmv_moe_group_max_tiles(num_pairs, bins)
+        + num_pairs  # grouped route ids
+        + num_tokens  # per-token route counts
+        + num_tokens * CAKE_BGMV_MOE_ROUTE_INDEX_MAX_ROUTES
+    )
+
+
+def select_cake_bgmv_moe_generic_grouped(
+    num_pairs: int, num_tokens: int, num_loras: int, num_experts: int
+) -> bool:
+    """True when the generic plan should run the pair-grouped pipeline.
+
+    Mirrors the Cake generator's ``select_generic_grouped``: weight reuse only
+    pays off once the routes clearly outnumber the ``num_loras * num_experts``
+    bins (``CAKE_BGMV_MOE_GROUPED_MIN_PAIRS``), and the single-CTA grouping
+    prologue bounds the bin count by ``CAKE_BGMV_MOE_GROUP_BINS_MAX``.
+    """
+
+    bins = int(num_loras) * int(num_experts)
+    if bins <= 0 or bins > CAKE_BGMV_MOE_GROUP_BINS_MAX:
+        return False
+    if int(num_pairs) < CAKE_BGMV_MOE_GROUPED_MIN_PAIRS:
+        return False
+    if (int(num_pairs) + CAKE_BGMV_MOE_GROUP_TILE_TOKENS - 1) // CAKE_BGMV_MOE_GROUP_TILE_TOKENS >= 65536:
+        return False
+    return cake_bgmv_moe_group_max_tiles(num_pairs, bins) < 2**31
+
+
 def cake_bgmv_moe_route_index_words(num_tokens: int) -> int:
     """int32 words of the route index proper (header + per-token entries)."""
 
@@ -176,6 +232,10 @@ class CakeBGMVMoEGenericMetadata(NamedTuple):
     shrink_prefill_symbol: str
     expand_t64_symbol: str
     expand_t128_symbol: str
+    group_build_symbol: str
+    shrink_grouped_symbol: str
+    expand_grouped_symbol: str
+    combine_grouped_symbol: str
 
 
 def cake_bgmv_moe_arch_for_capability(
@@ -300,6 +360,10 @@ def _generic_metadata(rank: int, dtype: CakeBGMVMoEDType) -> CakeBGMVMoEGenericM
         expand_t128_symbol=(
             f"kernel_flashinfer_bgmv_moe_expand_generic_token_t128_{tag}_r{rank}"
         ),
+        group_build_symbol=f"kernel_flashinfer_bgmv_moe_group_build_{tag}_r{rank}",
+        shrink_grouped_symbol=f"kernel_flashinfer_bgmv_moe_shrink_grouped_{tag}_r{rank}",
+        expand_grouped_symbol=f"kernel_flashinfer_bgmv_moe_expand_grouped_{tag}_r{rank}",
+        combine_grouped_symbol=f"kernel_flashinfer_bgmv_moe_combine_grouped_{tag}_r{rank}",
     )
 
 
@@ -455,6 +519,10 @@ def _generic_binding_source(
 #define CAKE_BGMV_MOE_SHRINK_PREFILL {metadata.shrink_prefill_symbol}
 #define CAKE_BGMV_MOE_EXPAND_T64 {metadata.expand_t64_symbol}
 #define CAKE_BGMV_MOE_EXPAND_T128 {metadata.expand_t128_symbol}
+#define CAKE_BGMV_MOE_GROUP_BUILD {metadata.group_build_symbol}
+#define CAKE_BGMV_MOE_SHRINK_GROUPED {metadata.shrink_grouped_symbol}
+#define CAKE_BGMV_MOE_EXPAND_GROUPED {metadata.expand_grouped_symbol}
+#define CAKE_BGMV_MOE_COMBINE_GROUPED {metadata.combine_grouped_symbol}
 
 #include \"cake_bgmv_moe_generic_binding.cuh\"
 """
@@ -610,6 +678,9 @@ __all__ = [
     "get_cake_bgmv_moe_module",
     "get_cake_bgmv_moe_uri",
     "select_cake_bgmv_moe_generic_shrink",
+    "select_cake_bgmv_moe_generic_grouped",
+    "cake_bgmv_moe_grouped_workspace_words",
+    "cake_bgmv_moe_group_max_tiles",
     "load_cake_bgmv_moe_generic_module",
     "load_cake_bgmv_moe_module",
     "select_cake_bgmv_moe_generic_schedule",
