@@ -337,7 +337,7 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
         static_cast<int32_t>(off.tile_table), static_cast<int32_t>(off.sorted_routes),
         static_cast<int32_t>(off.token_count), static_cast<int32_t>(off.token_routes));
     CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped group_build launch");
-    const dim3 shrink_grid(max_tiles, 1, 1);
+    const dim3 shrink_grid(max_tiles, kRank / kRankTile, kGroupTileTokens / 8);  // 8-route halves
     CAKE_BGMV_MOE_SHRINK_GROUPED<<<shrink_grid, kShrinkThreads, kShrinkGroupedSmemBytes, stream>>>(
         shrink_ptr, x_ptr, a_ptr, token_ptr, num_pairs, num_experts, hidden, num_tiles, ws_ptr,
         static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.tile_table),
