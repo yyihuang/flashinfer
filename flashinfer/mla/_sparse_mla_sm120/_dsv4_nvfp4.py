@@ -39,6 +39,12 @@ from ._execution import (
     get_sparse_mla_dsv4_nvfp4_module,
 )
 
+# DSv4 NVFP4 cache ABI constants (static_asserted in
+# include/flashinfer/attention/sparse_mla_sm120/kernels/dsv4_nvfp4/resources.cuh); the cache helpers
+# use them directly so that SM100 / SM103 never build the SM120 attention module.
+_DSV4_LATENT_DIM = 512
+_DSV4_NVFP4_BYTES_PER_TOKEN = 384
+
 
 @functools.cache
 def get_sparse_mla_nvfp4_sm120_module():
@@ -177,13 +183,13 @@ def _check_latent_kv(latent_kv: torch.Tensor, *, expected_rows: int | None) -> i
         raise ValueError(
             f"latent_kv must be 2D, 3D, or 4D, got shape={tuple(latent_kv.shape)}"
         )
-    if latent_kv.shape[-1] != dsv4_nvfp4_format_info()["query_dim"]:
+    if latent_kv.shape[-1] != _DSV4_LATENT_DIM:
         raise ValueError(
-            f"latent_kv last dimension must be {dsv4_nvfp4_format_info()['query_dim']}, got {latent_kv.shape[-1]}"
+            f"latent_kv last dimension must be {_DSV4_LATENT_DIM}, got {latent_kv.shape[-1]}"
         )
     if not latent_kv.is_contiguous():
         raise ValueError("latent_kv must be contiguous")
-    rows = latent_kv.numel() // dsv4_nvfp4_format_info()["query_dim"]
+    rows = latent_kv.numel() // _DSV4_LATENT_DIM
     if expected_rows is not None and rows != expected_rows:
         raise ValueError(
             f"latent_kv contains {rows} rows, expected {expected_rows} rows"
@@ -198,7 +204,7 @@ def _cache_shape(cache: torch.Tensor) -> tuple[int, int, str]:
         raise ValueError(f"cache must have dtype torch.uint8, got {cache.dtype}")
     if (
         cache.ndim not in (3, 4)
-        or cache.shape[-1] != dsv4_nvfp4_format_info()["bytes_per_token"]
+        or cache.shape[-1] != _DSV4_NVFP4_BYTES_PER_TOKEN
     ):
         raise ValueError(
             "cache must be [num_pages, page_size, 384], HND "
@@ -218,13 +224,13 @@ def _cache_shape(cache: torch.Tensor) -> tuple[int, int, str]:
     page_dim = 1 if cache.ndim == 3 or layout == "NHD" else 2
     if (
         cache.stride(-1) != 1
-        or cache.stride(page_dim) != dsv4_nvfp4_format_info()["bytes_per_token"]
+        or cache.stride(page_dim) != _DSV4_NVFP4_BYTES_PER_TOKEN
     ):
         raise ValueError(
             "cache entries must be contiguous inside each page with strides "
-            f"(..., {dsv4_nvfp4_format_info()['bytes_per_token']}, 1), got {cache.stride()}"
+            f"(..., {_DSV4_NVFP4_BYTES_PER_TOKEN}, 1), got {cache.stride()}"
         )
-    if cache.stride(0) < page_size * dsv4_nvfp4_format_info()["bytes_per_token"]:
+    if cache.stride(0) < page_size * _DSV4_NVFP4_BYTES_PER_TOKEN:
         raise ValueError(
             "cache page stride must cover the logical page payload, got "
             f"stride(0)={cache.stride(0)} for page_size={page_size}"
@@ -287,9 +293,9 @@ def nvfp4_quantize_pack_sparse_mla_cache(
 
     _check_latent_kv(latent_kv, expected_rows=int(num_pages) * int(page_size))
     cache_shape = (
-        (num_pages, 1, page_size, dsv4_nvfp4_format_info()["bytes_per_token"])
+        (num_pages, 1, page_size, _DSV4_NVFP4_BYTES_PER_TOKEN)
         if kv_layout == "HND"
-        else (num_pages, page_size, 1, dsv4_nvfp4_format_info()["bytes_per_token"])
+        else (num_pages, page_size, 1, _DSV4_NVFP4_BYTES_PER_TOKEN)
     )
     cache = torch.empty(cache_shape, dtype=torch.uint8, device=latent_kv.device)
     if int(num_pages) == 0 or int(page_size) == 0:
