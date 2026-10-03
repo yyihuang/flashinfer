@@ -383,17 +383,24 @@ def cake_bgmv_moe_pdl_mode(
     return 0
 
 
-# Column blocks per generic expand CTA (round 5): the widest candidate whose grid
-# keeps at least this many CTAs per SM.  Calibrated by the column-block screen
-# (both layouts, 1..24 blocks): B200 expert-sorted 3072x32x1024 0.805 at 4-6
-# blocks, contiguous 7168x32x512 0.82 at 8, 2944x32x512 0.87-0.88 at 3-12;
-# 32-token rows need every CTA (2 blocks tie, 3+ lose).  The per-column
-# arithmetic does not depend on the block count (bitwise identical output).
+# Column blocks per generic expand CTA (round 5): the widest candidate (up to the
+# per-arch maximum) that still cuts the blocks per token and keeps at least this
+# many CTAs per SM.  Calibrated by the column-block screen (both layouts, 1..24
+# blocks): Blackwell 3072x32x1024 0.81-0.82 at 4-8 blocks, 7168x32x512 0.82-0.84
+# at 6-8, 2944x32x512 0.87-0.88 at 3-12, 768x32x4096 0.83 at 6; 32-token rows
+# need every CTA (2 blocks tie, 3+ lose).  Hopper gains less and turns negative
+# above ~40 CTAs/SM (3072x32x1024 0.94 at 2-3 blocks, 1.02 at 8).  The
+# per-column arithmetic does not depend on the block count (bitwise identical).
 CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES: Tuple[int, ...] = (1, 2, 3, 4, 6, 8)
 CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM: Dict[CakeBGMVMoEArch, int] = {
-    "sm90a": 24,
+    "sm90a": 44,
     "sm100a": 24,
     "sm103a": 24,
+}
+CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX: Dict[CakeBGMVMoEArch, int] = {
+    "sm90a": 4,
+    "sm100a": 8,
+    "sm103a": 8,
 }
 
 
@@ -411,13 +418,15 @@ def cake_bgmv_moe_expand_col_blocks(
     threads = 64 if int(num_tokens) <= 8 else 128  # mirrors the token-owned t64/t128 schedules
     total = (int(hidden_size) + threads - 1) // threads
     min_ctas = CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM.get(arch, 0) * int(sm_count)
-    best = 1
+    max_blocks = CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX.get(arch, 1)
+    best, best_per_token = 1, total
     if min_ctas > 0:
         for blocks in CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES:
-            if blocks > total:
+            if blocks > total or blocks > max_blocks:
                 break
-            if int(num_tokens) * ((total + blocks - 1) // blocks) >= min_ctas:
-                best = blocks
+            per_token = (total + blocks - 1) // blocks
+            if per_token < best_per_token and int(num_tokens) * per_token >= min_ctas:
+                best, best_per_token = blocks, per_token
     return best
 
 
@@ -770,6 +779,7 @@ __all__ = [
     "CAKE_BGMV_MOE_SCHEDULE_IDS",
     "CAKE_BGMV_MOE_SHRINK_SPLIT_MAX",
     "CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES",
+    "CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX",
     "CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM",
     "CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL",
     "CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM",

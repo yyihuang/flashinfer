@@ -250,15 +250,16 @@ def test_expand_col_blocks_policy():
     blocks = cake_bgmv_moe.cake_bgmv_moe_expand_col_blocks
     assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES == (1, 2, 3, 4, 6, 8)
     assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM == {
-        "sm90a": 24,
+        "sm90a": 44,
         "sm100a": 24,
         "sm103a": 24,
     }
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX == {"sm90a": 4, "sm100a": 8, "sm103a": 8}
     # Decode-sized grids keep one block per CTA (32 tokens x 24 blocks = 768 CTAs).
     assert blocks("sm100a", 1, 3072, 148) == 1
     assert blocks("sm100a", 32, 3072, 148) == 1
     assert blocks("sm90a", 32, 3072, 132) == 1
-    # 1024 tokens x 24 blocks: 6 blocks per CTA keep 4096 CTAs (>= 24 x 148).
+    # Blackwell, 1024 tokens x 24 blocks: 6 blocks per CTA keep 4096 CTAs (>= 24 x 148).
     assert blocks("sm100a", 1024, 3072, 148) == 6
     assert blocks("sm103a", 1024, 2688, 148) == 6
     # 512 tokens x 56 blocks: 8 blocks per CTA keep 3584 CTAs.
@@ -267,6 +268,11 @@ def test_expand_col_blocks_policy():
     assert blocks("sm100a", 512, 2944, 148) == 3
     # 4096 tokens x 6 blocks: one CTA per token (6 blocks) keeps 4096 CTAs.
     assert blocks("sm100a", 4096, 768, 148) == 6
+    # Hopper: at most 4 blocks and >= 44 CTAs per SM (5808 on 132 SMs).
+    assert blocks("sm90a", 1024, 3072, 132) == 4  # 6144 CTAs
+    assert blocks("sm90a", 512, 2944, 132) == 2  # 6144 CTAs; 3 blocks would leave 4096
+    assert blocks("sm90a", 512, 7168, 132) == 4  # 7168 CTAs
+    assert blocks("sm90a", 4096, 768, 132) == 3  # 2 blocks per token; 4 blocks would not cut the count
     # Unknown architectures fall back to one block.
     assert blocks("sm120a", 1024, 3072, 148) == 1  # type: ignore[arg-type]
     with pytest.raises(ValueError):
