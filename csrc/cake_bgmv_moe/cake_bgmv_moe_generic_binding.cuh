@@ -93,6 +93,10 @@ constexpr int32_t kShrinkSplitCounterWords = kShrinkSplitMaxPairs * (64 / kRankT
 // partials in ascending pair order.
 constexpr int32_t kGroupThreads = 1024;
 constexpr int32_t kGroupTileTokens = 16;
+constexpr int32_t kGroupShrinkRankTile = 8;  // rank rows per grouped-shrink CTA
+constexpr int32_t kGroupShrinkRoutes = 4;    // routes per grouped-shrink CTA
+static_assert(kGroupTileTokens % kGroupShrinkRoutes == 0, "route tile must split into whole grouped-shrink parts");
+static_assert(kRank % kGroupShrinkRankTile == 0, "rank must be a multiple of the grouped shrink rank tile");
 constexpr int32_t kGroupBinsMax = 4096;
 constexpr int32_t kGroupHeaderWords = 4;
 constexpr int32_t kGroupExpandThreads = 256;
@@ -337,7 +341,9 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
         static_cast<int32_t>(off.tile_table), static_cast<int32_t>(off.sorted_routes),
         static_cast<int32_t>(off.token_count), static_cast<int32_t>(off.token_routes));
     CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped group_build launch");
-    const dim3 shrink_grid(max_tiles, kRank / kRankTile, kGroupTileTokens / 8);  // 8-route halves
+    // Route-tile parts interleaved in grid.x so the parts of a tile co-schedule
+    // (repeated reads of the group weight rows hit L2).
+    const dim3 shrink_grid(max_tiles * (kGroupTileTokens / kGroupShrinkRoutes), kRank / kGroupShrinkRankTile, 1);
     CAKE_BGMV_MOE_SHRINK_GROUPED<<<shrink_grid, kShrinkThreads, kShrinkGroupedSmemBytes, stream>>>(
         shrink_ptr, x_ptr, a_ptr, token_ptr, num_pairs, num_experts, hidden, num_tiles, ws_ptr,
         static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.tile_table),
