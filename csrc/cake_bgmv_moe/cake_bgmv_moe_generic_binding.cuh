@@ -210,7 +210,7 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
          TensorView lora_indices, TensorView topk_weights, TensorView route_index,
          int64_t schedule_value, int64_t shrink_decode, int64_t shrink_splits,
          int64_t grouped, TensorView group_workspace, TensorView group_partials,
-         int64_t pdl_mode, int64_t expand_col_blocks, int64_t cuda_stream) {
+         int64_t pdl_mode, int64_t cuda_stream) {
   TVM_FFI_ICHECK(cuda_stream >= 0) << "cuda_stream must be a non-negative stream handle";
   TVM_FFI_ICHECK(pdl_mode >= 0 && pdl_mode <= 2)
       << "pdl_mode must be 0 (off), 1 (early trigger) or 2 (late trigger), got " << pdl_mode;
@@ -220,13 +220,6 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   // shrink output or the route index.  Without the launch attribute both
   // instructions are no-ops, so mode 0 is the plain two-launch pipeline.
   const int32_t pdl_early = pdl_mode == 1 ? 1 : 0;
-  // The expand's contiguous path prefetches its B rows before the grid
-  // dependency wait only when it is a programmatic dependent; a plain launch
-  // takes the interleaved load/FMA form (same arithmetic, bitwise identical).
-  const int32_t pdl_prefetch = pdl_mode != 0 ? 1 : 0;
-  TVM_FFI_ICHECK(expand_col_blocks >= 1)
-      << "expand_col_blocks must be >= 1 (column blocks of the expand CTA width per CTA), got "
-      << expand_col_blocks;
   CHECK_CUDA(x);
   const int32_t device_id = x.device().device_id;
   ffi::CUDADeviceGuard device_guard(device_id);
@@ -426,20 +419,13 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   // weight prefetch overlap the shrink grid's tail.  Captured into a graph this
   // becomes a programmatic dependency edge.
   const int32_t expand_threads = schedule == Schedule::kTokenOwnedT64 ? 64 : 128;
-  // A CTA owns ``col_blocks`` consecutive blocks of ``expand_threads`` columns and
-  // decodes the token's route list once for all of them (per-column arithmetic is
-  // unchanged, so the result is independent of the block count).
   // PDL launches take the register-prefetch forms (both routes' B rows are in
-  // flight before griddepcontrol.wait; a CTA may own several column blocks);
-  // plain launches take the round-4 single-block interleaved forms so the CTA
-  // count per SM stays at the plain-launch optimum.
+  // flight before griddepcontrol.wait); plain launches take the round-4
+  // interleaved forms, which keep the plain-launch occupancy.
   const bool prefetch_form = pdl_mode != 0;
   const int32_t col_blocks_total = (hidden + expand_threads - 1) / expand_threads;
-  const int32_t col_blocks =
-      prefetch_form ? static_cast<int32_t>(std::min<int64_t>(expand_col_blocks, col_blocks_total))
-                    : 1;
   cudaLaunchConfig_t config = {};
-  config.gridDim = dim3(num_tokens, (col_blocks_total + col_blocks - 1) / col_blocks, 1);
+  config.gridDim = dim3(num_tokens, col_blocks_total, 1);
   config.blockDim = dim3(expand_threads, 1, 1);
   config.dynamicSmemBytes = schedule == Schedule::kTokenOwnedT64 ? kExpandT64SmemBytes
                                                                   : kExpandT128SmemBytes;
@@ -457,11 +443,11 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
           ? cudaLaunchKernelEx(&config, expand_kernel_t64, y_ptr, shrink_ptr, b_ptr, token_ptr,
                                expert_ptr, lora_ptr, weight_ptr, num_pairs, num_experts,
                                num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
-                               kRouteAdvance, hidden, col_blocks, pdl_prefetch)
+                               kRouteAdvance, hidden)
           : cudaLaunchKernelEx(&config, expand_kernel_t128, y_ptr, shrink_ptr, b_ptr, token_ptr,
                                expert_ptr, lora_ptr, weight_ptr, num_pairs, num_experts,
                                num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
-                               kRouteAdvance, hidden, col_blocks, pdl_prefetch);
+                               kRouteAdvance, hidden);
   CheckCuda(expand_status, "Cake BGMV MoE generic expand launch");
 }
 

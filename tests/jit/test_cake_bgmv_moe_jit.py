@@ -219,9 +219,15 @@ def test_variant_routing_by_token_count(hidden_size, num_tokens, expected):
         "sm103a": (32, 1024),
     }
     for arch in ("sm100a", "sm103a"):
-        assert cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens, arch) == expected
+        assert (
+            cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens, arch)
+            == expected
+        )
     # Hopper: the generic bundle wins or ties at every token count.
-    assert cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens, "sm90a") == "generic"
+    assert (
+        cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens, "sm90a")
+        == "generic"
+    )
     # Support queries (no token count) keep the specialized answer.
     assert cake_bgmv_moe.cake_bgmv_moe_variant(3072, 32) == "specialized"
 
@@ -245,58 +251,6 @@ def test_pdl_mode_policy():
     assert pdl("sm103a", 1024, 2688, 148, "specialized") == 0
     assert pdl("sm100a", 32, 3072, 148, "specialized") == 0
     assert pdl("sm90a", 32, 3072, 132, "specialized") == 0
-
-
-def test_expand_col_blocks_policy():
-    blocks = cake_bgmv_moe.cake_bgmv_moe_expand_col_blocks
-    assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES == (1, 2, 3, 4, 6, 8)
-    assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM == {
-        "sm90a": 44,
-        "sm100a": 24,
-        "sm103a": 24,
-    }
-    assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX == {"sm90a": 4, "sm100a": 8, "sm103a": 8}
-    # Decode-sized grids keep one block per CTA (32 tokens x 24 blocks = 768 CTAs).
-    assert blocks("sm100a", 1, 3072, 148) == 1
-    assert blocks("sm100a", 32, 3072, 148) == 1
-    assert blocks("sm90a", 32, 3072, 132) == 1
-    # Blackwell, 1024 tokens x 24 blocks: 6 blocks per CTA keep 4096 CTAs (>= 24 x 148).
-    assert blocks("sm100a", 1024, 3072, 148) == 6
-    assert blocks("sm103a", 1024, 2688, 148) == 6
-    # 512 tokens x 56 blocks: 8 blocks per CTA keep 3584 CTAs.
-    assert blocks("sm100a", 512, 7168, 148) == 8
-    # 512 tokens x 23 blocks: 3 blocks per CTA keep 4096 CTAs; 4 would leave 3072.
-    assert blocks("sm100a", 512, 2944, 148) == 3
-    # 4096 tokens x 6 blocks: one CTA per token (6 blocks) keeps 4096 CTAs.
-    assert blocks("sm100a", 4096, 768, 148) == 6
-    # Hopper: at most 4 blocks and >= 44 CTAs per SM (5808 on 132 SMs).
-    assert blocks("sm90a", 1024, 3072, 132) == 4  # 6144 CTAs
-    assert blocks("sm90a", 512, 2944, 132) == 2  # 6144 CTAs; 3 blocks would leave 4096
-    assert blocks("sm90a", 512, 7168, 132) == 4  # 7168 CTAs
-    assert blocks("sm90a", 4096, 768, 132) == 3  # 2 blocks per token; 4 blocks would not cut the count
-    # Unknown architectures fall back to one block.
-    assert blocks("sm120a", 1024, 3072, 148) == 1  # type: ignore[arg-type]
-    with pytest.raises(ValueError):
-        blocks("sm100a", 0, 3072, 148)
-
-
-@pytest.mark.parametrize("arch", cake_bgmv_moe.CAKE_BGMV_MOE_ARCHES)
-@pytest.mark.parametrize(
-    ("hidden_size", "num_tokens", "expected"),
-    [
-        (2048, 1, "token_owned_t64"),
-        (2048, 8, "token_owned_t64"),
-        (2048, 9, "token_owned_t128"),
-        (736, 512, "token_owned_t128"),
-    ],
-)
-def test_generic_selector(arch, hidden_size, num_tokens, expected):
-    assert (
-        cake_bgmv_moe.select_cake_bgmv_moe_generic_schedule(
-            hidden_size, num_tokens, arch
-        )
-        == expected
-    )
 
 
 def test_generic_selector_rejects_unsupported_inputs():
@@ -417,14 +371,18 @@ def test_generic_binding_preserves_graph_and_tensor_contracts():
     # PDL launches select the register-prefetch expand forms; plain launches the
     # lower-register interleaved forms (both are rendered into every bundle).
     assert "const bool prefetch_form = pdl_mode != 0;" in binding
-    assert "prefetch_form ? static_cast<int32_t>(std::min<int64_t>(expand_col_blocks, col_blocks_total))" in binding
-    assert "prefetch_form ? CAKE_BGMV_MOE_EXPAND_T64_PF : CAKE_BGMV_MOE_EXPAND_T64" in binding
-    assert "prefetch_form ? CAKE_BGMV_MOE_EXPAND_T128_PF : CAKE_BGMV_MOE_EXPAND_T128" in binding
+    assert (
+        "prefetch_form ? CAKE_BGMV_MOE_EXPAND_T64_PF : CAKE_BGMV_MOE_EXPAND_T64"
+        in binding
+    )
+    assert (
+        "prefetch_form ? CAKE_BGMV_MOE_EXPAND_T128_PF : CAKE_BGMV_MOE_EXPAND_T128"
+        in binding
+    )
     assert "cudaLaunchAttributeProgrammaticStreamSerialization" in binding
     assert "programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0" in binding
-    assert "int64_t pdl_mode, int64_t expand_col_blocks, int64_t cuda_stream" in binding
-    assert "const int32_t pdl_prefetch = pdl_mode != 0 ? 1 : 0;" in binding
-    assert "kRouteAdvance, hidden, col_blocks, pdl_prefetch)" in binding
+    assert "int64_t pdl_mode, int64_t cuda_stream" in binding
+    assert "kRouteAdvance, hidden)" in binding
     assert "TensorView route_index" in binding
     assert "CHECK_INPUT_TYPE(route_index, dl_int32)" in binding
     assert "kRouteIndexWordsPerToken = 3 + kRouteIndexMaxRoutes" in binding
@@ -504,7 +462,9 @@ def test_grouped_workspace_sizing_and_selector():
     assert not select(8192, 4096, 8, 128, 768, 8)
     assert not select(8192, 4096, 8, 128, 4096, 8)  # B200/GB300 tie at hidden 4096
     assert select(8192, 4096, 8, 128, 5888, 8)
-    assert not select(8192, 4096, 8, 128, 768, 16)  # 12288 weight elems: H100 lost 3.6 % grouped
+    assert not select(
+        8192, 4096, 8, 128, 768, 16
+    )  # 12288 weight elems: H100 lost 3.6 % grouped
     assert select(8192, 4096, 8, 128, 1024, 16)
     assert select(8192, 4096, 8, 128, 2048, 16)
     assert select(8192, 4096, 8, 128, 768, 32)

@@ -107,17 +107,22 @@ CAKE_BGMV_MOE_GROUPED_MIN_WEIGHT_ELEMS_R8 = 47104
 def cake_bgmv_moe_group_max_tiles(num_pairs: int, bins: int) -> int:
     """Upper bound on the (group, token chunk) tiles of the grouped kernels."""
 
-    return (int(num_pairs) + CAKE_BGMV_MOE_GROUP_TILE_TOKENS - 1) // CAKE_BGMV_MOE_GROUP_TILE_TOKENS + int(bins)
+    return (
+        int(num_pairs) + CAKE_BGMV_MOE_GROUP_TILE_TOKENS - 1
+    ) // CAKE_BGMV_MOE_GROUP_TILE_TOKENS + int(bins)
 
 
-def cake_bgmv_moe_grouped_workspace_words(num_pairs: int, num_tokens: int, bins: int) -> int:
+def cake_bgmv_moe_grouped_workspace_words(
+    num_pairs: int, num_tokens: int, bins: int
+) -> int:
     """int32 words of the grouping workspace (mirrors the binding's ComputeGroupedOffsets)."""
 
     num_pairs, num_tokens, bins = int(num_pairs), int(num_tokens), int(bins)
     return (
         CAKE_BGMV_MOE_GROUP_HEADER_WORDS
         + bins  # bin counts
-        + bins + 1  # bin offsets
+        + bins
+        + 1  # bin offsets
         + bins  # fill counters
         + cake_bgmv_moe_group_max_tiles(num_pairs, bins)
         + num_pairs  # grouped route ids
@@ -160,7 +165,9 @@ def select_cake_bgmv_moe_generic_grouped(
     )
     if int(hidden_size) * int(rank) < min_elems:
         return False
-    if (int(num_pairs) + CAKE_BGMV_MOE_GROUP_TILE_TOKENS - 1) // CAKE_BGMV_MOE_GROUP_TILE_TOKENS >= 65536:
+    if (
+        int(num_pairs) + CAKE_BGMV_MOE_GROUP_TILE_TOKENS - 1
+    ) // CAKE_BGMV_MOE_GROUP_TILE_TOKENS >= 65536:
         return False
     return cake_bgmv_moe_group_max_tiles(num_pairs, bins) < 2**31
 
@@ -338,7 +345,9 @@ def _check_generic_rank(rank: int) -> None:
 # above it the generic pair-grouped pipeline wins (~0.65 at 2048 tokens).  On
 # Hopper the generic bundle wins or ties at every token count.  Measured in
 # round 5 (lever 8, fair screens with PDL on both arms, 3 interleaved reps).
-CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW: Dict[CakeBGMVMoEArch, Optional[Tuple[int, int]]] = {
+CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW: Dict[
+    CakeBGMVMoEArch, Optional[Tuple[int, int]]
+] = {
     "sm90a": None,
     "sm100a": (32, 1024),
     "sm103a": (32, 1024),
@@ -387,56 +396,6 @@ def cake_bgmv_moe_pdl_mode(
     if arch == "sm90a":
         return 1 if small else 0
     return 0
-
-
-# Column blocks per generic expand CTA (round 5): the widest candidate (up to the
-# per-arch maximum) that still cuts the blocks per token and keeps at least this
-# many CTAs per SM.  Calibrated by the column-block screen (both layouts, 1..24
-# blocks): Blackwell 3072x32x1024 0.81-0.82 at 4-8 blocks, 7168x32x512 0.82-0.84
-# at 6-8, 2944x32x512 0.87-0.88 at 3-12, 768x32x4096 0.83 at 6; 32-token rows
-# need every CTA (2 blocks tie, 3+ lose).  Hopper gains less and turns negative
-# above ~40 CTAs/SM (3072x32x1024 0.94 at 2-3 blocks, 1.02 at 8).  The
-# per-column arithmetic does not depend on the block count (bitwise identical).
-CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES: Tuple[int, ...] = (1, 2, 3, 4, 6, 8)
-CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM: Dict[CakeBGMVMoEArch, int] = {
-    "sm90a": 44,
-    "sm100a": 24,
-    "sm103a": 24,
-}
-CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX: Dict[CakeBGMVMoEArch, int] = {
-    "sm90a": 4,
-    "sm100a": 8,
-    "sm103a": 8,
-}
-
-
-def cake_bgmv_moe_expand_col_blocks(
-    arch: CakeBGMVMoEArch, num_tokens: int, hidden_size: int, sm_count: int
-) -> int:
-    """Column blocks (of the expand CTA width) per generic expand CTA.
-
-    One block keeps the decode-sized grid wide; fatter CTAs amortize the per-CTA
-    route-index decode once the token grid alone fills the GPU (calibrated by the
-    round-5 column-block screen).
-    The binding applies the column-block count to PDL launches only (the
-    register-prefetch expand forms); plain launches run the single-block forms.
-    """
-
-    if int(num_tokens) <= 0 or int(hidden_size) <= 0:
-        raise ValueError("num_tokens and hidden_size must be positive")
-    threads = 64 if int(num_tokens) <= 8 else 128  # mirrors the token-owned t64/t128 schedules
-    total = (int(hidden_size) + threads - 1) // threads
-    min_ctas = CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM.get(arch, 0) * int(sm_count)
-    max_blocks = CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX.get(arch, 1)
-    best, best_per_token = 1, total
-    if min_ctas > 0:
-        for blocks in CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES:
-            if blocks > total or blocks > max_blocks:
-                break
-            per_token = (total + blocks - 1) // blocks
-            if per_token < best_per_token and int(num_tokens) * per_token >= min_ctas:
-                best, best_per_token = blocks, per_token
-    return best
 
 
 def cake_bgmv_moe_variant(
@@ -798,13 +757,9 @@ __all__ = [
     "CAKE_BGMV_MOE_ROUTE_INDEX_WORDS_PER_TOKEN",
     "CAKE_BGMV_MOE_SCHEDULE_IDS",
     "CAKE_BGMV_MOE_SHRINK_SPLIT_MAX",
-    "CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES",
-    "CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MAX",
-    "CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM",
     "CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL",
     "CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM",
     "CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW",
-    "cake_bgmv_moe_expand_col_blocks",
     "cake_bgmv_moe_pdl_mode",
     "CAKE_BGMV_MOE_SHRINK_SPLIT_MAX_PAIRS",
     "CakeBGMVMoEArch",
