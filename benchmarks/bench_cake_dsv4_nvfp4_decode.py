@@ -161,17 +161,19 @@ def bench_row(label, num_tokens, num_heads, topk, extra_topk, extra_page_size, d
 
 
 def bench_trtllm_fp8(num_tokens, num_heads, total_topk, device, gen):
-    """Informational TRTLLM-GEN FP8 DSv4 sparse decode on the same selection count, or None."""
+    """Informational TRTLLM-GEN FP8 DSv4 sparse decode on the same selection count, or None.
+
+    FP8 E4M3 pools of 512-wide rows (SWA and compressed), a per-tensor FP8 query, one combined
+    selection table whose first 128 columns are SWA entries and the rest compressed entries.
+    """
     total_topk = max(total_topk, 128)
     try:
         pages = POOL_TOKENS // PAGE_SIZE
-        # FP8 DSv4 pools (584-byte rows) and a per-tensor FP8 query, as the trtllm-gen route expects
-        swa = torch.randint(0, 255, (pages, 1, PAGE_SIZE, 584), generator=gen, device=device, dtype=torch.uint8).view(torch.float8_e4m3fn)
-        comp = torch.randint(0, 255, (pages, 1, PAGE_SIZE, 584), generator=gen, device=device, dtype=torch.uint8).view(torch.float8_e4m3fn)
+        swa = torch.randn(pages, 1, PAGE_SIZE, HEAD_DIM, generator=gen, device=device).to(torch.float8_e4m3fn)
+        comp = torch.randn(pages, 1, PAGE_SIZE, HEAD_DIM, generator=gen, device=device).to(torch.float8_e4m3fn)
         idx = random_indices(num_tokens, total_topk, POOL_TOKENS, gen, device)
         lens = torch.full((num_tokens,), total_topk, dtype=torch.int32, device=device)
         seq_lens = torch.full((num_tokens,), 4096, dtype=torch.int32, device=device)
-        # trtllm-gen takes a dense [batch, q_len, heads, dim] query
         query = torch.randn(num_tokens, 1, num_heads, HEAD_DIM, generator=gen, device=device).to(torch.float8_e4m3fn)
         workspace = torch.zeros(128 * 1024 * 1024, dtype=torch.uint8, device=device)
 
