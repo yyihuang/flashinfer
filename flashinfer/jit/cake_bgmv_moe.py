@@ -258,6 +258,8 @@ class CakeBGMVMoEGenericMetadata(NamedTuple):
     body: str
     shrink_decode_symbol: str
     shrink_prefill_symbol: str
+    shrink_decode_pdl_symbol: str
+    shrink_prefill_pdl_symbol: str
     expand_t64_symbol: str
     expand_t128_symbol: str
     expand_t64_pf_symbol: str
@@ -443,6 +445,14 @@ def _generic_metadata(rank: int, dtype: CakeBGMVMoEDType) -> CakeBGMVMoEGenericM
         shrink_prefill_symbol=(
             f"kernel_flashinfer_bgmv_moe_shrink_generic_{tag}_r{rank}_p1_s2"
         ),
+        # PDL forms: griddepcontrol.launch_dependents (early/late by pdl_early);
+        # selected by the binding together with the prefetch expand forms.
+        shrink_decode_pdl_symbol=(
+            f"kernel_flashinfer_bgmv_moe_shrink_generic_{tag}_r{rank}_p4_s3_pdl"
+        ),
+        shrink_prefill_pdl_symbol=(
+            f"kernel_flashinfer_bgmv_moe_shrink_generic_{tag}_r{rank}_p1_s2_pdl"
+        ),
         expand_t64_symbol=(
             f"kernel_flashinfer_bgmv_moe_expand_generic_token_t64_{tag}_r{rank}"
         ),
@@ -615,6 +625,8 @@ def _generic_binding_source(
 #define CAKE_BGMV_MOE_CC_MINOR {minor}
 #define CAKE_BGMV_MOE_SHRINK_DECODE {metadata.shrink_decode_symbol}
 #define CAKE_BGMV_MOE_SHRINK_PREFILL {metadata.shrink_prefill_symbol}
+#define CAKE_BGMV_MOE_SHRINK_DECODE_PDL {metadata.shrink_decode_pdl_symbol}
+#define CAKE_BGMV_MOE_SHRINK_PREFILL_PDL {metadata.shrink_prefill_pdl_symbol}
 #define CAKE_BGMV_MOE_EXPAND_T64 {metadata.expand_t64_symbol}
 #define CAKE_BGMV_MOE_EXPAND_T128 {metadata.expand_t128_symbol}
 #define CAKE_BGMV_MOE_EXPAND_T64_PF {metadata.expand_t64_pf_symbol}

@@ -11,6 +11,8 @@
  *   CAKE_BGMV_MOE_CC_MAJOR / _MINOR   compute capability this module was built for
  *   CAKE_BGMV_MOE_SHRINK_DECODE       generated decode shrink kernel (PPB=4, 3 stages)
  *   CAKE_BGMV_MOE_SHRINK_PREFILL      generated prefill shrink kernel (PPB=1, 2 stages)
+ *   CAKE_BGMV_MOE_SHRINK_DECODE_PDL   decode shrink with griddepcontrol.launch_dependents (PDL launches)
+ *   CAKE_BGMV_MOE_SHRINK_PREFILL_PDL  prefill shrink with griddepcontrol.launch_dependents (PDL launches)
  *   CAKE_BGMV_MOE_EXPAND_T64          generated 64-lane token-owned expand kernel
  *   CAKE_BGMV_MOE_EXPAND_T128         generated 128-lane token-owned expand kernel
  *   CAKE_BGMV_MOE_EXPAND_T64_PF       64-lane expand, B rows register-prefetched before the PDL wait
@@ -65,6 +67,10 @@ constexpr int32_t kShrinkDecodePairsPerBlock = 4;
 // the shrink kernels, routed activations plus the route list for expand).
 constexpr int32_t kShrinkDecodeSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_DECODE;
 constexpr int32_t kShrinkPrefillSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL;
+static_assert(CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_DECODE_PDL == kShrinkDecodeSmemBytes,
+              "decode shrink forms must share smem");
+static_assert(CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL_PDL == kShrinkPrefillSmemBytes,
+              "prefill shrink forms must share smem");
 constexpr int32_t kExpandT64SmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64;
 constexpr int32_t kExpandT128SmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128;
 constexpr int32_t kExpandT64PfSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64_PF;
@@ -189,6 +195,9 @@ void Configure() {
       cudaFuncSetAttribute(CAKE_BGMV_MOE_SHRINK_DECODE, cudaFuncAttributeMaxDynamicSharedMemorySize,
                            kShrinkDecodeSmemBytes),
       "cudaFuncSetAttribute(Cake BGMV MoE decode shrink)");
+  CheckCuda(cudaFuncSetAttribute(CAKE_BGMV_MOE_SHRINK_DECODE_PDL,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, kShrinkDecodeSmemBytes),
+            "cudaFuncSetAttribute(Cake BGMV MoE decode shrink, PDL form)");
   TVM_FFI_ICHECK(max_dynamic_smem >= kShrinkGroupedSmemBytes)
       << "Cake BGMV MoE grouped shrink requires " << kShrinkGroupedSmemBytes
       << " bytes of dynamic shared memory, but device " << device_id << " supports "
@@ -394,20 +403,40 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   auto* split_partials = reinterpret_cast<float*>(route_ptr + route_words);
   auto* split_counters = route_ptr + route_words + kShrinkSplitPartialWords;
   const dim3 shrink_block(kShrinkThreads, 1, 1);
+  // Kernel forms by launch mode: the PDL forms carry griddepcontrol (shrink:
+  // launch_dependents, early or late by pdl_early; expand: wait after the
+  // register B-row prefetch); the plain forms carry no PDL instruction.
+  const bool prefetch_form = pdl_mode != 0;
   if (shrink_decode != 0) {
     const dim3 shrink_grid(
         (num_pairs + kShrinkDecodePairsPerBlock - 1) / kShrinkDecodePairsPerBlock,
         kRank / kRankTile, splits);
-    CAKE_BGMV_MOE_SHRINK_DECODE<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes, stream>>>(
-        shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
-        num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
-        splits, pdl_early);
+    if (prefetch_form) {
+      CAKE_BGMV_MOE_SHRINK_DECODE_PDL<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes,
+                                        stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    } else {
+      CAKE_BGMV_MOE_SHRINK_DECODE<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes, stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    }
   } else {
     const dim3 shrink_grid(num_pairs, kRank / kRankTile, splits);
-    CAKE_BGMV_MOE_SHRINK_PREFILL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes, stream>>>(
-        shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
-        num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
-        splits, pdl_early);
+    if (prefetch_form) {
+      CAKE_BGMV_MOE_SHRINK_PREFILL_PDL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes,
+                                         stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    } else {
+      CAKE_BGMV_MOE_SHRINK_PREFILL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes, stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    }
   }
   CheckCuda(cudaGetLastError(), "Cake BGMV MoE generic shrink launch");
 
@@ -419,10 +448,9 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   // weight prefetch overlap the shrink grid's tail.  Captured into a graph this
   // becomes a programmatic dependency edge.
   const int32_t expand_threads = schedule == Schedule::kTokenOwnedT64 ? 64 : 128;
-  // PDL launches take the register-prefetch forms (both routes' B rows are in
-  // flight before griddepcontrol.wait); plain launches take the round-4
+  // PDL launches take the register-prefetch expand forms (both routes' B rows
+  // are in flight before griddepcontrol.wait); plain launches take the round-4
   // interleaved forms, which keep the plain-launch occupancy.
-  const bool prefetch_form = pdl_mode != 0;
   const int32_t col_blocks_total = (hidden + expand_threads - 1) / expand_threads;
   cudaLaunchConfig_t config = {};
   config.gridDim = dim3(num_tokens, col_blocks_total, 1);

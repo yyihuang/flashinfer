@@ -302,6 +302,8 @@ def test_generic_jit_spec_binds_generated_source_per_arch(
     for macro in (
         "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_DECODE 221824",
         "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL 37120",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_DECODE_PDL 221824",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL_PDL 37120",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64 ",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128 ",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64_PF ",
@@ -364,6 +366,8 @@ def test_generic_binding_preserves_graph_and_tensor_contracts():
     assert "x.size(1) % kVec == 0" in binding
     assert "CAKE_BGMV_MOE_SHRINK_DECODE<<<" in binding
     assert "CAKE_BGMV_MOE_SHRINK_PREFILL<<<" in binding
+    assert "CAKE_BGMV_MOE_SHRINK_DECODE_PDL<<<" in binding
+    assert "CAKE_BGMV_MOE_SHRINK_PREFILL_PDL<<<" in binding
     # The expand is a programmatic dependent launch of the shrink (PDL): the
     # expand grid may start while the shrink drains and waits in-kernel.
     assert "cudaLaunchKernelEx(&config, expand_kernel_t64," in binding
