@@ -1046,10 +1046,10 @@ _ARCH_REGISTRATIONS = {
                 ],
                 "entry": "run",
                 "host_linkage_flags": [],
-                "identity": "63eb05f7949afbbafd6a11212e3d4e84b313789f3fcda99df0cb6f8dc16a7338",
+                "identity": "59c7b89b968e9a9dbfb667e03f7b0a3e701cb2d06e75f9701c81fe74614c3f6a",
                 "sources": [
-                    "cake_dsv4_a03f32a5abb11cc23977_kernel.cu",
-                    "cake_dsv4_a03f32a5abb11cc23977_binding.cu",
+                    "cake_dsv4_094d909ad15024f32bce_kernel.cu",
+                    "cake_dsv4_094d909ad15024f32bce_binding.cu",
                 ],
                 "tma_workspace_bytes": 0,
             },
