@@ -70,7 +70,10 @@ _DISPATCH_SOURCES: _Sources = (
     ("sm90_push_a2a.cuh", _PROTOCOL_HEADER),
 )
 _COMBINE_PREREDUCED_SOURCES: _Sources = (
-    ("cake_combine_prereduced_bf16.cu", _SOURCE_DIR / "cake_combine_prereduced_bf16.cu"),
+    (
+        "cake_combine_prereduced_bf16.cu",
+        _SOURCE_DIR / "cake_combine_prereduced_bf16.cu",
+    ),
     ("sm90_push_a2a.cuh", _PROTOCOL_HEADER),
 )
 _COMBINE_TAIL_PREREDUCED_SOURCES: _Sources = (
