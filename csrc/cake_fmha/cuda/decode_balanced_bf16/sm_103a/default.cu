@@ -1378,7 +1378,6 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
                 if (publish_split != 0) {
                     asm volatile("barrier.sync 10, 128;" ::: "memory");
                     if (wg_tid_c == 0) {
-                        asm volatile("fence.release.gpu;" ::: "memory");
                         unsigned int _atomic_old_2;
                         asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
                             : "=r"(_atomic_old_2) : "l"(&tile_counters[counter_idx_c]), "r"(static_cast<uint32_t>(1)) : "memory");
@@ -1390,12 +1389,24 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
                     if (merge_flag != 0) {
                         asm volatile("fence.acquire.gpu;" ::: "memory");
                         float merge_max = -CAKE_FMHA_INF;
+                        int n_batch_a = (n_chunks_c + 3) / 4;
                         #pragma unroll 1
-                        for (int c_a = 0; c_a < n_chunks_c; c_a++) {
-                            if (lane < 8) {
-                                int slot_a = slot_tile_base_c + c_a * slot_stride;
-                                float m_a = partial_stats[slot_a * 16 + lane];
-                                float _max_15 = max_noftz(merge_max, m_a);
+                        for (int cb_a = 0; cb_a < n_batch_a; cb_a++) {
+                            float m_bat[4];
+                            #pragma unroll
+                            for (int j_a = 0; j_a < 4; j_a++) {
+                                m_bat[j_a] = -CAKE_FMHA_INF;
+                                int c_aj = cb_a * 4 + j_a;
+                                if (c_aj < n_chunks_c) {
+                                    if (lane < 8) {
+                                        int slot_aj = slot_tile_base_c + c_aj * slot_stride;
+                                        m_bat[j_a] = partial_stats[slot_aj * 16 + lane];
+                                    }
+                                }
+                            }
+                            #pragma unroll
+                            for (int j_a_1 = 0; j_a_1 < 4; j_a_1++) {
+                                float _max_15 = max_noftz(merge_max, m_bat[j_a_1]);
                                 merge_max = _max_15;
                             }
                         }
@@ -1405,28 +1416,55 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
                             merge_acc[h_8] = 0.0f;
                         }
                         float merge_den = 0.0f;
+                        int n_batch_b = (n_chunks_c + 1) / 2;
                         #pragma unroll 1
-                        for (int c_b = 0; c_b < n_chunks_c; c_b++) {
-                            int slot_b = slot_tile_base_c + c_b * slot_stride;
-                            float w_lane = 0.0f;
-                            if (lane < 8) {
-                                float m_b = partial_stats[slot_b * 16 + lane];
-                                float l_b = partial_stats[slot_b * 16 + 8 + lane];
-                                if (m_b > -CAKE_FMHA_INF) {
-                                    float _expf_6 = __expf(softmax_scale * (m_b - merge_max));
-                                    w_lane = _expf_6;
-                                }
-                                merge_den = merge_den + w_lane * l_b;
-                            }
-                            int o_base_b = slot_b * 1024 + d_idx;
+                        for (int cb_b = 0; cb_b < n_batch_b; cb_b++) {
+                            float mb_bat[2];
+                            float lb_bat[2];
+                            float ob_bat[16];
                             #pragma unroll
-                            for (int h_9 = 0; h_9 < 8; h_9++) {
-                                float _shfl_16;
-                                asm volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=f"(_shfl_16) : "f"(w_lane), "r"(h_9));
-                                float w_h = _shfl_16;
-                                float o_b = partial_o[o_base_b + h_9 * HEAD_DIM];
-                                float _fma_0 = __fmaf_rn(o_b, w_h, merge_acc[h_9]);
-                                merge_acc[h_9] = _fma_0;
+                            for (int j_b = 0; j_b < 2; j_b++) {
+                                mb_bat[j_b] = -CAKE_FMHA_INF;
+                                lb_bat[j_b] = 0.0f;
+                                #pragma unroll
+                                for (int r_b = 0; r_b < 8; r_b++) {
+                                    ob_bat[8 * j_b + r_b] = 0.0f;
+                                }
+                                int c_bj = cb_b * 2 + j_b;
+                                if (c_bj < n_chunks_c) {
+                                    int slot_bj = slot_tile_base_c + c_bj * slot_stride;
+                                    if (lane < 8) {
+                                        mb_bat[j_b] = partial_stats[slot_bj * 16 + lane];
+                                        lb_bat[j_b] = partial_stats[slot_bj * 16 + 8 + lane];
+                                    }
+                                    int o_base_bj = slot_bj * 1024 + d_idx;
+                                    #pragma unroll
+                                    for (int r_b_1 = 0; r_b_1 < 8; r_b_1++) {
+                                        ob_bat[8 * j_b + r_b_1] = partial_o[o_base_bj + r_b_1 * HEAD_DIM];
+                                    }
+                                }
+                            }
+                            #pragma unroll
+                            for (int j_b_1 = 0; j_b_1 < 2; j_b_1++) {
+                                int c_bk = cb_b * 2 + j_b_1;
+                                if (c_bk < n_chunks_c) {
+                                    float w_lane_j = 0.0f;
+                                    if (lane < 8) {
+                                        if (mb_bat[j_b_1] > -CAKE_FMHA_INF) {
+                                            float _expf_6 = __expf(softmax_scale * (mb_bat[j_b_1] - merge_max));
+                                            w_lane_j = _expf_6;
+                                        }
+                                        merge_den = merge_den + w_lane_j * lb_bat[j_b_1];
+                                    }
+                                    #pragma unroll
+                                    for (int r_b_2 = 0; r_b_2 < 8; r_b_2++) {
+                                        float _shfl_16;
+                                        asm volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=f"(_shfl_16) : "f"(w_lane_j), "r"(r_b_2));
+                                        float w_hj = _shfl_16;
+                                        float _fma_0 = __fmaf_rn(ob_bat[8 * j_b_1 + r_b_2], w_hj, merge_acc[r_b_2]);
+                                        merge_acc[r_b_2] = _fma_0;
+                                    }
+                                }
                             }
                         }
                         float inv_den = 0.0f;
@@ -1434,14 +1472,14 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
                             inv_den = 1.0f / merge_den;
                         }
                         #pragma unroll
-                        for (int h_10 = 0; h_10 < 8; h_10++) {
+                        for (int h_9 = 0; h_9 < 8; h_9++) {
                             float _shfl_17;
-                            asm volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=f"(_shfl_17) : "f"(inv_den), "r"(h_10));
+                            asm volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=f"(_shfl_17) : "f"(inv_den), "r"(h_9));
                             float inv_h = _shfl_17;
-                            if (h_10 < group_ratio) {
-                                int q_head_m = kv_head_idx * group_ratio + h_10;
+                            if (h_9 < group_ratio) {
+                                int q_head_m = kv_head_idx * group_ratio + h_9;
                                 int o_idx_m = (row_tile_c * num_q_heads + q_head_m) * HEAD_DIM + d_idx;
-                                *(reinterpret_cast<__nv_bfloat16*>(O_ptr + o_idx_m) + (0)) = __float2bfloat16_rn(merge_acc[h_10] * inv_h);
+                                *(reinterpret_cast<__nv_bfloat16*>(O_ptr + o_idx_m) + (0)) = __float2bfloat16_rn(merge_acc[h_9] * inv_h);
                             }
                         }
                         if (wg_tid_c == 0) {
@@ -2117,6 +2155,10 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
                 p_min = _min_0;
             }
             unsigned int total_work = total_pairs * (unsigned int)items_per_chunk;
+            unsigned int uniform_u = 0;
+            if (p_max == p_min) {
+                uniform_u = 1;
+            }
             unsigned int ideal_pairs = (total_work + (unsigned int)num_ctas - 1) / (unsigned int)num_ctas;
             unsigned int balance_k = (ideal_pairs + 64 - 1) / 64;
             if (balance_k < 1) {
@@ -2292,61 +2334,106 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
             for (int bi = 0; bi < 4; bi++) {
                 rem_bucket_total[bi] = 0;
             }
-            #pragma unroll 1
-            for (int g2 = 0; g2 < num_groups; g2++) {
-                int b2 = g2 * 32 + lane_0;
-                unsigned int full2 = 0;
-                unsigned int n2 = 0;
-                unsigned int pack2 = 0;
-                if (b2 < batch_size) {
-                    int s2 = sched_seq_lens[b2] - (q_len - 1);
-                    unsigned int pairs2 = (unsigned int)((s2 + 255) / 256);
-                    unsigned int q = (unsigned int)((float)pairs2 * chunk_rcp);
-                    if (q > 0) {
-                        if (pairs2 < q * chunk_pairs_u) {
-                            q = q - 1;
-                        }
-                    }
-                    if (pairs2 >= (q + 1) * chunk_pairs_u) {
-                        q = q + 1;
-                    }
-                    if (pairs2 > q * chunk_pairs_u) {
-                        q = q + 1;
-                    }
-                    n2 = q;
-                    full2 = n2;
-                    if (pairs2 < n2 * chunk_pairs_u) {
-                        full2 = n2 - 1;
-                        unsigned int rem2 = pairs2 - full2 * chunk_pairs_u;
-                        int rb2 = 1;
-                        #pragma unroll
-                        for (int _rb = 0; _rb < 2; _rb++) {
-                            if (chunk_pairs_u > rem2 << (unsigned int)rb2) {
-                                rb2 = rb2 + 1;
-                            }
-                        }
-                        pack2 = (unsigned int)(1 << 8 * (rb2 - 1));
+            unsigned int n_u = 0;
+            unsigned int full_u = 0;
+            int rb_u = 0;
+            if (uniform_u == 1) {
+                unsigned int q = (unsigned int)((float)p_max * chunk_rcp);
+                if (q > 0) {
+                    if (p_max < q * chunk_pairs_u) {
+                        q = q - 1;
                     }
                 }
-                unsigned int _warp_redux_u32_5;
-                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_5) : "r"(full2));
-                n_full_chunks += _warp_redux_u32_5;
-                unsigned int _warp_redux_u32_6;
-                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_6) : "r"(n2));
-                n_chunks_total += _warp_redux_u32_6;
-                unsigned int _warp_redux_u32_7;
-                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_7) : "r"(pack2));
-                unsigned int pack_group = _warp_redux_u32_7;
+                if (p_max >= (q + 1) * chunk_pairs_u) {
+                    q = q + 1;
+                }
+                if (p_max > q * chunk_pairs_u) {
+                    q = q + 1;
+                }
+                n_u = q;
+                full_u = n_u;
+                if (p_max < n_u * chunk_pairs_u) {
+                    full_u = n_u - 1;
+                    unsigned int rem_u = p_max - full_u * chunk_pairs_u;
+                    rb_u = 1;
+                    #pragma unroll
+                    for (int _rbu = 0; _rbu < 2; _rbu++) {
+                        if (chunk_pairs_u > rem_u << (unsigned int)rb_u) {
+                            rb_u = rb_u + 1;
+                        }
+                    }
+                }
+                n_full_chunks = (unsigned int)batch_size * full_u;
+                n_chunks_total = (unsigned int)batch_size * n_u;
                 #pragma unroll
                 for (int bi_1 = 1; bi_1 < 4; bi_1++) {
-                    rem_bucket_total[bi_1] = rem_bucket_total[bi_1] + (pack_group >> (unsigned int)(8 * (bi_1 - 1)) & 255);
+                    if (rb_u == bi_1) {
+                        rem_bucket_total[bi_1] = (unsigned int)batch_size;
+                    }
+                }
+            } else {
+                #pragma unroll 1
+                for (int g2 = 0; g2 < num_groups; g2++) {
+                    int b2 = g2 * 32 + lane_0;
+                    unsigned int full2 = 0;
+                    unsigned int n2 = 0;
+                    unsigned int pack2 = 0;
+                    if (b2 < batch_size) {
+                        int s2 = sched_seq_lens[b2] - (q_len - 1);
+                        unsigned int pairs2 = (unsigned int)((s2 + 255) / 256);
+                        unsigned int q_1 = (unsigned int)((float)pairs2 * chunk_rcp);
+                        if (q_1 > 0) {
+                            if (pairs2 < q_1 * chunk_pairs_u) {
+                                q_1 = q_1 - 1;
+                            }
+                        }
+                        if (pairs2 >= (q_1 + 1) * chunk_pairs_u) {
+                            q_1 = q_1 + 1;
+                        }
+                        if (pairs2 > q_1 * chunk_pairs_u) {
+                            q_1 = q_1 + 1;
+                        }
+                        n2 = q_1;
+                        full2 = n2;
+                        if (pairs2 < n2 * chunk_pairs_u) {
+                            full2 = n2 - 1;
+                            unsigned int rem2 = pairs2 - full2 * chunk_pairs_u;
+                            int rb2 = 1;
+                            #pragma unroll
+                            for (int _rb = 0; _rb < 2; _rb++) {
+                                if (chunk_pairs_u > rem2 << (unsigned int)rb2) {
+                                    rb2 = rb2 + 1;
+                                }
+                            }
+                            pack2 = (unsigned int)(1 << 8 * (rb2 - 1));
+                        }
+                    }
+                    unsigned int _warp_redux_u32_5;
+                    asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_5) : "r"(full2));
+                    n_full_chunks += _warp_redux_u32_5;
+                    unsigned int _warp_redux_u32_6;
+                    asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_6) : "r"(n2));
+                    n_chunks_total += _warp_redux_u32_6;
+                    unsigned int _warp_redux_u32_7;
+                    asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_7) : "r"(pack2));
+                    unsigned int pack_group = _warp_redux_u32_7;
+                    #pragma unroll
+                    for (int bi_2 = 1; bi_2 < 4; bi_2++) {
+                        rem_bucket_total[bi_2] = rem_bucket_total[bi_2] + (pack_group >> (unsigned int)(8 * (bi_2 - 1)) & 255);
+                    }
                 }
             }
+            unsigned int full_den_u = full_u;
+            if (full_den_u < 1) {
+                full_den_u = 1;
+            }
+            float _rcp_1 = approx_rcp((float)full_den_u);
+            float full_rcp_u = _rcp_1;
             unsigned int bucket_end[4];
             bucket_end[0] = n_full_chunks * (unsigned int)items_per_chunk;
             #pragma unroll
-            for (int bi_2 = 1; bi_2 < 4; bi_2++) {
-                bucket_end[bi_2] = bucket_end[bi_2 - 1] + rem_bucket_total[bi_2] * (unsigned int)items_per_chunk;
+            for (int bi_3 = 1; bi_3 < 4; bi_3++) {
+                bucket_end[bi_3] = bucket_end[bi_3 - 1] + rem_bucket_total[bi_3] * (unsigned int)items_per_chunk;
             }
             unsigned int total_items = n_chunks_total * (unsigned int)items_per_chunk;
             if (blockIdx.x == 0) {
@@ -2362,11 +2449,11 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
             unsigned int si_before_b[4];
             unsigned int st_before_b[4];
             #pragma unroll
-            for (int bi_3 = 0; bi_3 < 4; bi_3++) {
-                cur_group_b[bi_3] = 0;
-                before_b[bi_3] = 0;
-                si_before_b[bi_3] = 0;
-                st_before_b[bi_3] = 0;
+            for (int bi_4 = 0; bi_4 < 4; bi_4++) {
+                cur_group_b[bi_4] = 0;
+                before_b[bi_4] = 0;
+                si_before_b[bi_4] = 0;
+                st_before_b[bi_4] = 0;
             }
             unsigned int first_claim = 1;
             unsigned int gate_phase = 0;
@@ -2396,166 +2483,197 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
                     int bucket = 0;
                     unsigned int bucket_start = 0;
                     #pragma unroll
-                    for (int bi_4 = 0; bi_4 < 3; bi_4++) {
-                        if (ticket >= bucket_end[bi_4]) {
-                            bucket = bi_4 + 1;
-                            bucket_start = bucket_end[bi_4];
+                    for (int bi_5 = 0; bi_5 < 3; bi_5++) {
+                        if (ticket >= bucket_end[bi_5]) {
+                            bucket = bi_5 + 1;
+                            bucket_start = bucket_end[bi_5];
                         }
                     }
                     unsigned int local_items = ticket - bucket_start;
                     unsigned int local_chunk = local_items / (unsigned int)items_per_chunk;
                     int in_chunk = (int)(local_items - local_chunk * (unsigned int)items_per_chunk);
-                    int cursor_group = 0;
-                    unsigned int before = 0;
-                    unsigned int si_before = 0;
-                    unsigned int st_before = 0;
-                    #pragma unroll
-                    for (int bi_5 = 0; bi_5 < 4; bi_5++) {
-                        if (bucket == bi_5) {
-                            cursor_group = cur_group_b[bi_5];
-                            before = before_b[bi_5];
-                            si_before = si_before_b[bi_5];
-                            st_before = st_before_b[bi_5];
+                    int sel_batch = 0;
+                    int sel_seqlen = 0;
+                    int sel_n = 0;
+                    int chunk_idx = 0;
+                    int si_base_s = 0;
+                    int st_base_s = 0;
+                    if (uniform_u == 1) {
+                        if (bucket == 0) {
+                            unsigned int q_2 = (unsigned int)((float)local_chunk * full_rcp_u);
+                            if (local_chunk < q_2 * full_den_u) {
+                                q_2 = q_2 - 1;
+                            }
+                            if (local_chunk >= (q_2 + 1) * full_den_u) {
+                                q_2 = q_2 + 1;
+                            }
+                            sel_batch = (int)q_2;
+                            chunk_idx = (int)(local_chunk - (unsigned int)sel_batch * full_den_u);
+                        } else {
+                            sel_batch = (int)local_chunk;
+                            chunk_idx = (int)full_u;
                         }
-                    }
-                    int s3 = 0;
-                    int pairs3 = 0;
-                    int n3 = 0;
-                    int fullc3 = 0;
-                    unsigned int mine3 = 0;
-                    unsigned int split_items3 = 0;
-                    unsigned int split_tiles3 = 0;
-                    unsigned int incl3 = 0;
-                    unsigned int incl_si3 = 0;
-                    unsigned int incl_st3 = 0;
-                    int b3 = 0;
-                    #pragma unroll 1
-                    for (int _adv = 0; _adv < 32; _adv++) {
-                        b3 = cursor_group * 32 + lane_0;
-                        s3 = 0;
-                        pairs3 = 0;
-                        n3 = 0;
-                        fullc3 = 0;
-                        mine3 = 0;
-                        split_items3 = 0;
-                        split_tiles3 = 0;
-                        if (b3 < batch_size) {
-                            s3 = sched_seq_lens[b3];
-                            pairs3 = (s3 - (q_len - 1) + 255) / 256;
-                            unsigned int q_1 = (unsigned int)((float)(unsigned int)pairs3 * chunk_rcp);
-                            if (q_1 > 0) {
-                                if (q_1 * chunk_pairs_u > (unsigned int)pairs3) {
-                                    q_1 = q_1 - 1;
-                                }
+                        sel_seqlen = sched_seq_lens[sel_batch];
+                        sel_n = (int)n_u;
+                        if (n_u > 1) {
+                            si_base_s = sel_batch * (int)n_u;
+                            st_base_s = sel_batch;
+                        }
+                    } else {
+                        int cursor_group = 0;
+                        unsigned int before = 0;
+                        unsigned int si_before = 0;
+                        unsigned int st_before = 0;
+                        #pragma unroll
+                        for (int bi_6 = 0; bi_6 < 4; bi_6++) {
+                            if (bucket == bi_6) {
+                                cursor_group = cur_group_b[bi_6];
+                                before = before_b[bi_6];
+                                si_before = si_before_b[bi_6];
+                                st_before = st_before_b[bi_6];
                             }
-                            if ((q_1 + 1) * chunk_pairs_u <= (unsigned int)pairs3) {
-                                q_1 = q_1 + 1;
-                            }
-                            if (q_1 * chunk_pairs_u < (unsigned int)pairs3) {
-                                q_1 = q_1 + 1;
-                            }
-                            n3 = (int)q_1;
-                            fullc3 = n3;
-                            int rem3 = 0;
-                            if (pairs3 < n3 * chunk_pairs) {
-                                fullc3 = n3 - 1;
-                                rem3 = pairs3 - fullc3 * chunk_pairs;
-                            }
-                            if (bucket == 0) {
-                                mine3 = (unsigned int)fullc3;
-                            } else if (rem3 > 0) {
-                                int rb3 = 1;
-                                #pragma unroll
-                                for (int _rb3 = 0; _rb3 < 2; _rb3++) {
-                                    if (chunk_pairs > rem3 << rb3) {
-                                        rb3 = rb3 + 1;
+                        }
+                        int s3 = 0;
+                        int pairs3 = 0;
+                        int n3 = 0;
+                        int fullc3 = 0;
+                        unsigned int mine3 = 0;
+                        unsigned int split_items3 = 0;
+                        unsigned int split_tiles3 = 0;
+                        unsigned int incl3 = 0;
+                        unsigned int incl_si3 = 0;
+                        unsigned int incl_st3 = 0;
+                        int b3 = 0;
+                        #pragma unroll 1
+                        for (int _adv = 0; _adv < 32; _adv++) {
+                            b3 = cursor_group * 32 + lane_0;
+                            s3 = 0;
+                            pairs3 = 0;
+                            n3 = 0;
+                            fullc3 = 0;
+                            mine3 = 0;
+                            split_items3 = 0;
+                            split_tiles3 = 0;
+                            if (b3 < batch_size) {
+                                s3 = sched_seq_lens[b3];
+                                pairs3 = (s3 - (q_len - 1) + 255) / 256;
+                                unsigned int q_3 = (unsigned int)((float)(unsigned int)pairs3 * chunk_rcp);
+                                if (q_3 > 0) {
+                                    if (q_3 * chunk_pairs_u > (unsigned int)pairs3) {
+                                        q_3 = q_3 - 1;
                                     }
                                 }
-                                if (rb3 == bucket) {
-                                    mine3 = 1;
+                                if ((q_3 + 1) * chunk_pairs_u <= (unsigned int)pairs3) {
+                                    q_3 = q_3 + 1;
+                                }
+                                if (q_3 * chunk_pairs_u < (unsigned int)pairs3) {
+                                    q_3 = q_3 + 1;
+                                }
+                                n3 = (int)q_3;
+                                fullc3 = n3;
+                                int rem3 = 0;
+                                if (pairs3 < n3 * chunk_pairs) {
+                                    fullc3 = n3 - 1;
+                                    rem3 = pairs3 - fullc3 * chunk_pairs;
+                                }
+                                if (bucket == 0) {
+                                    mine3 = (unsigned int)fullc3;
+                                } else if (rem3 > 0) {
+                                    int rb3 = 1;
+                                    #pragma unroll
+                                    for (int _rb3 = 0; _rb3 < 2; _rb3++) {
+                                        if (chunk_pairs > rem3 << rb3) {
+                                            rb3 = rb3 + 1;
+                                        }
+                                    }
+                                    if (rb3 == bucket) {
+                                        mine3 = 1;
+                                    }
+                                }
+                                if (n3 > 1) {
+                                    split_items3 = (unsigned int)n3;
+                                    split_tiles3 = 1;
                                 }
                             }
-                            if (n3 > 1) {
-                                split_items3 = (unsigned int)n3;
-                                split_tiles3 = 1;
+                            uint32_t _warp_scan_sum_u32_0 = mine3;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(16));
+                            incl3 = _warp_scan_sum_u32_0;
+                            uint32_t _warp_scan_sum_u32_1 = split_items3;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(16));
+                            incl_si3 = _warp_scan_sum_u32_1;
+                            uint32_t _warp_scan_sum_u32_2 = split_tiles3;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(16));
+                            incl_st3 = _warp_scan_sum_u32_2;
+                            unsigned int _shfl_1 = __shfl_sync(0xFFFFFFFF, incl3, 31);
+                            unsigned int group_total = _shfl_1;
+                            if (local_chunk < before + group_total) {
+                                break;
+                            }
+                            before = before + group_total;
+                            unsigned int _shfl_2 = __shfl_sync(0xFFFFFFFF, incl_si3, 31);
+                            si_before = si_before + _shfl_2;
+                            unsigned int _shfl_3 = __shfl_sync(0xFFFFFFFF, incl_st3, 31);
+                            st_before = st_before + _shfl_3;
+                            cursor_group = cursor_group + 1;
+                        }
+                        #pragma unroll
+                        for (int bi_7 = 0; bi_7 < 4; bi_7++) {
+                            if (bucket == bi_7) {
+                                cur_group_b[bi_7] = cursor_group;
+                                before_b[bi_7] = before;
+                                si_before_b[bi_7] = si_before;
+                                st_before_b[bi_7] = st_before;
                             }
                         }
-                        uint32_t _warp_scan_sum_u32_0 = mine3;
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(1));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(2));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(4));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(8));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(16));
-                        incl3 = _warp_scan_sum_u32_0;
-                        uint32_t _warp_scan_sum_u32_1 = split_items3;
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(1));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(2));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(4));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(8));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(16));
-                        incl_si3 = _warp_scan_sum_u32_1;
-                        uint32_t _warp_scan_sum_u32_2 = split_tiles3;
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(1));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(2));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(4));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(8));
-                        asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(16));
-                        incl_st3 = _warp_scan_sum_u32_2;
-                        unsigned int _shfl_1 = __shfl_sync(0xFFFFFFFF, incl3, 31);
-                        unsigned int group_total = _shfl_1;
-                        if (local_chunk < before + group_total) {
-                            break;
-                        }
-                        before = before + group_total;
-                        unsigned int _shfl_2 = __shfl_sync(0xFFFFFFFF, incl_si3, 31);
-                        si_before = si_before + _shfl_2;
-                        unsigned int _shfl_3 = __shfl_sync(0xFFFFFFFF, incl_st3, 31);
-                        st_before = st_before + _shfl_3;
-                        cursor_group = cursor_group + 1;
-                    }
-                    #pragma unroll
-                    for (int bi_6 = 0; bi_6 < 4; bi_6++) {
-                        if (bucket == bi_6) {
-                            cur_group_b[bi_6] = cursor_group;
-                            before_b[bi_6] = before;
-                            si_before_b[bi_6] = si_before;
-                            st_before_b[bi_6] = st_before;
-                        }
-                    }
-                    unsigned int in_group = local_chunk - before;
-                    unsigned int excl3 = incl3 - mine3;
-                    unsigned int excl_si3 = incl_si3 - split_items3;
-                    unsigned int excl_st3 = incl_st3 - split_tiles3;
-                    int hit3 = 0;
-                    if (mine3 > 0) {
-                        if (excl3 <= in_group) {
-                            if (in_group < incl3) {
-                                hit3 = 1;
+                        unsigned int in_group = local_chunk - before;
+                        unsigned int excl3 = incl3 - mine3;
+                        unsigned int excl_si3 = incl_si3 - split_items3;
+                        unsigned int excl_st3 = incl_st3 - split_tiles3;
+                        int hit3 = 0;
+                        if (mine3 > 0) {
+                            if (excl3 <= in_group) {
+                                if (in_group < incl3) {
+                                    hit3 = 1;
+                                }
                             }
                         }
-                    }
-                    unsigned int _vote_0 = __ballot_sync(0xFFFFFFFF, hit3 != 0);
-                    unsigned int hit_mask = _vote_0;
-                    int _ffs_0 = __ffs(hit_mask);
-                    int hit_lane = _ffs_0 - 1;
-                    int _shfl_4 = __shfl_sync(0xFFFFFFFF, b3, hit_lane);
-                    int sel_batch = _shfl_4;
-                    int _shfl_5 = __shfl_sync(0xFFFFFFFF, s3, hit_lane);
-                    int sel_seqlen = _shfl_5;
-                    int _shfl_6 = __shfl_sync(0xFFFFFFFF, n3, hit_lane);
-                    int sel_n = _shfl_6;
-                    int _shfl_7 = __shfl_sync(0xFFFFFFFF, fullc3, hit_lane);
-                    int sel_full = _shfl_7;
-                    unsigned int _shfl_8 = __shfl_sync(0xFFFFFFFF, excl3, hit_lane);
-                    int sel_excl = (int)_shfl_8;
-                    unsigned int _shfl_9 = __shfl_sync(0xFFFFFFFF, excl_si3, hit_lane);
-                    int sel_excl_si = (int)_shfl_9;
-                    unsigned int _shfl_10 = __shfl_sync(0xFFFFFFFF, excl_st3, hit_lane);
-                    int sel_excl_st = (int)_shfl_10;
-                    int sel_chunk_off = (int)in_group - sel_excl;
-                    int chunk_idx = sel_full;
-                    if (bucket == 0) {
-                        chunk_idx = sel_chunk_off;
+                        unsigned int _vote_0 = __ballot_sync(0xFFFFFFFF, hit3 != 0);
+                        unsigned int hit_mask = _vote_0;
+                        int _ffs_0 = __ffs(hit_mask);
+                        int hit_lane = _ffs_0 - 1;
+                        int _shfl_4 = __shfl_sync(0xFFFFFFFF, b3, hit_lane);
+                        sel_batch = _shfl_4;
+                        int _shfl_5 = __shfl_sync(0xFFFFFFFF, s3, hit_lane);
+                        sel_seqlen = _shfl_5;
+                        int _shfl_6 = __shfl_sync(0xFFFFFFFF, n3, hit_lane);
+                        sel_n = _shfl_6;
+                        int _shfl_7 = __shfl_sync(0xFFFFFFFF, fullc3, hit_lane);
+                        int sel_full = _shfl_7;
+                        unsigned int _shfl_8 = __shfl_sync(0xFFFFFFFF, excl3, hit_lane);
+                        int sel_excl = (int)_shfl_8;
+                        unsigned int _shfl_9 = __shfl_sync(0xFFFFFFFF, excl_si3, hit_lane);
+                        int sel_excl_si = (int)_shfl_9;
+                        unsigned int _shfl_10 = __shfl_sync(0xFFFFFFFF, excl_st3, hit_lane);
+                        int sel_excl_st = (int)_shfl_10;
+                        int sel_chunk_off = (int)in_group - sel_excl;
+                        chunk_idx = sel_full;
+                        if (bucket == 0) {
+                            chunk_idx = sel_chunk_off;
+                        }
+                        si_base_s = (int)si_before + sel_excl_si;
+                        st_base_s = (int)st_before + sel_excl_st;
                     }
                     int q_row = in_chunk / num_kv_heads;
                     int kv_head_sel = in_chunk - q_row * num_kv_heads;
@@ -2569,8 +2687,8 @@ kernel_cake_fmha_decode_balanced_bf16(CakeFmhaTensorMap const* Qt, CakeFmhaTenso
                     int slot_tile_base_4 = 0;
                     int counter_idx_4 = 0;
                     if (sel_n > 1) {
-                        slot_tile_base_4 = ((int)si_before + sel_excl_si) * items_per_chunk + q_row * num_kv_heads + kv_head_sel;
-                        counter_idx_4 = ((int)st_before + sel_excl_st) * items_per_chunk + q_row * num_kv_heads + kv_head_sel;
+                        slot_tile_base_4 = si_base_s * items_per_chunk + q_row * num_kv_heads + kv_head_sel;
+                        counter_idx_4 = st_base_s * items_per_chunk + q_row * num_kv_heads + kv_head_sel;
                     }
                     if (lane_0 == 0) {
                         work_token_words[token_base + 1] = (unsigned int)(sel_batch * q_len + q_row);
