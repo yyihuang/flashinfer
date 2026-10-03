@@ -153,7 +153,7 @@ def test_binding_preserves_graph_and_tensor_contracts():
     assert "cudaMemsetAsync" not in binding
     assert "EXPAND_PAIR" not in binding
     assert "CAKE_BGMV_MOE_SHRINK_DECODE<<<" in binding
-    assert "CAKE_BGMV_MOE_EXPAND_TOKEN_DUAL<<<" in binding
+    assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_TOKEN_DUAL," in binding
     assert "TVM_FFI_DLL_EXPORT_TYPED_FUNC(configure" in binding
     assert "TVM_FFI_DLL_EXPORT_TYPED_FUNC(run" in binding
 
@@ -338,8 +338,12 @@ def test_generic_binding_preserves_graph_and_tensor_contracts():
     assert "x.size(1) % kVec == 0" in binding
     assert "CAKE_BGMV_MOE_SHRINK_DECODE<<<" in binding
     assert "CAKE_BGMV_MOE_SHRINK_PREFILL<<<" in binding
-    assert "CAKE_BGMV_MOE_EXPAND_T64<<<" in binding
-    assert "CAKE_BGMV_MOE_EXPAND_T128<<<" in binding
+    # The expand is a programmatic dependent launch of the shrink (PDL): the
+    # expand grid may start while the shrink drains and waits in-kernel.
+    assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T64," in binding
+    assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T128," in binding
+    assert "cudaLaunchAttributeProgrammaticStreamSerialization" in binding
+    assert "programmaticStreamSerializationAllowed = 1" in binding
     assert "TensorView route_index" in binding
     assert "CHECK_INPUT_TYPE(route_index, dl_int32)" in binding
     assert "kRouteIndexWordsPerToken = 3 + kRouteIndexMaxRoutes" in binding
