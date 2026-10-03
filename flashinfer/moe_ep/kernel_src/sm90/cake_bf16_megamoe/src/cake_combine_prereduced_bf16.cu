@@ -35,6 +35,8 @@
 // (`groups_per_src`), with the same cell / tag / abort semantics as the
 // per-route publish.
 //
+// Worklist: built by `sm90_cake_compact_bf16` (build_groups != 0) in the same
+// pass that writes the compacted meta, so no extra kernel precedes the publish.
 // Scratch lifecycle: no per-round memsets.  The publish kernel resets every
 // group counter it consumes (grp_cnt[g] = 0) and its last block (grid-completion
 // counter blocks_done, as the fused tail) zeroes n_groups, groups_per_src and
@@ -139,40 +141,6 @@ void check_layout(LAYOUT_PARAMS) {
 // Worklist of (owner rank, token) groups over the received rows.  One group
 // record per (src, token) pair: grp_cnt[g] rows, their row indices in
 // grp_rows[g * top_k + i] (any order; the publish sorts them by route index).
-__global__ void combine_group_build_kernel(
-    PushLayout L, const int32_t* __restrict__ meta, const int32_t* __restrict__ m_dev,
-    int32_t* __restrict__ grp_cnt, int32_t* __restrict__ grp_rows, int32_t* __restrict__ grp_list,
-    int32_t* __restrict__ n_groups, int32_t* __restrict__ groups_per_src,
-    const int32_t* __restrict__ round_ctr) {
-  uint32_t const tag = static_cast<uint32_t>(*round_ctr);
-  for (int r = blockIdx.x * blockDim.x + threadIdx.x; r < *m_dev; r += gridDim.x * blockDim.x) {
-    const int32_t* mrow = meta + static_cast<int64_t>(r) * 4;
-    int src = meta_src_rank(mrow);
-    int tok = meta_src_token(mrow);
-    int k = meta_route_k(mrow);
-    if (src < 0 || src >= L.ep_size || tok < 0 || tok >= L.t_cap || k < 0 || k >= L.top_k) {
-      printf("sm90_cake_bf16: corrupt combine meta at row %d (src %d, token %d, k %d)\n", r, src,
-             tok, k);
-      publish_abort_all(L, tag);
-      asm volatile("trap;");
-    }
-    int g = src * L.t_cap + tok;
-    int pos = atomicAdd(&grp_cnt[g], 1);
-    if (pos >= L.top_k) {  // a token has at most top_k routes in total
-      printf("sm90_cake_bf16: group (src %d, token %d) exceeds top_k %d\n", src, tok, L.top_k);
-      publish_abort_all(L, tag);
-      asm volatile("trap;");
-    }
-    grp_rows[static_cast<int64_t>(g) * L.top_k + pos] = r;
-    if (pos == 0) {  // first row opens the group
-      grp_list[atomicAdd(n_groups, 1)] = g;
-      atomicAdd(&groups_per_src[src], 1);
-    }
-  }
-}
-
-// One block per group (grid-stride over the worklist); each thread owns one
-// 16-byte vector (8 bf16 columns) per iteration.
 __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kernel(
     PushLayout L, const __nv_bfloat16* __restrict__ y, const int32_t* __restrict__ meta,
     int32_t* __restrict__ grp_cnt, const int32_t* __restrict__ grp_rows,
@@ -338,11 +306,6 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
   // no memsets: the scratch was zeroed at construction and self-resets every round
   if (Mcap == 0) return;  // zero-row destinations were published by wait_prefix
   int const blocks = publish_grid_blocks(y.device());
-  combine_group_build_kernel<<<blocks, kThreads, 0, stream>>>(
-      L, static_cast<const int32_t*>(meta.data_ptr()),
-      static_cast<const int32_t*>(m_dev.data_ptr()), cnt,
-      static_cast<int32_t*>(grp_rows.data_ptr()), glist, ng, gps,
-      static_cast<const int32_t*>(round_ctr.data_ptr()));
   combine_publish_prereduced_bf16_kernel<<<blocks, kThreads, 0, stream>>>(
       L, static_cast<const __nv_bfloat16*>(y.data_ptr()),
       static_cast<const int32_t*>(meta.data_ptr()), cnt,

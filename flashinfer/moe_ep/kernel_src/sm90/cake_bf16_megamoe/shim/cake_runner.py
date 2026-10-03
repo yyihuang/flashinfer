@@ -333,6 +333,9 @@ class Sm90CakeBf16MoERunner:
             # the worklist scratch for the next round: no per-round memsets)
             self._pub_blocks_done = torch.zeros(1, dtype=torch.int32, device=dv)
             pipe._cdone_local.zero_()  # the publish kernel keeps it zeroed from here on
+        else:  # per-route wire: compact builds no worklist; placeholders for the binding
+            self._grp_cnt = self._grp_rows = self._grp_list = torch.zeros(1, dtype=torch.int32, device=dv)
+            self._n_groups = self._groups_per_src = torch.zeros(1, dtype=torch.int32, device=dv)
 
     def bind_weights(self, weights: Sm90CakeBf16Weights) -> None:
         """Swap the expert weights between rounds (same geometry, same device)."""
@@ -569,6 +572,13 @@ class Sm90CakeBf16MoERunner:
                         pipe._seg_out_base,
                         pipe._m_dev,
                         pipe._next_row,
+                        self._grp_cnt,
+                        self._grp_rows,
+                        self._grp_list,
+                        self._n_groups,
+                        self._groups_per_src,
+                        pipe._round,
+                        1 if self._combine_wire in _PREREDUCED_WIRES else 0,
                     )
                 with _record_stage("fc1", nv):
                     self.gemm.fc1(self.a1, weights.w13, pipe._offsets, self.h2)
