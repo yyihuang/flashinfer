@@ -314,7 +314,7 @@ def test_generic_jit_spec_binds_generated_source_per_arch(
         "CAKE_BGMV_MOE_GENERIC_SMEM_COMBINE_GROUPED ",
     ):
         assert macro in body
-    # Route-index publication in both shrink kernels plus the three grouping
+    # Route-index publication in the four shrink kernels plus the three grouping
     # counters in group_build; the expands keep one owner per output (no
     # output atomics).
     assert body.count("atomicAdd(") == 7
