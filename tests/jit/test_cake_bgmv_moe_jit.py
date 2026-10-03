@@ -317,7 +317,7 @@ def test_generic_jit_spec_binds_generated_source_per_arch(
     # Route-index publication in both shrink kernels plus the three grouping
     # counters in group_build; the expands keep one owner per output (no
     # output atomics).
-    assert body.count("atomicAdd(") == 5
+    assert body.count("atomicAdd(") == 7
     assert "atomicAdd(&reinterpret_cast<float" not in body
     binding = spec.sources[0].read_text()
     assert f'#define CAKE_BGMV_MOE_BODY_FILE "{metadata.body}"' in binding
