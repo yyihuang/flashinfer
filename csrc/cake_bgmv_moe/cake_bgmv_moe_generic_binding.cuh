@@ -13,6 +13,8 @@
  *   CAKE_BGMV_MOE_SHRINK_PREFILL      generated prefill shrink kernel (PPB=1, 2 stages)
  *   CAKE_BGMV_MOE_EXPAND_T64          generated 64-lane token-owned expand kernel
  *   CAKE_BGMV_MOE_EXPAND_T128         generated 128-lane token-owned expand kernel
+ *   CAKE_BGMV_MOE_EXPAND_T64_PF       64-lane expand, B rows register-prefetched before the PDL wait
+ *   CAKE_BGMV_MOE_EXPAND_T128_PF      128-lane expand, B rows register-prefetched before the PDL wait
  */
 #pragma once
 
@@ -65,6 +67,10 @@ constexpr int32_t kShrinkDecodeSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_DEC
 constexpr int32_t kShrinkPrefillSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL;
 constexpr int32_t kExpandT64SmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64;
 constexpr int32_t kExpandT128SmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128;
+constexpr int32_t kExpandT64PfSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64_PF;
+constexpr int32_t kExpandT128PfSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128_PF;
+static_assert(kExpandT64PfSmemBytes == kExpandT64SmemBytes, "expand T64 forms must share smem");
+static_assert(kExpandT128PfSmemBytes == kExpandT128SmemBytes, "expand T128 forms must share smem");
 static_assert(kShrinkDecodeSmemBytes == 221824, "decode shrink smem layout changed");
 static_assert(kShrinkPrefillSmemBytes == 37120, "prefill shrink smem layout changed");
 static_assert(kRank % kRankTile == 0, "rank must be a multiple of the 8-row shrink tile");
@@ -423,9 +429,15 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   // A CTA owns ``col_blocks`` consecutive blocks of ``expand_threads`` columns and
   // decodes the token's route list once for all of them (per-column arithmetic is
   // unchanged, so the result is independent of the block count).
+  // PDL launches take the register-prefetch forms (both routes' B rows are in
+  // flight before griddepcontrol.wait; a CTA may own several column blocks);
+  // plain launches take the round-4 single-block interleaved forms so the CTA
+  // count per SM stays at the plain-launch optimum.
+  const bool prefetch_form = pdl_mode != 0;
   const int32_t col_blocks_total = (hidden + expand_threads - 1) / expand_threads;
   const int32_t col_blocks =
-      static_cast<int32_t>(std::min<int64_t>(expand_col_blocks, col_blocks_total));
+      prefetch_form ? static_cast<int32_t>(std::min<int64_t>(expand_col_blocks, col_blocks_total))
+                    : 1;
   cudaLaunchConfig_t config = {};
   config.gridDim = dim3(num_tokens, (col_blocks_total + col_blocks - 1) / col_blocks, 1);
   config.blockDim = dim3(expand_threads, 1, 1);
@@ -437,16 +449,19 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   attrs[0].val.programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0;
   config.attrs = attrs;
   config.numAttrs = 1;
+  auto expand_kernel_t64 = prefetch_form ? CAKE_BGMV_MOE_EXPAND_T64_PF : CAKE_BGMV_MOE_EXPAND_T64;
+  auto expand_kernel_t128 =
+      prefetch_form ? CAKE_BGMV_MOE_EXPAND_T128_PF : CAKE_BGMV_MOE_EXPAND_T128;
   const cudaError_t expand_status =
       schedule == Schedule::kTokenOwnedT64
-          ? cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T64, y_ptr, shrink_ptr, b_ptr,
-                               token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
-                               num_experts, num_tokens, output_stride, output_offset, route_ptr,
-                               kRouteLookup, kRouteAdvance, hidden, col_blocks, pdl_prefetch)
-          : cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T128, y_ptr, shrink_ptr, b_ptr,
-                               token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
-                               num_experts, num_tokens, output_stride, output_offset, route_ptr,
-                               kRouteLookup, kRouteAdvance, hidden, col_blocks, pdl_prefetch);
+          ? cudaLaunchKernelEx(&config, expand_kernel_t64, y_ptr, shrink_ptr, b_ptr, token_ptr,
+                               expert_ptr, lora_ptr, weight_ptr, num_pairs, num_experts,
+                               num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
+                               kRouteAdvance, hidden, col_blocks, pdl_prefetch)
+          : cudaLaunchKernelEx(&config, expand_kernel_t128, y_ptr, shrink_ptr, b_ptr, token_ptr,
+                               expert_ptr, lora_ptr, weight_ptr, num_pairs, num_experts,
+                               num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
+                               kRouteAdvance, hidden, col_blocks, pdl_prefetch);
   CheckCuda(expand_status, "Cake BGMV MoE generic expand launch");
 }
 

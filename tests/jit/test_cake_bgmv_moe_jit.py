@@ -350,6 +350,8 @@ def test_generic_jit_spec_binds_generated_source_per_arch(
         "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL 37120",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64 ",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128 ",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64_PF ",
+        "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128_PF ",
         "CAKE_BGMV_MOE_GENERIC_SMEM_GROUP_BUILD ",
         "CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_GROUPED ",
         "CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_GROUPED ",
@@ -410,8 +412,14 @@ def test_generic_binding_preserves_graph_and_tensor_contracts():
     assert "CAKE_BGMV_MOE_SHRINK_PREFILL<<<" in binding
     # The expand is a programmatic dependent launch of the shrink (PDL): the
     # expand grid may start while the shrink drains and waits in-kernel.
-    assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T64," in binding
-    assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T128," in binding
+    assert "cudaLaunchKernelEx(&config, expand_kernel_t64," in binding
+    assert "cudaLaunchKernelEx(&config, expand_kernel_t128," in binding
+    # PDL launches select the register-prefetch expand forms; plain launches the
+    # lower-register interleaved forms (both are rendered into every bundle).
+    assert "const bool prefetch_form = pdl_mode != 0;" in binding
+    assert "prefetch_form ? static_cast<int32_t>(std::min<int64_t>(expand_col_blocks, col_blocks_total))" in binding
+    assert "prefetch_form ? CAKE_BGMV_MOE_EXPAND_T64_PF : CAKE_BGMV_MOE_EXPAND_T64" in binding
+    assert "prefetch_form ? CAKE_BGMV_MOE_EXPAND_T128_PF : CAKE_BGMV_MOE_EXPAND_T128" in binding
     assert "cudaLaunchAttributeProgrammaticStreamSerialization" in binding
     assert "programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0" in binding
     assert "int64_t pdl_mode, int64_t expand_col_blocks, int64_t cuda_stream" in binding

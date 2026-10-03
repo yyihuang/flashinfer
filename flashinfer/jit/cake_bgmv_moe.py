@@ -253,6 +253,8 @@ class CakeBGMVMoEGenericMetadata(NamedTuple):
     shrink_prefill_symbol: str
     expand_t64_symbol: str
     expand_t128_symbol: str
+    expand_t64_pf_symbol: str
+    expand_t128_pf_symbol: str
     group_build_symbol: str
     shrink_grouped_symbol: str
     expand_grouped_symbol: str
@@ -415,7 +417,10 @@ def cake_bgmv_moe_expand_col_blocks(
 
     One block keeps the decode-sized grid wide; fatter CTAs amortize the per-CTA
     route-index decode once the token grid alone fills the GPU (calibrated by the
-    round-5 column-block screen)."""
+    round-5 column-block screen).
+    The binding applies the column-block count to PDL launches only (the
+    register-prefetch expand forms); plain launches run the single-block forms.
+    """
 
     if int(num_tokens) <= 0 or int(hidden_size) <= 0:
         raise ValueError("num_tokens and hidden_size must be positive")
@@ -484,6 +489,15 @@ def _generic_metadata(rank: int, dtype: CakeBGMVMoEDType) -> CakeBGMVMoEGenericM
         ),
         expand_t128_symbol=(
             f"kernel_flashinfer_bgmv_moe_expand_generic_token_t128_{tag}_r{rank}"
+        ),
+        # Register-prefetch forms: both routes' B rows are loaded into registers
+        # before griddepcontrol.wait. Selected by the binding for PDL launches
+        # (pdl_mode != 0); plain launches take the lower-register forms above.
+        expand_t64_pf_symbol=(
+            f"kernel_flashinfer_bgmv_moe_expand_generic_token_t64_pf_{tag}_r{rank}"
+        ),
+        expand_t128_pf_symbol=(
+            f"kernel_flashinfer_bgmv_moe_expand_generic_token_t128_pf_{tag}_r{rank}"
         ),
         group_build_symbol=f"kernel_flashinfer_bgmv_moe_group_build_{tag}_r{rank}",
         shrink_grouped_symbol=f"kernel_flashinfer_bgmv_moe_shrink_grouped_{tag}_r{rank}",
@@ -644,6 +658,8 @@ def _generic_binding_source(
 #define CAKE_BGMV_MOE_SHRINK_PREFILL {metadata.shrink_prefill_symbol}
 #define CAKE_BGMV_MOE_EXPAND_T64 {metadata.expand_t64_symbol}
 #define CAKE_BGMV_MOE_EXPAND_T128 {metadata.expand_t128_symbol}
+#define CAKE_BGMV_MOE_EXPAND_T64_PF {metadata.expand_t64_pf_symbol}
+#define CAKE_BGMV_MOE_EXPAND_T128_PF {metadata.expand_t128_pf_symbol}
 #define CAKE_BGMV_MOE_GROUP_BUILD {metadata.group_build_symbol}
 #define CAKE_BGMV_MOE_SHRINK_GROUPED {metadata.shrink_grouped_symbol}
 #define CAKE_BGMV_MOE_EXPAND_GROUPED {metadata.expand_grouped_symbol}
