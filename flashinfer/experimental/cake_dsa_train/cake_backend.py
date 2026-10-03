@@ -188,21 +188,30 @@ DKV_ACC_LAYOUTS = ("natural", "permuted")
 # between passes (dq_mode 1 store, 2 load-add-store, 3 load-add and BF16
 # output) -- ``dq`` stays bitwise deterministic; the dK/dV reductions are
 # unchanged (a pass only selects which keys a tile carries).  The pass count
-# follows the policy the record carries (``key_pass_policy``): P = ceil(S *
-# key_bytes / l2_budget_bytes), the FP32 accumulator slice one pass touches
-# fitting the L2, when P > 1 AND the whole row runs as one launch
-# (num_queries <= the token chunk the workspace budget allows); otherwise the
-# single-pass stage.  Passes run over the whole row only (grid = num_queries
-# per pass; no token chunking), so the workspace grows by num_queries *
-# (147,456 + 4 * topk + 4) bytes.  The passes split the whole key row
-# ``[0, S)`` into equal ranges, which matches an index row whose keys spread
-# over the whole row (one document); in a packed multi-segment row every
+# follows the policy the record carries (``key_pass_policy``, evaluated by
+# ``KeyPassPolicy``): the L2 formula P = ceil(S * key_bytes / l2_budget_bytes)
+# (the FP32 accumulator slice one pass touches fits the L2), the token chunk =
+# the largest multiple of ``token_chunk_multiple`` whose pass scratch (147,456
+# + 4 * topk + 4 B per token) fits ``workspace_budget_bytes`` (4224 tokens at
+# top-k 2048), and the target's rule from the paired sweeps of CAKE-756 round 2
+# (``tail_rows``, ``fixed_passes``, ``min_kv``, ``tail_cap``): passes apply to
+# a one-segment key row when P > 1 and the row is one chunk (``T <= chunk``)
+# or -- with ``tail_rows`` -- ``2 T <= S``; rows below ``min_kv`` keys stay
+# single-pass; the count is ``fixed_passes`` when set, else P, capped at
+# ``tail_cap`` for tail rows that are not one chunk.  The tokens of a
+# multi-pass backward run in chunks of ``chunk`` tokens, every chunk through
+# every pass in order (grid = the chunk's tokens, ``token_base`` = its first
+# token), exactly as the Cake launcher, so the workspace grows by
+# min(T, chunk) * (147,456 + 4 * topk + 4) bytes.  The passes split the whole
+# key row ``[0, S)`` into equal ranges, which matches an index row whose keys
+# spread over the whole row (one document); in a packed multi-segment row every
 # token's keys lie inside its own segment, so whole-row ranges leave most
 # passes empty for most tokens while the per-pass fixed cost (Q/dO reload,
 # FP32 dQ partial round trip, compaction) is still paid.  The policy therefore
 # applies to one-segment rows only: ``num_segments > 1`` (the varlen entry
 # passes ``len(cu_seqlens_k) - 1``, host metadata, no device sync) plans one
-# pass unless ``key_passes`` overrides.
+# pass unless ``key_passes`` overrides.  A record without the rule fields (the
+# first release) takes the R1 rule: one-chunk rows, the formula, no tail rows.
 KEY_PASS_STAGES = ("bwd_compact", "bwd_main_pass")
 DQ_PARTIAL_BYTES_PER_TOKEN = (
     NUM_HEADS * D_QK * 4
@@ -213,6 +222,8 @@ KEY_PASS_POLICY_FIELDS = (
     "workspace_budget_bytes",
     "token_chunk_multiple",
 )
+# The per-target rule fields of ``key_pass_policy`` (absent in first-release records: the R1 rule).
+KEY_PASS_RULE_FIELDS = ("tail_rows", "fixed_passes", "min_kv", "tail_cap")
 
 
 @dataclass(frozen=True)
@@ -225,6 +236,11 @@ class KeyPassPolicy:
     token_chunk_multiple: (
         int  # the token chunk is a multiple of this and at least this (128)
     )
+    # the target's rule (see the comment above); the defaults are the R1 rule
+    tail_rows: int = 0  # 1: rows with 2 T <= S qualify besides the one-chunk rows
+    fixed_passes: int = 0  # n > 0: n passes whenever a row qualifies, else the formula
+    min_kv: int = 0  # rows with fewer keys stay single-pass
+    tail_cap: int = 0  # n > 0: cap on the passes of tail rows that are not one chunk
 
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> Optional["KeyPassPolicy"]:
@@ -239,6 +255,15 @@ class KeyPassPolicy:
             raise ValueError(
                 f"registry record: key_pass_policy needs positive values, got {raw}"
             )
+        for name in KEY_PASS_RULE_FIELDS:
+            if name not in raw:
+                continue
+            value = raw[name]
+            if isinstance(value, bool) or int(value) != value or int(value) < 0:
+                raise ValueError(
+                    f"registry record: key_pass_policy.{name} must be a non-negative integer, got {value!r}"
+                )
+            values[name] = int(value)
         return cls(**values)
 
     def formula_passes(self, num_kv: int) -> int:
@@ -250,19 +275,35 @@ class KeyPassPolicy:
         m = self.token_chunk_multiple
         return max(m, (self.workspace_budget_bytes // per_token) // m * m)
 
+    def token_chunks(self, num_queries: int, topk: int) -> tuple[tuple[int, int], ...]:
+        """``(token_base, num_tokens)`` of every token chunk of a multi-pass backward, in launch order."""
+        T, chunk = int(num_queries), self.token_chunk(topk)
+        return tuple((base, min(chunk, T - base)) for base in range(0, T, chunk))
+
     def passes(
         self, num_queries: int, num_kv: int, topk: int, *, num_segments: int = 1
     ) -> int:
-        """Passes of a binding: the formula when the key row is one segment, the
-        whole row is one launch and the formula gives more than one; else 1."""
+        """Passes of a binding under the record's rule (see the comment above
+        ``KEY_PASS_STAGES``): 1 for a multi-segment key row, a formula of 1, a
+        row that is neither one chunk nor (with ``tail_rows``) ``2 T <= S``, or
+        fewer than ``min_kv`` keys; else ``fixed_passes`` or the formula, capped
+        at ``tail_cap`` for a tail row of more than one chunk."""
         if int(num_segments) < 1:
             raise ValueError(f"num_segments must be >= 1, got {num_segments}")
         if int(num_segments) > 1:
             return 1
-        formula = self.formula_passes(num_kv)
+        T, S = int(num_queries), int(num_kv)
+        formula = self.formula_passes(S)
         if formula == 1:
             return 1
-        return formula if int(num_queries) <= self.token_chunk(topk) else 1
+        one_chunk = T <= self.token_chunk(topk)
+        tail = bool(self.tail_rows) and 2 * T <= S
+        if not (one_chunk or tail) or S < self.min_kv:
+            return 1
+        passes = self.fixed_passes or formula
+        if tail and not one_chunk and self.tail_cap:
+            passes = min(passes, self.tail_cap)
+        return passes
 
 
 def plan_key_passes(
@@ -676,6 +717,7 @@ def workspace_layout(
     tma_workspace_bytes: int = 0,
     scratch_bytes: int = 0,
     key_passes: int = 1,
+    token_chunk: Optional[int] = None,
 ) -> dict:
     """Byte ``(offset, size)`` of every workspace region plus ``"total"``.
 
@@ -683,8 +725,10 @@ def workspace_layout(
     ``topk_length`` region backs a full-length vector when the caller passes
     none; ``tma_descriptor_workspace`` is the caller-owned descriptor storage
     of pointer-ABI programs.  A backward with more than one key-range pass adds
-    the FP32 dQ partials (``num_queries`` x 147,456 B), the compacted keys of
-    one pass (``num_queries`` x ``topk`` int32) and their per-token counts.  The
+    the FP32 dQ partials (147,456 B per token), the compacted keys of one pass
+    (``topk`` int32 per token) and the per-token counts for the tokens of one
+    chunk: ``min(num_queries, token_chunk)`` rows (the whole row without a
+    ``token_chunk``).  The
     seed profile adds the packed ``q``/``kv`` operands, an auxiliary row-max
     buffer and an (unused) sink vector.
     """
@@ -696,10 +740,11 @@ def workspace_layout(
             ("dk_rope_acc", num_kv * D_ROPE * 4),
         ]
         if int(key_passes) > 1:
+            rows = int(num_queries) if token_chunk is None else min(int(num_queries), int(token_chunk))
             sizes += [
-                ("dq_partial", num_queries * DQ_PARTIAL_BYTES_PER_TOKEN),
-                ("key_scratch", num_queries * int(topk) * 4),
-                ("pass_counts", num_queries * 4),
+                ("dq_partial", rows * DQ_PARTIAL_BYTES_PER_TOKEN),
+                ("key_scratch", rows * int(topk) * 4),
+                ("pass_counts", rows * 4),
             ]
     if abi == ABI_SEED:
         sizes += [
@@ -772,8 +817,25 @@ def dsa_train_workspace_size(
             tma_workspace_bytes=_record_tma_bytes(record, stages),
             scratch_bytes=_record_scratch_bytes(record, stages) if backward else 0,
             key_passes=passes,
+            token_chunk=_record_token_chunk(record, topk),
         )["total"]
     )
+
+
+def _record_token_chunk(record: dict[str, Any], topk: int) -> Optional[int]:
+    """Tokens per launch chunk of a multi-pass backward under the record's policy (``None``: no policy, the whole row)."""
+    policy = KeyPassPolicy.from_record(record)
+    return None if policy is None else policy.token_chunk(topk)
+
+
+def _pass_token_chunks(
+    record: dict[str, Any], num_queries: int, topk: int
+) -> tuple[tuple[int, int], ...]:
+    """``(token_base, num_tokens)`` of the token chunks a multi-pass backward runs (one whole-row chunk without a policy)."""
+    policy = KeyPassPolicy.from_record(record)
+    if policy is None:
+        return ((0, int(num_queries)),)
+    return policy.token_chunks(num_queries, topk)
 
 
 def _carve(flat: torch.Tensor, layout: dict, name: str, dtype, shape) -> torch.Tensor:
@@ -1069,10 +1131,10 @@ class DSATrainRunner:
     binding changes; values may change freely.
 
     ``launches`` is keyed by stage name; the launches of a multi-pass backward
-    are keyed ``(stage, pass index)`` and ``backward_order`` lists every
-    backward launch key in launch order (``bwd_delta``, then per pass
-    ``bwd_compact`` and ``bwd_main_pass`` -- or the single ``bwd_main`` --,
-    then ``bwd_cast``).
+    are keyed ``(stage, chunk index, pass index)`` and ``backward_order`` lists
+    every backward launch key in launch order (``bwd_delta``, then per token
+    chunk and per pass ``bwd_compact`` and ``bwd_main_pass`` -- or the single
+    ``bwd_main`` --, then ``bwd_cast``).
     """
 
     module_name: str
@@ -1237,15 +1299,25 @@ def _inert_cast_values(values: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pass_values(
-    values: dict[str, Any], index: int, passes: int, key_range: tuple[int, int]
+    values: dict[str, Any],
+    index: int,
+    passes: int,
+    key_range: tuple[int, int],
+    *,
+    token_base: int = 0,
+    num_tokens: Optional[int] = None,
 ) -> dict[str, Any]:
-    """The host values of one key-range pass: its key range and ``dq_mode``."""
+    """The host values of one (token chunk, key-range pass) launch pair: the key range, ``dq_mode``, the chunk's first
+    token and -- for the compaction -- its token count (``None``: the ``num_tokens`` already in ``values``)."""
     lo, hi = key_range
+    chunk = {} if num_tokens is None else dict(num_tokens=int(num_tokens))
     return dict(
         values,
         pass_lo=int(lo),
         pass_hi=int(hi),
         dq_mode=key_pass_dq_mode(index, passes),
+        token_base=int(token_base),
+        **chunk,
     )
 
 
@@ -1277,7 +1349,7 @@ def _contract_values(
     )  # one CTA per token, token = blockIdx.x
     values["num_tokens"] = int(
         scalars["num_queries"]
-    )  # bwd_compact: the whole row per pass
+    )  # bwd_compact: the whole row; a multi-pass backward re-binds it per token chunk (_pass_values)
     # bwd_cast packed-accumulate scalars (0 / 0 / 0 unless the binding accumulates into dkv_acc)
     values["dst_row_stride"] = int(scalars.get("dst_row_stride", 0))
     values["has_dst_map"] = int(scalars.get("has_dst_map", 0))
@@ -1466,6 +1538,7 @@ def prepare_dsa_train(
         tma_workspace_bytes=_record_tma_bytes(record, stages),
         scratch_bytes=_record_scratch_bytes(record, stages) if backward else 0,
         key_passes=passes,
+        token_chunk=_record_token_chunk(record, topk),
     )
     if workspace_buffer is None:
         workspace_buffer = torch.empty(
@@ -1581,19 +1654,21 @@ def prepare_dsa_train(
             )
             t["dkv_latent"] = torch.empty((0,), dtype=torch.bfloat16, device=device)
             t["dk_rope"] = torch.empty((0,), dtype=torch.bfloat16, device=device)
+    token_chunks = _pass_token_chunks(record, num_queries, topk) if passes > 1 else ()
     if passes > 1:
+        chunk_rows = max(n for _, n in token_chunks)
         t["dq_partial"] = _carve(
             flat,
             layout,
             "dq_partial",
             torch.float32,
-            (num_queries, DQ_PARTIAL_BYTES_PER_TOKEN // 4),
+            (chunk_rows, DQ_PARTIAL_BYTES_PER_TOKEN // 4),
         )
         t["key_scratch"] = _carve(
-            flat, layout, "key_scratch", torch.int32, (num_queries, topk)
+            flat, layout, "key_scratch", torch.int32, (chunk_rows, topk)
         )
         t["pass_counts"] = _carve(
-            flat, layout, "pass_counts", torch.int32, (num_queries,)
+            flat, layout, "pass_counts", torch.int32, (chunk_rows,)
         )
     if layout.get("workspace"):
         t["workspace"] = _carve(
@@ -1627,9 +1702,18 @@ def prepare_dsa_train(
     num_sms = int(torch.cuda.get_device_properties(device).multi_processor_count)
     launches: dict[Any, _Launch] = {}
 
-    def bind(stage: str, key: Any, stage_values: dict[str, Any]) -> None:
+    def bind(
+        stage: str,
+        key: Any,
+        stage_values: dict[str, Any],
+        grid_scalars: Optional[dict[str, Any]] = None,
+    ) -> None:
         physical = record[stage]
-        grid = grid_dims(physical.get("grid", ["num_queries", 1, 1]), scalars, num_sms)
+        grid = grid_dims(
+            physical.get("grid", ["num_queries", 1, 1]),
+            scalars if grid_scalars is None else grid_scalars,
+            num_sms,
+        )
         cluster = physical.get("launch", {}).get("cluster")
         if cluster and any(g % c for g, c in zip(grid, cluster, strict=True)):
             raise ValueError(
@@ -1650,11 +1734,23 @@ def prepare_dsa_train(
                     bind(stage, stage, values)
                     backward_order.append(stage)
         else:
-            for index, key_range in enumerate(key_pass_ranges(num_kv, passes)):
-                pass_values = _pass_values(values, index, passes, key_range)
-                for stage in KEY_PASS_STAGES:
-                    bind(stage, (stage, index), pass_values)
-                    backward_order.append((stage, index))
+            # token chunks in order, every chunk through every pass (the Cake launcher's loop): the grid rules
+            # (``num_queries`` / ``num_queries/W``) are evaluated with the chunk's token count
+            ranges = key_pass_ranges(num_kv, passes)
+            for chunk_index, (token_base, num_tokens) in enumerate(token_chunks):
+                chunk_scalars = dict(scalars, num_queries=num_tokens)
+                for index, key_range in enumerate(ranges):
+                    pass_values = _pass_values(
+                        values,
+                        index,
+                        passes,
+                        key_range,
+                        token_base=token_base,
+                        num_tokens=num_tokens,
+                    )
+                    for stage in KEY_PASS_STAGES:
+                        bind(stage, (stage, chunk_index, index), pass_values, chunk_scalars)
+                        backward_order.append((stage, chunk_index, index))
         # with natural-layout FP32 accumulators as the outputs the cast is skipped
         if "bwd_cast" in stages and not (dkv_fp32 and not permuted):
             bind("bwd_cast", "bwd_cast", values)

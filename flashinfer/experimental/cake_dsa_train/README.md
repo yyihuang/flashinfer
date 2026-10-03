@@ -195,26 +195,37 @@ evaluated by the host from the problem scalars.
 
 With many keys the FP32 dK/dV accumulators (2304 B per key) outgrow the L2,
 and the `red.global.add` scatter of `bwd_main` runs at DRAM speed.  The host
-then runs the backward in `P = ceil(S * 2304 B / 100 MiB)` passes over
-disjoint key ranges (`R = ceil(S / P)` keys each), so that the accumulator
-slice one pass touches stays L2-resident: `bwd_delta`, then per pass
-`bwd_compact` + `bwd_main_pass` over the whole row, then `bwd_cast`.  The
-policy the record carries (`key_pass_policy`: L2 budget 100 MiB, 2304 B per
-key, workspace budget 640 MiB, token chunk multiple 128) takes the pass path
-only when `P > 1` and the whole row fits the pass workspace budget
-(`T <= 4224` tokens at top-k 2048; there is no token chunking); otherwise the
-single-pass `bwd_main` runs unchanged.  At top-k 2048 that is `T <= 4224` and
-`S >= 45,512`: two passes at `S = 65,536`, three at `131,072`; 4k x 4k rows
-and 32k-token rows stay single-pass.  The passes add
-`T * (147,456 + 4 * topk + 4)` B to the workspace (`dq_partial`,
-`key_scratch`, `pass_counts`; 608 MiB at `T = 4096`, top-k 2048;
-`dsa_train_workspace_size` includes them).  dQ is
-still written once per row from the carried FP32 partial (bitwise
-deterministic run to run; its partial sums are re-associated, so it differs
-from the single pass in the last FP32 places), and the dK/dV reductions are
-the same reds in another order.  `key_passes=` on the entry points overrides
-the policy (`1` = single pass, `n` = that many passes); a program without the
-pass stages serves the single pass only.
+then runs the backward in `P` passes over disjoint key ranges (`R = ceil(S / P)`
+keys each), so that the accumulator slice one pass touches stays L2-resident:
+`bwd_delta`, then -- token chunk by token chunk, every chunk through every
+pass -- `bwd_compact` + `bwd_main_pass`, then `bwd_cast`.  The policy the
+record carries (`key_pass_policy`) has the constants (L2 budget 100 MiB,
+2304 B per key, workspace budget 640 MiB, token chunk multiple 128: the L2
+formula `P = ceil(S * 2304 B / 100 MiB)` and a token chunk of 4224 tokens at
+top-k 2048) and the target's rule from the paired sweeps of CAKE-756 round 2
+(`tail_rows`, `fixed_passes`, `min_kv`, `tail_cap`; a record without them is
+the first-release rule): a one-segment key row takes the pass path when
+`P > 1` and the row is one chunk (`T <= 4224`) or -- where the rule admits
+tail rows -- `2 T <= S`, with at least `min_kv` keys; the count is
+`fixed_passes` when set, else `P`, capped at `tail_cap` for tail rows of more
+than one chunk.  The registered rules:
+
+| target | rule | examples at top-k 2048 |
+|---|---|---|
+| sm_100a (B200) | one-chunk rows, the formula (first-release rule) | 4k x 64k: 2, 4k x 128k: 3, 32k x 128k: 1 |
+| sm_103a (GB300) | one-chunk rows: the formula; `2 T <= S` rows: `min(P, 3)` | 4k x 128k: 3, 32k x 128k / 192k / 256k: 3 |
+| sm_107a (R200) | two passes iff `S >= 131,072` (one-chunk or `2 T <= S`) | 4k x 64k: 1, 4k x 128k: 2, 32k x 128k: 2 |
+
+Causal single documents (`T == S`) and packed multi-segment rows never take the
+pass path.  The passes add `min(T, 4224) * (147,456 + 4 * topk + 4)` B to the
+workspace (`dq_partial`, `key_scratch`, `pass_counts` for one token chunk; 608
+MiB at top-k 2048; `dsa_train_workspace_size` includes them).  dQ is still
+written once per row from the carried FP32 partial (bitwise deterministic run
+to run; its partial sums are re-associated, so it differs from the single pass
+in the last FP32 places), and the dK/dV reductions are the same reds in
+another order.  `key_passes=` on the entry points overrides the policy (`1` =
+single pass, `n` = that many passes over the same token chunks); a program
+without the pass stages serves the single pass only.
 
 ## Layout of this package
 
