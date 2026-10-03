@@ -478,9 +478,13 @@ class Sm90CakeBf16MoERunner:
             and self._round_stream_id != stream_id
             and not self._round_event.query()
         ):
-            raise RuntimeError(
-                "cannot start a round on a different stream while the previous round is still executing"
-            )
+            # The previous round was issued on another stream and may still be
+            # running: order this round after it on the device.  The pipe runs
+            # one round at a time; this edge enforces it without requiring the
+            # host to have synchronised (a warm-up loop that hops streams, as the
+            # graph-capture recipes do, would otherwise fail spuriously).  Inside
+            # a capture the caller must have joined the streams beforehand.
+            stream.wait_event(self._round_event)
         nv = self.record_stages
         try:
             with _record_stage("begin_round", nv):
