@@ -2465,7 +2465,7 @@ def trtllm_batch_decode_sparse_mla_dsv4(
         )
 
     if backend == "cake" and kv_cache_format == "nvfp4":
-        # CAKE-821: SM100/SM103 NVFP4 cache route. Two independent tables
+        # SM100/SM103 NVFP4 cache route. Two independent tables
         # (``sparse_indices`` over ``swa_kv_cache``, ``extra_sparse_indices``
         # over ``compressed_kv_cache``) as in the SM120 NVFP4 ABI; the main
         # active length is ``sparse_topk_lens`` (``swa_topk_lens`` is accepted

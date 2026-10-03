@@ -165,13 +165,14 @@ def bench_trtllm_fp8(num_tokens, num_heads, total_topk, device, gen):
     total_topk = max(total_topk, 128)
     try:
         pages = POOL_TOKENS // PAGE_SIZE
-        swa = torch.randint(0, 255, (pages, 1, PAGE_SIZE, 584), generator=gen, device=device, dtype=torch.uint8)
-        comp = torch.randint(0, 255, (pages, 1, PAGE_SIZE, 584), generator=gen, device=device, dtype=torch.uint8)
+        # FP8 DSv4 pools (584-byte rows) and a per-tensor FP8 query, as the trtllm-gen route expects
+        swa = torch.randint(0, 255, (pages, 1, PAGE_SIZE, 584), generator=gen, device=device, dtype=torch.uint8).view(torch.float8_e4m3fn)
+        comp = torch.randint(0, 255, (pages, 1, PAGE_SIZE, 584), generator=gen, device=device, dtype=torch.uint8).view(torch.float8_e4m3fn)
         idx = random_indices(num_tokens, total_topk, POOL_TOKENS, gen, device)
         lens = torch.full((num_tokens,), total_topk, dtype=torch.int32, device=device)
         seq_lens = torch.full((num_tokens,), 4096, dtype=torch.int32, device=device)
         # trtllm-gen takes a dense [batch, q_len, heads, dim] query
-        query = torch.randn(num_tokens, 1, num_heads, HEAD_DIM, generator=gen, device=device).to(torch.bfloat16)
+        query = torch.randn(num_tokens, 1, num_heads, HEAD_DIM, generator=gen, device=device).to(torch.float8_e4m3fn)
         workspace = torch.zeros(128 * 1024 * 1024, dtype=torch.uint8, device=device)
 
         def run():

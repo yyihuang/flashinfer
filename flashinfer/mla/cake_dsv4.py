@@ -70,7 +70,7 @@ Host contract (flashinfer#4671 hardening)
   not collide, and a stream of fresh query tensors does not grow memory
   without bound. Nothing else allocates device memory.
 
-NVFP4 cache route (CAKE-821, ``kv_cache_format="nvfp4"``)
+NVFP4 cache route (``kv_cache_format="nvfp4"``)
 ---------------------------------------------------------
 
 :func:`run_cake_dsv4_nvfp4` hosts the DeepSeek-V4 NVFP4 sparse-MLA decode
@@ -149,7 +149,7 @@ _BF16_H64_COMPRESSED_PREFILL_TOKENS = 24
 _BF16_H64_PREFILL_MAX_SPARSE_WIDTH = 640
 _PRIMED_ATTR = "_cake_dsv4_counters_primed"
 
-# NVFP4 cache route (CAKE-821). Mirrors the Cake kernel module constants
+# NVFP4 cache route. Mirrors the Cake kernel module constants
 # (flashinfer_blackwell_sparse_mla_dsv4_nvfp4_decode: TOKEN_DATA_BYTES +
 # TOKEN_SF_BYTES, TILE_Q, MAX_SPLITS, SUPPORTED_HEAD_COUNTS).
 _NVFP4_TOKEN_BYTES = 384
@@ -1846,7 +1846,7 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# NVFP4 cache route (CAKE-821)                                                #
+# NVFP4 cache route                                                           #
 # --------------------------------------------------------------------------- #
 
 
