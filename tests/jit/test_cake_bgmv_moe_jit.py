@@ -371,7 +371,8 @@ def test_generic_binding_preserves_graph_and_tensor_contracts():
     assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T64," in binding
     assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T128," in binding
     assert "cudaLaunchAttributeProgrammaticStreamSerialization" in binding
-    assert "programmaticStreamSerializationAllowed = 1" in binding
+    assert "programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0" in binding
+    assert "int64_t pdl_mode, int64_t cuda_stream" in binding
     assert "TensorView route_index" in binding
     assert "CHECK_INPUT_TYPE(route_index, dl_int32)" in binding
     assert "kRouteIndexWordsPerToken = 3 + kRouteIndexMaxRoutes" in binding
