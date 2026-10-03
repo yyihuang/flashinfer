@@ -141,6 +141,7 @@ def _build_layer(
     capacity_factor: float = 1.0,
     clamp_limit: float | None = None,
     combine_wire: str | None = None,
+    token_capacity: int = TOKEN_CAPACITY,
     seed: int = 7,
 ):
     from flashinfer.moe_ep import (
@@ -167,7 +168,7 @@ def _build_layer(
         ),
         fleet_params=FleetParams(
             num_experts=total_experts,
-            max_tokens_per_rank=TOKEN_CAPACITY,
+            max_tokens_per_rank=token_capacity,
             token_hidden_size=HIDDEN,
         ),
         weights=MoEWeightPack(
@@ -603,12 +604,21 @@ def test_ep_combine_wire_mismatch_raises() -> None:
         TOKEN_CAPACITY, LOCAL_EXPERTS * world_size, 23 + rank, device, mode="random"
     )
     with pytest.raises(Exception, match="combine_wire"):
+        # A distinct max_tokens_per_rank gives this layer a fresh process-level
+        # workspace-pool key on every rank: the pipe + runner (and with them the
+        # cross-rank combine_wire handshake) are created lazily by the first
+        # forward, and a pooled workspace of an earlier test would be reused
+        # without any handshake.  Every rank raises together (guarded phase).
         mixed, _w13, _w2 = _build_layer(
-            world_size, rank, device, combine_wire=wire, seed=23
+            world_size,
+            rank,
+            device,
+            combine_wire=wire,
+            token_capacity=TOKEN_CAPACITY // 2,
+            seed=23,
         )
-        # the workspace (pipe + runner, hence the wire handshake) is created lazily
-        # by the first forward; every rank raises together (guarded init phase)
-        _forward(mixed, x, ids, weights)
+        half = TOKEN_CAPACITY // 2
+        _forward(mixed, x[:half], ids[:half], weights[:half])
         torch.cuda.synchronize()
     dist.barrier()
     # the process keeps working: a consistent pipe after the rejected one
