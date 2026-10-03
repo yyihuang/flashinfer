@@ -193,7 +193,8 @@ DKV_ACC_LAYOUTS = ("natural", "permuted")
 # (the FP32 accumulator slice one pass touches fits the L2), the token chunk =
 # the largest multiple of ``token_chunk_multiple`` whose pass scratch (147,456
 # + 4 * topk + 4 B per token) fits ``workspace_budget_bytes`` (4224 tokens at
-# top-k 2048), and the target's rule from the paired sweeps of CAKE-756 round 2
+# top-k 2048), and the target's rule from the paired sweeps of the second
+# optimisation round
 # (``tail_rows``, ``fixed_passes``, ``min_kv``, ``tail_min_kv``, ``tail_cap``):
 # passes apply to a one-segment key row when P > 1 and the row is one chunk
 # (``T <= chunk``) or -- with ``tail_rows`` -- ``2 T <= S``; one-chunk rows

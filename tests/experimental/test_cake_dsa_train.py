@@ -233,7 +233,7 @@ _POLICY = dict(
     workspace_budget_bytes=640 << 20,
     token_chunk_multiple=128,
 )
-# The per-target rules of the registered programs (CAKE-756 round 2, lever H3): the record's ``key_pass_policy`` carries
+# The per-target rules of the registered programs (second optimisation round, lever H3): the record's ``key_pass_policy`` carries
 # them next to the constants; a record without them (first release) is the R1 rule = _RULES["sm_100a"].
 _RULES = {
     "sm_100a": dict(tail_rows=0, fixed_passes=0, min_kv=0, tail_min_kv=0, tail_cap=0),
@@ -326,7 +326,7 @@ def test_key_pass_policy_rule():
                 KeyPassPolicy.from_record(
                     {"key_pass_policy": dict(_POLICY, **{name: bad})}
                 )
-    # the per-target rules of the registered programs (CAKE-756 round 2)
+    # the per-target rules of the registered programs (second optimisation round)
     rows = {
         # (T, S): (sm_100a, sm_103a, sm_107a)
         (4096, 65536): (2, 2, 1),  # cptail_4k_65536: R200 runs 65-68k-key rows single-pass
@@ -1589,7 +1589,7 @@ def test_backward_whole_row_policy_two_passes_through_public_entry():
     """The registered policy takes two passes at T = 4096 x S = 65,536 (top-k 2048) under the R1 rule
     (sm_100a / sm_103a records; the sm_107a rule keeps that row single-pass, so the test forces two), through
     the public entry, against the canonical gates; the 4k x 4k row stays single-pass and the other rows
-    follow the record's published rule (CAKE-756 round 2)."""
+    follow the record's published rule (second optimisation round)."""
     record, stages = _require_key_pass_program()
     device = torch.device("cuda")
     for T, S in ((4096, 65536), (4096, 131072), (4096, 4096), (32768, 131072), (8448, 131072)):
@@ -1633,10 +1633,12 @@ def test_backward_whole_row_policy_two_passes_through_public_entry():
             *fwd_args
         )  # the autograd step's forward binding: a hit
         g1 = cake_backend.backward(
-            *fwd_args, o1, olo1, l1, inp.dout
-        )  # fresh saved outputs: binds anew
+            *fwd_args, o1, olo1, l1, inp.dout, key_passes=forced
+        )  # fresh saved outputs: binds anew (the same pass override as the autograd step above)
         hits, misses, size = cache.hits, cache.misses, len(cache)
-        g2 = cake_backend.backward(*fwd_args, o1, olo1, l1, inp.dout)
+        g2 = cake_backend.backward(
+            *fwd_args, o1, olo1, l1, inp.dout, key_passes=forced
+        )
         o2, l2, olo2 = cake_backend.forward(*fwd_args)
         torch.cuda.synchronize()
         assert (cache.hits, cache.misses, len(cache)) == (hits + 2, misses, size)
@@ -1704,19 +1706,22 @@ def test_public_entry_derives_row_lengths_and_matches_full_rows():
 
 
 def test_varlen_multi_segment_row_plans_single_pass():
-    """A packed two-segment key row whose total length triggers the whole-row formula (2 x 23,000 keys >
-    45,511) plans the single-pass stage through the varlen entry (``num_segments = len(cu_seqlens_k) - 1``:
-    whole-row ranges do not match segment-confined index rows), while the flat call on the same global
-    indices plans two whole-row passes; the forward is untouched, both backwards agree (dq differs in the
-    FP32 summation order only) and match the FP64 reference."""
+    """A packed two-segment key row whose total length takes more than one whole-row pass under every
+    registered target's rule (2 x 65,536 keys) plans the single-pass stage through the varlen entry
+    (``num_segments = len(cu_seqlens_k) - 1``: whole-row ranges do not match segment-confined index rows),
+    while the flat call on the same global indices plans the record's whole-row passes; the forward is
+    untouched, both backwards agree (dq differs in the FP32 summation order only) and match the FP64
+    reference."""
     record, stages = _require_key_pass_program()
     device = torch.device("cuda")
-    assert plan_key_passes(record, stages, 256, 46000, 128) == 2
-    assert plan_key_passes(record, stages, 256, 46000, 128, num_segments=2) == 1
+    passes = _rule_passes(record, 256, 131072, 128)
+    assert passes > 1
+    assert plan_key_passes(record, stages, 256, 131072, 128) == passes
+    assert plan_key_passes(record, stages, 256, 131072, 128, num_segments=2) == 1
     assert dsa_train_workspace_size(
-        256, 46000, 128, device, num_segments=2
-    ) == dsa_train_workspace_size(256, 46000, 128, device, key_passes=1)
-    inp = make_inputs([128, 128], [23000, 23000], seed=SEED + 751, topk=128)
+        256, 131072, 128, device, num_segments=2
+    ) == dsa_train_workspace_size(256, 131072, 128, device, key_passes=1)
+    inp = make_inputs([128, 128], [65536, 65536], seed=SEED + 751, topk=128)
     args = (inp.q_latent, inp.q_rope, inp.kv_latent, inp.k_rope)
     leaves = [t.detach().clone().requires_grad_() for t in args]
     flat_leaves = [t.detach().clone().requires_grad_() for t in args]
@@ -1743,10 +1748,10 @@ def test_varlen_multi_segment_row_plans_single_pass():
             )
         grads_f = torch.autograd.grad(out_f, flat_leaves, inp.dout)
         torch.cuda.synchronize()
-        # the segment count is part of the binding key: the flat call binds anew and plans the two passes
+        # the segment count is part of the binding key: the flat call binds anew and plans the whole-row passes
         assert sorted(
             b.key_passes for b in cache._bindings.values() if b.backward_order
-        ) == [1, 2]
+        ) == [1, passes]
     assert torch.equal(out_v.detach(), out_f.detach()) and torch.equal(lse_v, lse_f)
     for a, b in zip(grads_v, grads_f, strict=True):
         assert rel_l2(a, b) < 1e-3

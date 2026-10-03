@@ -202,7 +202,8 @@ pass -- `bwd_compact` + `bwd_main_pass`, then `bwd_cast`.  The policy the
 record carries (`key_pass_policy`) has the constants (L2 budget 100 MiB,
 2304 B per key, workspace budget 640 MiB, token chunk multiple 128: the L2
 formula `P = ceil(S * 2304 B / 100 MiB)` and a token chunk of 4224 tokens at
-top-k 2048) and the target's rule from the paired sweeps of CAKE-756 round 2
+top-k 2048) and the target's rule from the paired sweeps of the second
+optimisation round
 (`tail_rows`, `fixed_passes`, `min_kv`, `tail_min_kv`, `tail_cap`; a record
 without them is the first-release rule): a one-segment key row takes the pass
 path when `P > 1` and the row is one chunk (`T <= 4224`) with at least
