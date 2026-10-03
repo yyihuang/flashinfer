@@ -141,7 +141,7 @@ __global__ void compact_bf16_persistent_kernel(
     int32_t* __restrict__ grp_cnt, int32_t* __restrict__ grp_rows,
     int32_t* __restrict__ grp_list, int32_t* __restrict__ n_groups,
     int32_t* __restrict__ groups_per_src, const int32_t* __restrict__ round_ctr,
-    int build_groups) {
+    int build_groups, int32_t* __restrict__ grp_chunk, int n_chunks) {
   (void)next_row;
   int eps = L.ep_size;
   uint32_t const tag = build_groups ? static_cast<uint32_t>(*round_ctr) : 0u;
@@ -183,6 +183,11 @@ __global__ void compact_bf16_persistent_kernel(
           asm volatile("trap;");
         }
         grp_rows[static_cast<int64_t>(g) * L.top_k + pos] = row;
+        // FC/publish overlap (L-O1): the group is published after the LAST expert-range
+        // chunk holding one of its rows has run FC2; chunk(e) = e * n_chunks / E.  The
+        // array is zero at round start and reset by the publish kernels.
+        int const chunk = (e * n_chunks) / L.num_local_experts;
+        if (chunk > 0) atomicMax(&grp_chunk[g], chunk);
         if (pos == 0) {  // first row opens the group
           grp_list[atomicAdd(n_groups, 1)] = g;
           atomicAdd(&groups_per_src[src], 1);
@@ -210,7 +215,7 @@ void sm90_cake_compact_bf16(TensorView a_bf16, TensorView meta_out, TensorView r
                             TensorView m_dev, TensorView next_row, TensorView grp_cnt,
                             TensorView grp_rows, TensorView grp_list, TensorView n_groups,
                             TensorView groups_per_src, TensorView round_ctr,
-                            int64_t build_groups) {
+                            int64_t build_groups, TensorView grp_chunk, int64_t n_chunks) {
   check_layout(LAYOUT_ARGS);
   auto L = build_layout(LAYOUT_ARGS);
   int H = L.hidden;
@@ -243,6 +248,10 @@ void sm90_cake_compact_bf16(TensorView a_bf16, TensorView meta_out, TensorView r
                    grp_rows.numel() >= nslots * L.top_k && n_groups.numel() >= 1 &&
                    groups_per_src.numel() >= ep_size && round_ctr.numel() >= 1)
         << "compact_bf16: pre-reduced group scratch too small";
+    CHECK_INPUT_AND_TYPE(grp_chunk, dl_int32);
+    TVM_FFI_ICHECK(grp_chunk.numel() >= nslots) << "compact_bf16: grp_chunk too small";
+    TVM_FFI_ICHECK(n_chunks >= 1 && n_chunks <= num_local_experts)
+        << "compact_bf16: n_chunks " << n_chunks << " out of [1, num_local_experts]";
   }
   auto stream = get_stream(a_bf16.device());
   int blocks = compact_grid_blocks(a_bf16.device());
@@ -254,7 +263,8 @@ void sm90_cake_compact_bf16(TensorView a_bf16, TensorView meta_out, TensorView r
       static_cast<int32_t*>(row_expert.data_ptr()), H, static_cast<int32_t*>(grp_cnt.data_ptr()),
       static_cast<int32_t*>(grp_rows.data_ptr()), static_cast<int32_t*>(grp_list.data_ptr()),
       static_cast<int32_t*>(n_groups.data_ptr()), static_cast<int32_t*>(groups_per_src.data_ptr()),
-      static_cast<const int32_t*>(round_ctr.data_ptr()), build_groups != 0 ? 1 : 0);
+      static_cast<const int32_t*>(round_ctr.data_ptr()), build_groups != 0 ? 1 : 0,
+      static_cast<int32_t*>(grp_chunk.data_ptr()), static_cast<int>(n_chunks));
 }
 
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(sm90_cake_compact_bf16, sm90_cake_compact_bf16);

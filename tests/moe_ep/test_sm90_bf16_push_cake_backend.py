@@ -143,6 +143,8 @@ def _build_layer(
     combine_wire: str | None = None,
     token_capacity: int = TOKEN_CAPACITY,
     seed: int = 7,
+    overlap_free_sms: int | None = None,
+    overlap_chunks: int | None = None,
 ):
     from flashinfer.moe_ep import (
         BootstrapConfig,
@@ -183,6 +185,8 @@ def _build_layer(
                 dedup_dispatch=dedup_dispatch,
                 clamp_limit=clamp_limit,
                 combine_wire=combine_wire,
+                overlap_free_sms=overlap_free_sms,
+                overlap_chunks=overlap_chunks,
             ),
             quantize_input=True,
             preprocess_weights=True,
@@ -246,7 +250,9 @@ def _check(
 @requires_sm90
 @pytest.mark.parametrize("wire", WIRES)
 @pytest.mark.parametrize("dedup_dispatch", [True, False])
-def test_ep1_forward_repeated_and_deterministic(dedup_dispatch: bool, wire: str) -> None:
+def test_ep1_forward_repeated_and_deterministic(
+    dedup_dispatch: bool, wire: str
+) -> None:
     device = torch.device("cuda", 0)
     layer, w13, w2 = _build_layer(
         1, 0, device, dedup_dispatch=dedup_dispatch, combine_wire=wire
@@ -293,9 +299,7 @@ def test_ep1_edge_routes(case: str, wire: str) -> None:
     x2, ids2, weights2 = _make_inputs(TOKEN_CAPACITY, LOCAL_EXPERTS, 22, device)
     output2 = _forward(layer, x2, ids2, weights2)
     torch.cuda.synchronize()
-    _check(
-        output2, x2, ids2, weights2, w13, w2, label=f" ep1 {wire} {case} recovery"
-    )
+    _check(output2, x2, ids2, weights2, w13, w2, label=f" ep1 {wire} {case} recovery")
 
 
 @requires_sm90
@@ -556,14 +560,25 @@ def _dist_setup() -> tuple[int, int]:
     ],
 )
 @pytest.mark.parametrize("dedup_dispatch", [True, False])
-def test_ep_forward_modes(mode: str, dedup_dispatch: bool, wire: str) -> None:
+@pytest.mark.parametrize("overlap", [False, True], ids=["single", "overlap"])
+def test_ep_forward_modes(
+    mode: str, dedup_dispatch: bool, wire: str, overlap: bool
+) -> None:
     import torch.distributed as dist
 
+    if overlap and wire == "per_route":
+        pytest.skip("the FC/publish overlap needs a pre-reduced wire")
     rank, world_size = _dist_setup()
     device = torch.device("cuda", rank)
     total_experts = LOCAL_EXPERTS * world_size
     layer, w13, w2 = _build_layer(
-        world_size, rank, device, dedup_dispatch=dedup_dispatch, combine_wire=wire
+        world_size,
+        rank,
+        device,
+        dedup_dispatch=dedup_dispatch,
+        combine_wire=wire,
+        overlap_free_sms=4 if overlap else None,
+        overlap_chunks=2 if overlap else None,
     )
     x, ids, weights = _make_inputs(
         TOKEN_CAPACITY,
@@ -626,7 +641,13 @@ def test_ep_combine_wire_mismatch_raises() -> None:
     output = _forward(layer, x, ids, weights)
     torch.cuda.synchronize()
     _check(
-        output, x, ids, weights, w13, w2, label=f" ep{world_size} rank{rank} after-mismatch"
+        output,
+        x,
+        ids,
+        weights,
+        w13,
+        w2,
+        label=f" ep{world_size} rank{rank} after-mismatch",
     )
     dist.barrier()
 

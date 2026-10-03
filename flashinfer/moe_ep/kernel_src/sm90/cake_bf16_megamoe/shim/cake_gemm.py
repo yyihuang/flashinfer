@@ -170,10 +170,20 @@ class ExportedGroupedGemm:
     so a captured round replays under CUDA graphs.
     """
 
-    def __init__(self, *, clamp: float | None = None) -> None:
+    def __init__(self, *, clamp: float | None = None, free_sms: int = 0) -> None:
         from .cake_jit import gen_sm90_cake_bf16_grouped_gemm_module
 
         self._clamp = float(clamp) if clamp is not None else 0.0
+        # FC/publish overlap (L-O1): leave ``free_sms`` SMs to the concurrent side-stream
+        # publish; the persistent grid becomes (SMs - free_sms) CTAs.  Even, because the
+        # kernels launch 2-CTA clusters.  The tile schedule is resolved on the device from
+        # the grid, so every grid computes the same tiles (bitwise identical outputs).
+        free = int(free_sms)
+        if free < 0 or free % 2 != 0:
+            raise ValueError(
+                f"free_sms must be a non-negative even number of SMs (2-CTA clusters), got {free_sms}"
+            )
+        self._free_sms = free
         fc1_stage = "fc1_gated_clamp" if clamp is not None else "fc1_gated"
         self._fc1 = gen_sm90_cake_bf16_grouped_gemm_module(fc1_stage).build_and_load()
         self._fc2 = gen_sm90_cake_bf16_grouped_gemm_module("fc2").build_and_load()
@@ -188,7 +198,17 @@ class ExportedGroupedGemm:
         if sms is None:
             sms = int(torch.cuda.get_device_properties(index).multi_processor_count)
             self._sm_count[index] = sms
-        return sms
+        grid = sms - self._free_sms
+        if grid < 2:
+            raise ValueError(
+                f"free_sms={self._free_sms} leaves no 2-CTA cluster on a {sms}-SM device"
+            )
+        return grid
+
+    @property
+    def free_sms(self) -> int:
+        """SMs left free for the side-stream publish (0 = full persistent grid)."""
+        return self._free_sms
 
     def _launch(
         self,
@@ -260,7 +280,9 @@ def _dev_launcher_factory() -> Any | None:
     return getattr(module, attribute or "create_grouped_gemm")
 
 
-def create_grouped_gemm(*, clamp: float | None = None) -> GroupedGemm:
+def create_grouped_gemm(
+    *, clamp: float | None = None, free_sms: int = 0
+) -> GroupedGemm:
     """Return the grouped GEMM launcher for this process.
 
     The shipped path is :class:`ExportedGroupedGemm` (generated sources, no
@@ -268,8 +290,11 @@ def create_grouped_gemm(*, clamp: float | None = None) -> GroupedGemm:
     a development launcher factory (see :func:`_dev_launcher_factory`) that
     compiles the kernels from the generator package in-process; it is the
     reference the exported modules are checked against and is never shipped.
+    ``free_sms`` (FC/publish overlap) is forwarded only when non-zero.
     """
     factory = _dev_launcher_factory()
     if factory is not None:
+        if free_sms:
+            return factory(clamp=clamp, free_sms=free_sms)
         return factory(clamp=clamp)
-    return ExportedGroupedGemm(clamp=clamp)
+    return ExportedGroupedGemm(clamp=clamp, free_sms=free_sms)

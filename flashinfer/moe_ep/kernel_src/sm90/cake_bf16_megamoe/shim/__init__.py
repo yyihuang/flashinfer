@@ -19,6 +19,8 @@ from .cake_runner import (
     FUSED_DISPATCH_ENV,
     FUSED_DISPATCH_MAX_ROUTES,
     FUSED_DISPATCH_MAX_TOKENS,
+    OVERLAP_CHUNKS_ENV,
+    OVERLAP_FREE_SMS_ENV,
     Sm90CakeBf16MoERunner,
 )
 from .cake_weights import (
@@ -36,6 +38,8 @@ __all__ = [
     "FUSED_DISPATCH_MAX_ROUTES",
     "FUSED_DISPATCH_MAX_TOKENS",
     "GATE_UP_GROUP",
+    "OVERLAP_CHUNKS_ENV",
+    "OVERLAP_FREE_SMS_ENV",
     "Sm90CakeBf16MoERunner",
     "Sm90CakeBf16Weights",
     "gen_sm90_cake_bf16_combine_prereduced_module",

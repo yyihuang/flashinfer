@@ -51,6 +51,8 @@ __all__ = [
     "FUSED_DISPATCH_ENV",
     "FUSED_DISPATCH_MAX_ROUTES",
     "FUSED_DISPATCH_MAX_TOKENS",
+    "OVERLAP_CHUNKS_ENV",
+    "OVERLAP_FREE_SMS_ENV",
     "Sm90CakeBf16MoERunner",
 ]
 
@@ -82,8 +84,21 @@ COMBINE_WIRE_PREREDUCED = "prereduced"
 # single-route groups are bf16(w * y) exactly as the per-route wire.
 COMBINE_WIRE_PREREDUCED_HILO = "prereduced_hilo"
 COMBINE_WIRE_PER_ROUTE = "per_route"
-COMBINE_WIRES = (COMBINE_WIRE_PREREDUCED, COMBINE_WIRE_PREREDUCED_HILO, COMBINE_WIRE_PER_ROUTE)
+COMBINE_WIRES = (
+    COMBINE_WIRE_PREREDUCED,
+    COMBINE_WIRE_PREREDUCED_HILO,
+    COMBINE_WIRE_PER_ROUTE,
+)
 _PREREDUCED_WIRES = (COMBINE_WIRE_PREREDUCED, COMBINE_WIRE_PREREDUCED_HILO)
+# FC/publish overlap (CAKE-891 R2 lever L-O1, pre-reduced wires only): FC1/FC2 are
+# issued as OVERLAP_CHUNKS expert-range chunks on a persistent grid of
+# (SMs - OVERLAP_FREE_SMS) CTAs and the groups completed by a chunk are published on
+# a side stream (OVERLAP_FREE_SMS blocks of 1024 threads) while the next chunk's GEMMs
+# run; the last chunk is published by the full-grid kernel.  0 free SMs = no overlap
+# (the default: one FC1, one FC2, one publish, exactly the R0 schedule).  Numerics are
+# unchanged: every tile and every group is computed exactly as in the single launches.
+OVERLAP_FREE_SMS_ENV = "FLASHINFER_SM90_CAKE_BF16_OVERLAP_FREE_SMS"
+OVERLAP_CHUNKS_ENV = "FLASHINFER_SM90_CAKE_BF16_OVERLAP_CHUNKS"
 
 
 def _env_flag(name: str) -> bool:
@@ -97,6 +112,24 @@ def _fused_combine_tail_default() -> bool:
 
 def _fused_dispatch_default() -> bool:
     return _env_flag(FUSED_DISPATCH_ENV)
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name, "").strip()
+    if value == "":
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {value!r}") from exc
+
+
+def _overlap_free_sms_default() -> int:
+    return _env_int(OVERLAP_FREE_SMS_ENV, 0)
+
+
+def _overlap_chunks_default() -> int:
+    return _env_int(OVERLAP_CHUNKS_ENV, 2)
 
 
 def _combine_wire_default() -> str:
@@ -123,7 +156,8 @@ class Sm90CakeBf16MoERunner:
     ``begin_round`` (round-tag bump, wait for the peers' acks) -> ``dispatch``
     (bf16 payload, P2P push; one cooperative kernel for small rounds, the
     vendored count / reserve / store_publish kernels otherwise) | ``wait_prefix``
-    -> ``compact_bf16`` (gather inbox rows expert-major) -> FC1 (Cake WGMMA,
+    -> ``compact_bf16`` (gather inbox rows expert-major; tags every combine group
+    with its last FC chunk when the overlap is on) -> FC1 (Cake WGMMA,
     fused SwiGLU, bf16 intermediate) -> FC2 (Cake WGMMA, bf16 out) ->
     ``combine`` -> ``combine_tail``.
 
@@ -165,6 +199,8 @@ class Sm90CakeBf16MoERunner:
         fused_combine_tail: bool | None = None,
         fused_dispatch: bool | None = None,
         combine_wire: str | None = None,
+        overlap_free_sms: int | None = None,
+        overlap_chunks: int | None = None,
     ) -> None:
         self.pipe = pipe
         self._state = _RunnerState.IDLE
@@ -198,6 +234,33 @@ class Sm90CakeBf16MoERunner:
                 f"(fused_combine_tail=True / {FUSED_COMBINE_TAIL_ENV}=1)"
             )
         self._combine_wire = wire
+        free_sms = (
+            _overlap_free_sms_default()
+            if overlap_free_sms is None
+            else int(overlap_free_sms)
+        )
+        chunks = (
+            _overlap_chunks_default() if overlap_chunks is None else int(overlap_chunks)
+        )
+        if free_sms < 0 or free_sms % 2 != 0:
+            raise ValueError(
+                f"overlap_free_sms must be a non-negative even SM count, got {free_sms}"
+            )
+        if chunks < 1:
+            raise ValueError(f"overlap_chunks must be >= 1, got {chunks}")
+        if free_sms > 0 and chunks < 2:
+            raise ValueError(
+                "overlap_free_sms > 0 requires overlap_chunks >= 2 (nothing to publish early otherwise)"
+            )
+        if chunks > 1 and wire not in _PREREDUCED_WIRES:
+            raise ValueError(
+                "the FC/publish overlap (overlap_chunks > 1) requires a pre-reduced combine wire"
+            )
+        self._overlap_free_sms = free_sms if chunks > 1 else 0
+        self._overlap_chunks = chunks
+        self._side_stream: torch.cuda.Stream | None = None
+        self._chunk_events: list[torch.cuda.Event] = []
+        self._side_join_event: torch.cuda.Event | None = None
         self.weights: Sm90CakeBf16Weights | None = None
 
         def _local_init():
@@ -223,6 +286,10 @@ class Sm90CakeBf16MoERunner:
                 gate_up_group=GATE_UP_GROUP,
                 row_capacity=output_row_capacity(pipe.m_cap),
             )
+            if self._overlap_chunks > pipe.E:
+                raise ValueError(
+                    f"overlap_chunks={self._overlap_chunks} exceeds the {pipe.E} local experts"
+                )
             self.I = weights.intermediate_size
             self.weights = weights
             self._init_buffers()
@@ -240,7 +307,9 @@ class Sm90CakeBf16MoERunner:
                 )
             return None
 
-        _run_guarded_phase(pipe._comm, pipe.rank, "cake-bf16-combine-wire", _wire_handshake)
+        _run_guarded_phase(
+            pipe._comm, pipe.rank, "cake-bf16-combine-wire", _wire_handshake
+        )
 
         def _jit():
             self.compact_module = gen_sm90_cake_bf16_compact_module().build_and_load()
@@ -263,7 +332,12 @@ class Sm90CakeBf16MoERunner:
                 if self._fused_dispatch
                 else None
             )
-            self.gemm = gemm if gemm is not None else create_grouped_gemm(clamp=clamp)
+            if gemm is not None:
+                self.gemm = gemm
+            else:
+                self.gemm = create_grouped_gemm(
+                    clamp=clamp, free_sms=self._overlap_free_sms
+                )
             return None
 
         _run_guarded_phase(pipe._comm, pipe.rank, "cake-bf16-jit", _jit)
@@ -277,6 +351,16 @@ class Sm90CakeBf16MoERunner:
     def fused_dispatch(self) -> bool:
         """True when small dedup rounds dispatch through the single cooperative kernel."""
         return self._fused_dispatch
+
+    @property
+    def overlap_free_sms(self) -> int:
+        """SMs left to the side-stream publish while the chunked GEMMs run (0 = off)."""
+        return self._overlap_free_sms
+
+    @property
+    def overlap_chunks(self) -> int:
+        """Expert-range chunks of FC1/FC2 per round (1 = single launch, no overlap)."""
+        return self._overlap_chunks
 
     @property
     def combine_wire(self) -> str:
@@ -332,10 +416,29 @@ class Sm90CakeBf16MoERunner:
             # grid-completion counter of the pre-reduced publish (its last block resets
             # the worklist scratch for the next round: no per-round memsets)
             self._pub_blocks_done = torch.zeros(1, dtype=torch.int32, device=dv)
+            # last FC chunk of every group (0 when the overlap is off); reset by the publish
+            self._grp_chunk = torch.zeros(nslots, dtype=torch.int32, device=dv)
             pipe._cdone_local.zero_()  # the publish kernel keeps it zeroed from here on
         else:  # per-route wire: compact builds no worklist; placeholders for the binding
-            self._grp_cnt = self._grp_rows = self._grp_list = torch.zeros(1, dtype=torch.int32, device=dv)
-            self._n_groups = self._groups_per_src = torch.zeros(1, dtype=torch.int32, device=dv)
+            self._grp_cnt = self._grp_rows = self._grp_list = torch.zeros(
+                1, dtype=torch.int32, device=dv
+            )
+            self._n_groups = self._groups_per_src = torch.zeros(
+                1, dtype=torch.int32, device=dv
+            )
+            self._grp_chunk = torch.zeros(1, dtype=torch.int32, device=dv)
+        if self._overlap_chunks > 1:
+            # side stream + events of the overlapped round, created (and the events
+            # materialised) outside any capture so a captured round only records them
+            self._side_stream = torch.cuda.Stream(device=dv)
+            self._chunk_events = [
+                torch.cuda.Event() for _ in range(self._overlap_chunks - 1)
+            ]
+            self._side_join_event = torch.cuda.Event()
+            current = torch.cuda.current_stream(dv)
+            for event in self._chunk_events:
+                event.record(current)
+            self._side_join_event.record(current)
 
     def bind_weights(self, weights: Sm90CakeBf16Weights) -> None:
         """Swap the expert weights between rounds (same geometry, same device)."""
@@ -579,13 +682,18 @@ class Sm90CakeBf16MoERunner:
                         self._groups_per_src,
                         pipe._round,
                         1 if self._combine_wire in _PREREDUCED_WIRES else 0,
+                        self._grp_chunk,
+                        self._overlap_chunks,
                     )
-                with _record_stage("fc1", nv):
-                    self.gemm.fc1(self.a1, weights.w13, pipe._offsets, self.h2)
-                with _record_stage("fc2", nv):
-                    self.gemm.fc2(self.h2, weights.w2, pipe._offsets, self.y)
+                split = 1 if self._combine_wire == COMBINE_WIRE_PREREDUCED_HILO else 0
+                if self._overlap_chunks > 1:
+                    self._compute_chunked(weights, split, nv)
+                else:
+                    with _record_stage("fc1", nv):
+                        self.gemm.fc1(self.a1, weights.w13, pipe._offsets, self.h2)
+                    with _record_stage("fc2", nv):
+                        self.gemm.fc2(self.h2, weights.w2, pipe._offsets, self.y)
                 if self._combine_wire in _PREREDUCED_WIRES:
-                    split = 1 if self._combine_wire == COMBINE_WIRE_PREREDUCED_HILO else 0
                     with _record_stage("combine", nv):
                         self.publish_module.sm90_cake_combine_prereduced_bf16(
                             self.y,
@@ -601,6 +709,11 @@ class Sm90CakeBf16MoERunner:
                             pipe._round,
                             self._pub_blocks_done,
                             split,
+                            self._grp_chunk,
+                            self._overlap_chunks - 1
+                            if self._overlap_chunks > 1
+                            else -1,
+                            1 if self._overlap_chunks > 1 else 0,
                         )
                     with _record_stage("combine_tail", nv):
                         self.tail_module.sm90_cake_combine_tail_prereduced_bf16(
@@ -655,6 +768,59 @@ class Sm90CakeBf16MoERunner:
             if streams_differ:
                 caller_stream.wait_event(self._round_event)
         return output
+
+    def _compute_chunked(
+        self, weights: Sm90CakeBf16Weights, split: int, nv: bool
+    ) -> None:
+        """FC1/FC2 as expert-range chunks with the early publish of finished chunks.
+
+        Chunk ``c`` covers local experts ``[E*c//C, E*(c+1)//C)``: the same kernels
+        over ``offsets[e0:e1+1]`` / ``w[e0:e1]`` (rows are absolute, so every tile is
+        computed exactly as in the single launch).  After FC2 of chunk ``c < C-1`` the
+        side stream publishes the groups whose last chunk is ``c`` on the free SMs;
+        the caller's stream joins the side stream before the final full-grid publish
+        (which resets the per-round scratch) so the round's ordering is unchanged in
+        eager mode and inside a CUDA-graph capture (fork/join through events).
+        """
+        pipe = self.pipe
+        side = self._side_stream
+        assert side is not None and self._side_join_event is not None
+        chunks = self._overlap_chunks
+        num_experts = pipe.E
+        bounds = [(num_experts * c) // chunks for c in range(chunks + 1)]
+        current = torch.cuda.current_stream(pipe.device)
+        side_blocks = max(self._overlap_free_sms, 2)
+        for c in range(chunks):
+            e0, e1 = bounds[c], bounds[c + 1]
+            offsets = pipe._offsets[e0 : e1 + 1]
+            with _record_stage("fc1", nv):
+                self.gemm.fc1(self.a1, weights.w13[e0:e1], offsets, self.h2)
+            with _record_stage("fc2", nv):
+                self.gemm.fc2(self.h2, weights.w2[e0:e1], offsets, self.y)
+            if c < chunks - 1:
+                event = self._chunk_events[c]
+                event.record(current)
+                side.wait_event(event)
+                with torch.cuda.stream(side), _record_stage("combine", nv):
+                    self.publish_module.sm90_cake_combine_prereduced_side_bf16(
+                        self.y,
+                        self.meta,
+                        *pipe._layout_args(),
+                        self._grp_cnt,
+                        self._grp_rows,
+                        self._grp_list,
+                        self._grp_chunk,
+                        self._n_groups,
+                        self._groups_per_src,
+                        pipe._cdone_local,
+                        pipe._round,
+                        c,
+                        split,
+                        side_blocks,
+                    )
+        # join: the final publish resets the worklist scratch the side launches read
+        self._side_join_event.record(side)
+        current.wait_event(self._side_join_event)
 
     def forward(
         self,

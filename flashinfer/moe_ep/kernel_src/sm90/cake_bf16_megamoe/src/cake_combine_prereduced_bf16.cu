@@ -48,6 +48,20 @@
 // rounded exactly twice (group partial sum, final sum) instead of
 // (top_k + 1) times on the per-route wire.
 //
+// FC/publish overlap (L-O1, runner knobs overlap_free_sms / overlap_chunks): the
+// runner may issue FC1/FC2 as C expert-range chunks on a grid of (SMs - k) CTAs
+// and publish the groups whose LAST chunk (compact tags `grp_chunk[g]`, the max
+// over the group's rows of chunk(expert)) has finished while the next chunk's
+// GEMMs run.  Chunks 0..C-2 are published by the side-stream kernel below
+// (`..._kernel_side`: grid = k blocks of 1024 threads so it can never occupy
+// more than the k free SMs, one warp per group) and chunk C-1 by the full-grid
+// block kernel, which also performs the per-round scratch reset.  cdone cells
+// are released by whichever launch completes the owner's group count.  Every
+// group is still reduced by one warp/block in ascending route order with the
+// same fp32 fma sequence per element, so the wire rows are bitwise identical to
+// the single launch; with chunking the S-slicing is forced to 1 so both launches
+// count one item per group.
+//
 // split_partials (combine_wire="prereduced_hilo"): a group of >= 2 routes
 // carries its fp32 partial as TWO bf16 rows, hi = bf16(p) in slot k_min and
 // lo = bf16(p - hi) in the slot of its second-smallest route index (p - hi is
@@ -141,13 +155,72 @@ void check_layout(LAYOUT_PARAMS) {
 // Worklist of (owner rank, token) groups over the received rows.  One group
 // record per (src, token) pair: grp_cnt[g] rows, their row indices in
 // grp_rows[g * top_k + i] (any order; the publish sorts them by route index).
+
+// Load a group's rows and route indices, sort them by ascending route index
+// (insertion sort, cnt <= top_k <= 8) and fetch the route weights in that order.
+__device__ __forceinline__ void load_sorted_group(const int32_t* __restrict__ meta,
+                                                  const int32_t* __restrict__ grp_rows, int top_k,
+                                                  int g, int cnt, int* rows, int* ks, float* ws) {
+  const int32_t* glist = grp_rows + static_cast<int64_t>(g) * top_k;
+  for (int i = 0; i < cnt; ++i) {
+    rows[i] = glist[i];
+    ks[i] = meta_route_k(meta + static_cast<int64_t>(rows[i]) * 4);
+  }
+  for (int i = 1; i < cnt; ++i) {  // insertion sort by route index, cnt <= top_k <= 8
+    int kk = ks[i], rr = rows[i];
+    int j = i - 1;
+    while (j >= 0 && ks[j] > kk) {
+      ks[j + 1] = ks[j];
+      rows[j + 1] = rows[j];
+      --j;
+    }
+    ks[j + 1] = kk;
+    rows[j + 1] = rr;
+  }
+  for (int i = 0; i < cnt; ++i) ws[i] = meta_weight(meta + static_cast<int64_t>(rows[i]) * 4);
+}
+
+// fp32 pre-reduction of one 8-column vector over the sorted rows: acc = fmaf(w_i, y_i, acc)
+// in ascending route order (the ONE accumulation order of the wire).
+__device__ __forceinline__ void accumulate_group_vec(const uint4& pk, float w, float* acc) {
+  __nv_bfloat162 h2[4];
+  memcpy(h2, &pk, sizeof(pk));
+#pragma unroll
+  for (int j = 0; j < 4; ++j) {
+    float2 f = __bfloat1622float2(h2[j]);
+    acc[2 * j] = fmaf(w, f.x, acc[2 * j]);
+    acc[2 * j + 1] = fmaf(w, f.y, acc[2 * j + 1]);
+  }
+}
+
+// Round the fp32 partial once to bf16 (hi row); with `split` also form the bf16 residual
+// row lo = bf16(p - hi) (p - hi exact in fp32).
+__device__ __forceinline__ void pack_group_vec(const float* acc, bool split, uint4& hi, uint4& lo) {
+  __nv_bfloat162 o2[4];
+#pragma unroll
+  for (int j = 0; j < 4; ++j) o2[j] = __floats2bfloat162_rn(acc[2 * j], acc[2 * j + 1]);  // one RN
+  memcpy(&hi, o2, sizeof(hi));
+  if (split) {
+    __nv_bfloat162 r2[4];
+#pragma unroll
+    for (int j = 0; j < 4; ++j) {
+      float2 h = __bfloat1622float2(o2[j]);
+      r2[j] = __floats2bfloat162_rn(acc[2 * j] - h.x, acc[2 * j + 1] - h.y);
+    }
+    memcpy(&lo, r2, sizeof(lo));
+  }
+}
+
+// chunk_select < 0: every group (single launch); >= 0: only the groups whose last chunk is
+// chunk_select (the final launch of an overlapped round).  force_s1 != 0 disables the
+// S-slicing (the overlapped round counts one item per group in both launches).
 __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kernel(
     PushLayout L, const __nv_bfloat16* __restrict__ y, const int32_t* __restrict__ meta,
     int32_t* __restrict__ grp_cnt, const int32_t* __restrict__ grp_rows,
     const int32_t* __restrict__ grp_list, int32_t* __restrict__ n_groups,
     int32_t* __restrict__ groups_per_src, int32_t* __restrict__ cdone_local,
     const int32_t* __restrict__ round_ctr, int32_t* __restrict__ blocks_done,
-    int split_partials) {
+    int split_partials, int32_t* __restrict__ grp_chunk, int chunk_select, int force_s1) {
   int const H = L.hidden;
   int const nv = H >> 3;  // 16-byte vectors per row
   int const total_groups = *n_groups;  // read once: the last block zeroes it below
@@ -155,7 +228,7 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
   // so each block publishes a contiguous slice of the row); S == 1 at prefill sizes.
   // Uniform device-side decision, hence deterministic for a given routing.
   int const grid = static_cast<int>(gridDim.x);
-  int const S = (total_groups * 4 <= grid) ? 4 : ((total_groups * 2 <= grid) ? 2 : 1);
+  int const S = force_s1 ? 1 : ((total_groups * 4 <= grid) ? 4 : ((total_groups * 2 <= grid) ? 2 : 1));
   int const items = total_groups * S;
   // only blocks that own at least one (group, slice) item take part in the grid completion
   // below; the others have nothing to publish and leave before touching any scratch
@@ -166,29 +239,14 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
     int const idx = item / S;
     int const part = item - idx * S;
     int const g = grp_list[idx];  // uniform across the block
+    if (chunk_select >= 0 && grp_chunk[g] != chunk_select) continue;  // block-uniform
     int const cnt = grp_cnt[g];   // >= 1 by worklist construction, <= top_k
     int const dst = g / L.t_cap;
     int const tok = g - dst * L.t_cap;
     int rows[kMaxTopK];
     int ks[kMaxTopK];
     float ws[kMaxTopK];
-    const int32_t* glist = grp_rows + static_cast<int64_t>(g) * L.top_k;
-    for (int i = 0; i < cnt; ++i) {
-      rows[i] = glist[i];
-      ks[i] = meta_route_k(meta + static_cast<int64_t>(rows[i]) * 4);
-    }
-    for (int i = 1; i < cnt; ++i) {  // insertion sort by route index, cnt <= top_k <= 8
-      int kk = ks[i], rr = rows[i];
-      int j = i - 1;
-      while (j >= 0 && ks[j] > kk) {
-        ks[j + 1] = ks[j];
-        rows[j + 1] = rows[j];
-        --j;
-      }
-      ks[j + 1] = kk;
-      rows[j + 1] = rr;
-    }
-    for (int i = 0; i < cnt; ++i) ws[i] = meta_weight(meta + static_cast<int64_t>(rows[i]) * 4);
+    load_sorted_group(meta, grp_rows, L.top_k, g, cnt, rows, ks, ws);
     // the group lives in the slot of its smallest route index (see the file comment);
     // with split_partials a multi-route group also writes its bf16 residual into
     // the slot of its second-smallest route index
@@ -204,37 +262,19 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
       for (int i = 0; i < cnt; ++i) {  // ascending k: fixed fp32 fma order
         uint4 pk = *reinterpret_cast<const uint4*>(y + static_cast<uint64_t>(rows[i]) * H +
                                                    static_cast<uint64_t>(v) * 8);
-        __nv_bfloat162 h2[4];
-        memcpy(h2, &pk, sizeof(pk));
-        float const w = ws[i];
-#pragma unroll
-        for (int j = 0; j < 4; ++j) {
-          float2 f = __bfloat1622float2(h2[j]);
-          acc[2 * j] = fmaf(w, f.x, acc[2 * j]);
-          acc[2 * j + 1] = fmaf(w, f.y, acc[2 * j + 1]);
-        }
+        accumulate_group_vec(pk, ws[i], acc);
       }
-      __nv_bfloat162 o2[4];
-#pragma unroll
-      for (int j = 0; j < 4; ++j) o2[j] = __floats2bfloat162_rn(acc[2 * j], acc[2 * j + 1]);  // one RN
-      uint4 pk;
-      memcpy(&pk, o2, sizeof(pk));
-      out4[v] = pk;  // 16-byte P2P store into the owner's inbox
-      if (split) {   // residual row: lo = bf16(p - hi), p - hi exact in fp32
-        __nv_bfloat162 r2[4];
-#pragma unroll
-        for (int j = 0; j < 4; ++j) {
-          float2 hi = __bfloat1622float2(o2[j]);
-          r2[j] = __floats2bfloat162_rn(acc[2 * j] - hi.x, acc[2 * j + 1] - hi.y);
-        }
-        uint4 pl;
-        memcpy(&pl, r2, sizeof(pl));
-        lo4[v] = pl;
-      }
+      uint4 hi, lo;
+      pack_group_vec(acc, split, hi, lo);
+      out4[v] = hi;  // 16-byte P2P store into the owner's inbox
+      if (split) lo4[v] = lo;  // residual row: lo = bf16(p - hi), p - hi exact in fp32
     }
     __syncthreads();  // this slice's remote stores all issued before the publish tail
     if (threadIdx.x == 0) {
-      if (S == 1) grp_cnt[g] = 0;  // single owner block: the slot is clean for the next round
+      if (S == 1) {  // single owner block: the slot is clean for the next round
+        grp_cnt[g] = 0;
+        grp_chunk[g] = 0;
+      }
       __threadfence_system();
       int prev = atomicAdd(&cdone_local[dst], 1);
       if (prev + 1 == groups_per_src[dst] * S) {  // every slice of every group for dst is out
@@ -246,7 +286,8 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
   }
   // grid completion: the last participating block resets the per-round worklist
   // scratch (every other participant has finished reading n_groups / groups_per_src /
-  // cdone_local; non-participants never read them after the early return above)
+  // cdone_local; non-participants never read them after the early return above; in an
+  // overlapped round the side launch has been joined by the runner before this launch)
   __syncthreads();
   if (threadIdx.x == 0) {
     __threadfence();
@@ -264,7 +305,94 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
   }
   __syncthreads();
   if (s_last && S > 1) {  // sliced groups: no single owner block, reset the listed counters here
-    for (int i = threadIdx.x; i < total_groups; i += blockDim.x) grp_cnt[grp_list[i]] = 0;
+    for (int i = threadIdx.x; i < total_groups; i += blockDim.x) {
+      grp_cnt[grp_list[i]] = 0;
+      grp_chunk[grp_list[i]] = 0;
+    }
+  }
+}
+
+constexpr int kSideThreads = 1024;
+constexpr int kSideUnroll = 4;  // 16 B vectors per lane in flight per source row
+
+// Side-stream publish of the groups whose last chunk is `chunk_select` while the next
+// chunk's GEMMs run on the other SMs.  grid = k blocks of 1024 threads (never more than k
+// SMs, whatever the block scheduler's placement order relative to the GEMM CTAs), one WARP
+// per group so 32 groups are in flight per block, kSideUnroll vectors per lane in flight.
+// No S-slicing (one item per group) and no grid completion: the final full-grid launch of
+// the round resets the per-round scratch after the runner has joined this stream.
+__global__ void __launch_bounds__(kSideThreads) combine_publish_prereduced_bf16_kernel_side(
+    PushLayout L, const __nv_bfloat16* __restrict__ y, const int32_t* __restrict__ meta,
+    int32_t* __restrict__ grp_cnt, const int32_t* __restrict__ grp_rows,
+    const int32_t* __restrict__ grp_list, int32_t* __restrict__ grp_chunk,
+    const int32_t* __restrict__ n_groups, const int32_t* __restrict__ groups_per_src,
+    int32_t* __restrict__ cdone_local, const int32_t* __restrict__ round_ctr, int chunk_select,
+    int split_partials) {
+  int const H = L.hidden;
+  int const nv = H >> 3;
+  int const total_groups = *n_groups;
+  int const lane = static_cast<int>(threadIdx.x) & 31;
+  int const warp = static_cast<int>(threadIdx.x) >> 5;
+  int const warps_per_block = static_cast<int>(blockDim.x) >> 5;
+  int const stride = static_cast<int>(gridDim.x) * warps_per_block;
+  for (int idx = static_cast<int>(blockIdx.x) * warps_per_block + warp; idx < total_groups;
+       idx += stride) {
+    int const g = grp_list[idx];  // warp-uniform
+    if (grp_chunk[g] != chunk_select) continue;
+    int const cnt = grp_cnt[g];
+    int const dst = g / L.t_cap;
+    int const tok = g - dst * L.t_cap;
+    int rows[kMaxTopK];
+    int ks[kMaxTopK];
+    float ws[kMaxTopK];
+    load_sorted_group(meta, grp_rows, L.top_k, g, cnt, rows, ks, ws);
+    uint4* out4 = reinterpret_cast<uint4*>(L.combine_row(dst, tok, ks[0]));
+    bool const split = split_partials != 0 && cnt >= 2;
+    uint4* lo4 = split ? reinterpret_cast<uint4*>(L.combine_row(dst, tok, ks[1])) : nullptr;
+    for (int v0 = lane; v0 < nv; v0 += 32 * kSideUnroll) {
+      float acc[kSideUnroll][8];
+#pragma unroll
+      for (int u = 0; u < kSideUnroll; ++u)
+#pragma unroll
+        for (int j = 0; j < 8; ++j) acc[u][j] = 0.0f;
+      for (int i = 0; i < cnt; ++i) {  // ascending k: the same fp32 fma order as the block kernel
+        const __nv_bfloat16* yrow = y + static_cast<uint64_t>(rows[i]) * H;
+        uint4 pk[kSideUnroll];
+#pragma unroll
+        for (int u = 0; u < kSideUnroll; ++u) {
+          int const v = v0 + 32 * u;
+          if (v < nv) pk[u] = *reinterpret_cast<const uint4*>(yrow + static_cast<uint64_t>(v) * 8);
+        }
+        float const w = ws[i];
+#pragma unroll
+        for (int u = 0; u < kSideUnroll; ++u) {
+          if (v0 + 32 * u < nv) accumulate_group_vec(pk[u], w, acc[u]);
+        }
+      }
+#pragma unroll
+      for (int u = 0; u < kSideUnroll; ++u) {
+        int const v = v0 + 32 * u;
+        if (v < nv) {
+          uint4 hi, lo;
+          pack_group_vec(acc[u], split, hi, lo);
+          out4[v] = hi;
+          if (split) lo4[v] = lo;
+        }
+      }
+    }
+    __syncwarp();  // the warp's remote stores are all issued (and ordered) before the tail
+    if (lane == 0) {
+      grp_cnt[g] = 0;  // one warp owns the group: the slot is clean for the next round
+      grp_chunk[g] = 0;
+      __threadfence_system();
+      int prev = atomicAdd(&cdone_local[dst], 1);
+      if (prev + 1 == groups_per_src[dst]) {  // every group for dst is out (S == 1)
+        __threadfence_system();
+        st_release_sys_u64(L.cdone_cell(dst, L.rank),
+                           pack_count_tag(groups_per_src[dst], static_cast<uint32_t>(*round_ctr)));
+      }
+    }
+    __syncwarp();
   }
 }
 
@@ -280,27 +408,21 @@ int publish_grid_blocks(DLDevice device) {
   return blocks;
 }
 
-}  // namespace
-
-void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PARAMS,
-                                       TensorView m_dev, TensorView grp_cnt, TensorView grp_rows,
-                                       TensorView grp_list, TensorView n_groups,
-                                       TensorView groups_per_src, TensorView cdone_local,
-                                       TensorView round_ctr, TensorView blocks_done,
-                                       int64_t split_partials) {
-  check_layout(LAYOUT_ARGS);
-  auto L = build_layout(LAYOUT_ARGS);
+void check_publish_args(PushLayout const& L, TensorView const& y, TensorView const& meta,
+                        TensorView const& grp_cnt, TensorView const& grp_rows,
+                        TensorView const& grp_list, TensorView const& grp_chunk,
+                        TensorView const& n_groups, TensorView const& groups_per_src,
+                        TensorView const& cdone_local, TensorView const& round_ctr) {
   CHECK_INPUT_AND_TYPE(y, dl_bfloat16);
   CHECK_INPUT_AND_TYPE(meta, dl_int32);
-  CHECK_INPUT_AND_TYPE(m_dev, dl_int32);
   CHECK_INPUT_AND_TYPE(grp_cnt, dl_int32);
   CHECK_INPUT_AND_TYPE(grp_rows, dl_int32);
   CHECK_INPUT_AND_TYPE(grp_list, dl_int32);
+  CHECK_INPUT_AND_TYPE(grp_chunk, dl_int32);
   CHECK_INPUT_AND_TYPE(n_groups, dl_int32);
   CHECK_INPUT_AND_TYPE(groups_per_src, dl_int32);
   CHECK_INPUT_AND_TYPE(cdone_local, dl_int32);
   CHECK_INPUT_AND_TYPE(round_ctr, dl_int32);
-  CHECK_INPUT_AND_TYPE(blocks_done, dl_int32);
   CHECK_DIM(2, y);
   int64_t const Mcap = y.size(0);
   int64_t const H = y.size(1);
@@ -311,12 +433,32 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
   TVM_FFI_ICHECK(grp_cnt.numel() >= nslots) << "combine_prereduced: grp_cnt too small";
   TVM_FFI_ICHECK(grp_rows.numel() >= nslots * L.top_k) << "combine_prereduced: grp_rows too small";
   TVM_FFI_ICHECK(grp_list.numel() >= nslots) << "combine_prereduced: grp_list too small";
+  TVM_FFI_ICHECK(grp_chunk.numel() >= nslots) << "combine_prereduced: grp_chunk too small";
   TVM_FFI_ICHECK(n_groups.numel() >= 1) << "combine_prereduced: n_groups too small";
-  TVM_FFI_ICHECK(blocks_done.numel() >= 1) << "combine_prereduced: blocks_done too small";
   TVM_FFI_ICHECK(groups_per_src.numel() >= eps && cdone_local.numel() >= eps)
       << "combine_prereduced: per-source scratch too small";
+  TVM_FFI_ICHECK(round_ctr.numel() >= 1) << "combine_prereduced: round_ctr too small";
   TVM_FFI_ICHECK(reinterpret_cast<uintptr_t>(y.data_ptr()) % 16 == 0)
       << "combine_prereduced: y must be 16-byte aligned";
+}
+
+}  // namespace
+
+void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PARAMS,
+                                       TensorView m_dev, TensorView grp_cnt, TensorView grp_rows,
+                                       TensorView grp_list, TensorView n_groups,
+                                       TensorView groups_per_src, TensorView cdone_local,
+                                       TensorView round_ctr, TensorView blocks_done,
+                                       int64_t split_partials, TensorView grp_chunk,
+                                       int64_t chunk_select, int64_t force_s1) {
+  check_layout(LAYOUT_ARGS);
+  auto L = build_layout(LAYOUT_ARGS);
+  CHECK_INPUT_AND_TYPE(m_dev, dl_int32);
+  CHECK_INPUT_AND_TYPE(blocks_done, dl_int32);
+  TVM_FFI_ICHECK(blocks_done.numel() >= 1) << "combine_prereduced: blocks_done too small";
+  check_publish_args(L, y, meta, grp_cnt, grp_rows, grp_list, grp_chunk, n_groups, groups_per_src,
+                     cdone_local, round_ctr);
+  TVM_FFI_ICHECK(chunk_select >= -1) << "combine_prereduced: chunk_select must be -1 or a chunk index";
   auto stream = get_stream(y.device());
   auto* cdl = static_cast<int32_t*>(cdone_local.data_ptr());
   auto* cnt = static_cast<int32_t*>(grp_cnt.data_ptr());
@@ -325,13 +467,49 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
   auto* ng = static_cast<int32_t*>(n_groups.data_ptr());
   auto* bd = static_cast<int32_t*>(blocks_done.data_ptr());
   // no memsets: the scratch was zeroed at construction and self-resets every round
-  if (Mcap == 0) return;  // zero-row destinations were published by wait_prefix
+  if (y.size(0) == 0) return;  // zero-row destinations were published by wait_prefix
   int const blocks = publish_grid_blocks(y.device());
   combine_publish_prereduced_bf16_kernel<<<blocks, kThreads, 0, stream>>>(
       L, static_cast<const __nv_bfloat16*>(y.data_ptr()),
       static_cast<const int32_t*>(meta.data_ptr()), cnt,
       static_cast<const int32_t*>(grp_rows.data_ptr()), glist, ng, gps, cdl,
-      static_cast<const int32_t*>(round_ctr.data_ptr()), bd, split_partials != 0 ? 1 : 0);
+      static_cast<const int32_t*>(round_ctr.data_ptr()), bd, split_partials != 0 ? 1 : 0,
+      static_cast<int32_t*>(grp_chunk.data_ptr()), static_cast<int>(chunk_select),
+      force_s1 != 0 ? 1 : 0);
+}
+
+// Side-stream launch of an overlapped round: publishes the groups of chunk `chunk_select`
+// (0 <= chunk_select < C - 1) on `grid_blocks` blocks of 1024 threads (= the SMs the chunked
+// GEMM leaves free); performs no scratch reset.
+void sm90_cake_combine_prereduced_side_bf16(TensorView y, TensorView meta, LAYOUT_PARAMS,
+                                            TensorView grp_cnt, TensorView grp_rows,
+                                            TensorView grp_list, TensorView grp_chunk,
+                                            TensorView n_groups, TensorView groups_per_src,
+                                            TensorView cdone_local, TensorView round_ctr,
+                                            int64_t chunk_select, int64_t split_partials,
+                                            int64_t grid_blocks) {
+  check_layout(LAYOUT_ARGS);
+  auto L = build_layout(LAYOUT_ARGS);
+  check_publish_args(L, y, meta, grp_cnt, grp_rows, grp_list, grp_chunk, n_groups, groups_per_src,
+                     cdone_local, round_ctr);
+  TVM_FFI_ICHECK(chunk_select >= 0) << "combine_prereduced_side: chunk_select must be >= 0";
+  TVM_FFI_ICHECK(grid_blocks >= 1 && grid_blocks <= 1024)
+      << "combine_prereduced_side: grid_blocks " << grid_blocks << " out of [1, 1024]";
+  auto stream = get_stream(y.device());
+  if (y.size(0) == 0) return;
+  combine_publish_prereduced_bf16_kernel_side<<<static_cast<unsigned>(grid_blocks), kSideThreads, 0,
+                                                stream>>>(
+      L, static_cast<const __nv_bfloat16*>(y.data_ptr()),
+      static_cast<const int32_t*>(meta.data_ptr()), static_cast<int32_t*>(grp_cnt.data_ptr()),
+      static_cast<const int32_t*>(grp_rows.data_ptr()),
+      static_cast<const int32_t*>(grp_list.data_ptr()), static_cast<int32_t*>(grp_chunk.data_ptr()),
+      static_cast<const int32_t*>(n_groups.data_ptr()),
+      static_cast<const int32_t*>(groups_per_src.data_ptr()),
+      static_cast<int32_t*>(cdone_local.data_ptr()),
+      static_cast<const int32_t*>(round_ctr.data_ptr()), static_cast<int>(chunk_select),
+      split_partials != 0 ? 1 : 0);
 }
 
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(sm90_cake_combine_prereduced_bf16, sm90_cake_combine_prereduced_bf16);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(sm90_cake_combine_prereduced_side_bf16,
+                              sm90_cake_combine_prereduced_side_bf16);

@@ -227,6 +227,32 @@ class Sm90CakeBf16MegaKernelBackend(MegaKernelBackend):
                 f"{_NAME} combine_wire must be one of {COMBINE_WIRES} or None, got "
                 f"{kcfg.combine_wire!r}"
             )
+        for name in ("overlap_free_sms", "overlap_chunks"):
+            value = getattr(kcfg, name)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise MoEEpConfigError(
+                    f"{_NAME} {name} must be a non-negative int or None, got {value!r}"
+                )
+        if kcfg.overlap_free_sms is not None and kcfg.overlap_free_sms % 2 != 0:
+            raise MoEEpConfigError(
+                f"{_NAME} overlap_free_sms must be even (the expert GEMMs launch 2-CTA "
+                f"clusters), got {kcfg.overlap_free_sms}"
+            )
+        if kcfg.overlap_chunks is not None and kcfg.overlap_chunks < 1:
+            raise MoEEpConfigError(
+                f"{_NAME} overlap_chunks must be >= 1, got {kcfg.overlap_chunks}"
+            )
+        if (kcfg.overlap_free_sms or 0) > 0 and (kcfg.overlap_chunks or 2) < 2:
+            raise MoEEpConfigError(
+                f"{_NAME} overlap_free_sms > 0 requires overlap_chunks >= 2"
+            )
+        if (kcfg.overlap_chunks or 1) > 1 and kcfg.combine_wire == "per_route":
+            raise MoEEpConfigError(
+                f"{_NAME} the FC/publish overlap requires a pre-reduced combine wire, "
+                f"got combine_wire={kcfg.combine_wire!r}"
+            )
 
     def preprocess_weights(
         self, weights: MoEWeightPack, fleet_params: FleetParams
@@ -335,6 +361,8 @@ class Sm90CakeBf16MegaKernelBackend(MegaKernelBackend):
                 transformed_weights,
                 clamp=None if kcfg.clamp_limit is None else float(kcfg.clamp_limit),
                 combine_wire=kcfg.combine_wire,
+                overlap_free_sms=kcfg.overlap_free_sms,
+                overlap_chunks=kcfg.overlap_chunks,
             )
         except Exception:
             pipe.destroy()
@@ -361,6 +389,8 @@ class Sm90CakeBf16MegaKernelBackend(MegaKernelBackend):
             None if kcfg.clamp_limit is None else float(kcfg.clamp_limit),
             kcfg.allow_unverified_p2p,
             kcfg.combine_wire,
+            kcfg.overlap_free_sms,
+            kcfg.overlap_chunks,
             float(kcfg.init_timeout_s),
         )
 

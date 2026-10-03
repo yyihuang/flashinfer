@@ -41,6 +41,17 @@ class Sm90_Bf16_Bf16_Bf16_PushCake_MegaMoeConfig:
     atomics); their outputs differ by rounding only.  ``None`` reads the
     ``FLASHINFER_SM90_CAKE_BF16_COMBINE_WIRE`` environment variable and falls
     back to ``"prereduced"``.
+
+    ``overlap_free_sms`` / ``overlap_chunks`` (pre-reduced wires only) overlap
+    the combine publish with the expert GEMMs: FC1/FC2 run as ``overlap_chunks``
+    expert-range chunks on ``SMs - overlap_free_sms`` CTAs and the groups a
+    finished chunk completed are pushed to their owners on the free SMs while
+    the next chunk computes.  Every tile and every group is computed exactly as
+    in the single launches (bitwise identical output); only the schedule
+    changes.  ``overlap_free_sms`` must be even (2-CTA clusters); ``0`` (the
+    default) keeps the single-launch schedule.  ``None`` reads
+    ``FLASHINFER_SM90_CAKE_BF16_OVERLAP_FREE_SMS`` (default ``0``) and
+    ``FLASHINFER_SM90_CAKE_BF16_OVERLAP_CHUNKS`` (default ``2``).
     """
 
     intermediate_size: int
@@ -52,3 +63,5 @@ class Sm90_Bf16_Bf16_Bf16_PushCake_MegaMoeConfig:
     allow_unverified_p2p: bool = False
     init_timeout_s: float = 600.0
     combine_wire: str | None = None
+    overlap_free_sms: int | None = None
+    overlap_chunks: int | None = None
