@@ -419,7 +419,8 @@ def test_grouped_workspace_sizing_and_selector():
     assert not select(8192, 4096, 8, 128, 768, 8)
     assert not select(8192, 4096, 8, 128, 4096, 8)  # B200/GB300 tie at hidden 4096
     assert select(8192, 4096, 8, 128, 5888, 8)
-    assert select(8192, 4096, 8, 128, 768, 16)
+    assert not select(8192, 4096, 8, 128, 768, 16)  # 12288 weight elems: H100 lost 3.6 % grouped
+    assert select(8192, 4096, 8, 128, 1024, 16)
     assert select(8192, 4096, 8, 128, 2048, 16)
     assert select(8192, 4096, 8, 128, 768, 32)
     for rank in cake_bgmv_moe.CAKE_BGMV_MOE_GENERIC_RANKS:
