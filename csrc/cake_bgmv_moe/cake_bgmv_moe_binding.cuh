@@ -156,8 +156,13 @@ inline void CheckCompact(const TensorView& tensor, const char* name) {
 void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lora_a,
          TensorView lora_b, TensorView sorted_token_ids, TensorView expert_ids,
          TensorView lora_indices, TensorView topk_weights, TensorView route_index,
-         int64_t schedule_value, int64_t cuda_stream) {
+         int64_t schedule_value, int64_t pdl_mode, int64_t cuda_stream) {
   TVM_FFI_ICHECK(cuda_stream >= 0) << "cuda_stream must be a non-negative stream handle";
+  TVM_FFI_ICHECK(pdl_mode >= 0 && pdl_mode <= 2)
+      << "pdl_mode must be 0 (off), 1 (early trigger) or 2 (late trigger), got " << pdl_mode;
+  // Programmatic dependent launch of the expand behind the shrink (see the
+  // generic binding): 0 off, 1 shrink triggers at entry, 2 after its tile loop.
+  const int32_t pdl_early = pdl_mode == 1 ? 1 : 0;
   CHECK_CUDA(x);
   const int32_t device_id = x.device().device_id;
   ffi::CUDADeviceGuard device_guard(device_id);
@@ -260,12 +265,12 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
         (num_pairs + kShrinkDecodePairsPerBlock - 1) / kShrinkDecodePairsPerBlock, kRank / 8, 1);
     CAKE_BGMV_MOE_SHRINK_DECODE<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes, stream>>>(
         shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
-        num_tokens, route_ptr, kRouteBuild);
+        num_tokens, route_ptr, kRouteBuild, pdl_early);
   } else {
     const dim3 shrink_grid(num_pairs, kRank / 8, 1);
     CAKE_BGMV_MOE_SHRINK_PREFILL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes, stream>>>(
         shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
-        num_tokens, route_ptr, kRouteBuild);
+        num_tokens, route_ptr, kRouteBuild, pdl_early);
   }
   CheckCuda(cudaGetLastError(), "Cake BGMV MoE shrink launch");
 
@@ -280,7 +285,7 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   config.stream = stream;
   cudaLaunchAttribute attrs[1];
   attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
-  attrs[0].val.programmaticStreamSerializationAllowed = 1;
+  attrs[0].val.programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0;
   config.attrs = attrs;
   config.numAttrs = 1;
   cudaError_t expand_status;

@@ -54,6 +54,19 @@ def _require_cuda():
         pytest.skip("CUDA is unavailable")
 
 
+def _device_arch():
+    major, minor = torch.cuda.get_device_capability()
+    return f"sm{major}{minor}a"
+
+
+def _expected_variant(hidden_size, num_tokens, rank=32):
+    """The bundle the selector picks for this device (per-arch token window)."""
+
+    from flashinfer.jit.cake_bgmv_moe import cake_bgmv_moe_variant
+
+    return cake_bgmv_moe_variant(hidden_size, rank, num_tokens, _device_arch())
+
+
 def _make_inputs(
     hidden_size,
     num_tokens,
@@ -402,11 +415,7 @@ def test_expert_sorted_routes_match_reference_and_replay_bitwise(
     expected = _reference(inputs)
     plan = prepare_bgmv_moe(*inputs, backend="cake", fallback=False)
     assert isinstance(plan, BGMVMoECakePlan)
-    assert plan.variant == (
-        "specialized"
-        if hidden_size in (2688, 3072) and num_tokens <= 2048
-        else "generic"
-    )
+    assert plan.variant == _expected_variant(hidden_size, num_tokens)
     first = plan.run().clone()
     torch.cuda.synchronize()
     torch.testing.assert_close(first, expected, atol=1e-2, rtol=1e-2)
@@ -558,12 +567,21 @@ def test_grouped_pipeline_is_selected_for_wide_generic_prefill():
 
 
 @pytest.mark.parametrize("hidden_size", [2688, 3072])
-def test_specialized_variant_is_preferred_at_rank_32(hidden_size):
+def test_specialized_variant_window_at_rank_32(hidden_size):
     _require_cake_arch()
+    # Decode-sized launches take the generic bundle on every architecture
+    # (hidden-split shrink + programmatic dependent launch); the specialized
+    # bodies are used only inside the per-arch token window (Blackwell 128..512).
     plan = prepare_bgmv_moe(
         *_make_inputs(hidden_size, 4, torch.bfloat16), backend="cake"
     )
-    assert plan.variant == "specialized"
+    assert plan.variant == "generic"
+    plan.close()
+    plan = prepare_bgmv_moe(
+        *_make_inputs(hidden_size, 256, torch.bfloat16), backend="cake"
+    )
+    assert plan.variant == _expected_variant(hidden_size, 256)
+    assert plan.variant == ("generic" if _device_arch() == "sm90a" else "specialized")
     plan.close()
     plan = prepare_bgmv_moe(
         *_make_inputs(hidden_size, 4, torch.bfloat16, rank=16), backend="cake"

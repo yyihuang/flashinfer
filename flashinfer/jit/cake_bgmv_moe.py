@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import functools
 from pathlib import Path
-from typing import Literal, NamedTuple, Optional, Sequence, Tuple
+from typing import Literal, NamedTuple, Optional, Sequence, Tuple, Dict
 
 from . import env as jit_env
 from .core import (
@@ -326,33 +326,68 @@ def _check_generic_rank(rank: int) -> None:
         )
 
 
-# Above this many tokens the generic rank-32 bundle (rank-split expand,
-# register-accumulated shrink) beats the specialized hidden 2688/3072 bodies
-# (GB300 shrink+expand, contiguous: 220 vs 227 us at 2048 tokens, 388 vs 449
-# us at 4096; expert-sorted 437 vs 495 us at 4096; the specialized bodies
-# lead by ~13% at 1024 tokens).
-CAKE_BGMV_MOE_SPECIALIZED_MAX_TOKENS = 2048
+# Token-count window (inclusive) in which the specialized hidden 2688/3072 x
+# rank-32 bodies beat the generic rank-32 bundle, per architecture.  Below the
+# window the generic bundle's hidden-split shrink and programmatic dependent
+# launch win by 2.2-2.6x at 1-8 tokens and ~1.2x at 32-64 tokens; above it the
+# generic pair-grouped pipeline wins (0.94-0.98 at 1024 tokens, ~0.7 at 2048).
+# On Hopper the generic bundle wins or ties at every token count.  Measured in
+# round 5 (lever 8) with 3 interleaved reps per row on H100, B200 and GB300.
+CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW: Dict[CakeBGMVMoEArch, Optional[Tuple[int, int]]] = {
+    "sm90a": None,
+    "sm100a": (128, 512),
+    "sm103a": (128, 512),
+}
+
+# Programmatic dependent launch (PDL) of the per-route expand behind the shrink.
+# Mode 0 = plain stream launch, 1 = shrink triggers its dependents at CTA entry,
+# 2 = shrink triggers after its tile loop.  Blackwell wins with PDL on every
+# decode row (early best for small expand grids, late best for large grids);
+# Hopper wins only on small expand grids and loses 1-5 % at 512 tokens with
+# either trigger.  "Small" = at most this many expand CTAs per SM, counted at
+# 128 output columns per CTA.
+CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM = 8
+CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL = 128
+
+
+def cake_bgmv_moe_pdl_mode(
+    arch: CakeBGMVMoEArch, num_tokens: int, hidden_size: int, sm_count: int
+) -> int:
+    """PDL launch mode for the per-route shrink -> expand pair (0 off, 1 early, 2 late)."""
+
+    cols = CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL
+    expand_ctas = int(num_tokens) * ((int(hidden_size) + cols - 1) // cols)
+    small = expand_ctas <= CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM * int(sm_count)
+    if arch in ("sm100a", "sm103a"):
+        return 1 if small else 2
+    if arch == "sm90a":
+        return 1 if small else 0
+    return 0
 
 
 def cake_bgmv_moe_variant(
-    hidden_size: int, rank: int, num_tokens: Optional[int] = None
+    hidden_size: int,
+    rank: int,
+    num_tokens: Optional[int] = None,
+    arch: Optional[CakeBGMVMoEArch] = None,
 ) -> Optional[CakeBGMVMoEVariant]:
     """Return which generated Cake bundle serves ``(hidden_size, rank)``.
 
-    ``"specialized"`` for the measured hidden 2688/3072 x rank 32 bodies at up
-    to ``CAKE_BGMV_MOE_SPECIALIZED_MAX_TOKENS`` tokens (``num_tokens=None``
-    means "any token count"), ``"generic"`` for any other hidden size that is
-    a positive multiple of 8 at rank 8, 16, 32 or 64, and ``None`` when no
+    ``"specialized"`` for the measured hidden 2688/3072 x rank 32 bodies when
+    ``num_tokens`` lies in ``CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW[arch]``
+    (``num_tokens=None`` means "any token count" and keeps the specialized
+    answer for support queries), ``"generic"`` for any other hidden size that
+    is a positive multiple of 8 at rank 8, 16, 32 or 64, and ``None`` when no
     generated program applies.
     """
 
     hidden_size = int(hidden_size)
     rank = int(rank)
     if hidden_size in CAKE_BGMV_MOE_HIDDEN_SIZES and rank == 32:
-        if (
-            num_tokens is None
-            or int(num_tokens) <= CAKE_BGMV_MOE_SPECIALIZED_MAX_TOKENS
-        ):
+        if num_tokens is None:
+            return "specialized"
+        window = CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW.get(arch or "sm100a")
+        if window is not None and window[0] <= int(num_tokens) <= window[1]:
             return "specialized"
         return "generic"
     if (
@@ -678,7 +713,10 @@ __all__ = [
     "CAKE_BGMV_MOE_ROUTE_INDEX_WORDS_PER_TOKEN",
     "CAKE_BGMV_MOE_SCHEDULE_IDS",
     "CAKE_BGMV_MOE_SHRINK_SPLIT_MAX",
-    "CAKE_BGMV_MOE_SPECIALIZED_MAX_TOKENS",
+    "CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL",
+    "CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM",
+    "CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW",
+    "cake_bgmv_moe_pdl_mode",
     "CAKE_BGMV_MOE_SHRINK_SPLIT_MAX_PAIRS",
     "CakeBGMVMoEArch",
     "CakeBGMVMoEArchTarget",

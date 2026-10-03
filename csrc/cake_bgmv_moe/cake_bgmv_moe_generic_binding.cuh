@@ -203,8 +203,16 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
          TensorView lora_indices, TensorView topk_weights, TensorView route_index,
          int64_t schedule_value, int64_t shrink_decode, int64_t shrink_splits,
          int64_t grouped, TensorView group_workspace, TensorView group_partials,
-         int64_t cuda_stream) {
+         int64_t pdl_mode, int64_t cuda_stream) {
   TVM_FFI_ICHECK(cuda_stream >= 0) << "cuda_stream must be a non-negative stream handle";
+  TVM_FFI_ICHECK(pdl_mode >= 0 && pdl_mode <= 2)
+      << "pdl_mode must be 0 (off), 1 (early trigger) or 2 (late trigger), got " << pdl_mode;
+  // Programmatic dependent launch of the expand behind the shrink: the shrink
+  // kernels trigger their dependents at entry (pdl_early) or after the tile
+  // loop; every expand kernel executes griddepcontrol.wait before it reads the
+  // shrink output or the route index.  Without the launch attribute both
+  // instructions are no-ops, so mode 0 is the plain two-launch pipeline.
+  const int32_t pdl_early = pdl_mode == 1 ? 1 : 0;
   CHECK_CUDA(x);
   const int32_t device_id = x.device().device_id;
   ffi::CUDADeviceGuard device_guard(device_id);
@@ -386,13 +394,13 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
     CAKE_BGMV_MOE_SHRINK_DECODE<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes, stream>>>(
         shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
         num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
-        splits);
+        splits, pdl_early);
   } else {
     const dim3 shrink_grid(num_pairs, kRank / kRankTile, splits);
     CAKE_BGMV_MOE_SHRINK_PREFILL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes, stream>>>(
         shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
         num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
-        splits);
+        splits, pdl_early);
   }
   CheckCuda(cudaGetLastError(), "Cake BGMV MoE generic shrink launch");
 
@@ -412,7 +420,7 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   config.stream = stream;
   cudaLaunchAttribute attrs[1];
   attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
-  attrs[0].val.programmaticStreamSerializationAllowed = 1;
+  attrs[0].val.programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0;
   config.attrs = attrs;
   config.numAttrs = 1;
   const cudaError_t expand_status =

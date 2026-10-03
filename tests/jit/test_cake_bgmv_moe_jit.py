@@ -198,16 +198,40 @@ def test_variant_routing(hidden_size, rank, expected):
 @pytest.mark.parametrize(
     ("hidden_size", "num_tokens", "expected"),
     [
-        (3072, 1, "specialized"),
-        (3072, 2048, "specialized"),
-        (2688, 2049, "generic"),
+        (3072, 1, "generic"),
+        (3072, 64, "generic"),
+        (3072, 128, "specialized"),
+        (2688, 512, "specialized"),
+        (2688, 513, "generic"),
+        (3072, 1024, "generic"),
         (3072, 4096, "generic"),
         (2048, 4096, "generic"),
     ],
 )
 def test_variant_routing_by_token_count(hidden_size, num_tokens, expected):
-    assert cake_bgmv_moe.CAKE_BGMV_MOE_SPECIALIZED_MAX_TOKENS == 2048
-    assert cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens) == expected
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW == {
+        "sm90a": None,
+        "sm100a": (128, 512),
+        "sm103a": (128, 512),
+    }
+    for arch in ("sm100a", "sm103a"):
+        assert cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens, arch) == expected
+    # Hopper: the generic bundle wins or ties at every token count.
+    assert cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens, "sm90a") == "generic"
+    # Support queries (no token count) keep the specialized answer.
+    assert cake_bgmv_moe.cake_bgmv_moe_variant(3072, 32) == "specialized"
+
+
+def test_pdl_mode_policy():
+    pdl = cake_bgmv_moe.cake_bgmv_moe_pdl_mode
+    # 16 tokens x 23 column CTAs = 368 CTAs: small on every part.
+    assert pdl("sm90a", 16, 2944, 132) == 1
+    assert pdl("sm100a", 16, 2944, 148) == 1
+    assert pdl("sm103a", 16, 2944, 148) == 1
+    # 512 tokens x 6 column CTAs = 3072 CTAs: large.
+    assert pdl("sm90a", 512, 736, 132) == 0
+    assert pdl("sm100a", 512, 736, 148) == 2
+    assert pdl("sm103a", 512, 736, 148) == 2
 
 
 @pytest.mark.parametrize("arch", cake_bgmv_moe.CAKE_BGMV_MOE_ARCHES)
