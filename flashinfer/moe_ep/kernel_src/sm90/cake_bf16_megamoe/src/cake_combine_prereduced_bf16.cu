@@ -151,6 +151,10 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
   int const H = L.hidden;
   int const nv = H >> 3;  // 16-byte vectors per row
   int const total_groups = *n_groups;  // read once: the last block zeroes it below
+  // only blocks that own at least one group take part in the grid completion below;
+  // the others have nothing to publish and leave before touching any scratch
+  int const participants = min(static_cast<int>(gridDim.x), total_groups);
+  if (static_cast<int>(blockIdx.x) >= participants) return;
   for (int idx = blockIdx.x; idx < total_groups; idx += gridDim.x) {
     int const g = grp_list[idx];  // uniform across the block
     int const cnt = grp_cnt[g];   // >= 1 by worklist construction, <= top_k
@@ -229,13 +233,14 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
       }
     }
   }
-  // grid completion: the last block to finish resets the per-round worklist scratch
-  // (every other block has finished reading n_groups / groups_per_src / cdone_local)
+  // grid completion: the last participating block resets the per-round worklist
+  // scratch (every other participant has finished reading n_groups / groups_per_src /
+  // cdone_local; non-participants never read them after the early return above)
   __syncthreads();
   if (threadIdx.x == 0) {
     __threadfence();
     int const prev = atomicAdd(blocks_done, 1);
-    if (prev + 1 == static_cast<int>(gridDim.x)) {
+    if (prev + 1 == participants) {
       __threadfence();
       *blocks_done = 0;
       *n_groups = 0;
