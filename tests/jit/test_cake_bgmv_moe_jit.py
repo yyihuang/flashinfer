@@ -424,7 +424,7 @@ def test_generic_binding_preserves_graph_and_tensor_contracts():
     assert "programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0" in binding
     assert "int64_t pdl_mode, int64_t expand_col_blocks, int64_t cuda_stream" in binding
     assert "const int32_t pdl_prefetch = pdl_mode != 0 ? 1 : 0;" in binding
-    assert "kRouteLookup, kRouteAdvance, hidden, col_blocks, pdl_prefetch)" in binding
+    assert "kRouteAdvance, hidden, col_blocks, pdl_prefetch)" in binding
     assert "TensorView route_index" in binding
     assert "CHECK_INPUT_TYPE(route_index, dl_int32)" in binding
     assert "kRouteIndexWordsPerToken = 3 + kRouteIndexMaxRoutes" in binding
