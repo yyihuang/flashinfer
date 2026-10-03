@@ -46,6 +46,7 @@ from .cake_weights import GATE_UP_GROUP, Sm90CakeBf16Weights
 
 __all__ = [
     "COMBINE_WIRES",
+    "COMBINE_WIRE_PER_SHAPE_MAX_TOKENS",
     "COMBINE_WIRE_ENV",
     "FUSED_COMBINE_TAIL_ENV",
     "FUSED_DISPATCH_ENV",
@@ -82,8 +83,18 @@ COMBINE_WIRE_PREREDUCED = "prereduced"
 # single-route groups are bf16(w * y) exactly as the per-route wire.
 COMBINE_WIRE_PREREDUCED_HILO = "prereduced_hilo"
 COMBINE_WIRE_PER_ROUTE = "per_route"
-COMBINE_WIRES = (COMBINE_WIRE_PREREDUCED, COMBINE_WIRE_PREREDUCED_HILO, COMBINE_WIRE_PER_ROUTE)
+COMBINE_WIRES = (
+    COMBINE_WIRE_PREREDUCED,
+    COMBINE_WIRE_PREREDUCED_HILO,
+    COMBINE_WIRE_PER_ROUTE,
+)
 _PREREDUCED_WIRES = (COMBINE_WIRE_PREREDUCED, COMBINE_WIRE_PREREDUCED_HILO)
+# Per-shape default (combine_wire=None, environment unset): rounds whose token
+# capacity is at or below this bound run the per-route wire (R0 numerics; the
+# pre-reduced grouping is not repaid at the protocol's fixed-cost floor), larger
+# capacities run the pre-reduced wire.  The capacity is a pipe-creation constant
+# identical on every rank, so the selection is rank-consistent by construction.
+COMBINE_WIRE_PER_SHAPE_MAX_TOKENS = 8
 
 
 def _env_flag(name: str) -> bool:
@@ -99,13 +110,21 @@ def _fused_dispatch_default() -> bool:
     return _env_flag(FUSED_DISPATCH_ENV)
 
 
-def _combine_wire_default() -> str:
-    value = os.environ.get(COMBINE_WIRE_ENV, COMBINE_WIRE_PREREDUCED).strip().lower()
-    if value not in COMBINE_WIRES:
-        raise ValueError(
-            f"{COMBINE_WIRE_ENV} must be one of {COMBINE_WIRES}, got {value!r}"
-        )
-    return value
+def _combine_wire_default(token_capacity: int) -> str:
+    """Default combine wire: the environment override when set, otherwise the
+    per-shape default (``per_route`` when ``token_capacity`` is at or below
+    ``COMBINE_WIRE_PER_SHAPE_MAX_TOKENS``, ``prereduced`` above)."""
+    raw = os.environ.get(COMBINE_WIRE_ENV)
+    if raw is not None:
+        value = raw.strip().lower()
+        if value not in COMBINE_WIRES:
+            raise ValueError(
+                f"{COMBINE_WIRE_ENV} must be one of {COMBINE_WIRES}, got {value!r}"
+            )
+        return value
+    if int(token_capacity) <= COMBINE_WIRE_PER_SHAPE_MAX_TOKENS:
+        return COMBINE_WIRE_PER_ROUTE
+    return COMBINE_WIRE_PREREDUCED
 
 
 class _RunnerState(Enum):
@@ -127,7 +146,9 @@ class Sm90CakeBf16MoERunner:
     fused SwiGLU, bf16 intermediate) -> FC2 (Cake WGMMA, bf16 out) ->
     ``combine`` -> ``combine_tail``.
 
-    Combine wire (``combine_wire``, default from ``COMBINE_WIRE_ENV``):
+    Combine wire (``combine_wire``; ``None`` = ``COMBINE_WIRE_ENV`` when set,
+    otherwise the per-shape default: ``per_route`` for a token capacity at or
+    below ``COMBINE_WIRE_PER_SHAPE_MAX_TOKENS``, ``prereduced`` above):
 
     * ``"prereduced"``: ``combine`` groups the received rows by (owner, token),
       pre-reduces each group in fp32 (``fmaf`` in ascending route order), rounds
@@ -187,7 +208,11 @@ class Sm90CakeBf16MoERunner:
             if fused_dispatch is None
             else bool(fused_dispatch)
         )
-        wire = _combine_wire_default() if combine_wire is None else str(combine_wire)
+        wire = (
+            _combine_wire_default(pipe.token_capacity)
+            if combine_wire is None
+            else str(combine_wire)
+        )
         if wire not in COMBINE_WIRES:
             raise ValueError(
                 f"combine_wire must be one of {COMBINE_WIRES}, got {combine_wire!r}"
@@ -240,7 +265,9 @@ class Sm90CakeBf16MoERunner:
                 )
             return None
 
-        _run_guarded_phase(pipe._comm, pipe.rank, "cake-bf16-combine-wire", _wire_handshake)
+        _run_guarded_phase(
+            pipe._comm, pipe.rank, "cake-bf16-combine-wire", _wire_handshake
+        )
 
         def _jit():
             self.compact_module = gen_sm90_cake_bf16_compact_module().build_and_load()
@@ -334,8 +361,12 @@ class Sm90CakeBf16MoERunner:
             self._pub_blocks_done = torch.zeros(1, dtype=torch.int32, device=dv)
             pipe._cdone_local.zero_()  # the publish kernel keeps it zeroed from here on
         else:  # per-route wire: compact builds no worklist; placeholders for the binding
-            self._grp_cnt = self._grp_rows = self._grp_list = torch.zeros(1, dtype=torch.int32, device=dv)
-            self._n_groups = self._groups_per_src = torch.zeros(1, dtype=torch.int32, device=dv)
+            self._grp_cnt = self._grp_rows = self._grp_list = torch.zeros(
+                1, dtype=torch.int32, device=dv
+            )
+            self._n_groups = self._groups_per_src = torch.zeros(
+                1, dtype=torch.int32, device=dv
+            )
 
     def bind_weights(self, weights: Sm90CakeBf16Weights) -> None:
         """Swap the expert weights between rounds (same geometry, same device)."""
@@ -585,7 +616,9 @@ class Sm90CakeBf16MoERunner:
                 with _record_stage("fc2", nv):
                     self.gemm.fc2(self.h2, weights.w2, pipe._offsets, self.y)
                 if self._combine_wire in _PREREDUCED_WIRES:
-                    split = 1 if self._combine_wire == COMBINE_WIRE_PREREDUCED_HILO else 0
+                    split = (
+                        1 if self._combine_wire == COMBINE_WIRE_PREREDUCED_HILO else 0
+                    )
                     with _record_stage("combine", nv):
                         self.publish_module.sm90_cake_combine_prereduced_bf16(
                             self.y,

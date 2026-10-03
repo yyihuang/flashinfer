@@ -25,7 +25,8 @@ class Sm90_Bf16_Bf16_Bf16_PushCake_MegaMoeConfig:
     ``combine_wire`` selects the combine (expert rank -> token owner) wire
     format; every EP rank must use the same value (checked at init):
 
-    * ``"prereduced"`` (default): the expert rank pre-reduces all routes of a
+    * ``"prereduced"`` (default for ``max_tokens_per_rank > 8``): the expert
+      rank pre-reduces all routes of a
       token that landed on it in fp32 (``fmaf`` in ascending route order),
       rounds once to bf16 and sends ONE row per (token, source rank); the
       owner sums the <= ep_size rows in ascending rank order in fp32 and
@@ -37,10 +38,16 @@ class Sm90_Bf16_Bf16_Bf16_PushCake_MegaMoeConfig:
     * ``"per_route"``: one bf16 row ``bf16(fp32(y_k) * w_k)`` per route, the
       owner sums the top-k rows in fp32 in route order.
 
-    Both are deterministic (fixed reduction order, no floating-point
-    atomics); their outputs differ by rounding only.  ``None`` reads the
-    ``FLASHINFER_SM90_CAKE_BF16_COMBINE_WIRE`` environment variable and falls
-    back to ``"prereduced"``.
+    All three are deterministic (fixed reduction order, no floating-point
+    atomics); their outputs differ by rounding only.  ``None`` (the default)
+    reads the ``FLASHINFER_SM90_CAKE_BF16_COMBINE_WIRE`` environment variable
+    when it is set and otherwise selects per shape: ``"per_route"`` when
+    ``FleetParams.max_tokens_per_rank <= 8`` (decode rounds at the protocol's
+    fixed-cost floor, where the pre-reduced grouping is not repaid; numerics
+    identical to the per-route wire), ``"prereduced"`` above.  The capacity is
+    a pipe-creation constant identical on every rank, so the per-shape choice
+    is rank-consistent; it is still verified by the construction-time
+    allgather.
     """
 
     intermediate_size: int

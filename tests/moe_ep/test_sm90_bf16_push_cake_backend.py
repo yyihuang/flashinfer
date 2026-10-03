@@ -246,7 +246,9 @@ def _check(
 @requires_sm90
 @pytest.mark.parametrize("wire", WIRES)
 @pytest.mark.parametrize("dedup_dispatch", [True, False])
-def test_ep1_forward_repeated_and_deterministic(dedup_dispatch: bool, wire: str) -> None:
+def test_ep1_forward_repeated_and_deterministic(
+    dedup_dispatch: bool, wire: str
+) -> None:
     device = torch.device("cuda", 0)
     layer, w13, w2 = _build_layer(
         1, 0, device, dedup_dispatch=dedup_dispatch, combine_wire=wire
@@ -293,12 +295,75 @@ def test_ep1_edge_routes(case: str, wire: str) -> None:
     x2, ids2, weights2 = _make_inputs(TOKEN_CAPACITY, LOCAL_EXPERTS, 22, device)
     output2 = _forward(layer, x2, ids2, weights2)
     torch.cuda.synchronize()
-    _check(
-        output2, x2, ids2, weights2, w13, w2, label=f" ep1 {wire} {case} recovery"
-    )
+    _check(output2, x2, ids2, weights2, w13, w2, label=f" ep1 {wire} {case} recovery")
 
 
 @requires_sm90
+def _find_runner(root, class_name="Sm90CakeBf16MoERunner", max_depth=8):
+    """Locate the runner inside the layer's object graph (bounded BFS)."""
+    seen: set[int] = set()
+    frontier = [(root, 0)]
+    while frontier:
+        obj, depth = frontier.pop(0)
+        if id(obj) in seen or depth > max_depth:
+            continue
+        seen.add(id(obj))
+        if type(obj).__name__ == class_name:
+            return obj
+        if isinstance(obj, dict):
+            children = list(obj.values())
+        elif isinstance(obj, (list, tuple, set)):
+            children = list(obj)
+        else:
+            try:
+                children = list(vars(obj).values())
+            except TypeError:
+                children = []
+        frontier.extend((child, depth + 1) for child in children)
+    return None
+
+
+@pytest.mark.parametrize(
+    "token_capacity, env, expected",
+    [
+        (8, None, "per_route"),
+        (9, None, "prereduced"),
+        (TOKEN_CAPACITY, None, "prereduced"),
+        (8, "prereduced", "prereduced"),
+        (TOKEN_CAPACITY, "per_route", "per_route"),
+    ],
+)
+def test_ep1_combine_wire_per_shape_default(
+    token_capacity: int, env: str | None, expected: str, monkeypatch
+) -> None:
+    """combine_wire=None: the environment override wins when set; otherwise the
+    per-shape default picks per_route for max_tokens_per_rank <= 8 and
+    prereduced above.  The output stays correct either way."""
+    from flashinfer.moe_ep.kernel_src.sm90.cake_bf16_megamoe import (
+        COMBINE_WIRE_ENV,
+        COMBINE_WIRE_PER_SHAPE_MAX_TOKENS,
+    )
+
+    assert COMBINE_WIRE_PER_SHAPE_MAX_TOKENS == 8
+    if env is None:
+        monkeypatch.delenv(COMBINE_WIRE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(COMBINE_WIRE_ENV, env)
+    device = torch.device("cuda", 0)
+    layer, w13, w2 = _build_layer(
+        1, 0, device, combine_wire=None, token_capacity=token_capacity, seed=31
+    )
+    x, ids, weights = _make_inputs(
+        token_capacity, LOCAL_EXPERTS, 31, device, mode="random"
+    )
+    output = _forward(layer, x, ids, weights)
+    torch.cuda.synchronize()
+    _check(output, x, ids, weights, w13, w2, label=f" per-shape t_cap={token_capacity}")
+    runner = _find_runner(layer)
+    assert runner is not None
+    assert runner.combine_wire == expected
+
+
 def test_ep1_clamp_limit() -> None:
     device = torch.device("cuda", 0)
     layer, w13, w2 = _build_layer(1, 0, device, clamp_limit=0.5)
@@ -626,7 +691,13 @@ def test_ep_combine_wire_mismatch_raises() -> None:
     output = _forward(layer, x, ids, weights)
     torch.cuda.synchronize()
     _check(
-        output, x, ids, weights, w13, w2, label=f" ep{world_size} rank{rank} after-mismatch"
+        output,
+        x,
+        ids,
+        weights,
+        w13,
+        w2,
+        label=f" ep{world_size} rank{rank} after-mismatch",
     )
     dist.barrier()
 
