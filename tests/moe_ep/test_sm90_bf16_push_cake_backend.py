@@ -326,11 +326,15 @@ def _find_runner(root, class_name="Sm90CakeBf16MoERunner", max_depth=8):
 @pytest.mark.parametrize(
     "token_capacity, env, expected",
     [
+        # distinct token capacities per case: the mega workspace pool is keyed
+        # per process on (max_tokens_per_rank, config) and the wire is resolved
+        # when the pooled runner is built, so a reused workspace would report
+        # the wire of the case that created it
         (8, None, "per_route"),
         (9, None, "prereduced"),
         (TOKEN_CAPACITY, None, "prereduced"),
-        (8, "prereduced", "prereduced"),
-        (TOKEN_CAPACITY, "per_route", "per_route"),
+        (7, "prereduced", "prereduced"),
+        (65, "per_route", "per_route"),
     ],
 )
 def test_ep1_combine_wire_per_shape_default(
