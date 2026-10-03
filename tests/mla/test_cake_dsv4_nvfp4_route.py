@@ -1,4 +1,4 @@
-"""CPU-only host checks for the CAKE DSv4 NVFP4 route scaffold (CAKE-821).
+"""CPU-only host checks for the CAKE DSv4 NVFP4 route scaffold.
 
 Covers the public guard pairing ``kv_cache_format`` with the resolved backend,
 the Cake ``plan()`` reproduction (``_nvfp4_plan``), the workspace layout
