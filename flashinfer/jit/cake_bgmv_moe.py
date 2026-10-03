@@ -345,8 +345,14 @@ CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW: Dict[CakeBGMVMoEArch, Optional[Tuple[int
 # decode row (early best for small expand grids, late best for large grids);
 # Hopper wins only on small expand grids and loses 1-5 % at 512 tokens with
 # either trigger.  "Small" = at most this many expand CTAs per SM, counted at
-# 128 output columns per CTA.
-CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM = 8
+# 128 output columns per CTA: crossover sweeps (736/1472/2944 x 32 x 32..256
+# tokens) put the Blackwell early/late crossover between 768 and 1472 CTAs
+# (8/SM) and the Hopper early/off crossover between 1536 and 2944 CTAs (12/SM).
+CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM: Dict[CakeBGMVMoEArch, int] = {
+    "sm90a": 12,
+    "sm100a": 8,
+    "sm103a": 8,
+}
 CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL = 128
 
 
@@ -357,7 +363,8 @@ def cake_bgmv_moe_pdl_mode(
 
     cols = CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL
     expand_ctas = int(num_tokens) * ((int(hidden_size) + cols - 1) // cols)
-    small = expand_ctas <= CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM * int(sm_count)
+    per_sm = CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM.get(arch, 0)
+    small = expand_ctas <= per_sm * int(sm_count)
     if arch in ("sm100a", "sm103a"):
         return 1 if small else 2
     if arch == "sm90a":

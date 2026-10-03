@@ -228,6 +228,10 @@ def test_pdl_mode_policy():
     assert pdl("sm90a", 16, 2944, 132) == 1
     assert pdl("sm100a", 16, 2944, 148) == 1
     assert pdl("sm103a", 16, 2944, 148) == 1
+    # 128 tokens x 12 column CTAs = 1536 CTAs: still small on Hopper (12/SM),
+    # large on Blackwell (8/SM).
+    assert pdl("sm90a", 128, 1472, 132) == 1
+    assert pdl("sm100a", 128, 1472, 148) == 2
     # 512 tokens x 6 column CTAs = 3072 CTAs: large.
     assert pdl("sm90a", 512, 736, 132) == 0
     assert pdl("sm100a", 512, 736, 148) == 2
