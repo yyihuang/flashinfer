@@ -398,20 +398,34 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
 
   const int32_t output_stride = hidden;
   const int32_t output_offset = 0;
-  if (schedule == Schedule::kTokenOwnedT64) {
-    const dim3 grid(num_tokens, (hidden + 63) / 64, 1);
-    CAKE_BGMV_MOE_EXPAND_T64<<<grid, 64, kExpandT64SmemBytes, stream>>>(
-        y_ptr, shrink_ptr, b_ptr, token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
-        num_experts, num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
-        kRouteAdvance, hidden);
-  } else {
-    const dim3 grid(num_tokens, (hidden + 127) / 128, 1);
-    CAKE_BGMV_MOE_EXPAND_T128<<<grid, 128, kExpandT128SmemBytes, stream>>>(
-        y_ptr, shrink_ptr, b_ptr, token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
-        num_experts, num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
-        kRouteAdvance, hidden);
-  }
-  CheckCuda(cudaGetLastError(), "Cake BGMV MoE generic expand launch");
+  // Programmatic dependent launch: the shrink kernel triggers its dependents at
+  // entry and the expand kernel executes griddepcontrol.wait before it reads the
+  // shrink output or the route index, so the expand grid's launch and its B
+  // weight prefetch overlap the shrink grid's tail.  Captured into a graph this
+  // becomes a programmatic dependency edge.
+  const int32_t expand_threads = schedule == Schedule::kTokenOwnedT64 ? 64 : 128;
+  cudaLaunchConfig_t config = {};
+  config.gridDim = dim3(num_tokens, (hidden + expand_threads - 1) / expand_threads, 1);
+  config.blockDim = dim3(expand_threads, 1, 1);
+  config.dynamicSmemBytes = schedule == Schedule::kTokenOwnedT64 ? kExpandT64SmemBytes
+                                                                  : kExpandT128SmemBytes;
+  config.stream = stream;
+  cudaLaunchAttribute attrs[1];
+  attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
+  attrs[0].val.programmaticStreamSerializationAllowed = 1;
+  config.attrs = attrs;
+  config.numAttrs = 1;
+  const cudaError_t expand_status =
+      schedule == Schedule::kTokenOwnedT64
+          ? cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T64, y_ptr, shrink_ptr, b_ptr,
+                               token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
+                               num_experts, num_tokens, output_stride, output_offset, route_ptr,
+                               kRouteLookup, kRouteAdvance, hidden)
+          : cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T128, y_ptr, shrink_ptr, b_ptr,
+                               token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
+                               num_experts, num_tokens, output_stride, output_offset, route_ptr,
+                               kRouteLookup, kRouteAdvance, hidden);
+  CheckCuda(expand_status, "Cake BGMV MoE generic expand launch");
 }
 
 }  // namespace cake_bgmv_moe_generic
