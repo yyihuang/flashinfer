@@ -599,14 +599,20 @@ def test_ep_combine_wire_mismatch_raises() -> None:
     rank, world_size = _dist_setup()
     device = torch.device("cuda", rank)
     wire = WIRES[1] if rank == 0 else WIRES[0]
-    with pytest.raises(Exception, match="combine_wire"):
-        _build_layer(world_size, rank, device, combine_wire=wire, seed=23)
-    dist.barrier()
-    # the process keeps working: a consistent pipe after the rejected one
-    layer, w13, w2 = _build_layer(world_size, rank, device, seed=23)
     x, ids, weights = _make_inputs(
         TOKEN_CAPACITY, LOCAL_EXPERTS * world_size, 23 + rank, device, mode="random"
     )
+    with pytest.raises(Exception, match="combine_wire"):
+        mixed, _w13, _w2 = _build_layer(
+            world_size, rank, device, combine_wire=wire, seed=23
+        )
+        # the workspace (pipe + runner, hence the wire handshake) is created lazily
+        # by the first forward; every rank raises together (guarded init phase)
+        _forward(mixed, x, ids, weights)
+        torch.cuda.synchronize()
+    dist.barrier()
+    # the process keeps working: a consistent pipe after the rejected one
+    layer, w13, w2 = _build_layer(world_size, rank, device, seed=23)
     output = _forward(layer, x, ids, weights)
     torch.cuda.synchronize()
     _check(
