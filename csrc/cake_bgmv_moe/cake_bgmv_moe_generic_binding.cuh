@@ -362,8 +362,9 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
     CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped group_build launch");
     // Route-tile parts interleaved in grid.x so the parts of a tile co-schedule
     // (repeated reads of the group weight rows hit L2).
-    const dim3 shrink_grid(max_tiles * (kGroupTileTokens / kGroupShrinkRoutes),
-                           kRank / kGroupShrinkRankTile, 1);
+    // Flat grid, rank tile fastest (the kernel decodes rank tile, part and route tile from blockIdx.x).
+    const dim3 shrink_grid(
+        max_tiles * (kGroupTileTokens / kGroupShrinkRoutes) * (kRank / kGroupShrinkRankTile), 1, 1);
     CAKE_BGMV_MOE_SHRINK_GROUPED<<<shrink_grid, kShrinkThreads, kShrinkGroupedSmemBytes, stream>>>(
         shrink_ptr, x_ptr, a_ptr, token_ptr, num_pairs, num_experts, hidden, num_tiles, ws_ptr,
         static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.tile_table),
