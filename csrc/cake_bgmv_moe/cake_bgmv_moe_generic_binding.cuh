@@ -11,13 +11,18 @@
  *   CAKE_BGMV_MOE_CC_MAJOR / _MINOR   compute capability this module was built for
  *   CAKE_BGMV_MOE_SHRINK_DECODE       generated decode shrink kernel (PPB=4, 3 stages)
  *   CAKE_BGMV_MOE_SHRINK_PREFILL      generated prefill shrink kernel (PPB=1, 2 stages)
+ *   CAKE_BGMV_MOE_SHRINK_DECODE_PDL   decode shrink + griddepcontrol.launch_dependents (PDL)
+ *   CAKE_BGMV_MOE_SHRINK_PREFILL_PDL  prefill shrink + griddepcontrol.launch_dependents (PDL)
  *   CAKE_BGMV_MOE_EXPAND_T64          generated 64-lane token-owned expand kernel
  *   CAKE_BGMV_MOE_EXPAND_T128         generated 128-lane token-owned expand kernel
+ *   CAKE_BGMV_MOE_EXPAND_T64_PF       64-lane expand, B rows register-prefetched before PDL wait
+ *   CAKE_BGMV_MOE_EXPAND_T128_PF      128-lane expand, B rows register-prefetched before PDL wait
  */
 #pragma once
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 
@@ -39,8 +44,16 @@ constexpr int32_t kShrinkDecodePairsPerBlock = 4;
 // the shrink kernels, routed activations plus the route list for expand).
 constexpr int32_t kShrinkDecodeSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_DECODE;
 constexpr int32_t kShrinkPrefillSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL;
+static_assert(CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_DECODE_PDL == kShrinkDecodeSmemBytes,
+              "decode shrink forms must share smem");
+static_assert(CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_PREFILL_PDL == kShrinkPrefillSmemBytes,
+              "prefill shrink forms must share smem");
 constexpr int32_t kExpandT64SmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64;
 constexpr int32_t kExpandT128SmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128;
+constexpr int32_t kExpandT64PfSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T64_PF;
+constexpr int32_t kExpandT128PfSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_T128_PF;
+static_assert(kExpandT64PfSmemBytes == kExpandT64SmemBytes, "expand T64 forms must share smem");
+static_assert(kExpandT128PfSmemBytes == kExpandT128SmemBytes, "expand T128 forms must share smem");
 static_assert(kShrinkDecodeSmemBytes == 221824, "decode shrink smem layout changed");
 static_assert(kShrinkPrefillSmemBytes == 37120, "prefill shrink smem layout changed");
 static_assert(kRank % kRankTile == 0, "rank must be a multiple of the 8-row shrink tile");
@@ -59,6 +72,65 @@ constexpr int32_t kShrinkSplitMax = 8;
 constexpr int32_t kShrinkSplitMaxPairs = 128;
 constexpr int32_t kShrinkSplitPartialWords = kShrinkSplitMax * kShrinkSplitMaxPairs * 64;
 constexpr int32_t kShrinkSplitCounterWords = kShrinkSplitMaxPairs * (64 / kRankTile);
+// Pair-grouped pipeline (round 5): routes grouped by their unique (LoRA,
+// expert) pair so each pair's weights are streamed once per tile of
+// kGroupTileTokens routes.  Plan-owned int32 workspace (see
+// flashinfer/jit/cake_bgmv_moe.py ``cake_bgmv_moe_grouped_workspace_words``):
+// header, bin counts, bin offsets, bin fill counters, tile table, grouped route
+// ids, per-token route counts and per-token route lists; plus FP32 per-route
+// expand partials [num_pairs][hidden].  Rebuilt by the grouping kernel on every
+// launch (no memset node); the deterministic combine sums each token's route
+// partials in ascending pair order.
+constexpr int32_t kGroupThreads = 1024;
+constexpr int32_t kGroupTileTokens = 16;
+constexpr int32_t kGroupShrinkRankTile = 8;  // rank rows per grouped-shrink CTA
+constexpr int32_t kGroupShrinkRoutes = 4;    // routes per grouped-shrink CTA
+static_assert(kGroupTileTokens % kGroupShrinkRoutes == 0,
+              "route tile must split into whole grouped-shrink parts");
+static_assert(kRank % kGroupShrinkRankTile == 0,
+              "rank must be a multiple of the grouped shrink rank tile");
+constexpr int32_t kGroupBinsMax = 4096;
+constexpr int32_t kGroupHeaderWords = 4;
+constexpr int32_t kGroupExpandThreads = 256;
+constexpr int32_t kGroupCombineThreads = 256;
+constexpr int32_t kGroupBuildSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_GROUP_BUILD;
+constexpr int32_t kShrinkGroupedSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_SHRINK_GROUPED;
+constexpr int32_t kExpandGroupedSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_EXPAND_GROUPED;
+constexpr int32_t kCombineGroupedSmemBytes = CAKE_BGMV_MOE_GENERIC_SMEM_COMBINE_GROUPED;
+
+struct GroupedOffsets {
+  int64_t group_count;
+  int64_t group_offset;
+  int64_t fill;
+  int64_t tile_table;
+  int64_t sorted_routes;
+  int64_t token_count;
+  int64_t token_routes;
+  int64_t numel;
+  int64_t max_tiles;
+};
+
+inline GroupedOffsets ComputeGroupedOffsets(int64_t num_pairs, int64_t num_tokens, int64_t bins) {
+  GroupedOffsets off{};
+  off.max_tiles = (num_pairs + kGroupTileTokens - 1) / kGroupTileTokens + bins;
+  int64_t cursor = kGroupHeaderWords;
+  off.group_count = cursor;
+  cursor += bins;
+  off.group_offset = cursor;
+  cursor += bins + 1;
+  off.fill = cursor;
+  cursor += bins;
+  off.tile_table = cursor;
+  cursor += off.max_tiles;
+  off.sorted_routes = cursor;
+  cursor += num_pairs;
+  off.token_count = cursor;
+  cursor += num_tokens;
+  off.token_routes = cursor;
+  cursor += num_tokens * kRouteIndexMaxRoutes;
+  off.numel = cursor;
+  return off;
+}
 
 enum class Schedule : int32_t {
   kTokenOwnedT64 = 0,
@@ -104,6 +176,18 @@ void Configure() {
       cudaFuncSetAttribute(CAKE_BGMV_MOE_SHRINK_DECODE, cudaFuncAttributeMaxDynamicSharedMemorySize,
                            kShrinkDecodeSmemBytes),
       "cudaFuncSetAttribute(Cake BGMV MoE decode shrink)");
+  CheckCuda(
+      cudaFuncSetAttribute(CAKE_BGMV_MOE_SHRINK_DECODE_PDL,
+                           cudaFuncAttributeMaxDynamicSharedMemorySize, kShrinkDecodeSmemBytes),
+      "cudaFuncSetAttribute(Cake BGMV MoE decode shrink, PDL form)");
+  TVM_FFI_ICHECK(max_dynamic_smem >= kShrinkGroupedSmemBytes)
+      << "Cake BGMV MoE grouped shrink requires " << kShrinkGroupedSmemBytes
+      << " bytes of dynamic shared memory, but device " << device_id << " supports "
+      << max_dynamic_smem;
+  CheckCuda(
+      cudaFuncSetAttribute(CAKE_BGMV_MOE_SHRINK_GROUPED,
+                           cudaFuncAttributeMaxDynamicSharedMemorySize, kShrinkGroupedSmemBytes),
+      "cudaFuncSetAttribute(Cake BGMV MoE grouped shrink)");
 }
 
 inline void CheckCompact(const TensorView& tensor, const char* name) {
@@ -129,9 +213,18 @@ inline int32_t OutputRowStride(const TensorView& y_accum, int64_t num_tokens, in
 void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lora_a,
          TensorView lora_b, TensorView sorted_token_ids, TensorView expert_ids,
          TensorView lora_indices, TensorView topk_weights, TensorView route_index,
-         int64_t schedule_value, int64_t shrink_decode, int64_t shrink_splits,
+         int64_t schedule_value, int64_t shrink_decode, int64_t shrink_splits, int64_t grouped,
+         TensorView group_workspace, TensorView group_partials, int64_t pdl_mode,
          int64_t cuda_stream) {
   TVM_FFI_ICHECK(cuda_stream >= 0) << "cuda_stream must be a non-negative stream handle";
+  TVM_FFI_ICHECK(pdl_mode >= 0 && pdl_mode <= 2)
+      << "pdl_mode must be 0 (off), 1 (early trigger) or 2 (late trigger), got " << pdl_mode;
+  // Programmatic dependent launch of the expand behind the shrink: the shrink
+  // kernels trigger their dependents at entry (pdl_early) or after the tile
+  // loop; every expand kernel executes griddepcontrol.wait before it reads the
+  // shrink output or the route index.  Without the launch attribute both
+  // instructions are no-ops, so mode 0 is the plain two-launch pipeline.
+  const int32_t pdl_early = pdl_mode == 1 ? 1 : 0;
   CHECK_CUDA(x);
   // The device/module match is checked once in Configure (module load); the
   // Python side already routes each device to the module compiled for it.
@@ -232,6 +325,67 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   constexpr int32_t kRouteAdvance = 1;
 
   const int32_t num_tiles = (hidden + kShrinkTileElements - 1) / kShrinkTileElements;
+  if (grouped != 0) {
+    // Pair-grouped pipeline: group_build -> grouped shrink -> grouped expand -> combine.
+    CHECK_CUDA(group_workspace);
+    CHECK_CUDA(group_partials);
+    CHECK_DEVICE(x, group_workspace);
+    CHECK_DEVICE(x, group_partials);
+    CHECK_INPUT_TYPE(group_workspace, dl_int32);
+    CHECK_INPUT_TYPE(group_partials, dl_float32);
+    CheckCompact(group_workspace, "group_workspace");
+    CheckCompact(group_partials, "group_partials");
+    const int64_t num_loras = lora_a.size(0);
+    const int64_t bins = num_loras * static_cast<int64_t>(num_experts);
+    TVM_FFI_ICHECK(bins >= 1 && bins <= kGroupBinsMax)
+        << "the grouped pipeline supports at most " << kGroupBinsMax << " (lora, expert) bins, got "
+        << bins;
+    const GroupedOffsets off = ComputeGroupedOffsets(num_pairs, num_tokens, bins);
+    TVM_FFI_ICHECK(group_workspace.ndim() == 1 && group_workspace.size(0) >= off.numel)
+        << "group_workspace must hold at least " << off.numel << " int32 words";
+    TVM_FFI_ICHECK(group_partials.ndim() == 1 &&
+                   group_partials.size(0) >= static_cast<int64_t>(num_pairs) * hidden)
+        << "group_partials must hold at least num_pairs * hidden = "
+        << static_cast<int64_t>(num_pairs) * hidden << " floats";
+    TVM_FFI_ICHECK(off.max_tiles < (int64_t{1} << 31) &&
+                   (num_pairs + kGroupTileTokens - 1) / kGroupTileTokens < 65536)
+        << "grouped tile table out of range for num_pairs=" << num_pairs;
+    auto* ws_ptr = static_cast<unsigned int*>(group_workspace.data_ptr());
+    auto* partials_ptr = static_cast<float*>(group_partials.data_ptr());
+    const int32_t max_tiles = static_cast<int32_t>(off.max_tiles);
+    CAKE_BGMV_MOE_GROUP_BUILD<<<1, kGroupThreads, kGroupBuildSmemBytes, stream>>>(
+        token_ptr, expert_ptr, lora_ptr, shrink_ptr, num_pairs, num_tokens, num_experts,
+        static_cast<int32_t>(num_loras), ws_ptr, static_cast<int32_t>(off.group_count),
+        static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.fill),
+        static_cast<int32_t>(off.tile_table), static_cast<int32_t>(off.sorted_routes),
+        static_cast<int32_t>(off.token_count), static_cast<int32_t>(off.token_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped group_build launch");
+    // Route-tile parts interleaved in grid.x so the parts of a tile co-schedule
+    // (repeated reads of the group weight rows hit L2).
+    const dim3 shrink_grid(max_tiles * (kGroupTileTokens / kGroupShrinkRoutes),
+                           kRank / kGroupShrinkRankTile, 1);
+    CAKE_BGMV_MOE_SHRINK_GROUPED<<<shrink_grid, kShrinkThreads, kShrinkGroupedSmemBytes, stream>>>(
+        shrink_ptr, x_ptr, a_ptr, token_ptr, num_pairs, num_experts, hidden, num_tiles, ws_ptr,
+        static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.tile_table),
+        static_cast<int32_t>(off.sorted_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped shrink launch");
+    const dim3 expand_grid(max_tiles, (hidden + kGroupExpandThreads - 1) / kGroupExpandThreads, 1);
+    CAKE_BGMV_MOE_EXPAND_GROUPED<<<expand_grid, kGroupExpandThreads, kExpandGroupedSmemBytes,
+                                   stream>>>(
+        partials_ptr, shrink_ptr, b_ptr, num_pairs, num_experts, hidden, ws_ptr,
+        static_cast<int32_t>(off.group_offset), static_cast<int32_t>(off.tile_table),
+        static_cast<int32_t>(off.sorted_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped expand launch");
+    const int32_t output_stride = hidden;
+    const int32_t output_offset = 0;
+    CAKE_BGMV_MOE_COMBINE_GROUPED<<<num_tokens, kGroupCombineThreads, kCombineGroupedSmemBytes,
+                                    stream>>>(
+        y_ptr, partials_ptr, token_ptr, lora_ptr, weight_ptr, num_pairs, num_tokens, hidden,
+        output_stride, output_offset, ws_ptr, static_cast<int32_t>(off.token_count),
+        static_cast<int32_t>(off.token_routes));
+    CheckCuda(cudaGetLastError(), "Cake BGMV MoE grouped combine launch");
+    return;
+  }
   TVM_FFI_ICHECK(shrink_splits >= 1 && shrink_splits <= kShrinkSplitMax &&
                  shrink_splits <= num_tiles)
       << "shrink_splits must be in [1, min(" << kShrinkSplitMax << ", num_tiles=" << num_tiles
@@ -245,39 +399,80 @@ void Run(TensorView y_accum, TensorView shrink_out, TensorView x, TensorView lor
   auto* split_partials = reinterpret_cast<float*>(route_ptr + route_words);
   auto* split_counters = route_ptr + route_words + kShrinkSplitPartialWords;
   const dim3 shrink_block(kShrinkThreads, 1, 1);
+  // Kernel forms by launch mode: the PDL forms carry griddepcontrol (shrink:
+  // launch_dependents, early or late by pdl_early; expand: wait after the
+  // register B-row prefetch); the plain forms carry no PDL instruction.
+  const bool prefetch_form = pdl_mode != 0;
   if (shrink_decode != 0) {
     const dim3 shrink_grid(
         (num_pairs + kShrinkDecodePairsPerBlock - 1) / kShrinkDecodePairsPerBlock,
         kRank / kRankTile, splits);
-    CAKE_BGMV_MOE_SHRINK_DECODE<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes, stream>>>(
-        shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
-        num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
-        splits);
+    if (prefetch_form) {
+      CAKE_BGMV_MOE_SHRINK_DECODE_PDL<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes,
+                                        stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    } else {
+      CAKE_BGMV_MOE_SHRINK_DECODE<<<shrink_grid, shrink_block, kShrinkDecodeSmemBytes, stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    }
   } else {
     const dim3 shrink_grid(num_pairs, kRank / kRankTile, splits);
-    CAKE_BGMV_MOE_SHRINK_PREFILL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes, stream>>>(
-        shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
-        num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
-        splits);
+    if (prefetch_form) {
+      CAKE_BGMV_MOE_SHRINK_PREFILL_PDL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes,
+                                         stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    } else {
+      CAKE_BGMV_MOE_SHRINK_PREFILL<<<shrink_grid, shrink_block, kShrinkPrefillSmemBytes, stream>>>(
+          shrink_ptr, x_ptr, a_ptr, token_ptr, expert_ptr, lora_ptr, num_pairs, num_experts,
+          num_tokens, route_ptr, kRouteBuild, hidden, num_tiles, split_partials, split_counters,
+          splits, pdl_early);
+    }
   }
   CheckCuda(cudaGetLastError(), "Cake BGMV MoE generic shrink launch");
 
   const int32_t output_stride = OutputRowStride(y_accum, num_tokens, hidden);
   const int32_t output_offset = 0;
-  if (schedule == Schedule::kTokenOwnedT64) {
-    const dim3 grid(num_tokens, (hidden + 63) / 64, 1);
-    CAKE_BGMV_MOE_EXPAND_T64<<<grid, 64, kExpandT64SmemBytes, stream>>>(
-        y_ptr, shrink_ptr, b_ptr, token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
-        num_experts, num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
-        kRouteAdvance, hidden);
-  } else {
-    const dim3 grid(num_tokens, (hidden + 127) / 128, 1);
-    CAKE_BGMV_MOE_EXPAND_T128<<<grid, 128, kExpandT128SmemBytes, stream>>>(
-        y_ptr, shrink_ptr, b_ptr, token_ptr, expert_ptr, lora_ptr, weight_ptr, num_pairs,
-        num_experts, num_tokens, output_stride, output_offset, route_ptr, kRouteLookup,
-        kRouteAdvance, hidden);
-  }
-  CheckCuda(cudaGetLastError(), "Cake BGMV MoE generic expand launch");
+  // Programmatic dependent launch: the shrink kernel triggers its dependents at
+  // entry and the expand kernel executes griddepcontrol.wait before it reads the
+  // shrink output or the route index, so the expand grid's launch and its B
+  // weight prefetch overlap the shrink grid's tail.  Captured into a graph this
+  // becomes a programmatic dependency edge.
+  const int32_t expand_threads = schedule == Schedule::kTokenOwnedT64 ? 64 : 128;
+  // PDL launches take the register-prefetch expand forms (both routes' B rows
+  // are in flight before griddepcontrol.wait); plain launches take the round-4
+  // interleaved forms, which keep the plain-launch occupancy.
+  const int32_t col_blocks_total = (hidden + expand_threads - 1) / expand_threads;
+  cudaLaunchConfig_t config = {};
+  config.gridDim = dim3(num_tokens, col_blocks_total, 1);
+  config.blockDim = dim3(expand_threads, 1, 1);
+  config.dynamicSmemBytes =
+      schedule == Schedule::kTokenOwnedT64 ? kExpandT64SmemBytes : kExpandT128SmemBytes;
+  config.stream = stream;
+  cudaLaunchAttribute attrs[1];
+  attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
+  attrs[0].val.programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0;
+  config.attrs = attrs;
+  config.numAttrs = 1;
+  auto expand_kernel_t64 = prefetch_form ? CAKE_BGMV_MOE_EXPAND_T64_PF : CAKE_BGMV_MOE_EXPAND_T64;
+  auto expand_kernel_t128 =
+      prefetch_form ? CAKE_BGMV_MOE_EXPAND_T128_PF : CAKE_BGMV_MOE_EXPAND_T128;
+  const cudaError_t expand_status =
+      schedule == Schedule::kTokenOwnedT64
+          ? cudaLaunchKernelEx(&config, expand_kernel_t64, y_ptr, shrink_ptr, b_ptr, token_ptr,
+                               expert_ptr, lora_ptr, weight_ptr, num_pairs, num_experts, num_tokens,
+                               output_stride, output_offset, route_ptr, kRouteLookup, kRouteAdvance,
+                               hidden)
+          : cudaLaunchKernelEx(&config, expand_kernel_t128, y_ptr, shrink_ptr, b_ptr, token_ptr,
+                               expert_ptr, lora_ptr, weight_ptr, num_pairs, num_experts, num_tokens,
+                               output_stride, output_offset, route_ptr, kRouteLookup, kRouteAdvance,
+                               hidden);
+  CheckCuda(expand_status, "Cake BGMV MoE generic expand launch");
 }
 
 }  // namespace cake_bgmv_moe_generic
