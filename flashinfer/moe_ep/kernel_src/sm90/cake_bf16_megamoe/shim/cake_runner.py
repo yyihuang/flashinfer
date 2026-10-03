@@ -329,6 +329,10 @@ class Sm90CakeBf16MoERunner:
             self._grp_list = torch.zeros(nslots, dtype=torch.int32, device=dv)
             self._n_groups = torch.zeros(1, dtype=torch.int32, device=dv)
             self._groups_per_src = torch.zeros(pipe.ep, dtype=torch.int32, device=dv)
+            # grid-completion counter of the pre-reduced publish (its last block resets
+            # the worklist scratch for the next round: no per-round memsets)
+            self._pub_blocks_done = torch.zeros(1, dtype=torch.int32, device=dv)
+            pipe._cdone_local.zero_()  # the publish kernel keeps it zeroed from here on
 
     def bind_weights(self, weights: Sm90CakeBf16Weights) -> None:
         """Swap the expert weights between rounds (same geometry, same device)."""
@@ -585,6 +589,7 @@ class Sm90CakeBf16MoERunner:
                             self._groups_per_src,
                             pipe._cdone_local,
                             pipe._round,
+                            self._pub_blocks_done,
                             split,
                         )
                     with _record_stage("combine_tail", nv):

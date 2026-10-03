@@ -35,6 +35,11 @@
 // (`groups_per_src`), with the same cell / tag / abort semantics as the
 // per-route publish.
 //
+// Scratch lifecycle: no per-round memsets.  The publish kernel resets every
+// group counter it consumes (grp_cnt[g] = 0) and its last block (grid-completion
+// counter blocks_done, as the fused tail) zeroes n_groups, groups_per_src and
+// cdone_local for the next round; the runner zeroes them once at construction.
+//
 // Determinism: the group worklist is built with integer atomics (order of
 // groups is irrelevant: every group is reduced independently in a fixed route
 // order), no floating-point atomics anywhere.  Every element of the output is
@@ -170,13 +175,15 @@ __global__ void combine_group_build_kernel(
 // 16-byte vector (8 bf16 columns) per iteration.
 __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kernel(
     PushLayout L, const __nv_bfloat16* __restrict__ y, const int32_t* __restrict__ meta,
-    const int32_t* __restrict__ grp_cnt, const int32_t* __restrict__ grp_rows,
-    const int32_t* __restrict__ grp_list, const int32_t* __restrict__ n_groups,
-    const int32_t* __restrict__ groups_per_src, int32_t* __restrict__ cdone_local,
-    const int32_t* __restrict__ round_ctr, int split_partials) {
+    int32_t* __restrict__ grp_cnt, const int32_t* __restrict__ grp_rows,
+    const int32_t* __restrict__ grp_list, int32_t* __restrict__ n_groups,
+    int32_t* __restrict__ groups_per_src, int32_t* __restrict__ cdone_local,
+    const int32_t* __restrict__ round_ctr, int32_t* __restrict__ blocks_done,
+    int split_partials) {
   int const H = L.hidden;
   int const nv = H >> 3;  // 16-byte vectors per row
-  for (int idx = blockIdx.x; idx < *n_groups; idx += gridDim.x) {
+  int const total_groups = *n_groups;  // read once: the last block zeroes it below
+  for (int idx = blockIdx.x; idx < total_groups; idx += gridDim.x) {
     int const g = grp_list[idx];  // uniform across the block
     int const cnt = grp_cnt[g];   // >= 1 by worklist construction, <= top_k
     int const dst = g / L.t_cap;
@@ -244,12 +251,29 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
     }
     __syncthreads();  // this group's remote stores all issued before the publish tail
     if (threadIdx.x == 0) {
+      grp_cnt[g] = 0;  // every thread has read cnt: the slot is clean for the next round
       __threadfence_system();
       int prev = atomicAdd(&cdone_local[dst], 1);
       if (prev + 1 == groups_per_src[dst]) {
         __threadfence_system();
         st_release_sys_u64(L.cdone_cell(dst, L.rank),
                            pack_count_tag(groups_per_src[dst], static_cast<uint32_t>(*round_ctr)));
+      }
+    }
+  }
+  // grid completion: the last block to finish resets the per-round worklist scratch
+  // (every other block has finished reading n_groups / groups_per_src / cdone_local)
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    __threadfence();
+    int const prev = atomicAdd(blocks_done, 1);
+    if (prev + 1 == static_cast<int>(gridDim.x)) {
+      __threadfence();
+      *blocks_done = 0;
+      *n_groups = 0;
+      for (int s = 0; s < L.ep_size; ++s) {
+        groups_per_src[s] = 0;
+        cdone_local[s] = 0;
       }
     }
   }
@@ -273,7 +297,8 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
                                        TensorView m_dev, TensorView grp_cnt, TensorView grp_rows,
                                        TensorView grp_list, TensorView n_groups,
                                        TensorView groups_per_src, TensorView cdone_local,
-                                       TensorView round_ctr, int64_t split_partials) {
+                                       TensorView round_ctr, TensorView blocks_done,
+                                       int64_t split_partials) {
   check_layout(LAYOUT_ARGS);
   auto L = build_layout(LAYOUT_ARGS);
   CHECK_INPUT_AND_TYPE(y, dl_bfloat16);
@@ -286,6 +311,7 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
   CHECK_INPUT_AND_TYPE(groups_per_src, dl_int32);
   CHECK_INPUT_AND_TYPE(cdone_local, dl_int32);
   CHECK_INPUT_AND_TYPE(round_ctr, dl_int32);
+  CHECK_INPUT_AND_TYPE(blocks_done, dl_int32);
   CHECK_DIM(2, y);
   int64_t const Mcap = y.size(0);
   int64_t const H = y.size(1);
@@ -297,6 +323,7 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
   TVM_FFI_ICHECK(grp_rows.numel() >= nslots * L.top_k) << "combine_prereduced: grp_rows too small";
   TVM_FFI_ICHECK(grp_list.numel() >= nslots) << "combine_prereduced: grp_list too small";
   TVM_FFI_ICHECK(n_groups.numel() >= 1) << "combine_prereduced: n_groups too small";
+  TVM_FFI_ICHECK(blocks_done.numel() >= 1) << "combine_prereduced: blocks_done too small";
   TVM_FFI_ICHECK(groups_per_src.numel() >= eps && cdone_local.numel() >= eps)
       << "combine_prereduced: per-source scratch too small";
   TVM_FFI_ICHECK(reinterpret_cast<uintptr_t>(y.data_ptr()) % 16 == 0)
@@ -307,10 +334,8 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
   auto* gps = static_cast<int32_t*>(groups_per_src.data_ptr());
   auto* glist = static_cast<int32_t*>(grp_list.data_ptr());
   auto* ng = static_cast<int32_t*>(n_groups.data_ptr());
-  cudaMemsetAsync(cdl, 0, static_cast<size_t>(eps) * sizeof(int32_t), stream);
-  cudaMemsetAsync(cnt, 0, static_cast<size_t>(nslots) * sizeof(int32_t), stream);
-  cudaMemsetAsync(gps, 0, static_cast<size_t>(eps) * sizeof(int32_t), stream);
-  cudaMemsetAsync(ng, 0, sizeof(int32_t), stream);
+  auto* bd = static_cast<int32_t*>(blocks_done.data_ptr());
+  // no memsets: the scratch was zeroed at construction and self-resets every round
   if (Mcap == 0) return;  // zero-row destinations were published by wait_prefix
   int const blocks = publish_grid_blocks(y.device());
   combine_group_build_kernel<<<blocks, kThreads, 0, stream>>>(
@@ -322,7 +347,7 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
       L, static_cast<const __nv_bfloat16*>(y.data_ptr()),
       static_cast<const int32_t*>(meta.data_ptr()), cnt,
       static_cast<const int32_t*>(grp_rows.data_ptr()), glist, ng, gps, cdl,
-      static_cast<const int32_t*>(round_ctr.data_ptr()), split_partials != 0 ? 1 : 0);
+      static_cast<const int32_t*>(round_ctr.data_ptr()), bd, split_partials != 0 ? 1 : 0);
 }
 
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(sm90_cake_combine_prereduced_bf16, sm90_cake_combine_prereduced_bf16);
