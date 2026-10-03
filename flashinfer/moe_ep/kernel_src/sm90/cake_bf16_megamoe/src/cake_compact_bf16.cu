@@ -127,9 +127,12 @@ __device__ __forceinline__ int find_segment(const int32_t* __restrict__ seg_out_
   return lo;
 }
 
-// One block per compacted row (persistent work queue through `next_row`, which
-// `sm90_push_wait_prefix` resets to zero every round).  Rows are expert-major:
-// segment (e, s) holds the rows received from source rank s for local expert e.
+// One block per compacted row, assigned by static grid stride (row = blockIdx.x
+// + k * gridDim.x): every row costs the same (one segment search + one row copy),
+// so no work queue is needed and blocks beyond the row count exit at once.
+// `next_row` (reset by `sm90_push_wait_prefix` every round) is no longer read;
+// the argument stays for the binding.  Rows are expert-major: segment (e, s)
+// holds the rows received from source rank s for local expert e.
 __global__ void compact_bf16_persistent_kernel(
     PushLayout L, const int32_t* __restrict__ seg_src_base,
     const int32_t* __restrict__ seg_out_base, const int32_t* __restrict__ m_dev,
@@ -139,17 +142,13 @@ __global__ void compact_bf16_persistent_kernel(
     int32_t* __restrict__ grp_list, int32_t* __restrict__ n_groups,
     int32_t* __restrict__ groups_per_src, const int32_t* __restrict__ round_ctr,
     int build_groups) {
-  __shared__ int s_row;
+  (void)next_row;
   int eps = L.ep_size;
   uint32_t const tag = build_groups ? static_cast<uint32_t>(*round_ctr) : 0u;
   int nkeys = L.num_local_experts * eps;
   int nv = H >> 3;  // 16-byte vectors per bf16 row
-  for (;;) {
-    __syncthreads();  // protect s_row from the previous iteration's readers
-    if (threadIdx.x == 0) s_row = atomicAdd(next_row, 1);
-    __syncthreads();
-    int row = s_row;
-    if (row >= *m_dev) return;
+  int const m = *m_dev;  // uniform across the grid for this round
+  for (int row = blockIdx.x; row < m; row += gridDim.x) {
     int seg = find_segment(seg_out_base, nkeys, row);
     int e = seg / eps;
     int rec = seg_src_base[seg] + (row - seg_out_base[seg]);
