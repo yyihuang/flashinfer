@@ -169,6 +169,7 @@ def bench_trtllm_fp8(num_tokens, num_heads, total_topk, device, gen):
         comp = torch.randint(0, 255, (pages, 1, PAGE_SIZE, 584), generator=gen, device=device, dtype=torch.uint8)
         idx = random_indices(num_tokens, total_topk, POOL_TOKENS, gen, device)
         lens = torch.full((num_tokens,), total_topk, dtype=torch.int32, device=device)
+        seq_lens = torch.full((num_tokens,), 4096, dtype=torch.int32, device=device)
         query = torch.randn(num_tokens, num_heads, HEAD_DIM, generator=gen, device=device).to(torch.bfloat16)
         workspace = torch.zeros(128 * 1024 * 1024, dtype=torch.uint8, device=device)
 
@@ -180,6 +181,7 @@ def bench_trtllm_fp8(num_tokens, num_heads, total_topk, device, gen):
                 workspace_buffer=workspace,
                 sparse_indices=idx,
                 sparse_topk_lens=lens,
+                seq_lens=seq_lens,
                 bmm1_scale=SM_SCALE,
                 kv_cache_format="fp8",
                 backend="trtllm-gen",
