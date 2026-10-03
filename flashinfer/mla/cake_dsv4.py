@@ -86,9 +86,10 @@ over ``compressed_kv_cache``); there is no combined-table column offset.
 
 The launch plan (:func:`_nvfp4_plan`) reproduces the Cake ``plan()``: 128-wide
 candidate tiles, 128-head tiles, ``num_splits = ceil(SMs / (T * head_tiles))``
-clamped to the tile count, and the one-tile member whenever
+clamped to the tile count, the 2-CTA cluster member for >= 4 tiles per CTA
+with ``H >= 64`` and no extra wave, and the one-tile member whenever
 ``tiles_per_split == 1``. Variants ``nvfp4_decode_persistent``,
-``nvfp4_decode_tile`` and ``nvfp4_merge`` are bound through the same
+``nvfp4_decode_tile``, ``nvfp4_decode_cluster`` and ``nvfp4_merge`` are bound through the same
 registration machinery as the BF16/FP8 routes; their generated sources land
 under ``csrc/cake_dsv4/sm_100a`` and ``csrc/cake_dsv4/sm_103a`` in a later
 commit, until which the route raises ``NotImplementedError``. Splits write
@@ -157,6 +158,11 @@ _NVFP4_MAX_SPLITS = 12
 _NVFP4_HEAD_COUNTS = (8, 16, 32, 64, 128)
 _NVFP4_VARIANT_PERSISTENT = "nvfp4_decode_persistent"
 _NVFP4_VARIANT_TILE = "nvfp4_decode_tile"
+_NVFP4_VARIANT_CLUSTER = "nvfp4_decode_cluster"
+_NVFP4_CLUSTER_CTAS = 2  # CTAs per cluster of the cluster member (each owns 256 of the 512 output dims)
+_NVFP4_CLUSTER_MIN_TILES = 4  # family rule (Cake prefers_cluster): >= 4 tiles per CTA ...
+_NVFP4_CLUSTER_MIN_HEADS = 64  # ... and H >= 64 ...
+_NVFP4_CLUSTER_EXTRA_WAVES = 0  # ... and no extra wave of CTAs versus the persistent plan
 _NVFP4_VARIANT_MERGE = "nvfp4_merge"
 
 
@@ -1858,11 +1864,15 @@ class NVFP4Plan:
     total_tiles: int
     num_splits: int
     tiles_per_split: int
-    member: Literal["persistent", "tile"]
+    member: Literal["persistent", "tile", "cluster"]
+
+    @property
+    def cluster_ctas(self) -> int:
+        return _NVFP4_CLUSTER_CTAS if self.member == "cluster" else 1
 
     @property
     def grid(self) -> int:
-        return self.num_query_tokens * self.num_splits * self.num_head_tiles
+        return self.num_query_tokens * self.num_splits * self.num_head_tiles * self.cluster_ctas
 
     @property
     def merge_groups(self) -> int:
@@ -1870,6 +1880,8 @@ class NVFP4Plan:
 
     @property
     def variant(self) -> str:
+        if self.member == "cluster":
+            return _NVFP4_VARIANT_CLUSTER
         return (
             _NVFP4_VARIANT_TILE if self.member == "tile" else _NVFP4_VARIANT_PERSISTENT
         )
@@ -1888,9 +1900,13 @@ def _nvfp4_plan(
     One CTA per (token, head tile, split) loops over a contiguous range of
     128-candidate tiles with an online softmax; ``num_splits`` is the smallest
     count that covers the SMs, clamped to the tile count, then rounded so every
-    split owns ``tiles_per_split`` tiles. ``tiles_per_split == 1`` routes to
-    the one-tile member (``..._decode_tile``: ``num_splits == total_tiles``),
-    everything else to the persistent member.
+    split owns ``tiles_per_split`` tiles. The 2-CTA cluster member
+    (``..._decode_cluster``: its own split count over ``2 * T * head_tiles``
+    CTAs) takes the row when its plan gives every CTA >= 4 tiles, ``H >= 64``
+    and its grid needs no more waves than the persistent grid
+    (``ceil(grid_c / (2 * (SMs // 2))) <= ceil(grid_p / SMs)``);
+    ``tiles_per_split == 1`` routes to the one-tile member (``..._decode_tile``:
+    ``num_splits == total_tiles``), everything else to the persistent member.
     """
     tokens = _positive_int(num_query_tokens, "num_query_tokens")
     heads = _positive_int(num_heads, "num_heads")
@@ -1910,14 +1926,34 @@ def _nvfp4_plan(
     if total_tiles < 1:
         raise ValueError("at least one candidate tile is required")
     num_head_tiles = _ceil_div(heads, _NVFP4_TILE_Q)
-    base_ctas = tokens * num_head_tiles
-    num_splits = max(1, min(total_tiles, _ceil_div(sms, base_ctas)))
-    tiles_per_split = _ceil_div(total_tiles, num_splits)
-    num_splits = _ceil_div(total_tiles, tiles_per_split)
-    if num_splits > _NVFP4_MAX_SPLITS:
-        raise ValueError(
-            f"num_splits {num_splits} exceeds the NVFP4 route cap {_NVFP4_MAX_SPLITS}"
+
+    def _splits(ctas_per_work_item: int) -> tuple[int, int]:
+        base_ctas = tokens * num_head_tiles * ctas_per_work_item
+        splits = max(1, min(total_tiles, _ceil_div(sms, base_ctas)))
+        per_split = _ceil_div(total_tiles, splits)
+        splits = _ceil_div(total_tiles, per_split)
+        if splits > _NVFP4_MAX_SPLITS:
+            raise ValueError(
+                f"num_splits {splits} exceeds the NVFP4 route cap {_NVFP4_MAX_SPLITS}"
+            )
+        return splits, per_split
+
+    num_splits, tiles_per_split = _splits(1)
+    member = "tile" if tiles_per_split == 1 else "persistent"
+    try:
+        cluster_splits, cluster_tiles = _splits(_NVFP4_CLUSTER_CTAS)
+    except ValueError:
+        cluster_splits, cluster_tiles = 0, 0
+    if cluster_tiles >= _NVFP4_CLUSTER_MIN_TILES and heads >= _NVFP4_CLUSTER_MIN_HEADS:
+        grid_cluster = tokens * cluster_splits * num_head_tiles * _NVFP4_CLUSTER_CTAS
+        grid_persistent = tokens * num_splits * num_head_tiles
+        waves_cluster = _ceil_div(
+            grid_cluster, _NVFP4_CLUSTER_CTAS * (sms // _NVFP4_CLUSTER_CTAS)
         )
+        waves_persistent = _ceil_div(grid_persistent, sms)
+        if waves_cluster <= waves_persistent + _NVFP4_CLUSTER_EXTRA_WAVES:
+            member = "cluster"
+            num_splits, tiles_per_split = cluster_splits, cluster_tiles
     return NVFP4Plan(
         num_query_tokens=tokens,
         num_heads=heads,
@@ -1929,7 +1965,7 @@ def _nvfp4_plan(
         total_tiles=total_tiles,
         num_splits=num_splits,
         tiles_per_split=tiles_per_split,
-        member="tile" if tiles_per_split == 1 else "persistent",
+        member=member,
     )
 
 

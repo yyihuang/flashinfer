@@ -20,7 +20,7 @@ from flashinfer.mla.cake_dsv4 import (
     get_cake_dsv4_workspace_bytes,
 )
 
-_NVFP4_VARIANTS = ("nvfp4_decode_persistent", "nvfp4_decode_tile", "nvfp4_merge")
+_NVFP4_VARIANTS = ("nvfp4_decode_persistent", "nvfp4_decode_tile", "nvfp4_decode_cluster", "nvfp4_merge")
 
 
 @pytest.mark.parametrize("backend", ["cake", "sparse"])
@@ -95,11 +95,28 @@ _PLAN_TABLE = {
 }
 
 
+# The 2-CTA cluster member (H >= 64 only) takes the row when its own split count
+# (over 2 * T CTAs) gives every CTA >= 4 tiles and its grid needs no more waves
+# than the persistent grid: (splits, tiles_per_split, member) for num_heads=128.
+_CLUSTER_TABLE = {
+    (148, 128, 512, 0): (1, 4, "cluster"),
+    (160, 128, 512, 0): (1, 4, "cluster"),
+    (148, 128, 128, 512): (1, 5, "cluster"),
+    (160, 128, 128, 512): (1, 5, "cluster"),
+    (148, 128, 512, 512): (1, 8, "cluster"),
+    (160, 128, 512, 512): (1, 8, "cluster"),
+    (148, 50, 512, 512): (2, 4, "cluster"),
+    (160, 50, 512, 512): (2, 4, "cluster"),
+}
+
+
 @pytest.mark.parametrize("num_heads", [16, 128])
 @pytest.mark.parametrize("key", sorted(_PLAN_TABLE))
 def test_nvfp4_plan_matches_cake_plan(key, num_heads):
     sm_count, tokens, topk, extra_topk = key
     expected_splits, expected_tiles_per_split, expected_member = _PLAN_TABLE[key]
+    if num_heads >= 64 and key in _CLUSTER_TABLE:
+        expected_splits, expected_tiles_per_split, expected_member = _CLUSTER_TABLE[key]
     plan = _nvfp4_plan(
         num_query_tokens=tokens,
         num_heads=num_heads,
@@ -119,11 +136,13 @@ def test_nvfp4_plan_matches_cake_plan(key, num_heads):
     # Every split owns tiles_per_split tiles and the splits cover all tiles.
     assert plan.tiles_per_split * (plan.num_splits - 1) < plan.total_tiles
     assert plan.tiles_per_split * plan.num_splits >= plan.total_tiles
-    assert plan.grid == tokens * plan.num_splits
+    assert plan.grid == tokens * plan.num_splits * (2 if plan.member == "cluster" else 1)
     assert plan.merge_groups == tokens
-    assert plan.variant == (
-        "nvfp4_decode_tile" if plan.member == "tile" else "nvfp4_decode_persistent"
-    )
+    assert plan.variant == {
+        "tile": "nvfp4_decode_tile",
+        "persistent": "nvfp4_decode_persistent",
+        "cluster": "nvfp4_decode_cluster",
+    }[plan.member]
 
 
 def test_nvfp4_plan_head_tiles_and_caps():
