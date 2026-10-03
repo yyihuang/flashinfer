@@ -199,11 +199,15 @@ def test_variant_routing(hidden_size, rank, expected):
     ("hidden_size", "num_tokens", "expected"),
     [
         (3072, 1, "generic"),
-        (3072, 64, "generic"),
+        (3072, 16, "generic"),
+        (3072, 31, "generic"),
+        (3072, 32, "specialized"),
+        (3072, 64, "specialized"),
         (3072, 128, "specialized"),
         (2688, 512, "specialized"),
-        (2688, 513, "generic"),
-        (3072, 1024, "generic"),
+        (3072, 1024, "specialized"),
+        (2688, 1025, "generic"),
+        (3072, 2048, "generic"),
         (3072, 4096, "generic"),
         (2048, 4096, "generic"),
     ],
@@ -211,8 +215,8 @@ def test_variant_routing(hidden_size, rank, expected):
 def test_variant_routing_by_token_count(hidden_size, num_tokens, expected):
     assert cake_bgmv_moe.CAKE_BGMV_MOE_SPECIALIZED_TOKEN_WINDOW == {
         "sm90a": None,
-        "sm100a": (128, 512),
-        "sm103a": (128, 512),
+        "sm100a": (32, 1024),
+        "sm103a": (32, 1024),
     }
     for arch in ("sm100a", "sm103a"):
         assert cake_bgmv_moe.cake_bgmv_moe_variant(hidden_size, 32, num_tokens, arch) == expected
@@ -236,6 +240,37 @@ def test_pdl_mode_policy():
     assert pdl("sm90a", 512, 736, 132) == 0
     assert pdl("sm100a", 512, 736, 148) == 2
     assert pdl("sm103a", 512, 736, 148) == 2
+    # The specialized bodies keep the early trigger at every grid size on Blackwell.
+    assert pdl("sm100a", 512, 3072, 148, "specialized") == 1
+    assert pdl("sm103a", 1024, 2688, 148, "specialized") == 1
+    assert pdl("sm100a", 32, 3072, 148, "specialized") == 1
+
+
+def test_expand_col_blocks_policy():
+    blocks = cake_bgmv_moe.cake_bgmv_moe_expand_col_blocks
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCK_CANDIDATES == (1, 2, 3, 4, 6, 8)
+    assert cake_bgmv_moe.CAKE_BGMV_MOE_EXPAND_COL_BLOCKS_MIN_CTAS_PER_SM == {
+        "sm90a": 24,
+        "sm100a": 24,
+        "sm103a": 24,
+    }
+    # Decode-sized grids keep one block per CTA (32 tokens x 24 blocks = 768 CTAs).
+    assert blocks("sm100a", 1, 3072, 148) == 1
+    assert blocks("sm100a", 32, 3072, 148) == 1
+    assert blocks("sm90a", 32, 3072, 132) == 1
+    # 1024 tokens x 24 blocks: 6 blocks per CTA keep 4096 CTAs (>= 24 x 148).
+    assert blocks("sm100a", 1024, 3072, 148) == 6
+    assert blocks("sm103a", 1024, 2688, 148) == 6
+    # 512 tokens x 56 blocks: 8 blocks per CTA keep 3584 CTAs.
+    assert blocks("sm100a", 512, 7168, 148) == 8
+    # 512 tokens x 23 blocks: 3 blocks per CTA keep 4096 CTAs; 4 would leave 3072.
+    assert blocks("sm100a", 512, 2944, 148) == 3
+    # 4096 tokens x 6 blocks: one CTA per token (6 blocks) keeps 4096 CTAs.
+    assert blocks("sm100a", 4096, 768, 148) == 6
+    # Unknown architectures fall back to one block.
+    assert blocks("sm120a", 1024, 3072, 148) == 1  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        blocks("sm100a", 0, 3072, 148)
 
 
 @pytest.mark.parametrize("arch", cake_bgmv_moe.CAKE_BGMV_MOE_ARCHES)
@@ -372,7 +407,9 @@ def test_generic_binding_preserves_graph_and_tensor_contracts():
     assert "cudaLaunchKernelEx(&config, CAKE_BGMV_MOE_EXPAND_T128," in binding
     assert "cudaLaunchAttributeProgrammaticStreamSerialization" in binding
     assert "programmaticStreamSerializationAllowed = pdl_mode != 0 ? 1 : 0" in binding
-    assert "int64_t pdl_mode, int64_t cuda_stream" in binding
+    assert "int64_t pdl_mode, int64_t expand_col_blocks, int64_t cuda_stream" in binding
+    assert "const int32_t pdl_prefetch = pdl_mode != 0 ? 1 : 0;" in binding
+    assert "kRouteLookup, kRouteAdvance, hidden, col_blocks, pdl_prefetch)" in binding
     assert "TensorView route_index" in binding
     assert "CHECK_INPUT_TYPE(route_index, dl_int32)" in binding
     assert "kRouteIndexWordsPerToken = 3 + kRouteIndexMaxRoutes" in binding

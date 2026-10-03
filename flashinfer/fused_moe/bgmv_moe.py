@@ -346,6 +346,7 @@ class BGMVMoECakePlan(_BGMVMoEGraphPlan):
         shrink_launch: Optional[Tuple[int, int]] = None,
         grouped: bool = False,
         pdl_mode: int = 0,
+        expand_col_blocks: int = 1,
     ) -> None:
         self._module = module
         self.variant: CakeBGMVMoEVariant = variant
@@ -359,6 +360,9 @@ class BGMVMoECakePlan(_BGMVMoEGraphPlan):
         # Programmatic dependent launch of the expand behind the shrink:
         # 0 off, 1 shrink triggers at entry, 2 shrink triggers after its tile loop.
         self.pdl_mode: int = int(pdl_mode)
+        # Generic variant only: column blocks (of the expand CTA width) per expand
+        # CTA; the token's route list is decoded once per CTA.
+        self.expand_col_blocks: int = int(expand_col_blocks)
         self.lora_a = lora_a
         self.lora_b = lora_b
         self.sorted_token_ids = sorted_token_ids
@@ -438,6 +442,8 @@ class BGMVMoECakePlan(_BGMVMoEGraphPlan):
             args.extend(self.shrink_launch)
             args.extend([int(self.grouped), self.group_workspace, self.group_partials])
         args.append(int(self.pdl_mode))
+        if self.variant == "generic":
+            args.append(int(self.expand_col_blocks))
         args.append(int(torch.cuda.current_stream(self.x.device).cuda_stream))
         self._module.run(*args)
 
@@ -843,6 +849,7 @@ def prepare_bgmv_moe(
     from ..jit.cake_bgmv_moe import (
         CAKE_BGMV_MOE_GENERIC_SCHEDULE_IDS,
         CAKE_BGMV_MOE_SCHEDULE_IDS,
+        cake_bgmv_moe_expand_col_blocks,
         cake_bgmv_moe_pdl_mode,
         cake_bgmv_moe_variant,
         get_cake_bgmv_moe_generic_module,
@@ -858,6 +865,13 @@ def prepare_bgmv_moe(
     variant = cake_bgmv_moe_variant(hidden_size, rank, num_tokens, arch)
     assert variant is not None
     pdl_mode = cake_bgmv_moe_pdl_mode(
+        arch,
+        num_tokens,
+        hidden_size,
+        torch.cuda.get_device_properties(x.device).multi_processor_count,
+        variant,
+    )
+    expand_col_blocks = cake_bgmv_moe_expand_col_blocks(
         arch,
         num_tokens,
         hidden_size,
@@ -907,6 +921,7 @@ def prepare_bgmv_moe(
         shrink_launch=shrink_launch,
         grouped=use_grouped,
         pdl_mode=pdl_mode,
+        expand_col_blocks=expand_col_blocks,
     )
 
 
