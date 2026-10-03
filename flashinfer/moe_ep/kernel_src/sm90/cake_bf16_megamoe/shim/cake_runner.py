@@ -252,12 +252,14 @@ class Sm90CakeBf16MoERunner:
             raise ValueError(
                 "overlap_free_sms > 0 requires overlap_chunks >= 2 (nothing to publish early otherwise)"
             )
-        if chunks > 1 and wire not in _PREREDUCED_WIRES:
+        if free_sms > 0 and wire not in _PREREDUCED_WIRES:
             raise ValueError(
-                "the FC/publish overlap (overlap_chunks > 1) requires a pre-reduced combine wire"
+                "the FC/publish overlap (overlap_free_sms > 0) requires a pre-reduced combine wire"
             )
-        self._overlap_free_sms = free_sms if chunks > 1 else 0
-        self._overlap_chunks = chunks
+        # the overlap is active only with free SMs: 0 keeps the single-launch schedule
+        # whatever overlap_chunks (its env default is 2) says
+        self._overlap_free_sms = free_sms
+        self._overlap_chunks = chunks if free_sms > 0 else 1
         self._side_stream: torch.cuda.Stream | None = None
         self._chunk_events: list[torch.cuda.Event] = []
         self._side_join_event: torch.cuda.Event | None = None
@@ -789,7 +791,7 @@ class Sm90CakeBf16MoERunner:
         num_experts = pipe.E
         bounds = [(num_experts * c) // chunks for c in range(chunks + 1)]
         current = torch.cuda.current_stream(pipe.device)
-        side_blocks = max(self._overlap_free_sms, 2)
+        side_blocks = self._overlap_free_sms  # one 1024-thread block per free SM
         for c in range(chunks):
             e0, e1 = bounds[c], bounds[c + 1]
             offsets = pipe._offsets[e0 : e1 + 1]

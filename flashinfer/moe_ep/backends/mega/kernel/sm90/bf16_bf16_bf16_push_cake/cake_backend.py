@@ -248,7 +248,7 @@ class Sm90CakeBf16MegaKernelBackend(MegaKernelBackend):
             raise MoEEpConfigError(
                 f"{_NAME} overlap_free_sms > 0 requires overlap_chunks >= 2"
             )
-        if (kcfg.overlap_chunks or 1) > 1 and kcfg.combine_wire == "per_route":
+        if (kcfg.overlap_free_sms or 0) > 0 and kcfg.combine_wire == "per_route":
             raise MoEEpConfigError(
                 f"{_NAME} the FC/publish overlap requires a pre-reduced combine wire, "
                 f"got combine_wire={kcfg.combine_wire!r}"

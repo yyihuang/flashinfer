@@ -49,7 +49,7 @@ class Sm90_Bf16_Bf16_Bf16_PushCake_MegaMoeConfig:
     the next chunk computes.  Every tile and every group is computed exactly as
     in the single launches (bitwise identical output); only the schedule
     changes.  ``overlap_free_sms`` must be even (2-CTA clusters); ``0`` (the
-    default) keeps the single-launch schedule.  ``None`` reads
+    default) keeps the single-launch schedule whatever ``overlap_chunks`` says.  ``None`` reads
     ``FLASHINFER_SM90_CAKE_BF16_OVERLAP_FREE_SMS`` (default ``0``) and
     ``FLASHINFER_SM90_CAKE_BF16_OVERLAP_CHUNKS`` (default ``2``).
     """
