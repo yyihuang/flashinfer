@@ -40,6 +40,14 @@
 // order), no floating-point atomics anywhere.  Every element of the output is
 // rounded exactly twice (group partial sum, final sum) instead of
 // (top_k + 1) times on the per-route wire.
+//
+// split_partials (combine_wire="prereduced_hilo"): a group of >= 2 routes
+// carries its fp32 partial as TWO bf16 rows, hi = bf16(p) in slot k_min and
+// lo = bf16(p - hi) in the slot of its second-smallest route index (p - hi is
+// exact in fp32, so hi + lo recovers p to ~16 significant bits); the owner adds
+// hi and lo in fp32.  Single-route groups are bf16(w * y) exactly as the
+// per-route wire, so this variant is never less precise than the R0 wire
+// while still sending fewer rows than one per route for groups of >= 3.
 
 #include <cuda_bf16.h>
 
@@ -165,7 +173,7 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
     const int32_t* __restrict__ grp_cnt, const int32_t* __restrict__ grp_rows,
     const int32_t* __restrict__ grp_list, const int32_t* __restrict__ n_groups,
     const int32_t* __restrict__ groups_per_src, int32_t* __restrict__ cdone_local,
-    const int32_t* __restrict__ round_ctr) {
+    const int32_t* __restrict__ round_ctr, int split_partials) {
   int const H = L.hidden;
   int const nv = H >> 3;  // 16-byte vectors per row
   for (int idx = blockIdx.x; idx < *n_groups; idx += gridDim.x) {
@@ -193,8 +201,12 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
       rows[j + 1] = rr;
     }
     for (int i = 0; i < cnt; ++i) ws[i] = meta_weight(meta + static_cast<int64_t>(rows[i]) * 4);
-    // the group lives in the slot of its smallest route index (see the file comment)
+    // the group lives in the slot of its smallest route index (see the file comment);
+    // with split_partials a multi-route group also writes its bf16 residual into
+    // the slot of its second-smallest route index
     uint4* out4 = reinterpret_cast<uint4*>(L.combine_row(dst, tok, ks[0]));
+    bool const split = split_partials != 0 && cnt >= 2;
+    uint4* lo4 = split ? reinterpret_cast<uint4*>(L.combine_row(dst, tok, ks[1])) : nullptr;
     for (int v = threadIdx.x; v < nv; v += blockDim.x) {
       float acc[8];
 #pragma unroll
@@ -218,6 +230,17 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
       uint4 pk;
       memcpy(&pk, o2, sizeof(pk));
       out4[v] = pk;  // 16-byte P2P store into the owner's inbox
+      if (split) {   // residual row: lo = bf16(p - hi), p - hi exact in fp32
+        __nv_bfloat162 r2[4];
+#pragma unroll
+        for (int j = 0; j < 4; ++j) {
+          float2 hi = __bfloat1622float2(o2[j]);
+          r2[j] = __floats2bfloat162_rn(acc[2 * j] - hi.x, acc[2 * j + 1] - hi.y);
+        }
+        uint4 pl;
+        memcpy(&pl, r2, sizeof(pl));
+        lo4[v] = pl;
+      }
     }
     __syncthreads();  // this group's remote stores all issued before the publish tail
     if (threadIdx.x == 0) {
@@ -250,7 +273,7 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
                                        TensorView m_dev, TensorView grp_cnt, TensorView grp_rows,
                                        TensorView grp_list, TensorView n_groups,
                                        TensorView groups_per_src, TensorView cdone_local,
-                                       TensorView round_ctr) {
+                                       TensorView round_ctr, int64_t split_partials) {
   check_layout(LAYOUT_ARGS);
   auto L = build_layout(LAYOUT_ARGS);
   CHECK_INPUT_AND_TYPE(y, dl_bfloat16);
@@ -299,7 +322,7 @@ void sm90_cake_combine_prereduced_bf16(TensorView y, TensorView meta, LAYOUT_PAR
       L, static_cast<const __nv_bfloat16*>(y.data_ptr()),
       static_cast<const int32_t*>(meta.data_ptr()), cnt,
       static_cast<const int32_t*>(grp_rows.data_ptr()), glist, ng, gps, cdl,
-      static_cast<const int32_t*>(round_ctr.data_ptr()));
+      static_cast<const int32_t*>(round_ctr.data_ptr()), split_partials != 0 ? 1 : 0);
 }
 
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(sm90_cake_combine_prereduced_bf16, sm90_cake_combine_prereduced_bf16);

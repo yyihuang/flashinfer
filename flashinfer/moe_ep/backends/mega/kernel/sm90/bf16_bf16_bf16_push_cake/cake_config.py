@@ -30,6 +30,10 @@ class Sm90_Bf16_Bf16_Bf16_PushCake_MegaMoeConfig:
       rounds once to bf16 and sends ONE row per (token, source rank); the
       owner sums the <= ep_size rows in ascending rank order in fp32 and
       rounds once.  Fewer bytes on the wire and fewer roundings.
+    * ``"prereduced_hilo"``: as ``"prereduced"``, but a source rank holding
+      >= 2 routes of a token sends its fp32 partial as two bf16 rows (hi +
+      residual) so no group partial is rounded to bf16; single-route groups
+      are ``bf16(w * y)`` exactly as the per-route wire.
     * ``"per_route"``: one bf16 row ``bf16(fp32(y_k) * w_k)`` per route, the
       owner sums the top-k rows in fp32 in route order.
 

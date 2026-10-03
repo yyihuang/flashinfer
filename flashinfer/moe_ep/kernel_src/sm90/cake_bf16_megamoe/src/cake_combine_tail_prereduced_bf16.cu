@@ -37,6 +37,11 @@
 // here) but NOT bit-identical to the per-route wire: every element is rounded
 // twice (group partial, final sum) instead of top_k + 1 times.  Every rank of
 // a pipe must run the same combine_wire (checked at runner construction).
+//
+// split_partials (combine_wire="prereduced_hilo"): a source rank that holds
+// >= 2 of the token's routes sent hi (slot k_min) and lo (slot of the second
+// smallest route index) bf16 rows; both are added here in fp32, in ascending
+// source-rank order (hi then lo per rank).
 
 #include <cuda_bf16.h>
 
@@ -155,7 +160,8 @@ __global__ void __launch_bounds__(kThreads)
     combine_tail_prereduced_bf16_kernel(PushLayout L, const int32_t* __restrict__ round_ctr,
                              const int32_t* __restrict__ topk_ids, TOut* __restrict__ out,
                              int num_tokens, int32_t* __restrict__ lc, int32_t* __restrict__ done,
-                             int nreset_lc, int nkeys, int32_t* __restrict__ blocks_done) {
+                             int nreset_lc, int nkeys, int32_t* __restrict__ blocks_done,
+                             int split_partials) {
   __shared__ int s_last;
   uint32_t const tag = static_cast<uint32_t>(*round_ctr);
 
@@ -181,14 +187,21 @@ __global__ void __launch_bounds__(kThreads)
     }
     // ascending source-rank order; the group of rank s lives in slot k_min(s)
     for (int s = 0; s < L.ep_size; ++s) {
-      int k_min = -1;
+      int k_min = -1, k_2nd = -1;
 #pragma unroll
       for (int k = kMaxTopK - 1; k >= 0; --k) {
-        if (owner[k] == s) k_min = k;
+        if (owner[k] == s) {
+          k_2nd = k_min;
+          k_min = k;
+        }
       }
       if (k_min < 0) continue;  // rank s holds none of this token's routes
       const uint4* src = reinterpret_cast<const uint4*>(L.combine_row(L.rank, t, k_min) + col);
       accumulate_bf16x8(__ldcg(src), acc);  // L2-only load: inbox rows arrive by P2P writes
+      if (split_partials != 0 && k_2nd >= 0) {  // residual row of a multi-route group
+        const uint4* lo = reinterpret_cast<const uint4*>(L.combine_row(L.rank, t, k_2nd) + col);
+        accumulate_bf16x8(__ldcg(lo), acc);
+      }
     }
     store_out8(out + static_cast<int64_t>(t) * L.hidden + col, acc);
   }
@@ -217,7 +230,8 @@ __global__ void __launch_bounds__(kThreads)
 
 void sm90_cake_combine_tail_prereduced_bf16(TensorView out, TensorView topk_ids, LAYOUT_PARAMS,
                                  TensorView round_ctr, TensorView lc, TensorView done,
-                                 TensorView blocks_done, int64_t num_tokens) {
+                                 TensorView blocks_done, int64_t num_tokens,
+                                 int64_t split_partials) {
   check_layout(LAYOUT_ARGS);
   auto L = build_layout(LAYOUT_ARGS);
   int const nkeys = L.num_local_experts * L.ep_size;
@@ -250,13 +264,15 @@ void sm90_cake_combine_tail_prereduced_bf16(TensorView out, TensorView topk_ids,
   auto* donep = static_cast<int32_t*>(done.data_ptr());
   auto* bd = static_cast<int32_t*>(blocks_done.data_ptr());
   int const nt = static_cast<int>(num_tokens);
+  int const split = split_partials != 0 ? 1 : 0;
   if (out.dtype() == dl_float32) {
     combine_tail_prereduced_bf16_kernel<float><<<grid, kThreads, 0, stream>>>(
-        L, rc, ids, static_cast<float*>(out.data_ptr()), nt, lcp, donep, nreset_lc, nkeys, bd);
+        L, rc, ids, static_cast<float*>(out.data_ptr()), nt, lcp, donep, nreset_lc, nkeys, bd,
+        split);
   } else if (out.dtype() == dl_bfloat16) {
     combine_tail_prereduced_bf16_kernel<__nv_bfloat16>
         <<<grid, kThreads, 0, stream>>>(L, rc, ids, static_cast<__nv_bfloat16*>(out.data_ptr()), nt,
-                                        lcp, donep, nreset_lc, nkeys, bd);
+                                        lcp, donep, nreset_lc, nkeys, bd, split);
   } else {
     TVM_FFI_ICHECK(false) << "combine_tail: out must be float32 or bfloat16";
   }

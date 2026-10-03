@@ -77,8 +77,13 @@ FUSED_DISPATCH_MAX_ROUTES = 1024
 # over k by the owner.  Both deterministic; outputs differ by rounding only.
 COMBINE_WIRE_ENV = "FLASHINFER_SM90_CAKE_BF16_COMBINE_WIRE"
 COMBINE_WIRE_PREREDUCED = "prereduced"
+# "prereduced_hilo": as "prereduced", but a group of >= 2 routes carries its fp32
+# partial as two bf16 rows (hi + residual) so no group partial is rounded to bf16;
+# single-route groups are bf16(w * y) exactly as the per-route wire.
+COMBINE_WIRE_PREREDUCED_HILO = "prereduced_hilo"
 COMBINE_WIRE_PER_ROUTE = "per_route"
-COMBINE_WIRES = (COMBINE_WIRE_PREREDUCED, COMBINE_WIRE_PER_ROUTE)
+COMBINE_WIRES = (COMBINE_WIRE_PREREDUCED, COMBINE_WIRE_PREREDUCED_HILO, COMBINE_WIRE_PER_ROUTE)
+_PREREDUCED_WIRES = (COMBINE_WIRE_PREREDUCED, COMBINE_WIRE_PREREDUCED_HILO)
 
 
 def _env_flag(name: str) -> bool:
@@ -187,7 +192,7 @@ class Sm90CakeBf16MoERunner:
             raise ValueError(
                 f"combine_wire must be one of {COMBINE_WIRES}, got {combine_wire!r}"
             )
-        if wire == COMBINE_WIRE_PREREDUCED and not self._fused_tail:
+        if wire in _PREREDUCED_WIRES and not self._fused_tail:
             raise ValueError(
                 "combine_wire='prereduced' requires the fused combine tail "
                 f"(fused_combine_tail=True / {FUSED_COMBINE_TAIL_ENV}=1)"
@@ -239,7 +244,7 @@ class Sm90CakeBf16MoERunner:
 
         def _jit():
             self.compact_module = gen_sm90_cake_bf16_compact_module().build_and_load()
-            if self._combine_wire == COMBINE_WIRE_PREREDUCED:
+            if self._combine_wire in _PREREDUCED_WIRES:
                 self.publish_module = (
                     gen_sm90_cake_bf16_combine_prereduced_module().build_and_load()
                 )
@@ -316,7 +321,7 @@ class Sm90CakeBf16MoERunner:
         self._tail_blocks_done = torch.zeros(1, dtype=torch.int32, device=dv)
         # fused dispatch: per-destination meta / payload bases shared across blocks
         self._dispatch_bases = torch.zeros(2 * pipe.ep, dtype=torch.int32, device=dv)
-        if self._combine_wire == COMBINE_WIRE_PREREDUCED:
+        if self._combine_wire in _PREREDUCED_WIRES:
             # (owner rank, token) group worklist of the pre-reduced publish
             nslots = pipe.ep * pipe.token_capacity
             self._grp_cnt = torch.zeros(nslots, dtype=torch.int32, device=dv)
@@ -565,7 +570,8 @@ class Sm90CakeBf16MoERunner:
                     self.gemm.fc1(self.a1, weights.w13, pipe._offsets, self.h2)
                 with _record_stage("fc2", nv):
                     self.gemm.fc2(self.h2, weights.w2, pipe._offsets, self.y)
-                if self._combine_wire == COMBINE_WIRE_PREREDUCED:
+                if self._combine_wire in _PREREDUCED_WIRES:
+                    split = 1 if self._combine_wire == COMBINE_WIRE_PREREDUCED_HILO else 0
                     with _record_stage("combine", nv):
                         self.publish_module.sm90_cake_combine_prereduced_bf16(
                             self.y,
@@ -579,6 +585,7 @@ class Sm90CakeBf16MoERunner:
                             self._groups_per_src,
                             pipe._cdone_local,
                             pipe._round,
+                            split,
                         )
                     with _record_stage("combine_tail", nv):
                         self.tail_module.sm90_cake_combine_tail_prereduced_bf16(
@@ -590,6 +597,7 @@ class Sm90CakeBf16MoERunner:
                             pipe._done,
                             self._tail_blocks_done,
                             num_tokens,
+                            split,
                         )
                     pipe._round_open = False  # the fused tail performed the ack
                 elif self._fused_tail:

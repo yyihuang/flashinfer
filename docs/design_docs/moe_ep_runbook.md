@@ -276,6 +276,10 @@ of a token that landed on it in fp32 (`fmaf` in ascending route order), rounds
 once to bf16 and sends ONE row per (token, source rank) into the owner's
 top-k inbox (slot = the group's smallest route index); the owner sums the
 <= ep_size rows in ascending source-rank order in fp32 and rounds once.
+`prereduced_hilo`: as `prereduced`, but a source rank holding >= 2 routes of a
+token sends its fp32 partial as two bf16 rows (hi, and the residual `p - hi`
+in the slot of its second-smallest route index) so no group partial is rounded
+to bf16; single-route groups are `bf16(w * y)` exactly as the per-route wire.
 `per_route`: one `bf16(fp32(y_k) * w_k)` row per route, summed over k by the
 owner (the original wire, kept for A/B comparison; the only wire that also
 runs the vendored three-kernel tail). Both wires are deterministic (fixed

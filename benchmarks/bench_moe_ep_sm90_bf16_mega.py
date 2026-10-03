@@ -232,7 +232,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--capacity-factor", type=float, default=1.0)
     p.add_argument(
         "--combine-wire",
-        choices=("prereduced", "per_route"),
+        choices=("prereduced", "prereduced_hilo", "per_route"),
         default=None,
         help="cand combine wire: prereduced (default; one pre-reduced bf16 row per "
         "(token, source rank)) or per_route (one row per route, the round-1 wire "

@@ -56,7 +56,7 @@ ATOL = 1e-2
 RTOL = 1e-2
 # combine wire formats of the backend (see cake_config.py): the pre-reduced wire is
 # the default, the per-route wire is the round-1 format kept for A/B comparison.
-WIRES = ("prereduced", "per_route")
+WIRES = ("prereduced", "prereduced_hilo", "per_route")
 # optional JSON-lines sink of every _check() statistic (precision table input)
 PRECISION_LOG_ENV = "SM90_BF16_PUSH_CAKE_PRECISION_LOG"
 
@@ -599,7 +599,7 @@ def test_ep_combine_wire_mismatch_raises() -> None:
 
     rank, world_size = _dist_setup()
     device = torch.device("cuda", rank)
-    wire = WIRES[1] if rank == 0 else WIRES[0]
+    wire = WIRES[-1] if rank == 0 else WIRES[0]
     x, ids, weights = _make_inputs(
         TOKEN_CAPACITY, LOCAL_EXPERTS * world_size, 23 + rank, device, mode="random"
     )
