@@ -203,17 +203,18 @@ record carries (`key_pass_policy`) has the constants (L2 budget 100 MiB,
 2304 B per key, workspace budget 640 MiB, token chunk multiple 128: the L2
 formula `P = ceil(S * 2304 B / 100 MiB)` and a token chunk of 4224 tokens at
 top-k 2048) and the target's rule from the paired sweeps of CAKE-756 round 2
-(`tail_rows`, `fixed_passes`, `min_kv`, `tail_cap`; a record without them is
-the first-release rule): a one-segment key row takes the pass path when
-`P > 1` and the row is one chunk (`T <= 4224`) or -- where the rule admits
-tail rows -- `2 T <= S`, with at least `min_kv` keys; the count is
-`fixed_passes` when set, else `P`, capped at `tail_cap` for tail rows of more
-than one chunk.  The registered rules:
+(`tail_rows`, `fixed_passes`, `min_kv`, `tail_min_kv`, `tail_cap`; a record
+without them is the first-release rule): a one-segment key row takes the pass
+path when `P > 1` and the row is one chunk (`T <= 4224`) with at least
+`min_kv` keys, or -- where the rule admits tail rows -- `2 T <= S` with at
+least `tail_min_kv` keys; the count is `fixed_passes` when set, else `P`,
+capped at `tail_cap` for tail rows of more than one chunk.  The registered
+rules:
 
 | target | rule | examples at top-k 2048 |
 |---|---|---|
 | sm_100a (B200) | one-chunk rows, the formula (first-release rule) | 4k x 64k: 2, 4k x 128k: 3, 32k x 128k: 1 |
-| sm_103a (GB300) | one-chunk rows: the formula; `2 T <= S` rows: `min(P, 3)` | 4k x 128k: 3, 32k x 128k / 192k / 256k: 3 |
+| sm_103a (GB300) | one-chunk rows: the formula; `2 T <= S` rows of at least 131,072 keys: `min(P, 3)` | 4k x 64k: 2, 4k x 128k: 3, 32k x 64k: 1, 32k x 128k / 192k / 256k: 3 |
 | sm_107a (R200) | two passes iff `S >= 131,072` (one-chunk or `2 T <= S`) | 4k x 64k: 1, 4k x 128k: 2, 32k x 128k: 2 |
 
 Causal single documents (`T == S`) and packed multi-segment rows never take the

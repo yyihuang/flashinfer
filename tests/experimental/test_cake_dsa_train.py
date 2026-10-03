@@ -236,9 +236,11 @@ _POLICY = dict(
 # The per-target rules of the registered programs (CAKE-756 round 2, lever H3): the record's ``key_pass_policy`` carries
 # them next to the constants; a record without them (first release) is the R1 rule = _RULES["sm_100a"].
 _RULES = {
-    "sm_100a": dict(tail_rows=0, fixed_passes=0, min_kv=0, tail_cap=0),
-    "sm_103a": dict(tail_rows=1, fixed_passes=0, min_kv=0, tail_cap=3),
-    "sm_107a": dict(tail_rows=1, fixed_passes=2, min_kv=131072, tail_cap=0),
+    "sm_100a": dict(tail_rows=0, fixed_passes=0, min_kv=0, tail_min_kv=0, tail_cap=0),
+    "sm_103a": dict(tail_rows=1, fixed_passes=0, min_kv=0, tail_min_kv=131072, tail_cap=3),
+    "sm_107a": dict(
+        tail_rows=1, fixed_passes=2, min_kv=131072, tail_min_kv=131072, tail_cap=0
+    ),
 }
 
 
@@ -250,7 +252,9 @@ def _rule_passes(record: dict, num_queries: int, num_kv: int, topk: int = 2048) 
         return 1
     one_chunk = num_queries <= policy.token_chunk(topk)
     tail = bool(policy.tail_rows) and 2 * num_queries <= num_kv
-    if not (one_chunk or tail) or num_kv < policy.min_kv:
+    if not (one_chunk or tail):
+        return 1
+    if num_kv < (policy.min_kv if one_chunk else policy.tail_min_kv):
         return 1
     passes = policy.fixed_passes or formula
     if tail and not one_chunk and policy.tail_cap:
@@ -309,10 +313,19 @@ def test_key_pass_policy_rule():
         KeyPassPolicy.from_record({"key_pass_policy": dict(_POLICY, key_bytes=0)})
     # a first-release record (no rule fields) is the R1 rule; the rule fields are non-negative integers
     legacy = KeyPassPolicy.from_record({"key_pass_policy": dict(_POLICY)})
-    assert (legacy.tail_rows, legacy.fixed_passes, legacy.min_kv, legacy.tail_cap) == (0, 0, 0, 0)
-    for bad in (-1, True, 1.5):
-        with pytest.raises(ValueError, match="tail_cap"):
-            KeyPassPolicy.from_record({"key_pass_policy": dict(_POLICY, tail_cap=bad)})
+    assert (
+        legacy.tail_rows,
+        legacy.fixed_passes,
+        legacy.min_kv,
+        legacy.tail_min_kv,
+        legacy.tail_cap,
+    ) == (0, 0, 0, 0, 0)
+    for name in ("tail_cap", "tail_min_kv"):
+        for bad in (-1, True, 1.5):
+            with pytest.raises(ValueError, match=name):
+                KeyPassPolicy.from_record(
+                    {"key_pass_policy": dict(_POLICY, **{name: bad})}
+                )
     # the per-target rules of the registered programs (CAKE-756 round 2)
     rows = {
         # (T, S): (sm_100a, sm_103a, sm_107a)
@@ -321,6 +334,8 @@ def test_key_pass_policy_rule():
         (4096, 131072): (3, 3, 2),  # cptail_4k_131072: fixed two passes on R200
         (4224, 131072): (3, 3, 2),
         (4225, 131072): (1, 3, 2),  # more than one chunk: a 2 T <= S row on sm_103a / sm_107a
+        (32768, 65536): (1, 1, 1),  # spread_32k_65536: a 65536-key tail row stays single-pass everywhere (two passes measured -3.2 % on GB300)
+        (4225, 65536): (1, 1, 1),  # more than one chunk below the tail floors
         (32768, 131072): (1, 3, 2),  # spread_32k_131072
         (32768, 196608): (1, 3, 2),  # formula 5, capped at 3 on sm_103a
         (32768, 262144): (1, 3, 2),  # packed_N1

@@ -194,9 +194,10 @@ DKV_ACC_LAYOUTS = ("natural", "permuted")
 # the largest multiple of ``token_chunk_multiple`` whose pass scratch (147,456
 # + 4 * topk + 4 B per token) fits ``workspace_budget_bytes`` (4224 tokens at
 # top-k 2048), and the target's rule from the paired sweeps of CAKE-756 round 2
-# (``tail_rows``, ``fixed_passes``, ``min_kv``, ``tail_cap``): passes apply to
-# a one-segment key row when P > 1 and the row is one chunk (``T <= chunk``)
-# or -- with ``tail_rows`` -- ``2 T <= S``; rows below ``min_kv`` keys stay
+# (``tail_rows``, ``fixed_passes``, ``min_kv``, ``tail_min_kv``, ``tail_cap``):
+# passes apply to a one-segment key row when P > 1 and the row is one chunk
+# (``T <= chunk``) or -- with ``tail_rows`` -- ``2 T <= S``; one-chunk rows
+# below ``min_kv`` keys and the other tail rows below ``tail_min_kv`` keys stay
 # single-pass; the count is ``fixed_passes`` when set, else P, capped at
 # ``tail_cap`` for tail rows that are not one chunk.  The tokens of a
 # multi-pass backward run in chunks of ``chunk`` tokens, every chunk through
@@ -223,7 +224,13 @@ KEY_PASS_POLICY_FIELDS = (
     "token_chunk_multiple",
 )
 # The per-target rule fields of ``key_pass_policy`` (absent in first-release records: the R1 rule).
-KEY_PASS_RULE_FIELDS = ("tail_rows", "fixed_passes", "min_kv", "tail_cap")
+KEY_PASS_RULE_FIELDS = (
+    "tail_rows",
+    "fixed_passes",
+    "min_kv",
+    "tail_min_kv",
+    "tail_cap",
+)
 
 
 @dataclass(frozen=True)
@@ -239,7 +246,8 @@ class KeyPassPolicy:
     # the target's rule (see the comment above); the defaults are the R1 rule
     tail_rows: int = 0  # 1: rows with 2 T <= S qualify besides the one-chunk rows
     fixed_passes: int = 0  # n > 0: n passes whenever a row qualifies, else the formula
-    min_kv: int = 0  # rows with fewer keys stay single-pass
+    min_kv: int = 0  # one-chunk rows with fewer keys stay single-pass
+    tail_min_kv: int = 0  # tail rows that are not one chunk with fewer keys stay single-pass
     tail_cap: int = 0  # n > 0: cap on the passes of tail rows that are not one chunk
 
     @classmethod
@@ -286,8 +294,10 @@ class KeyPassPolicy:
         """Passes of a binding under the record's rule (see the comment above
         ``KEY_PASS_STAGES``): 1 for a multi-segment key row, a formula of 1, a
         row that is neither one chunk nor (with ``tail_rows``) ``2 T <= S``, or
-        fewer than ``min_kv`` keys; else ``fixed_passes`` or the formula, capped
-        at ``tail_cap`` for a tail row of more than one chunk."""
+        fewer keys than the row's floor (``min_kv`` for a one-chunk row,
+        ``tail_min_kv`` for a tail row of more than one chunk); else
+        ``fixed_passes`` or the formula, capped at ``tail_cap`` for a tail row
+        of more than one chunk."""
         if int(num_segments) < 1:
             raise ValueError(f"num_segments must be >= 1, got {num_segments}")
         if int(num_segments) > 1:
@@ -298,7 +308,9 @@ class KeyPassPolicy:
             return 1
         one_chunk = T <= self.token_chunk(topk)
         tail = bool(self.tail_rows) and 2 * T <= S
-        if not (one_chunk or tail) or S < self.min_kv:
+        if not (one_chunk or tail):
+            return 1
+        if S < (self.min_kv if one_chunk else self.tail_min_kv):
             return 1
         passes = self.fixed_passes or formula
         if tail and not one_chunk and self.tail_cap:
