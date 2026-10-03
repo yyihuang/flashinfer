@@ -151,11 +151,20 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
   int const H = L.hidden;
   int const nv = H >> 3;  // 16-byte vectors per row
   int const total_groups = *n_groups;  // read once: the last block zeroes it below
-  // only blocks that own at least one group take part in the grid completion below;
-  // the others have nothing to publish and leave before touching any scratch
-  int const participants = min(static_cast<int>(gridDim.x), total_groups);
+  // S blocks per group when the grid has room (decode sizes: the kernel is latency-bound,
+  // so each block publishes a contiguous slice of the row); S == 1 at prefill sizes.
+  // Uniform device-side decision, hence deterministic for a given routing.
+  int const grid = static_cast<int>(gridDim.x);
+  int const S = (total_groups * 4 <= grid) ? 4 : ((total_groups * 2 <= grid) ? 2 : 1);
+  int const items = total_groups * S;
+  // only blocks that own at least one (group, slice) item take part in the grid completion
+  // below; the others have nothing to publish and leave before touching any scratch
+  int const participants = min(grid, items);
   if (static_cast<int>(blockIdx.x) >= participants) return;
-  for (int idx = blockIdx.x; idx < total_groups; idx += gridDim.x) {
+  __shared__ int s_last;
+  for (int item = blockIdx.x; item < items; item += grid) {
+    int const idx = item / S;
+    int const part = item - idx * S;
     int const g = grp_list[idx];  // uniform across the block
     int const cnt = grp_cnt[g];   // >= 1 by worklist construction, <= top_k
     int const dst = g / L.t_cap;
@@ -186,7 +195,9 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
     uint4* out4 = reinterpret_cast<uint4*>(L.combine_row(dst, tok, ks[0]));
     bool const split = split_partials != 0 && cnt >= 2;
     uint4* lo4 = split ? reinterpret_cast<uint4*>(L.combine_row(dst, tok, ks[1])) : nullptr;
-    for (int v = threadIdx.x; v < nv; v += blockDim.x) {
+    int const v_begin = (nv * part) / S;
+    int const v_end = (nv * (part + 1)) / S;
+    for (int v = v_begin + threadIdx.x; v < v_end; v += blockDim.x) {
       float acc[8];
 #pragma unroll
       for (int j = 0; j < 8; ++j) acc[j] = 0.0f;
@@ -221,12 +232,12 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
         lo4[v] = pl;
       }
     }
-    __syncthreads();  // this group's remote stores all issued before the publish tail
+    __syncthreads();  // this slice's remote stores all issued before the publish tail
     if (threadIdx.x == 0) {
-      grp_cnt[g] = 0;  // every thread has read cnt: the slot is clean for the next round
+      if (S == 1) grp_cnt[g] = 0;  // single owner block: the slot is clean for the next round
       __threadfence_system();
       int prev = atomicAdd(&cdone_local[dst], 1);
-      if (prev + 1 == groups_per_src[dst]) {
+      if (prev + 1 == groups_per_src[dst] * S) {  // every slice of every group for dst is out
         __threadfence_system();
         st_release_sys_u64(L.cdone_cell(dst, L.rank),
                            pack_count_tag(groups_per_src[dst], static_cast<uint32_t>(*round_ctr)));
@@ -240,7 +251,8 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
   if (threadIdx.x == 0) {
     __threadfence();
     int const prev = atomicAdd(blocks_done, 1);
-    if (prev + 1 == participants) {
+    s_last = (prev + 1 == participants) ? 1 : 0;
+    if (s_last) {
       __threadfence();
       *blocks_done = 0;
       *n_groups = 0;
@@ -249,6 +261,10 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
         cdone_local[s] = 0;
       }
     }
+  }
+  __syncthreads();
+  if (s_last && S > 1) {  // sliced groups: no single owner block, reset the listed counters here
+    for (int i = threadIdx.x; i < total_groups; i += blockDim.x) grp_cnt[grp_list[i]] = 0;
   }
 }
 
