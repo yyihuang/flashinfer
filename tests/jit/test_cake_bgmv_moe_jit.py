@@ -240,10 +240,11 @@ def test_pdl_mode_policy():
     assert pdl("sm90a", 512, 736, 132) == 0
     assert pdl("sm100a", 512, 736, 148) == 2
     assert pdl("sm103a", 512, 736, 148) == 2
-    # The specialized bodies keep the early trigger at every grid size on Blackwell.
-    assert pdl("sm100a", 512, 3072, 148, "specialized") == 1
-    assert pdl("sm103a", 1024, 2688, 148, "specialized") == 1
-    assert pdl("sm100a", 32, 3072, 148, "specialized") == 1
+    # The specialized bodies take plain launches at every grid size.
+    assert pdl("sm100a", 512, 3072, 148, "specialized") == 0
+    assert pdl("sm103a", 1024, 2688, 148, "specialized") == 0
+    assert pdl("sm100a", 32, 3072, 148, "specialized") == 0
+    assert pdl("sm90a", 32, 3072, 132, "specialized") == 0
 
 
 def test_expand_col_blocks_policy():

@@ -368,16 +368,20 @@ def cake_bgmv_moe_pdl_mode(
 ) -> int:
     """PDL launch mode for the per-route shrink -> expand pair (0 off, 1 early, 2 late).
 
-    The specialized 2688/3072 bodies keep the early trigger at every grid size
-    on Blackwell (round-5 S1 A/B: early 0.996-0.999 of the plain launch at
-    256-1024 tokens, late trigger 1.02-1.04)."""
+    The specialized 2688/3072 bodies take plain launches on every architecture:
+    round-5 A/B vs the plain launch measured the late trigger 1.02-1.04 at
+    256-512 tokens and the early trigger 1.09-1.11 at 1024 expert-sorted
+    tokens (the earlier "specialized PDL ~1.00" screens ran stale bundles
+    without griddepcontrol)."""
 
+    if variant == "specialized":
+        return 0
     cols = CAKE_BGMV_MOE_PDL_EXPAND_COLS_NOMINAL
     expand_ctas = int(num_tokens) * ((int(hidden_size) + cols - 1) // cols)
     per_sm = CAKE_BGMV_MOE_PDL_SMALL_EXPAND_CTAS_PER_SM.get(arch, 0)
     small = expand_ctas <= per_sm * int(sm_count)
     if arch in ("sm100a", "sm103a"):
-        return 1 if (small or variant == "specialized") else 2
+        return 1 if small else 2
     if arch == "sm90a":
         return 1 if small else 0
     return 0
