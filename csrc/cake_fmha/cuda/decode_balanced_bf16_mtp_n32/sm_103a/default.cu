@@ -1328,8 +1328,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                 n_vis = 0;
                             }
                             if (n_vis < 32) {
-                                int _max_5 = ((n_vis) > (0) ? (n_vis) : (0));
-                                int n_lo = _max_5;
+                                int _max_11 = ((n_vis) > (0) ? (n_vis) : (0));
+                                int n_lo = _max_11;
                                 uint32_t _slice_lo_mask_0;
                                 {
                                     int _lim_0 = n_lo;
@@ -1396,8 +1396,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                             float sv_max = row_max_reduce(_reg_reduce_max2_1);
                             lmax = sv_max;
                             float _shfl_xor_2 = __shfl_xor_sync(0xFFFFFFFF, lmax, 16);
-                            float _max_6 = max_noftz(lmax, _shfl_xor_2);
-                            lmax = _max_6;
+                            float _max_12 = max_noftz(lmax, _shfl_xor_2);
+                            lmax = _max_12;
                             if (half == 0) {
                                 smem_xmax[xm_off_s + my_row] = lmax;
                             }
@@ -1406,8 +1406,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                         }
                         asm volatile("barrier.sync 8, 256;" ::: "memory");
                         if (rows_live != 0) {
-                            float _max_7 = max_noftz(lmax, smem_xmax[xm_off_s + 64 + my_row]);
-                            lmax = _max_7;
+                            float _max_13 = max_noftz(lmax, smem_xmax[xm_off_s + 64 + my_row]);
+                            lmax = _max_13;
                             if (lmax > row_max + thr_raw) {
                                 new_max = lmax;
                                 if (row_max > -CAKE_FMHA_INF) {
@@ -1545,7 +1545,6 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                     if (sm_tid == 0) {
                     }
                 } else {
-                    asm volatile("fence.acquire.gpu;" ::: "memory");
                     int r_row = (128 + sm_tid) / 4;
                     if (r_row < live_rows_s) {
                         int stats_stride_r = num_kv_heads * 128;
@@ -1584,8 +1583,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                         m_k = -1e+30f;
                                         l_k = 0.0f;
                                     }
-                                    float _max_10 = max_noftz(m_f, m_k);
-                                    float m_new = _max_10;
+                                    float _max_16 = max_noftz(m_f, m_k);
+                                    float m_new = _max_16;
                                     float _exp2_3 = approx_exp2((m_f - m_new) * softmax_scale_log2);
                                     float a_k = _exp2_3;
                                     float _exp2_4 = approx_exp2((m_k - m_new) * softmax_scale_log2);
@@ -1777,8 +1776,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                 n_vis_c = 0;
                             }
                             if (n_vis_c < 32) {
-                                int _max_11 = ((n_vis_c) > (0) ? (n_vis_c) : (0));
-                                int n_lo_c = _max_11;
+                                int _max_17 = ((n_vis_c) > (0) ? (n_vis_c) : (0));
+                                int n_lo_c = _max_17;
                                 uint32_t _slice_lo_mask_1;
                                 {
                                     int _lim_0 = n_lo_c;
@@ -1845,16 +1844,16 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                             float sv_c_max = row_max_reduce(_reg_reduce_max2_1);
                             lmax_c = sv_c_max;
                             float _shfl_xor_4 = __shfl_xor_sync(0xFFFFFFFF, lmax_c, 16);
-                            float _max_12 = max_noftz(lmax_c, _shfl_xor_4);
-                            lmax_c = _max_12;
+                            float _max_18 = max_noftz(lmax_c, _shfl_xor_4);
+                            lmax_c = _max_18;
                             if (half_c == 0) {
                                 smem_xmax[xm_off_c + 64 + my_row_c] = lmax_c;
                             }
                         }
                         asm volatile("barrier.sync 8, 256;" ::: "memory");
                         if (rows_live_c != 0) {
-                            float _max_13 = max_noftz(lmax_c, smem_xmax[xm_off_c + my_row_c]);
-                            lmax_c = _max_13;
+                            float _max_19 = max_noftz(lmax_c, smem_xmax[xm_off_c + my_row_c]);
+                            lmax_c = _max_19;
                             if (lmax_c > row_max_c + thr_raw_c) {
                                 new_max_c = lmax_c;
                                 if (row_max_c > -CAKE_FMHA_INF) {
@@ -2118,7 +2117,6 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                         if ((int)arrived_c == n_chunks_c) {
                             if (wg_tid_c == 0) {
                             }
-                            asm volatile("fence.acquire.gpu;" ::: "memory");
                             int other_slot_f = slot_tile_base_c + (1 - chunk_c) * num_kv_heads;
                             int oth_base_f = other_slot_f * 8192 + my_row_c * 4 + half_c * 256;
                             if (my_row_c < live_rows) {
@@ -2254,8 +2252,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                 }
                                 float m_s_f = smem_max[st_off + my_row_c];
                                 float l_s_f = smem_sum[st_off + my_row_c];
-                                float _max_14 = max_noftz(m_s_f, m_o_f);
-                                float m_row_f = _max_14;
+                                float _max_20 = max_noftz(m_s_f, m_o_f);
+                                float m_row_f = _max_20;
                                 float _exp2_6 = approx_exp2((m_s_f - m_row_f) * softmax_scale_log2);
                                 float w_s_f = _exp2_6;
                                 float _exp2_7 = approx_exp2((m_o_f - m_row_f) * softmax_scale_log2);
@@ -2482,7 +2480,6 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                 } else {
                     if (wg_tid_c == 0) {
                     }
-                    asm volatile("fence.acquire.gpu;" ::: "memory");
                     int r_row_1 = wg_tid_c / 4;
                     if (r_row_1 < live_rows) {
                         int stats_stride_r_1 = num_kv_heads * 128;
@@ -2521,8 +2518,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                         m_k_1 = -1e+30f;
                                         l_k_1 = 0.0f;
                                     }
-                                    float _max_17 = max_noftz(m_f_1, m_k_1);
-                                    float m_new_1 = _max_17;
+                                    float _max_23 = max_noftz(m_f_1, m_k_1);
+                                    float m_new_1 = _max_23;
                                     float _exp2_10 = approx_exp2((m_f_1 - m_new_1) * softmax_scale_log2);
                                     float a_k_1 = _exp2_10;
                                     float _exp2_11 = approx_exp2((m_k_1 - m_new_1) * softmax_scale_log2);
@@ -2894,16 +2891,89 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             for (int pk = 0; pk < 4; pk++) {
                 int pt_i = blockIdx.x + pt_grid * (lane + 32 * pk);
                 if (pt_i < pt_total) {
-                    unsigned int q = (unsigned int)((float)(unsigned int)pt_i * pt_nr_rcp);
+                    unsigned int q = (unsigned int)((float)(unsigned int)pt_i * (pt_nr_rcp * 1.0000004768371582f));
                     if (q * (unsigned int)pt_nr > (unsigned int)pt_i) {
                         q = q - 1;
-                    }
-                    if ((q + 1) * (unsigned int)pt_nr <= (unsigned int)pt_i) {
-                        q = q + 1;
                     }
                     int pt_req = (int)q;
                     int pt_line = pt_i - pt_req * pt_nr;
                     asm volatile("prefetch.global.L2 [%0];" :: "l"((uint64_t)(page_table + (pt_req * max_pages_per_seq + pt_line * 32))));
+                }
+            }
+            int wu_lane = lane;
+            int wu_len = 0;
+            int wu_nb = 0;
+            if (wu_lane < batch_size) {
+                wu_len = seq_lens_kv[wu_lane];
+                wu_nb = (wu_len + BLOCK_N - 1) / BLOCK_N;
+            }
+            int wu_tiles = batch_size * num_kv_heads;
+            int wu_c = blockIdx.x;
+            int wu_r = 0;
+            int wu_h = 0;
+            int wu_b = -1;
+            if (wu_c < 2 * wu_tiles) {
+                int wu_t = wu_c;
+                if (wu_t >= wu_tiles) {
+                    wu_t = wu_t - wu_tiles;
+                }
+                wu_r = wu_t / num_kv_heads;
+                wu_h = wu_t - wu_r * num_kv_heads;
+                if (wu_r < 32) {
+                    int _shfl_30 = __shfl_sync(0xFFFFFFFF, wu_nb, wu_r);
+                    int wu_nb_r = _shfl_30;
+                    if (wu_c < wu_tiles) {
+                        wu_b = wu_nb_r - 1;
+                    } else if (wu_nb_r >= 4) {
+                        wu_b = 2 * ((wu_nb_r + 3) / 4) - 1;
+                    }
+                }
+            } else {
+                unsigned int wu_g = (unsigned int)(wu_c - 2 * wu_tiles);
+                unsigned int wu_per = (unsigned int)(wu_nb * num_kv_heads);
+                uint32_t _warp_scan_sum_u32_9 = wu_per;
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_9) : "r"(1));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_9) : "r"(2));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_9) : "r"(4));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_9) : "r"(8));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_9) : "r"(16));
+                unsigned int wu_incl = _warp_scan_sum_u32_9;
+                unsigned int wu_excl = wu_incl - wu_per;
+                unsigned int wu_key = 32;
+                if (wu_g >= wu_excl) {
+                    if (wu_g < wu_incl) {
+                        wu_key = (unsigned int)wu_lane;
+                    }
+                }
+                unsigned int _warp_redux_u32_8;
+                asm volatile("redux.sync.min.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_8) : "r"(wu_key));
+                unsigned int wu_first = _warp_redux_u32_8;
+                if (wu_first < 32) {
+                    wu_r = (int)wu_first;
+                    unsigned int _shfl_31 = __shfl_sync(0xFFFFFFFF, wu_excl, wu_r);
+                    int wu_off = (int)(wu_g - _shfl_31);
+                    int _shfl_32 = __shfl_sync(0xFFFFFFFF, wu_nb, wu_r);
+                    int wu_nb_g = _shfl_32;
+                    wu_h = wu_off / wu_nb_g;
+                    wu_b = wu_nb_g - 1 - (wu_off - wu_h * wu_nb_g);
+                }
+            }
+            if (wu_b >= 0) {
+                int _shfl_33 = __shfl_sync(0xFFFFFFFF, wu_len, wu_r);
+                int wu_len_r = _shfl_33;
+                int wu_max_pg = (wu_len_r + PAGE_SIZE - 1) / PAGE_SIZE - 1;
+                int wu_page_idx = wu_b * 8 + (wu_lane >> 2);
+                int wu_hg = wu_lane & 1;
+                if (wu_page_idx <= wu_max_pg) {
+                    int wu_pid = page_table[wu_r * max_pages_per_seq + wu_page_idx];
+                    if ((wu_lane & 2) == 0) {
+                        asm volatile("cp.async.bulk.prefetch.tensor.5d.L2.global.tile [%0, {%1, %2, %3, %4, %5}];" :: "l"((uint64_t)(K)), "r"((int)(0)), "r"((int)(0)), "r"((int)(wu_hg)), "r"((int)(wu_h)), "r"((int)(wu_pid)) : "memory");
+                    } else {
+                        asm volatile("cp.async.bulk.prefetch.tensor.5d.L2.global.tile [%0, {%1, %2, %3, %4, %5}];" :: "l"((uint64_t)(V)), "r"((int)(0)), "r"((int)(0)), "r"((int)(wu_hg)), "r"((int)(wu_h)), "r"((int)(wu_pid)) : "memory");
+                    }
+                }
+                if (wu_lane == 0) {
+                    asm volatile("cp.async.bulk.prefetch.tensor.4d.L2.global.tile [%0, {%1, %2, %3, %4}];" :: "l"((uint64_t)(Q)), "r"((int)(0)), "r"((int)(wu_h * 8)), "r"((int)(wu_r * q_len)), "r"((int)(0)) : "memory");
                 }
             }
             unsigned int _phase_work_full_3 = 0;
@@ -3054,15 +3124,10 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             float ctas_rcp = _rcp_0;
             float _rcp_1 = approx_rcp((float)items_per_chunk);
             float items_rcp = _rcp_1;
-            unsigned int q_1 = (unsigned int)((float)total_work * ctas_rcp);
-            if (total_work < q_1 * (unsigned int)num_ctas) {
+            unsigned int nc1 = total_work + (unsigned int)num_ctas - 1;
+            unsigned int q_1 = (unsigned int)((float)nc1 * (ctas_rcp * 1.0000004768371582f));
+            if (nc1 < q_1 * (unsigned int)num_ctas) {
                 q_1 = q_1 - 1;
-            }
-            if (total_work >= (q_1 + 1) * (unsigned int)num_ctas) {
-                q_1 = q_1 + 1;
-            }
-            if (total_work > q_1 * (unsigned int)num_ctas) {
-                q_1 = q_1 + 1;
             }
             unsigned int ideal_pairs = q_1;
             unsigned int balance_k = (ideal_pairs + 64 - 1) / 64;
@@ -3074,17 +3139,12 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             }
             unsigned int chunk_divisor = balance_k * (unsigned int)num_ctas;
             float _rcp_2 = approx_rcp((float)chunk_divisor);
-            unsigned int q_1_1 = (unsigned int)((float)total_work * _rcp_2);
-            if (total_work < q_1_1 * chunk_divisor) {
-                q_1_1 = q_1_1 - 1;
+            unsigned int nc1_1 = total_work + chunk_divisor - 1;
+            unsigned int q_2 = (unsigned int)((float)nc1_1 * (_rcp_2 * 1.0000004768371582f));
+            if (nc1_1 < q_2 * chunk_divisor) {
+                q_2 = q_2 - 1;
             }
-            if (total_work >= (q_1_1 + 1) * chunk_divisor) {
-                q_1_1 = q_1_1 + 1;
-            }
-            if (total_work > q_1_1 * chunk_divisor) {
-                q_1_1 = q_1_1 + 1;
-            }
-            unsigned int chunk_pairs_u = q_1_1;
+            unsigned int chunk_pairs_u = q_2;
             if (chunk_pairs_u < 2) {
                 chunk_pairs_u = 2;
             }
@@ -3103,28 +3163,20 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             int whole_items = batch_size * items_per_chunk;
             if (whole_items <= num_ctas) {
                 float _rcp_3 = approx_rcp((float)whole_items);
-                unsigned int q_0 = (unsigned int)((float)(unsigned int)num_ctas * _rcp_3);
+                unsigned int q_0 = (unsigned int)((float)(unsigned int)num_ctas * (_rcp_3 * 1.0000004768371582f));
                 if (q_0 * (unsigned int)whole_items > (unsigned int)num_ctas) {
                     q_0 = q_0 - 1;
-                }
-                if ((q_0 + 1) * (unsigned int)whole_items <= (unsigned int)num_ctas) {
-                    q_0 = q_0 + 1;
                 }
                 int n_even = (int)q_0;
                 if (n_even > 1) {
                     if (p_max >= 8 * (p_max - p_min)) {
                         float _rcp_4 = approx_rcp((float)n_even);
-                        unsigned int q_2 = (unsigned int)((float)p_max * _rcp_4);
-                        if (p_max < q_2 * (unsigned int)n_even) {
-                            q_2 = q_2 - 1;
+                        unsigned int nc1_0 = p_max + (unsigned int)n_even - 1;
+                        unsigned int q_1_1 = (unsigned int)((float)nc1_0 * (_rcp_4 * 1.0000004768371582f));
+                        if (nc1_0 < q_1_1 * (unsigned int)n_even) {
+                            q_1_1 = q_1_1 - 1;
                         }
-                        if (p_max >= (q_2 + 1) * (unsigned int)n_even) {
-                            q_2 = q_2 + 1;
-                        }
-                        if (p_max > q_2 * (unsigned int)n_even) {
-                            q_2 = q_2 + 1;
-                        }
-                        unsigned int l_even = q_2;
+                        unsigned int l_even = q_1_1;
                         if (l_even < 2) {
                             l_even = 2;
                         }
@@ -3134,34 +3186,24 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                     }
                 }
             }
-            unsigned int q_2_1 = (unsigned int)((float)total_work * ctas_rcp);
-            if (total_work < q_2_1 * (unsigned int)num_ctas) {
-                q_2_1 = q_2_1 - 1;
+            unsigned int nc1_3 = total_work + (unsigned int)num_ctas - 1;
+            unsigned int q_4 = (unsigned int)((float)nc1_3 * (ctas_rcp * 1.0000004768371582f));
+            if (nc1_3 < q_4 * (unsigned int)num_ctas) {
+                q_4 = q_4 - 1;
             }
-            if (total_work >= (q_2_1 + 1) * (unsigned int)num_ctas) {
-                q_2_1 = q_2_1 + 1;
-            }
-            if (total_work > q_2_1 * (unsigned int)num_ctas) {
-                q_2_1 = q_2_1 + 1;
-            }
-            unsigned int l_one = q_2_1;
+            unsigned int l_one = q_4;
             unsigned int sm_floor = ((unsigned int)num_ctas * 55 + 99) / 100;
             float _rcp_5 = approx_rcp((float)(100 * num_ctas));
             float ctas100_rcp = _rcp_5;
             if (l_one < 2) {
                 l_one = 2;
             }
-            unsigned int q_3 = (unsigned int)((float)total_work * ctas_rcp);
-            if (total_work < q_3 * (unsigned int)num_ctas) {
-                q_3 = q_3 - 1;
+            unsigned int nc1_5 = total_work + (unsigned int)num_ctas - 1;
+            unsigned int q_6 = (unsigned int)((float)nc1_5 * (ctas_rcp * 1.0000004768371582f));
+            if (nc1_5 < q_6 * (unsigned int)num_ctas) {
+                q_6 = q_6 - 1;
             }
-            if (total_work >= (q_3 + 1) * (unsigned int)num_ctas) {
-                q_3 = q_3 + 1;
-            }
-            if (total_work > q_3 * (unsigned int)num_ctas) {
-                q_3 = q_3 + 1;
-            }
-            unsigned int l_fit_lo = q_3;
+            unsigned int l_fit_lo = q_6;
             if (l_fit_lo < 1) {
                 l_fit_lo = 1;
             }
@@ -3179,17 +3221,12 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                 if (whole_items_u < (unsigned int)num_ctas) {
                     unsigned int denom_f = (unsigned int)num_ctas - whole_items_u;
                     float _rcp_6 = approx_rcp((float)denom_f);
-                    unsigned int q_0_1 = (unsigned int)((float)total_work * _rcp_6);
-                    if (total_work < q_0_1 * denom_f) {
-                        q_0_1 = q_0_1 - 1;
+                    unsigned int nc1_0_1 = total_work + denom_f - 1;
+                    unsigned int q_1_2 = (unsigned int)((float)nc1_0_1 * (_rcp_6 * 1.0000004768371582f));
+                    if (nc1_0_1 < q_1_2 * denom_f) {
+                        q_1_2 = q_1_2 - 1;
                     }
-                    if (total_work >= (q_0_1 + 1) * denom_f) {
-                        q_0_1 = q_0_1 + 1;
-                    }
-                    if (total_work > q_0_1 * denom_f) {
-                        q_0_1 = q_0_1 + 1;
-                    }
-                    unsigned int l_hi_f = q_0_1;
+                    unsigned int l_hi_f = q_1_2;
                     if (l_hi_f < p_max) {
                         l_hi = l_hi_f;
                     }
@@ -3197,45 +3234,87 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                 if (l_hi < l_fit_lo) {
                     l_hi = l_fit_lo;
                 }
-                unsigned int step_f = (l_hi - l_fit_lo + 31 - 1) / 31;
-                if (step_f < 1) {
-                    step_f = 1;
-                }
-                unsigned int l_lane = l_fit_lo + (unsigned int)lane_0 * step_f;
-                if (l_lane > l_hi) {
-                    l_lane = l_hi;
-                }
-                float _rcp_7 = approx_rcp((float)l_lane);
-                float lane_rcp = _rcp_7;
-                unsigned int t_lane = 0;
-                #pragma unroll 1
-                for (int bf = 0; bf < batch_size; bf++) {
-                    int sf = sched_seq_lens[bf];
-                    unsigned int pairs_f = (unsigned int)((sf + 255) / 256);
-                    unsigned int q_0_2 = (unsigned int)((float)pairs_f * lane_rcp);
-                    if (pairs_f < q_0_2 * l_lane) {
-                        q_0_2 = q_0_2 - 1;
-                    }
-                    if (pairs_f >= (q_0_2 + 1) * l_lane) {
-                        q_0_2 = q_0_2 + 1;
-                    }
-                    if (pairs_f > q_0_2 * l_lane) {
-                        q_0_2 = q_0_2 + 1;
-                    }
-                    t_lane += q_0_2;
-                }
-                t_lane = t_lane * (unsigned int)items_per_chunk;
-                unsigned int ok_key = 32;
-                if (t_lane <= (unsigned int)num_ctas) {
-                    ok_key = (unsigned int)lane_0;
-                }
-                unsigned int _warp_redux_u32_3;
-                asm volatile("redux.sync.min.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_3) : "r"(ok_key));
-                unsigned int first_ok = _warp_redux_u32_3;
-                if (first_ok < 32) {
-                    unsigned int _shfl_0 = __shfl_sync(0xFFFFFFFF, l_lane, (int)first_ok);
-                    l_fit = _shfl_0;
+                unsigned int fit_skip = 0;
+                if (l_hi == l_fit_lo) {
+                    fit_skip = 1;
+                    l_fit = l_hi;
                     fit_valid = 1;
+                }
+                if (fit_skip == 0) {
+                    unsigned int step_f = (l_hi - l_fit_lo + 31 - 1) / 31;
+                    if (step_f < 1) {
+                        step_f = 1;
+                    }
+                    unsigned int l_lane = l_fit_lo + (unsigned int)lane_0 * step_f;
+                    if (l_lane > l_hi) {
+                        l_lane = l_hi;
+                    }
+                    float _rcp_7 = approx_rcp((float)l_lane);
+                    float lane_rcp = _rcp_7;
+                    unsigned int t_lane = 0;
+                    float lane_rcp_hi = lane_rcp * 1.0000004768371582f;
+                    unsigned int t_f1 = 0;
+                    unsigned int t_f2 = 0;
+                    unsigned int t_f3 = 0;
+                    #pragma unroll 1
+                    for (int bf4 = 0; bf4 < batch_size; bf4 += 4) {
+                        unsigned int pf0 = 0;
+                        unsigned int pf1 = 0;
+                        unsigned int pf2 = 0;
+                        unsigned int pf3 = 0;
+                        int sf0 = sched_seq_lens[bf4];
+                        pf0 = (unsigned int)((sf0 + 255) / 256);
+                        if (bf4 + 1 < batch_size) {
+                            int sf1 = sched_seq_lens[bf4 + 1];
+                            pf1 = (unsigned int)((sf1 + 255) / 256);
+                        }
+                        if (bf4 + 2 < batch_size) {
+                            int sf2 = sched_seq_lens[bf4 + 2];
+                            pf2 = (unsigned int)((sf2 + 255) / 256);
+                        }
+                        if (bf4 + 3 < batch_size) {
+                            int sf3 = sched_seq_lens[bf4 + 3];
+                            pf3 = (unsigned int)((sf3 + 255) / 256);
+                        }
+                        unsigned int nc = pf0 + l_lane - 1;
+                        unsigned int q_0_1 = (unsigned int)((float)nc * lane_rcp_hi);
+                        if (nc < q_0_1 * l_lane) {
+                            q_0_1 = q_0_1 - 1;
+                        }
+                        t_lane += q_0_1;
+                        unsigned int nc_1 = pf1 + l_lane - 1;
+                        unsigned int q_3 = (unsigned int)((float)nc_1 * lane_rcp_hi);
+                        if (nc_1 < q_3 * l_lane) {
+                            q_3 = q_3 - 1;
+                        }
+                        t_f1 += q_3;
+                        unsigned int nc_4 = pf2 + l_lane - 1;
+                        unsigned int q_5 = (unsigned int)((float)nc_4 * lane_rcp_hi);
+                        if (nc_4 < q_5 * l_lane) {
+                            q_5 = q_5 - 1;
+                        }
+                        t_f2 += q_5;
+                        unsigned int nc_6 = pf3 + l_lane - 1;
+                        unsigned int q_7 = (unsigned int)((float)nc_6 * lane_rcp_hi);
+                        if (nc_6 < q_7 * l_lane) {
+                            q_7 = q_7 - 1;
+                        }
+                        t_f3 += q_7;
+                    }
+                    t_lane = t_lane + t_f1 + (t_f2 + t_f3);
+                    t_lane = t_lane * (unsigned int)items_per_chunk;
+                    unsigned int ok_key = 32;
+                    if (t_lane <= (unsigned int)num_ctas) {
+                        ok_key = (unsigned int)lane_0;
+                    }
+                    unsigned int _warp_redux_u32_3;
+                    asm volatile("redux.sync.min.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_3) : "r"(ok_key));
+                    unsigned int first_ok = _warp_redux_u32_3;
+                    if (first_ok < 32) {
+                        unsigned int _shfl_0 = __shfl_sync(0xFFFFFFFF, l_lane, (int)first_ok);
+                        l_fit = _shfl_0;
+                        fit_valid = 1;
+                    }
                 }
             }
             int cand_idx = lane_0 & 15;
@@ -3259,17 +3338,12 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             if (cand_idx < 8) {
                 unsigned int div_c = (unsigned int)(cand_idx + 1) * (unsigned int)num_ctas;
                 float _rcp_8 = approx_rcp((float)div_c);
-                unsigned int q_0_3 = (unsigned int)((float)total_work * _rcp_8);
-                if (total_work < q_0_3 * div_c) {
-                    q_0_3 = q_0_3 - 1;
+                unsigned int nc1_0_2 = total_work + div_c - 1;
+                unsigned int q_1_3 = (unsigned int)((float)nc1_0_2 * (_rcp_8 * 1.0000004768371582f));
+                if (nc1_0_2 < q_1_3 * div_c) {
+                    q_1_3 = q_1_3 - 1;
                 }
-                if (total_work >= (q_0_3 + 1) * div_c) {
-                    q_0_3 = q_0_3 + 1;
-                }
-                if (total_work > q_0_3 * div_c) {
-                    q_0_3 = q_0_3 + 1;
-                }
-                cand = q_0_3;
+                cand = q_1_3;
                 if (cand < 2) {
                     cand = 2;
                 }
@@ -3283,46 +3357,90 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             unsigned int tickets_c = 0;
             unsigned int nmax_c = 0;
             int half_batch = (batch_size + 1) / 2;
+            float cand_rcp_hi = cand_rcp * 1.0000004768371582f;
+            unsigned int tk1 = 0;
+            unsigned int tk2 = 0;
+            unsigned int tk3 = 0;
+            unsigned int nm1 = 0;
+            unsigned int nm2 = 0;
+            unsigned int nm3 = 0;
             #pragma unroll 1
-            for (int hc = 0; hc < half_batch; hc++) {
-                int bc = 2 * hc + req_parity;
-                unsigned int pairs_c = 0;
-                if (bc < batch_size) {
-                    int sc = sched_seq_lens[bc];
-                    pairs_c = (unsigned int)((sc + 255) / 256);
+            for (int hc4 = 0; hc4 < half_batch; hc4 += 4) {
+                int bc0 = 2 * hc4 + req_parity;
+                unsigned int pc0 = 0;
+                unsigned int pc1 = 0;
+                unsigned int pc2 = 0;
+                unsigned int pc3 = 0;
+                if (bc0 < batch_size) {
+                    int sc0 = sched_seq_lens[bc0];
+                    pc0 = (unsigned int)((sc0 + 255) / 256);
                 }
-                unsigned int q_0_4 = (unsigned int)((float)pairs_c * cand_rcp);
-                if (pairs_c < q_0_4 * cand) {
-                    q_0_4 = q_0_4 - 1;
+                if (bc0 + 2 < batch_size) {
+                    int sc1 = sched_seq_lens[bc0 + 2];
+                    pc1 = (unsigned int)((sc1 + 255) / 256);
                 }
-                if (pairs_c >= (q_0_4 + 1) * cand) {
-                    q_0_4 = q_0_4 + 1;
+                if (bc0 + 4 < batch_size) {
+                    int sc2 = sched_seq_lens[bc0 + 4];
+                    pc2 = (unsigned int)((sc2 + 255) / 256);
                 }
-                if (pairs_c > q_0_4 * cand) {
-                    q_0_4 = q_0_4 + 1;
+                if (bc0 + 6 < batch_size) {
+                    int sc3 = sched_seq_lens[bc0 + 6];
+                    pc3 = (unsigned int)((sc3 + 255) / 256);
                 }
-                unsigned int nb_c = q_0_4;
-                tickets_c += nb_c;
-                unsigned int _max_1 = ((nmax_c) > (nb_c) ? (nmax_c) : (nb_c));
+                unsigned int nc_2 = pc0 + cand - 1;
+                unsigned int q_0_2 = (unsigned int)((float)nc_2 * cand_rcp_hi);
+                if (nc_2 < q_0_2 * cand) {
+                    q_0_2 = q_0_2 - 1;
+                }
+                unsigned int nb0 = q_0_2;
+                unsigned int nc_1_1 = pc1 + cand - 1;
+                unsigned int q_3_1 = (unsigned int)((float)nc_1_1 * cand_rcp_hi);
+                if (nc_1_1 < q_3_1 * cand) {
+                    q_3_1 = q_3_1 - 1;
+                }
+                unsigned int nb1 = q_3_1;
+                unsigned int nc_4_1 = pc2 + cand - 1;
+                unsigned int q_5_1 = (unsigned int)((float)nc_4_1 * cand_rcp_hi);
+                if (nc_4_1 < q_5_1 * cand) {
+                    q_5_1 = q_5_1 - 1;
+                }
+                unsigned int nb2 = q_5_1;
+                unsigned int nc_6_1 = pc3 + cand - 1;
+                unsigned int q_7_1 = (unsigned int)((float)nc_6_1 * cand_rcp_hi);
+                if (nc_6_1 < q_7_1 * cand) {
+                    q_7_1 = q_7_1 - 1;
+                }
+                unsigned int nb3 = q_7_1;
+                tickets_c += nb0;
+                tk1 += nb1;
+                tk2 += nb2;
+                tk3 += nb3;
+                unsigned int _max_1 = ((nmax_c) > (nb0) ? (nmax_c) : (nb0));
                 nmax_c = _max_1;
+                unsigned int _max_2 = ((nm1) > (nb1) ? (nm1) : (nb1));
+                nm1 = _max_2;
+                unsigned int _max_3 = ((nm2) > (nb2) ? (nm2) : (nb2));
+                nm2 = _max_3;
+                unsigned int _max_4 = ((nm3) > (nb3) ? (nm3) : (nb3));
+                nm3 = _max_4;
             }
+            tickets_c = tickets_c + tk1 + (tk2 + tk3);
+            unsigned int _max_5 = ((nmax_c) > (nm1) ? (nmax_c) : (nm1));
+            unsigned int _max_6 = ((nm2) > (nm3) ? (nm2) : (nm3));
+            unsigned int _max_7 = ((_max_5) > (_max_6) ? (_max_5) : (_max_6));
+            nmax_c = _max_7;
             unsigned int _shfl_xor_0 = __shfl_xor_sync(0xFFFFFFFF, tickets_c, 16);
             tickets_c += _shfl_xor_0;
             unsigned int _shfl_xor_1 = __shfl_xor_sync(0xFFFFFFFF, nmax_c, 16);
-            unsigned int _max_2 = ((nmax_c) > (_shfl_xor_1) ? (nmax_c) : (_shfl_xor_1));
-            nmax_c = _max_2;
+            unsigned int _max_8 = ((nmax_c) > (_shfl_xor_1) ? (nmax_c) : (_shfl_xor_1));
+            nmax_c = _max_8;
             tickets_c = tickets_c * (unsigned int)items_per_chunk;
-            unsigned int q_4 = (unsigned int)((float)tickets_c * ctas_rcp);
-            if (tickets_c < q_4 * (unsigned int)num_ctas) {
-                q_4 = q_4 - 1;
+            unsigned int nc1_7 = tickets_c + (unsigned int)num_ctas - 1;
+            unsigned int q_8 = (unsigned int)((float)nc1_7 * (ctas_rcp * 1.0000004768371582f));
+            if (nc1_7 < q_8 * (unsigned int)num_ctas) {
+                q_8 = q_8 - 1;
             }
-            if (tickets_c >= (q_4 + 1) * (unsigned int)num_ctas) {
-                q_4 = q_4 + 1;
-            }
-            if (tickets_c > q_4 * (unsigned int)num_ctas) {
-                q_4 = q_4 + 1;
-            }
-            unsigned int waves_c = q_4;
+            unsigned int waves_c = q_8;
             unsigned int tail_c = 0;
             if (nmax_c == 2) {
                 tail_c = 8;
@@ -3342,25 +3460,19 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                 tail_c = 11 + (nmax_c + (one_c << sh_c) - 1 >> sh_c);
             }
             unsigned int a_last_c = tickets_c - (waves_c - 1) * (unsigned int)num_ctas;
-            unsigned int _max_3 = ((a_last_c) > (sm_floor) ? (a_last_c) : (sm_floor));
-            unsigned int eff_c = _max_3;
+            unsigned int _max_9 = ((a_last_c) > (sm_floor) ? (a_last_c) : (sm_floor));
+            unsigned int eff_c = _max_9;
             unsigned int cost_c = 4 * (waves_c - 1) * (cand + 20) + tail_c;
-            unsigned int q_5 = (unsigned int)((float)(4 * cand * eff_c) * ctas_rcp);
-            if (q_5 * (unsigned int)num_ctas > 4 * cand * eff_c) {
-                q_5 = q_5 - 1;
+            unsigned int q_9 = (unsigned int)((float)(4 * cand * eff_c) * (ctas_rcp * 1.0000004768371582f));
+            if (q_9 * (unsigned int)num_ctas > 4 * cand * eff_c) {
+                q_9 = q_9 - 1;
             }
-            if ((q_5 + 1) * (unsigned int)num_ctas <= 4 * cand * eff_c) {
-                q_5 = q_5 + 1;
+            cost_c += q_9 + 80;
+            unsigned int q_10 = (unsigned int)((float)(4 * cand * 5 * a_last_c) * (ctas100_rcp * 1.0000004768371582f));
+            if (q_10 * (100 * (unsigned int)num_ctas) > 4 * cand * 5 * a_last_c) {
+                q_10 = q_10 - 1;
             }
-            cost_c += q_5 + 80;
-            unsigned int q_6 = (unsigned int)((float)(4 * cand * 5 * a_last_c) * ctas100_rcp);
-            if (q_6 * (100 * (unsigned int)num_ctas) > 4 * cand * 5 * a_last_c) {
-                q_6 = q_6 - 1;
-            }
-            if ((q_6 + 1) * (100 * (unsigned int)num_ctas) <= 4 * cand * 5 * a_last_c) {
-                q_6 = q_6 + 1;
-            }
-            cost_c += q_6;
+            cost_c += q_10;
             unsigned int cost_key = 4294967295;
             if (cand_valid == 1) {
                 if (req_parity == 0) {
@@ -3397,17 +3509,12 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                 if (b2 < batch_size) {
                     int s2 = sched_seq_lens[b2];
                     unsigned int pairs2 = (unsigned int)((s2 + 255) / 256);
-                    unsigned int q_0_5 = (unsigned int)((float)pairs2 * chunk_rcp);
-                    if (pairs2 < q_0_5 * chunk_pairs_u) {
-                        q_0_5 = q_0_5 - 1;
+                    unsigned int nc1_0_3 = pairs2 + chunk_pairs_u - 1;
+                    unsigned int q_1_4 = (unsigned int)((float)nc1_0_3 * (chunk_rcp * 1.0000004768371582f));
+                    if (nc1_0_3 < q_1_4 * chunk_pairs_u) {
+                        q_1_4 = q_1_4 - 1;
                     }
-                    if (pairs2 >= (q_0_5 + 1) * chunk_pairs_u) {
-                        q_0_5 = q_0_5 + 1;
-                    }
-                    if (pairs2 > q_0_5 * chunk_pairs_u) {
-                        q_0_5 = q_0_5 + 1;
-                    }
-                    n2 = q_0_5;
+                    n2 = q_1_4;
                     full2 = n2;
                     if (pairs2 < n2 * chunk_pairs_u) {
                         full2 = n2 - 1;
@@ -3475,8 +3582,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                 n_split_requests += _warp_redux_u32_6;
                 unsigned int _warp_redux_u32_7;
                 asm volatile("redux.sync.max.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_7) : "r"(nsplit2));
-                unsigned int _max_4 = ((nmax_split) > (_warp_redux_u32_7) ? (nmax_split) : (_warp_redux_u32_7));
-                nmax_split = _max_4;
+                unsigned int _max_10 = ((nmax_split) > (_warp_redux_u32_7) ? (nmax_split) : (_warp_redux_u32_7));
+                nmax_split = _max_10;
                 unsigned int _shfl_3 = __shfl_sync(0xFFFFFFFF, ff_incl_pst, 31);
                 unsigned int pack_group = _shfl_3 & 16777215;
                 #pragma unroll
@@ -3551,14 +3658,11 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                             }
                         }
                         unsigned int ef_litems = ef_t - ef_bstart;
-                        unsigned int q_0_6 = (unsigned int)((float)ef_litems * items_rcp);
-                        if (ef_litems < q_0_6 * (unsigned int)items_per_chunk) {
-                            q_0_6 = q_0_6 - 1;
+                        unsigned int q_0_3 = (unsigned int)((float)ef_litems * (items_rcp * 1.0000004768371582f));
+                        if (ef_litems < q_0_3 * (unsigned int)items_per_chunk) {
+                            q_0_3 = q_0_3 - 1;
                         }
-                        if (ef_litems >= (q_0_6 + 1) * (unsigned int)items_per_chunk) {
-                            q_0_6 = q_0_6 + 1;
-                        }
-                        unsigned int ef_lchunk = q_0_6;
+                        unsigned int ef_lchunk = q_0_3;
                         int ef_inchunk = (int)(ef_litems - ef_lchunk * (unsigned int)items_per_chunk);
                         int ef_r0 = sched_seq_lens[32 + lane_0];
                         int ef_r1 = sched_seq_lens[64 + lane_0];
@@ -3717,17 +3821,12 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                             if (b_r < batch_size) {
                                 int s_r = sched_seq_lens[b_r];
                                 int pairs_r = (s_r + 255) / 256;
-                                unsigned int q_0_7 = (unsigned int)((float)(unsigned int)pairs_r * chunk_rcp);
-                                if (q_0_7 * chunk_pairs_u > (unsigned int)pairs_r) {
-                                    q_0_7 = q_0_7 - 1;
+                                unsigned int nc1_0_4 = (unsigned int)pairs_r + chunk_pairs_u - 1;
+                                unsigned int q_1_5 = (unsigned int)((float)nc1_0_4 * (chunk_rcp * 1.0000004768371582f));
+                                if (nc1_0_4 < q_1_5 * chunk_pairs_u) {
+                                    q_1_5 = q_1_5 - 1;
                                 }
-                                if ((q_0_7 + 1) * chunk_pairs_u <= (unsigned int)pairs_r) {
-                                    q_0_7 = q_0_7 + 1;
-                                }
-                                if (q_0_7 * chunk_pairs_u < (unsigned int)pairs_r) {
-                                    q_0_7 = q_0_7 + 1;
-                                }
-                                n_r = (int)q_0_7;
+                                n_r = (int)q_1_5;
                                 if (n_r > 1) {
                                     si_r = (unsigned int)n_r;
                                     st_r = 1;
@@ -3831,14 +3930,11 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                             }
                         }
                         unsigned int local_items = ticket - bucket_start;
-                        unsigned int q_0_8 = (unsigned int)((float)local_items * items_rcp);
-                        if (local_items < q_0_8 * (unsigned int)items_per_chunk) {
-                            q_0_8 = q_0_8 - 1;
+                        unsigned int q_0_4 = (unsigned int)((float)local_items * (items_rcp * 1.0000004768371582f));
+                        if (local_items < q_0_4 * (unsigned int)items_per_chunk) {
+                            q_0_4 = q_0_4 - 1;
                         }
-                        if (local_items >= (q_0_8 + 1) * (unsigned int)items_per_chunk) {
-                            q_0_8 = q_0_8 + 1;
-                        }
-                        unsigned int local_chunk = q_0_8;
+                        unsigned int local_chunk = q_0_4;
                         int in_chunk = (int)(local_items - local_chunk * (unsigned int)items_per_chunk);
                         int cursor_group = 0;
                         unsigned int before = 0;
@@ -3917,17 +4013,12 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                             if (b3 < batch_size) {
                                 s3 = sched_seq_lens[b3];
                                 pairs3 = (s3 + 255) / 256;
-                                unsigned int q_7 = (unsigned int)((float)(unsigned int)pairs3 * chunk_rcp);
-                                if (q_7 * chunk_pairs_u > (unsigned int)pairs3) {
-                                    q_7 = q_7 - 1;
+                                unsigned int nc1_0_5 = (unsigned int)pairs3 + chunk_pairs_u - 1;
+                                unsigned int q_1_6 = (unsigned int)((float)nc1_0_5 * (chunk_rcp * 1.0000004768371582f));
+                                if (nc1_0_5 < q_1_6 * chunk_pairs_u) {
+                                    q_1_6 = q_1_6 - 1;
                                 }
-                                if ((q_7 + 1) * chunk_pairs_u <= (unsigned int)pairs3) {
-                                    q_7 = q_7 + 1;
-                                }
-                                if (q_7 * chunk_pairs_u < (unsigned int)pairs3) {
-                                    q_7 = q_7 + 1;
-                                }
-                                n3 = (int)q_7;
+                                n3 = (int)q_1_6;
                                 fullc3 = n3;
                                 int rem3 = 0;
                                 if (pairs3 < n3 * chunk_pairs) {
