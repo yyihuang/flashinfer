@@ -55,9 +55,7 @@ def paged_next_n_atoms(next_n):
     rule = paged_policy()["next_n_atoms"]
     key = str(int(next_n))
     if key not in rule:
-        raise ValueError(
-            f"next_n = {next_n} has no exported paged program; exported: {sorted(rule)}"
-        )
+        raise ValueError(f"next_n = {next_n} has no exported paged program; exported: {sorted(rule)}")
     return int(rule[key])
 
 
@@ -107,9 +105,7 @@ def _check_context_lens(context_lens):
     if batch < 1 or next_n < 1:
         raise ValueError("context_lens must have at least one request and one token")
     if batch > int(paged_policy()["max_batch"]):
-        raise ValueError(
-            f"batch {batch} exceeds the metadata program's ceiling {paged_policy()['max_batch']}"
-        )
+        raise ValueError(f"batch {batch} exceeds the metadata program's ceiling {paged_policy()['max_batch']}")
     return batch, next_n
 
 
@@ -119,9 +115,7 @@ def _metadata_route(block_kv, next_n):
         route = paged_route_name(num_heads, block_kv, next_n)
         if route in _catalog()["paged_routes"]:
             return _catalog()["paged_routes"][route]
-    raise ValueError(
-        f"no exported paged route for block_kv = {block_kv}, next_n = {next_n}"
-    )
+    raise ValueError(f"no exported paged route for block_kv = {block_kv}, next_n = {next_n}")
 
 
 def metadata_bindings(context_lens, schedule_meta, *, block_kv, num_sms):
@@ -142,9 +136,7 @@ def metadata_bindings(context_lens, schedule_meta, *, block_kv, num_sms):
     )
 
 
-def logits_bindings(
-    q, kv_cache, weights, context_lens, block_table, schedule_meta, output, *, num_sms
-):
+def logits_bindings(q, kv_cache, weights, context_lens, block_table, schedule_meta, output, *, num_sms):
     """Argument plan of the logits program (stage ``logits`` of every paged route).
 
     The names are the launcher contract of the paged programs: Q rows
@@ -166,9 +158,7 @@ def logits_bindings(
         Weights=weights,
         Logits=output,
         context_lens=context_lens.view(-1),
-        block_table=block_table.as_strided(
-            ((batch - 1) * block_table.stride(0) + int(block_table.shape[1]),), (1,)
-        ),
+        block_table=block_table.as_strided(((batch - 1) * block_table.stride(0) + int(block_table.shape[1]),), (1,)),
         schedule_meta=schedule_meta.view(-1),
         batch_size=batch,
         next_n=next_n,
@@ -219,41 +209,27 @@ class PagedMqaPlan:
 
         arch, num_sms = _resolve_device(q, sm_count)
         batch, next_n = _check_context_lens(context_lens)
-        if (
-            q.ndim != 4
-            or tuple(q.shape[:2]) != (batch, next_n)
-            or int(q.shape[3]) != HEAD_DIM
-        ):
-            raise ValueError(
-                "q must be [B, next_n, H, 128] matching context_lens [B, next_n]"
-            )
+        if q.ndim != 4 or tuple(q.shape[:2]) != (batch, next_n) or int(q.shape[3]) != HEAD_DIM:
+            raise ValueError("q must be [B, next_n, H, 128] matching context_lens [B, next_n]")
         num_heads = int(q.shape[2])
         if num_heads not in paged_heads():
-            raise ValueError(
-                f"q has {num_heads} heads; exported paged head counts: {paged_heads()}"
-            )
+            raise ValueError(f"q has {num_heads} heads; exported paged head counts: {paged_heads()}")
         if q.dtype != torch.float8_e4m3fn or not q.is_contiguous():
             raise ValueError("q must be contiguous E4M3")
         if kv_cache.ndim != 4 or kv_cache.dtype != torch.uint8:
             raise ValueError("kv_cache must be uint8 [pages, block_kv, 1, 132]")
         pages, block_kv, kv_heads, row_bytes = (int(v) for v in kv_cache.shape)
         if kv_heads != 1 or row_bytes != FUSED_ROW_BYTES:
-            raise ValueError(
-                "kv_cache must be [pages, block_kv, 1, 132] (fused FP8 rows + FP32 scales)"
-            )
+            raise ValueError("kv_cache must be [pages, block_kv, 1, 132] (fused FP8 rows + FP32 scales)")
         if block_kv not in paged_block_sizes():
-            raise ValueError(
-                f"block_kv {block_kv} is not exported; exported page sizes: {paged_block_sizes()}"
-            )
+            raise ValueError(f"block_kv {block_kv} is not exported; exported page sizes: {paged_block_sizes()}")
         if (
             int(kv_cache.stride(3)) != 1
             or int(kv_cache.stride(2)) != FUSED_ROW_BYTES
             or int(kv_cache.stride(1)) != FUSED_ROW_BYTES
             or int(kv_cache.stride(0)) != block_kv * FUSED_ROW_BYTES
         ):
-            raise ValueError(
-                "kv_cache pages must be contiguous [block_kv, 132] byte blocks"
-            )
+            raise ValueError("kv_cache pages must be contiguous [block_kv, 132] byte blocks")
         if (
             weights.dtype != torch.float32
             or tuple(weights.shape) != (batch * next_n, num_heads)
@@ -268,10 +244,7 @@ class PagedMqaPlan:
         ):
             raise ValueError("block_table must be int32 [B, S] with unit column stride")
         max_context_len = int(max_context_len)
-        if (
-            max_context_len < 1
-            or max_context_len > int(block_table.shape[1]) * block_kv
-        ):
+        if max_context_len < 1 or max_context_len > int(block_table.shape[1]) * block_kv:
             raise ValueError("max_context_len must be in 1..S * block_kv")
         if not paged_route_available(num_heads, block_kv, next_n, logits_dtype):
             raise ValueError(
@@ -287,52 +260,33 @@ class PagedMqaPlan:
         self.route = _catalog()["paged_routes"][self.route_name]
         stride = paged_logits_stride(max_context_len)
         if output is None:
-            output = torch.empty(
-                (batch * next_n, stride), dtype=torch.float32, device=q.device
-            )
+            output = torch.empty((batch * next_n, stride), dtype=torch.float32, device=q.device)
         if (
             output.dtype != torch.float32
             or tuple(output.shape) != (batch * next_n, stride)
             or output.device != q.device
             or not output.is_contiguous()
         ):
-            raise ValueError(
-                "output must be contiguous FP32 [B * next_n, paged_logits_stride(max_context_len)]"
-            )
+            raise ValueError("output must be contiguous FP32 [B * next_n, paged_logits_stride(max_context_len)]")
         if schedule_meta is None:
-            schedule_meta = torch.empty(
-                metadata_shape(num_sms), dtype=torch.int32, device=q.device
-            )
+            schedule_meta = torch.empty(metadata_shape(num_sms), dtype=torch.int32, device=q.device)
         if (
             schedule_meta.dtype != torch.int32
             or tuple(schedule_meta.shape) != metadata_shape(num_sms)
             or schedule_meta.device != q.device
             or not schedule_meta.is_contiguous()
         ):
-            raise ValueError(
-                f"schedule_meta must be contiguous int32 {metadata_shape(num_sms)} on the device"
-            )
+            raise ValueError(f"schedule_meta must be contiguous int32 {metadata_shape(num_sms)} on the device")
         bindings = {
-            "metadata": metadata_bindings(
-                context_lens, schedule_meta, block_kv=block_kv, num_sms=num_sms
-            ),
+            "metadata": metadata_bindings(context_lens, schedule_meta, block_kv=block_kv, num_sms=num_sms),
             "logits": logits_bindings(
-                q,
-                kv_cache,
-                weights,
-                context_lens,
-                block_table,
-                schedule_meta,
-                output,
-                num_sms=num_sms,
+                q, kv_cache, weights, context_lens, block_table, schedule_meta, output, num_sms=num_sms
             ),
         }
         self._submissions, self._programs = [], []
         self.program_names = [program for _stage, program in self.route["stages"]]
         for stage_name, program in self.route["stages"]:
-            submit, loaded = _submission(
-                arch, program, bindings, num_sms, stage=stage_name
-            )
+            submit, loaded = _submission(arch, program, bindings, num_sms, stage=stage_name)
             self._submissions.append(submit)
             self._programs.append(loaded)
         self.output, self.schedule_meta = output, schedule_meta
@@ -361,9 +315,7 @@ class PagedMqaPlan:
         return self.logical_output
 
 
-def get_paged_mqa_logits_metadata(
-    context_lens, block_kv, num_sms, indices=None, *, out=None
-):
+def get_paged_mqa_logits_metadata(context_lens, block_kv, num_sms, indices=None, *, out=None):
     """Schedule metadata with DeepGEMM's ``get_paged_mqa_logits_metadata`` signature.
 
     ``context_lens`` int32 ``[B, next_n]``; ``block_kv`` an exported page size;
@@ -381,29 +333,15 @@ def get_paged_mqa_logits_metadata(
     arch, num_sms = _resolve_device(context_lens, num_sms)
     _check_context_lens(context_lens)
     if block_kv not in paged_block_sizes():
-        raise ValueError(
-            f"block_kv {block_kv} is not exported; exported page sizes: {paged_block_sizes()}"
-        )
+        raise ValueError(f"block_kv {block_kv} is not exported; exported page sizes: {paged_block_sizes()}")
     route = _metadata_route(block_kv, int(context_lens.shape[1]))
     if out is None:
-        out = torch.empty(
-            metadata_shape(num_sms), dtype=torch.int32, device=context_lens.device
-        )
-    if (
-        out.dtype != torch.int32
-        or tuple(out.shape) != metadata_shape(num_sms)
-        or not out.is_contiguous()
-    ):
+        out = torch.empty(metadata_shape(num_sms), dtype=torch.int32, device=context_lens.device)
+    if out.dtype != torch.int32 or tuple(out.shape) != metadata_shape(num_sms) or not out.is_contiguous():
         raise ValueError(f"out must be contiguous int32 {metadata_shape(num_sms)}")
-    bindings = {
-        "metadata": metadata_bindings(
-            context_lens, out, block_kv=block_kv, num_sms=num_sms
-        )
-    }
+    bindings = {"metadata": metadata_bindings(context_lens, out, block_kv=block_kv, num_sms=num_sms)}
     program = dict(route["stages"])["metadata"]
-    (entry, args), _loaded = _submission(
-        arch, program, bindings, num_sms, stage="metadata"
-    )
+    (entry, args), _loaded = _submission(arch, program, bindings, num_sms, stage="metadata")
     with tvm_ffi.use_torch_stream():
         entry(*args)
     return out
@@ -430,15 +368,11 @@ def fp8_paged_mqa_logits(
     row-padded buffer.
     """
     if clean_logits:
-        raise ValueError(
-            "clean_logits=True is not supported with [B, next_n] context_lens (DeepGEMM semantics)"
-        )
+        raise ValueError("clean_logits=True is not supported with [B, next_n] context_lens (DeepGEMM semantics)")
     if indices is not None:
         raise ValueError("indices (variable-length request selection) is not supported")
     if schedule_meta.ndim != 2 or int(schedule_meta.shape[1]) != 2:
-        raise ValueError(
-            "schedule_meta must be int32 [num_sms + 1, 2] from get_paged_mqa_logits_metadata"
-        )
+        raise ValueError("schedule_meta must be int32 [num_sms + 1, 2] from get_paged_mqa_logits_metadata")
     num_sms = int(schedule_meta.shape[0]) - 1
     plan = PagedMqaPlan(
         q,

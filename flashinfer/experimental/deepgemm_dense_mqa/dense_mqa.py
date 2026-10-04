@@ -48,7 +48,6 @@ def _catalog():
 def device_facts(device_index):
     """``(arch, sm_count)`` of one CUDA device through FlashInfer's cached device queries."""
     import torch
-
     from flashinfer.utils import get_compute_capability, get_device_sm_count
 
     device = torch.device("cuda", device_index)
@@ -98,9 +97,7 @@ def program_definitions(record, num_sms):
     values = {"SM_COUNT": int(num_sms)}
     unknown = sorted(set(record["definitions"]) - set(values))
     if unknown:
-        raise RuntimeError(
-            f"catalog program requires definitions this runtime cannot supply: {unknown}"
-        )
+        raise RuntimeError(f"catalog program requires definitions this runtime cannot supply: {unknown}")
     return {name: values[name] for name in record["definitions"]}
 
 
@@ -114,14 +111,10 @@ def program_spec(arch, name, num_sms):
     if arch not in record["arches"]:
         raise RuntimeError(f"program {name} is not exported for {arch}")
     definitions = program_definitions(record, num_sms)
-    suffix = "".join(
-        f"_{key.lower()}{value}" for key, value in sorted(definitions.items())
-    )
+    suffix = "".join(f"_{key.lower()}{value}" for key, value in sorted(definitions.items()))
     return gen_jit_spec(
         name=f"{name}_{arch}{suffix}",
-        sources=[
-            env.FLASHINFER_CSRC_DIR / p.removeprefix("csrc/") for p in record["sources"]
-        ],
+        sources=[env.FLASHINFER_CSRC_DIR / p.removeprefix("csrc/") for p in record["sources"]],
         extra_cuda_cflags=[
             *_nvcc_flags(arch),
             *record["compile_flags"],
@@ -172,20 +165,12 @@ def route_name(precision, queries, keys, num_heads=NUM_HEADS):
         raise ValueError("precision must be 'fp4' or 'fp8'")
     prefix = _route_prefix(precision, num_heads)
     if precision == "fp4":
-        return (
-            f"{prefix}:q1"
-            if queries == 1
-            else f"{prefix}:{metadata_tier(queries, num_heads)}"
-        )
+        return f"{prefix}:q1" if queries == 1 else f"{prefix}:{metadata_tier(queries, num_heads)}"
     if queries == 1:
         if num_heads == NUM_HEADS and keys <= policy["fused_q1_max_kv"]:
             return f"{prefix}:q1:short"
         return f"{prefix}:q1"
-    if (
-        num_heads == NUM_HEADS
-        and queries == 128
-        and keys <= policy["fused_q128_max_kv"]
-    ):
+    if num_heads == NUM_HEADS and queries == 128 and keys <= policy["fused_q128_max_kv"]:
         return f"{prefix}:q128:short"
     kind = "full" if queries % block_q(num_heads) == 0 else "partial"
     return f"{prefix}:{kind}:{metadata_tier(queries, num_heads)}"
@@ -205,9 +190,7 @@ def _kv_scales_view(kv_scales, keys):
     """The ``[1, K]`` TMA operand of the FP32 KV scales with a 16-byte aligned row stride (``align4(K)``);
     the caller's storage must hold ``align4(K)`` elements past the tensor's offset."""
     needed = align4(keys)
-    available = (
-        kv_scales.untyped_storage().nbytes() - kv_scales.storage_offset() * 4
-    ) // 4
+    available = (kv_scales.untyped_storage().nbytes() - kv_scales.storage_offset() * 4) // 4
     if available < needed:
         raise ValueError(
             f"kv_scales storage must hold align4(K) = {needed} FP32 elements past its offset (has {available}); "
@@ -238,9 +221,7 @@ def route_record(precision, queries, keys, num_heads=NUM_HEADS):
     """The catalog record of a problem's route (``stages``, ``sequence``, ``num_heads``, ``block_q``,
     ``clean_logits``, ``kv_alignment``); raises ``ValueError`` when the catalog does not ship it."""
     if not dense_route_available(num_heads, queries, keys, precision):
-        raise ValueError(
-            f"no exported dense MQA route for {(precision, num_heads, queries, keys)}"
-        )
+        raise ValueError(f"no exported dense MQA route for {(precision, num_heads, queries, keys)}")
     return _catalog()["routes"][route_name(precision, queries, keys, num_heads)]
 
 
@@ -263,8 +244,7 @@ def schedules_metadata(num_heads=NUM_HEADS):
     ``ScheduleMeta`` operand bound to ``ks`` and unused."""
     records = _catalog()["routes"].values()
     return any(
-        int(record["num_heads"]) == int(num_heads)
-        and any(stage == "metadata" for stage, _p in record["stages"])
+        int(record["num_heads"]) == int(num_heads) and any(stage == "metadata" for stage, _p in record["stages"])
         for record in records
     )
 
@@ -368,9 +348,7 @@ def _submission(arch, program, bindings, num_sms, *, stage=None):
     arguments = []
     for kind, key in record["arg_plan"]:
         if kind == "workspace":
-            raise NotImplementedError(
-                "Dense route unexpectedly requires external descriptor storage"
-            )
+            raise NotImplementedError("Dense route unexpectedly requires external descriptor storage")
         if stage is None:
             selected, name = key.split(".", 1)
         else:
@@ -384,9 +362,7 @@ def _resolve_device(q, sm_count):
 
     if q.device.type != "cuda":
         raise RuntimeError("Dense MQA requires CUDA tensors")
-    device_index = (
-        q.device.index if q.device.index is not None else torch.cuda.current_device()
-    )
+    device_index = q.device.index if q.device.index is not None else torch.cuda.current_device()
     arch, num_sms = device_facts(device_index)
     if sm_count is not None:
         # CTA budget override (tests, restricted serving partitions, an engine's
@@ -451,16 +427,12 @@ class DenseMqaPlan:
             raise ValueError("q must be [Q_storage, H, D] and kv [K, D]")
         num_heads = int(q.shape[1])
         if num_heads not in heads():
-            raise ValueError(
-                f"q has {num_heads} heads; exported head counts: {heads()}"
-            )
+            raise ValueError(f"q has {num_heads} heads; exported head counts: {heads()}")
         bq = block_q(num_heads)
         queries, keys = starts.numel(), kv.shape[0]
         bound = max_queries(num_heads)
         if queries < 1 or (bound is not None and queries > bound):
-            raise ValueError(
-                f"Q must be in 1..{bound}" if bound is not None else "Q must be >= 1"
-            )
+            raise ValueError(f"Q must be in 1..{bound}" if bound is not None else "Q must be >= 1")
         if keys < 1:
             raise ValueError("positive K is required")
         if not dense_route_available(num_heads, queries, keys, precision):
@@ -468,12 +440,7 @@ class DenseMqaPlan:
                 f"no exported dense MQA route for precision {precision!r}, {num_heads} heads, "
                 f"Q = {queries}, K = {keys} (K must be a multiple of kv_alignment({num_heads}))"
             )
-        if (
-            starts.dtype != torch.int32
-            or ends.dtype != torch.int32
-            or starts.shape != ends.shape
-            or starts.ndim != 1
-        ):
+        if starts.dtype != torch.int32 or ends.dtype != torch.int32 or starts.shape != ends.shape or starts.ndim != 1:
             raise ValueError("starts and ends must be equal-shaped int32 vectors")
         if weights.dtype != torch.float32:
             raise ValueError("weights must be FP32")
@@ -486,16 +453,9 @@ class DenseMqaPlan:
                 or tuple(kv.shape) != (keys, 64)
             ):
                 raise ValueError("FP4 q/kv must be packed int8/uint8[Q,H,64]/[K,64]")
-            if (
-                q_scales is None
-                or kv_scales is None
-                or q_scales.dtype != torch.uint8
-                or kv_scales.dtype != torch.uint8
-            ):
+            if q_scales is None or kv_scales is None or q_scales.dtype != torch.uint8 or kv_scales.dtype != torch.uint8:
                 raise ValueError("FP4 q_scales/kv_scales must be UE8M0 uint8 tensors")
-            if tuple(q_scales.shape) != (queries, num_heads, 4) or tuple(
-                kv_scales.shape
-            ) != (keys, 4):
+            if tuple(q_scales.shape) != (queries, num_heads, 4) or tuple(kv_scales.shape) != (keys, 4):
                 raise ValueError("FP4 scales must have shape [Q,H,4]/[K,4]")
             q_rows = queries
         else:
@@ -516,14 +476,10 @@ class DenseMqaPlan:
                 or kv_scales.dtype != torch.float32
                 or tuple(kv_scales.shape) != (keys,)
             ):
-                raise ValueError(
-                    f"FP8 requires Q_storage >= {min_rows} rows and FP32 KV scales[K]"
-                )
+                raise ValueError(f"FP8 requires Q_storage >= {min_rows} rows and FP32 KV scales[K]")
             _kv_scales_view(kv_scales, keys)
         if tuple(weights.shape) != (q_rows, num_heads):
-            raise ValueError(
-                "weights must match the physical Q rows and the head count"
-            )
+            raise ValueError("weights must match the physical Q rows and the head count")
         tensors = [q, kv, weights, starts, ends, kv_scales]
         if q_scales is not None:
             tensors.append(q_scales)
@@ -546,9 +502,7 @@ class DenseMqaPlan:
         padded_rows = (queries + bq - 1) // bq * bq
         if output is None:
             rows = padded_rows if precision == "fp4" else queries
-            output = torch.empty((rows, stride), dtype=torch.float32, device=q.device)[
-                :queries
-            ]
+            output = torch.empty((rows, stride), dtype=torch.float32, device=q.device)[:queries]
         if (
             output.dtype != torch.float32
             or tuple(output.shape) != (queries, stride)
@@ -558,12 +512,9 @@ class DenseMqaPlan:
             raise ValueError("output must be contiguous FP32[Q,logits_stride(K)]")
         # The FP4 route's final CTA addresses the padded query rows of its last tile.
         if precision == "fp4" and (
-            output.untyped_storage().nbytes() - output.storage_offset() * 4
-            < padded_rows * stride * 4
+            output.untyped_storage().nbytes() - output.storage_offset() * 4 < padded_rows * stride * 4
         ):
-            raise ValueError(
-                f"FP4 output backing storage must include the final {bq}-row tile"
-            )
+            raise ValueError(f"FP4 output backing storage must include the final {bq}-row tile")
         # The metadata buffer belongs to the head count's schedule, not to the route's stage list: the
         # shipped 32-head fused routes (fp8:q1:short / fp8:q128:short) have no metadata stage yet WRITE
         # their schedule into ScheduleMeta in-kernel, so every 32-head plan owns the buffer; the 64-head
@@ -578,9 +529,7 @@ class DenseMqaPlan:
                 or metadata.device != q.device
                 or not metadata.is_contiguous()
             ):
-                raise ValueError(
-                    "metadata has the wrong device, dtype or physical extent"
-                )
+                raise ValueError("metadata has the wrong device, dtype or physical extent")
         elif metadata is not None:
             raise ValueError(
                 f"route {self.route_name}: the {num_heads}-head programs have no metadata buffer; metadata must be None"
@@ -601,23 +550,15 @@ class DenseMqaPlan:
         )
         self._submissions, self._programs = [], []
         sequence = self.route.get("sequence")
-        selections = (
-            [(None, sequence)]
-            if sequence
-            else [(stage, program) for stage, program in self.route["stages"]]
-        )
+        selections = [(None, sequence)] if sequence else [(stage, program) for stage, program in self.route["stages"]]
         self.program_names = [program for _stage, program in selections]
         for stage_name, program in selections:
-            submit, loaded = _submission(
-                arch, program, bindings, num_sms, stage=stage_name
-            )
+            submit, loaded = _submission(arch, program, bindings, num_sms, stage=stage_name)
             self._submissions.append(submit)
             self._programs.append(loaded)
         self.output, self.metadata = output, metadata
         self.logical_output = output[:, :keys]
-        self._retained = (
-            (*tensors, output, metadata) if metadata is not None else (*tensors, output)
-        )
+        self._retained = (*tensors, output, metadata) if metadata is not None else (*tensors, output)
 
     @property
     def launch_count(self):
@@ -682,34 +623,23 @@ def fp8_mqa_logits(
     if tuple(weights.shape) != (queries, num_heads):
         raise ValueError("weights must be [Q, H]")
     keys = int(kv_values.shape[0]) if kv_values.ndim == 2 else 0
-    if (
-        clean_logits
-        and route_record("fp8", queries, keys, num_heads).get("clean_logits") != "fused"
-    ):
+    if clean_logits and route_record("fp8", queries, keys, num_heads).get("clean_logits") != "fused":
         raise ValueError(
             "clean_logits=True is not available on this route (the program stores raw tiles, DeepGEMM "
             "clean_logits=False semantics); pass clean_logits=False as the engine does"
         )
-    if kv_scales.ndim == 1 and (
-        kv_scales.untyped_storage().nbytes() - kv_scales.storage_offset() * 4
-    ) // 4 < align4(keys):
-        aligned = torch.empty(
-            align4(keys), dtype=kv_scales.dtype, device=kv_scales.device
-        )
+    if kv_scales.ndim == 1 and (kv_scales.untyped_storage().nbytes() - kv_scales.storage_offset() * 4) // 4 < align4(
+        keys
+    ):
+        aligned = torch.empty(align4(keys), dtype=kv_scales.dtype, device=kv_scales.device)
         aligned[:keys] = kv_scales
         kv_scales = aligned[:keys]
     q_rows = max(bq, queries) if num_heads == NUM_HEADS else queries
     if q_rows != queries:
-        q_storage = torch.zeros(
-            (q_rows, num_heads, HEAD_DIM), dtype=q.dtype, device=q.device
-        )
+        q_storage = torch.zeros((q_rows, num_heads, HEAD_DIM), dtype=q.dtype, device=q.device)
         q_storage[:queries] = q
-        w_storage = torch.zeros(
-            (q_rows, num_heads), dtype=weights.dtype, device=q.device
-        )
+        w_storage = torch.zeros((q_rows, num_heads), dtype=weights.dtype, device=q.device)
         w_storage[:queries] = weights
         q, weights = q_storage, w_storage
-    plan = DenseMqaPlan(
-        "fp8", q, kv_values, weights, ks, ke, kv_scales=kv_scales, sm_count=sm_count
-    )
+    plan = DenseMqaPlan("fp8", q, kv_values, weights, ks, ke, kv_scales=kv_scales, sm_count=sm_count)
     return plan.run()
