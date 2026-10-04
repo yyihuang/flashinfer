@@ -1955,8 +1955,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                 :: "r"((unsigned int)my_s_base_c + sm_stage_c * (unsigned int)BLOCK_N + 16), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[0])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[1])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[2])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[3])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[4])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[5])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[6])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[7])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[8])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[9])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[10])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[11])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[12])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[13])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[14])), "r"(*reinterpret_cast<const uint32_t*>(&regs_pc[15])));
                             asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
                         }
-                        int _vote_2 = __any_sync(0xFFFFFFFF, acc_scale_c != 1.0f);
-                        if (_vote_2 != 0) {
+                        int _vote_3 = __any_sync(0xFFFFFFFF, acc_scale_c != 1.0f);
+                        if (_vote_3 != 0) {
                             if (n_1 > 0) {
                                 unsigned int k_c = pv_base + (unsigned int)n_1 - 1;
                                 int o_st_c = (int)(k_c & 1);
@@ -3276,11 +3276,153 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                 si_before_b[bi_3] = 0;
                 st_before_b[bi_3] = 0;
             }
-            unsigned int first_claim = 1;
-            unsigned int gate_phase = 0;
+            unsigned int ef_pub = 0;
+            unsigned int ef_empty = 0;
             unsigned int _phase_work_empty = 1;
+            if (num_groups == 1) {
+                unsigned int ef_t = blockIdx.x;
+                unsigned int ef_take = 0;
+                if (ef_t >= total_items) {
+                    ef_take = 1;
+                }
+                if (ef_t < chunk_items) {
+                    ef_take = 1;
+                }
+                if (ef_take != 0) {
+                    mbarrier_wait(work_empty_addr + (work_stage_sched) * 8, _phase_work_empty);
+                    unsigned int ef_valid = ((ef_t < total_items) ? 1 : 0);
+                    unsigned int ef_base = work_stage_sched * 16;
+                    if (ef_valid != 0) {
+                        int ef_bucket = 0;
+                        unsigned int ef_bstart = 0;
+                        #pragma unroll
+                        for (int bi_4 = 0; bi_4 < 4; bi_4++) {
+                            if (ef_t >= bucket_end[bi_4]) {
+                                ef_bucket = bi_4 + 1;
+                                ef_bstart = bucket_end[bi_4];
+                            }
+                        }
+                        unsigned int ef_litems = ef_t - ef_bstart;
+                        unsigned int q_0_6 = (unsigned int)((float)ef_litems * items_rcp);
+                        if (ef_litems < q_0_6 * (unsigned int)items_per_chunk) {
+                            q_0_6 = q_0_6 - 1;
+                        }
+                        if (ef_litems >= (q_0_6 + 1) * (unsigned int)items_per_chunk) {
+                            q_0_6 = q_0_6 + 1;
+                        }
+                        unsigned int ef_lchunk = q_0_6;
+                        int ef_inchunk = (int)(ef_litems - ef_lchunk * (unsigned int)items_per_chunk);
+                        int ef_r0 = sched_seq_lens[32 + lane_0];
+                        int ef_r1 = sched_seq_lens[64 + lane_0];
+                        int ef_r2 = sched_seq_lens[96 + lane_0];
+                        int ef_r3 = sched_seq_lens[128 + lane_0];
+                        unsigned int ef_w0 = (unsigned int)ef_r0;
+                        unsigned int ef_w1 = (unsigned int)ef_r1;
+                        unsigned int ef_w2 = (unsigned int)ef_r2;
+                        unsigned int ef_w3 = (unsigned int)ef_r3;
+                        int ef_s = 0;
+                        if (lane_0 < batch_size) {
+                            ef_s = sched_seq_lens[lane_0];
+                        }
+                        int ef_full = (int)(ef_w0 & 268435455);
+                        int ef_rb = (int)(ef_w0 >> 28);
+                        int ef_n = ef_full;
+                        if (ef_rb != 0) {
+                            ef_n = ef_full + 1;
+                        }
+                        unsigned int ef_mine = (unsigned int)ef_full;
+                        unsigned int ef_incl = ef_w1;
+                        if (ef_bucket != 0) {
+                            ef_mine = 0;
+                            if (ef_rb == ef_bucket) {
+                                ef_mine = 1;
+                            }
+                            ef_incl = ef_w2 >> (unsigned int)(8 * (ef_bucket - 1)) & 255;
+                        }
+                        unsigned int ef_si = 0;
+                        unsigned int ef_st = 0;
+                        if (ef_n > 1) {
+                            ef_si = (unsigned int)ef_n;
+                            ef_st = 1;
+                        }
+                        unsigned int ef_excl = ef_incl - ef_mine;
+                        unsigned int ef_excl_si = ef_w3 - ef_si;
+                        unsigned int ef_excl_st = (ef_w2 >> 24) - ef_st;
+                        int ef_hit = 0;
+                        if (ef_mine > 0) {
+                            if (ef_excl <= ef_lchunk) {
+                                if (ef_lchunk < ef_incl) {
+                                    ef_hit = 1;
+                                }
+                            }
+                        }
+                        unsigned int _vote_0 = __ballot_sync(0xFFFFFFFF, ef_hit != 0);
+                        unsigned int ef_mask = _vote_0;
+                        int _ffs_0 = __ffs(ef_mask);
+                        int ef_lane = _ffs_0 - 1;
+                        int _shfl_4 = __shfl_sync(0xFFFFFFFF, ef_s, ef_lane);
+                        int ef_seqlen = _shfl_4;
+                        int _shfl_5 = __shfl_sync(0xFFFFFFFF, ef_n, ef_lane);
+                        int ef_seln = _shfl_5;
+                        int _shfl_6 = __shfl_sync(0xFFFFFFFF, ef_full, ef_lane);
+                        int ef_selfull = _shfl_6;
+                        unsigned int _shfl_7 = __shfl_sync(0xFFFFFFFF, ef_excl, ef_lane);
+                        int ef_selexcl = (int)_shfl_7;
+                        unsigned int _shfl_8 = __shfl_sync(0xFFFFFFFF, ef_excl_si, ef_lane);
+                        int ef_selexcl_si = (int)_shfl_8;
+                        unsigned int _shfl_9 = __shfl_sync(0xFFFFFFFF, ef_excl_st, ef_lane);
+                        int ef_selexcl_st = (int)_shfl_9;
+                        int ef_chunk = ef_selfull;
+                        if (ef_bucket == 0) {
+                            ef_chunk = (int)ef_lchunk - ef_selexcl;
+                        }
+                        int ef_nbt = (ef_seqlen + BLOCK_N - 1) / BLOCK_N;
+                        int ef_bb = 2 * ef_chunk * chunk_pairs;
+                        int ef_be = 2 * (ef_chunk + 1) * chunk_pairs;
+                        if (ef_chunk + 1 == ef_seln) {
+                            ef_be = ef_nbt;
+                        }
+                        int ef_slot = 0;
+                        int ef_ctr = 0;
+                        if (ef_seln > 1) {
+                            ef_slot = ef_selexcl_si * items_per_chunk + ef_inchunk;
+                            ef_ctr = ef_selexcl_st * items_per_chunk + ef_inchunk;
+                        }
+                        if (lane_0 == 0) {
+                            work_token_words[ef_base + 1] = 0;
+                            work_token_words[ef_base + 2] = (unsigned int)ef_lane;
+                            work_token_words[ef_base + 3] = (unsigned int)ef_inchunk;
+                            work_token_words[ef_base + 4] = (unsigned int)ef_bb;
+                            work_token_words[ef_base + 5] = (unsigned int)ef_be;
+                            work_token_words[ef_base + 6] = (unsigned int)ef_seqlen;
+                            work_token_words[ef_base + 7] = (unsigned int)ef_seln;
+                            work_token_words[ef_base + 8] = (unsigned int)ef_slot;
+                            work_token_words[ef_base + 9] = (unsigned int)ef_ctr;
+                            work_token_words[ef_base + 10] = (unsigned int)ef_chunk;
+                        }
+                    }
+                    if (lane_0 == 0) {
+                        work_token_words[ef_base] = ef_valid;
+                        mbarrier_arrive(work_full_addr + (work_stage_sched) * 8);
+                    }
+                    work_stage_sched += 1;
+                    if (work_stage_sched == 4) { work_stage_sched = 0; _phase_work_empty ^= 1; }
+                    ef_pub = 1;
+                    if (ef_valid == 0) {
+                        ef_empty = 1;
+                    }
+                }
+            }
+            unsigned int first_claim = 1;
+            if (ef_pub != 0) {
+                first_claim = 0;
+            }
+            unsigned int gate_phase = 0;
             #pragma unroll 1
             for (unsigned int _claim = 0; _claim < max_items + 1; _claim++) {
+                if (ef_empty != 0) {
+                    break;
+                }
                 mbarrier_wait(work_empty_addr + (work_stage_sched) * 8, _phase_work_empty);
                 unsigned int ticket_lane0 = blockIdx.x;
                 if (first_claim == 0) {
@@ -3296,8 +3438,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                     }
                 }
                 first_claim = 0;
-                unsigned int _shfl_4 = __shfl_sync(0xFFFFFFFF, ticket_lane0, 0);
-                unsigned int ticket = _shfl_4;
+                unsigned int _shfl_10 = __shfl_sync(0xFFFFFFFF, ticket_lane0, 0);
+                unsigned int ticket = _shfl_10;
                 unsigned int token_base = work_stage_sched * 16;
                 unsigned int valid_tok = ((ticket < total_items) ? 1 : 0);
                 int counter_idx_r = 0;
@@ -3327,17 +3469,17 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                             if (b_r < batch_size) {
                                 int s_r = sched_seq_lens[b_r];
                                 int pairs_r = (s_r + 255) / 256;
-                                unsigned int q_0_6 = (unsigned int)((float)(unsigned int)pairs_r * chunk_rcp);
-                                if (q_0_6 * chunk_pairs_u > (unsigned int)pairs_r) {
-                                    q_0_6 = q_0_6 - 1;
+                                unsigned int q_0_7 = (unsigned int)((float)(unsigned int)pairs_r * chunk_rcp);
+                                if (q_0_7 * chunk_pairs_u > (unsigned int)pairs_r) {
+                                    q_0_7 = q_0_7 - 1;
                                 }
-                                if ((q_0_6 + 1) * chunk_pairs_u <= (unsigned int)pairs_r) {
-                                    q_0_6 = q_0_6 + 1;
+                                if ((q_0_7 + 1) * chunk_pairs_u <= (unsigned int)pairs_r) {
+                                    q_0_7 = q_0_7 + 1;
                                 }
-                                if (q_0_6 * chunk_pairs_u < (unsigned int)pairs_r) {
-                                    q_0_6 = q_0_6 + 1;
+                                if (q_0_7 * chunk_pairs_u < (unsigned int)pairs_r) {
+                                    q_0_7 = q_0_7 + 1;
                                 }
-                                n_r = (int)q_0_6;
+                                n_r = (int)q_0_7;
                                 if (n_r > 1) {
                                     si_r = (unsigned int)n_r;
                                     st_r = 1;
@@ -3367,16 +3509,16 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                             asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(8));
                             asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(16));
                             incl_st_r = _warp_scan_sum_u32_5;
-                            unsigned int _shfl_5 = __shfl_sync(0xFFFFFFFF, incl_r, 31);
-                            unsigned int group_total_r = _shfl_5;
+                            unsigned int _shfl_11 = __shfl_sync(0xFFFFFFFF, incl_r, 31);
+                            unsigned int group_total_r = _shfl_11;
                             if (rt_idx < rt_before + group_total_r) {
                                 break;
                             }
                             rt_before = rt_before + group_total_r;
-                            unsigned int _shfl_6 = __shfl_sync(0xFFFFFFFF, incl_si_r, 31);
-                            si_before_r = si_before_r + _shfl_6;
-                            unsigned int _shfl_7 = __shfl_sync(0xFFFFFFFF, incl_st_r, 31);
-                            st_before_r = st_before_r + _shfl_7;
+                            unsigned int _shfl_12 = __shfl_sync(0xFFFFFFFF, incl_si_r, 31);
+                            si_before_r = si_before_r + _shfl_12;
+                            unsigned int _shfl_13 = __shfl_sync(0xFFFFFFFF, incl_st_r, 31);
+                            st_before_r = st_before_r + _shfl_13;
                         }
                         unsigned int in_group_r = rt_idx - rt_before;
                         unsigned int excl_r = incl_r - mine_r;
@@ -3390,20 +3532,20 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                 }
                             }
                         }
-                        unsigned int _vote_0 = __ballot_sync(0xFFFFFFFF, hit_r != 0);
-                        unsigned int hit_mask_r = _vote_0;
-                        int _ffs_0 = __ffs(hit_mask_r);
-                        int hit_lane_r = _ffs_0 - 1;
-                        int _shfl_8 = __shfl_sync(0xFFFFFFFF, b_r, hit_lane_r);
-                        int sel_batch_r = _shfl_8;
-                        int _shfl_9 = __shfl_sync(0xFFFFFFFF, n_r, hit_lane_r);
-                        int sel_n_r = _shfl_9;
-                        unsigned int _shfl_10 = __shfl_sync(0xFFFFFFFF, excl_r, hit_lane_r);
-                        int sel_excl_r = (int)_shfl_10;
-                        unsigned int _shfl_11 = __shfl_sync(0xFFFFFFFF, excl_si_r, hit_lane_r);
-                        int sel_excl_si_r = (int)_shfl_11;
-                        unsigned int _shfl_12 = __shfl_sync(0xFFFFFFFF, excl_st_r, hit_lane_r);
-                        int sel_excl_st_r = (int)_shfl_12;
+                        unsigned int _vote_1 = __ballot_sync(0xFFFFFFFF, hit_r != 0);
+                        unsigned int hit_mask_r = _vote_1;
+                        int _ffs_1 = __ffs(hit_mask_r);
+                        int hit_lane_r = _ffs_1 - 1;
+                        int _shfl_14 = __shfl_sync(0xFFFFFFFF, b_r, hit_lane_r);
+                        int sel_batch_r = _shfl_14;
+                        int _shfl_15 = __shfl_sync(0xFFFFFFFF, n_r, hit_lane_r);
+                        int sel_n_r = _shfl_15;
+                        unsigned int _shfl_16 = __shfl_sync(0xFFFFFFFF, excl_r, hit_lane_r);
+                        int sel_excl_r = (int)_shfl_16;
+                        unsigned int _shfl_17 = __shfl_sync(0xFFFFFFFF, excl_si_r, hit_lane_r);
+                        int sel_excl_si_r = (int)_shfl_17;
+                        unsigned int _shfl_18 = __shfl_sync(0xFFFFFFFF, excl_st_r, hit_lane_r);
+                        int sel_excl_st_r = (int)_shfl_18;
                         int kv_head_r = (int)in_group_r - sel_excl_r;
                         int slot_tile_base_r = ((int)si_before_r + sel_excl_si_r) * items_per_chunk + kv_head_r;
                         counter_idx_r = ((int)st_before_r + sel_excl_st_r) * items_per_chunk + kv_head_r;
@@ -3434,33 +3576,33 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                         int bucket = 0;
                         unsigned int bucket_start = 0;
                         #pragma unroll
-                        for (int bi_4 = 0; bi_4 < 4; bi_4++) {
-                            if (ticket >= bucket_end[bi_4]) {
-                                bucket = bi_4 + 1;
-                                bucket_start = bucket_end[bi_4];
+                        for (int bi_5 = 0; bi_5 < 4; bi_5++) {
+                            if (ticket >= bucket_end[bi_5]) {
+                                bucket = bi_5 + 1;
+                                bucket_start = bucket_end[bi_5];
                             }
                         }
                         unsigned int local_items = ticket - bucket_start;
-                        unsigned int q_0_7 = (unsigned int)((float)local_items * items_rcp);
-                        if (local_items < q_0_7 * (unsigned int)items_per_chunk) {
-                            q_0_7 = q_0_7 - 1;
+                        unsigned int q_0_8 = (unsigned int)((float)local_items * items_rcp);
+                        if (local_items < q_0_8 * (unsigned int)items_per_chunk) {
+                            q_0_8 = q_0_8 - 1;
                         }
-                        if (local_items >= (q_0_7 + 1) * (unsigned int)items_per_chunk) {
-                            q_0_7 = q_0_7 + 1;
+                        if (local_items >= (q_0_8 + 1) * (unsigned int)items_per_chunk) {
+                            q_0_8 = q_0_8 + 1;
                         }
-                        unsigned int local_chunk = q_0_7;
+                        unsigned int local_chunk = q_0_8;
                         int in_chunk = (int)(local_items - local_chunk * (unsigned int)items_per_chunk);
                         int cursor_group = 0;
                         unsigned int before = 0;
                         unsigned int si_before = 0;
                         unsigned int st_before = 0;
                         #pragma unroll
-                        for (int bi_5 = 0; bi_5 < 4; bi_5++) {
-                            if (bucket == bi_5) {
-                                cursor_group = cur_group_b[bi_5];
-                                before = before_b[bi_5];
-                                si_before = si_before_b[bi_5];
-                                st_before = st_before_b[bi_5];
+                        for (int bi_6 = 0; bi_6 < 4; bi_6++) {
+                            if (bucket == bi_6) {
+                                cursor_group = cur_group_b[bi_6];
+                                before = before_b[bi_6];
+                                si_before = si_before_b[bi_6];
+                                st_before = st_before_b[bi_6];
                             }
                         }
                         int s3 = 0;
@@ -3584,25 +3726,25 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                             asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_8) : "r"(8));
                             asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_8) : "r"(16));
                             incl_st3 = _warp_scan_sum_u32_8;
-                            unsigned int _shfl_13 = __shfl_sync(0xFFFFFFFF, incl3, 31);
-                            unsigned int group_total = _shfl_13;
+                            unsigned int _shfl_19 = __shfl_sync(0xFFFFFFFF, incl3, 31);
+                            unsigned int group_total = _shfl_19;
                             if (local_chunk < before + group_total) {
                                 break;
                             }
                             before = before + group_total;
-                            unsigned int _shfl_14 = __shfl_sync(0xFFFFFFFF, incl_si3, 31);
-                            si_before = si_before + _shfl_14;
-                            unsigned int _shfl_15 = __shfl_sync(0xFFFFFFFF, incl_st3, 31);
-                            st_before = st_before + _shfl_15;
+                            unsigned int _shfl_20 = __shfl_sync(0xFFFFFFFF, incl_si3, 31);
+                            si_before = si_before + _shfl_20;
+                            unsigned int _shfl_21 = __shfl_sync(0xFFFFFFFF, incl_st3, 31);
+                            st_before = st_before + _shfl_21;
                             cursor_group = cursor_group + 1;
                         }
                         #pragma unroll
-                        for (int bi_6 = 0; bi_6 < 4; bi_6++) {
-                            if (bucket == bi_6) {
-                                cur_group_b[bi_6] = cursor_group;
-                                before_b[bi_6] = before;
-                                si_before_b[bi_6] = si_before;
-                                st_before_b[bi_6] = st_before;
+                        for (int bi_7 = 0; bi_7 < 4; bi_7++) {
+                            if (bucket == bi_7) {
+                                cur_group_b[bi_7] = cursor_group;
+                                before_b[bi_7] = before;
+                                si_before_b[bi_7] = si_before;
+                                st_before_b[bi_7] = st_before;
                             }
                         }
                         unsigned int in_group = local_chunk - before;
@@ -3617,24 +3759,24 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                 }
                             }
                         }
-                        unsigned int _vote_1 = __ballot_sync(0xFFFFFFFF, hit3 != 0);
-                        unsigned int hit_mask = _vote_1;
-                        int _ffs_1 = __ffs(hit_mask);
-                        int hit_lane = _ffs_1 - 1;
-                        int _shfl_16 = __shfl_sync(0xFFFFFFFF, b3, hit_lane);
-                        int sel_batch = _shfl_16;
-                        int _shfl_17 = __shfl_sync(0xFFFFFFFF, s3, hit_lane);
-                        int sel_seqlen = _shfl_17;
-                        int _shfl_18 = __shfl_sync(0xFFFFFFFF, n3, hit_lane);
-                        int sel_n = _shfl_18;
-                        int _shfl_19 = __shfl_sync(0xFFFFFFFF, fullc3, hit_lane);
-                        int sel_full = _shfl_19;
-                        unsigned int _shfl_20 = __shfl_sync(0xFFFFFFFF, excl3, hit_lane);
-                        int sel_excl = (int)_shfl_20;
-                        unsigned int _shfl_21 = __shfl_sync(0xFFFFFFFF, excl_si3, hit_lane);
-                        int sel_excl_si = (int)_shfl_21;
-                        unsigned int _shfl_22 = __shfl_sync(0xFFFFFFFF, excl_st3, hit_lane);
-                        int sel_excl_st = (int)_shfl_22;
+                        unsigned int _vote_2 = __ballot_sync(0xFFFFFFFF, hit3 != 0);
+                        unsigned int hit_mask = _vote_2;
+                        int _ffs_2 = __ffs(hit_mask);
+                        int hit_lane = _ffs_2 - 1;
+                        int _shfl_22 = __shfl_sync(0xFFFFFFFF, b3, hit_lane);
+                        int sel_batch = _shfl_22;
+                        int _shfl_23 = __shfl_sync(0xFFFFFFFF, s3, hit_lane);
+                        int sel_seqlen = _shfl_23;
+                        int _shfl_24 = __shfl_sync(0xFFFFFFFF, n3, hit_lane);
+                        int sel_n = _shfl_24;
+                        int _shfl_25 = __shfl_sync(0xFFFFFFFF, fullc3, hit_lane);
+                        int sel_full = _shfl_25;
+                        unsigned int _shfl_26 = __shfl_sync(0xFFFFFFFF, excl3, hit_lane);
+                        int sel_excl = (int)_shfl_26;
+                        unsigned int _shfl_27 = __shfl_sync(0xFFFFFFFF, excl_si3, hit_lane);
+                        int sel_excl_si = (int)_shfl_27;
+                        unsigned int _shfl_28 = __shfl_sync(0xFFFFFFFF, excl_st3, hit_lane);
+                        int sel_excl_st = (int)_shfl_28;
                         int sel_chunk_off = (int)in_group - sel_excl;
                         int chunk_idx = sel_full;
                         if (bucket == 0) {
@@ -3698,8 +3840,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                     : "=r"(_atomic_inc_old_0) : "l"(&queue_counters[1]), "r"(static_cast<uint32_t>(num_ctas - 1)) : "memory");
                 done_old = _atomic_inc_old_0;
             }
-            unsigned int _shfl_23 = __shfl_sync(0xFFFFFFFF, done_old, 0);
-            done_old = _shfl_23;
+            unsigned int _shfl_29 = __shfl_sync(0xFFFFFFFF, done_old, 0);
+            done_old = _shfl_29;
             if ((int)done_old == num_ctas - 1) {
                 if (lane_0 == 0) {
                     *(reinterpret_cast<unsigned int*>(queue_counters) + (0)) = 0;
