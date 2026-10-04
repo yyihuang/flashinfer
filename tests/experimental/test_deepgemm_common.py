@@ -14,7 +14,7 @@ from flashinfer.experimental.deepgemm_common import (
 )
 
 _EXPERIMENTAL = Path(__file__).resolve().parents[2] / "flashinfer" / "experimental"
-_FAMILIES = ("deepgemm_", "mega_moe_v3", "source_mega_moe")
+_FAMILIES = ("deepgemm_", "mega_moe_v3")
 
 
 def _per_arch_catalog():
