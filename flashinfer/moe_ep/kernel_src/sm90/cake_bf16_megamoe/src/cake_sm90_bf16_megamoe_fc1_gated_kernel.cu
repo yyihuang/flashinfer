@@ -50,6 +50,7 @@ static_assert(sizeof(CUtensorMap) == 128, "CUtensorMap CUDA ABI must be 128 byte
 #define SMEM_SMEM_B_STRIDE 49152
 #define SMEM_TOTAL 196704
 #define THREADS 384
+#define LAUNCH_MIN_BLOCKS 1
 
 #include <math_constants.h>
 
@@ -148,7 +149,7 @@ __device__ __forceinline__ uint32_t make_warp_uniform(uint32_t val) {
 
 extern "C" {
 
-__global__ __launch_bounds__(384, 1) __cluster_dims__(2,1,1) void
+__global__ __launch_bounds__(384, LAUNCH_MIN_BLOCKS) __cluster_dims__(2,1,1) void
 kernel_cake_sm90_bf16_megamoe_fc1_gated(unsigned int num_experts, unsigned int shape_n, unsigned int shape_k, float clamp_limit, const __grid_constant__ CUtensorMap A, const __grid_constant__ CUtensorMap W, long long* __restrict__ offsets, __nv_bfloat16* __restrict__ D)
 {
     const int tid = threadIdx.x;

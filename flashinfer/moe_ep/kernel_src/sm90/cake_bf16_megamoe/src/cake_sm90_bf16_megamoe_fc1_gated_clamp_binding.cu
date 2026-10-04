@@ -28,7 +28,7 @@
 extern "C" __global__ void kernel_cake_sm90_bf16_megamoe_fc1_gated_clamp(unsigned int num_experts, unsigned int shape_n, unsigned int shape_k, float clamp_limit, const __grid_constant__ CUtensorMap A, const __grid_constant__ CUtensorMap W, long long* __restrict__ offsets, __nv_bfloat16* __restrict__ D);
 
 
-namespace cake_host_shim_a5e7d76a12f26e0c {
+namespace cake_host_shim_4fc18338b9bb486f {
 
 using tvm::ffi::TensorView;
 
@@ -223,6 +223,6 @@ void Run(int64_t arg_num_experts, int64_t arg_shape_n, int64_t arg_shape_k, doub
       << cudaGetErrorString(launch_status);
 }
 
-}  // namespace cake_host_shim_a5e7d76a12f26e0c
+}  // namespace cake_host_shim_4fc18338b9bb486f
 
-TVM_FFI_DLL_EXPORT_TYPED_FUNC(run, cake_host_shim_a5e7d76a12f26e0c::Run);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(run, cake_host_shim_4fc18338b9bb486f::Run);
