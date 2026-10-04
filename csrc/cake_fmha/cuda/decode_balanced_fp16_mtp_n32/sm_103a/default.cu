@@ -1260,8 +1260,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             unsigned int xm_slot_s = 0;
             unsigned int st_stage_s = 0;
             unsigned int st_phase_s = 1;
-            float _rcp_11 = approx_rcp(softmax_scale_log2);
-            float thr_raw = 8.0f * _rcp_11;
+            float _rcp_12 = approx_rcp(softmax_scale_log2);
+            float thr_raw = 8.0f * _rcp_12;
             unsigned int work_stage_s = 0;
             unsigned int _phase_work_full = 0;
             mbarrier_wait(work_full_addr + (work_stage_s) * 8, _phase_work_full);
@@ -1607,8 +1607,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                     }
                                     m_f = m_new;
                                 }
-                                float _rcp_13 = approx_rcp(l_f);
-                                float inv_f = ((l_f > 0.0f) ? _rcp_13 : 0.0f);
+                                float _rcp_14 = approx_rcp(l_f);
+                                float inv_f = ((l_f > 0.0f) ? _rcp_14 : 0.0f);
                                 #pragma unroll
                                 for (int k4 = 0; k4 < 4; k4++) {
                                     out4[k4] = acc_f[k4] * inv_f;
@@ -1669,8 +1669,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             int row_j_c = my_row_c / 8;
             int _min_3 = ((row_j_c) < (q_len - 1) ? (row_j_c) : (q_len - 1));
             int vis_j_c = _min_3;
-            float _rcp_14 = approx_rcp(softmax_scale_log2);
-            float thr_raw_c = 8.0f * _rcp_14;
+            float _rcp_15 = approx_rcp(softmax_scale_log2);
+            float thr_raw_c = 8.0f * _rcp_15;
             int live_rows = q_len * 8;
             unsigned int sm_stage_c = 0;
             unsigned int sm_phase_c = 0;
@@ -2057,8 +2057,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                         if (my_row_c < 32) {
                             row_sum_c = smem_sum[st_off + my_row_c];
                         }
-                        float _rcp_15 = approx_rcp(row_sum_c);
-                        float inv_c = ((row_sum_c > 0.0f) ? _rcp_15 : 0.0f);
+                        float _rcp_16 = approx_rcp(row_sum_c);
+                        float inv_c = ((row_sum_c > 0.0f) ? _rcp_16 : 0.0f);
                         if (my_row_c < live_rows) {
                             int j_c = my_row_c / 8;
                             int h_c = my_row_c % 8;
@@ -2139,8 +2139,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                     float _fma_5 = __fmaf_rn(w_o, l_o, w_s * l_s);
                                     den_i = _fma_5;
                                 }
-                                float _rcp_16 = approx_rcp(den_i);
-                                float inv_i = ((den_i > 0.0f) ? _rcp_16 : 0.0f);
+                                float _rcp_17 = approx_rcp(den_i);
+                                float inv_i = ((den_i > 0.0f) ? _rcp_17 : 0.0f);
                                 w_s_c = w_s * inv_i;
                                 w_o_c = w_o * inv_i;
                             }
@@ -2296,8 +2296,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                     }
                                     m_f_1 = m_new_1;
                                 }
-                                float _rcp_18 = approx_rcp(l_f_1);
-                                float inv_f_1 = ((l_f_1 > 0.0f) ? _rcp_18 : 0.0f);
+                                float _rcp_19 = approx_rcp(l_f_1);
+                                float inv_f_1 = ((l_f_1 > 0.0f) ? _rcp_19 : 0.0f);
                                 #pragma unroll
                                 for (int k4_1 = 0; k4_1 < 4; k4_1++) {
                                     out4_1[k4_1] = acc_f_1[k4_1] * inv_f_1;
@@ -2629,6 +2629,35 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             unsigned int page_prod_stage = 0;
             unsigned int page_prod_phase = 1;
             unsigned int work_stage_p = 0;
+            int pt_row_lines = (max_pages_per_seq + 31) / 32;
+            int pt_nr = pt_row_lines;
+            int pt_cap = 32;
+            if (batch_size == 1) {
+                pt_cap = 128;
+            }
+            if (pt_nr > pt_cap) {
+                pt_nr = pt_cap;
+            }
+            int pt_total = batch_size * pt_nr;
+            float _rcp_11 = approx_rcp((float)pt_nr);
+            float pt_nr_rcp = _rcp_11;
+            int pt_grid = gridDim.x;
+            #pragma unroll
+            for (int pk = 0; pk < 4; pk++) {
+                int pt_i = blockIdx.x + pt_grid * (lane + 32 * pk);
+                if (pt_i < pt_total) {
+                    unsigned int q = (unsigned int)((float)(unsigned int)pt_i * pt_nr_rcp);
+                    if (q * (unsigned int)pt_nr > (unsigned int)pt_i) {
+                        q = q - 1;
+                    }
+                    if ((q + 1) * (unsigned int)pt_nr <= (unsigned int)pt_i) {
+                        q = q + 1;
+                    }
+                    int pt_req = (int)q;
+                    int pt_line = pt_i - pt_req * pt_nr;
+                    asm volatile("prefetch.global.L2 [%0];" :: "l"((uint64_t)(page_table + (pt_req * max_pages_per_seq + pt_line * 32))));
+                }
+            }
             unsigned int _phase_work_full_3 = 0;
             mbarrier_wait(work_full_addr + (work_stage_p) * 8, _phase_work_full_3);
             unsigned int base_3 = work_stage_p * 16;
@@ -2777,17 +2806,17 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             float ctas_rcp = _rcp_0;
             float _rcp_1 = approx_rcp((float)items_per_chunk);
             float items_rcp = _rcp_1;
-            unsigned int q = (unsigned int)((float)total_work * ctas_rcp);
-            if (total_work < q * (unsigned int)num_ctas) {
-                q = q - 1;
+            unsigned int q_1 = (unsigned int)((float)total_work * ctas_rcp);
+            if (total_work < q_1 * (unsigned int)num_ctas) {
+                q_1 = q_1 - 1;
             }
-            if (total_work >= (q + 1) * (unsigned int)num_ctas) {
-                q = q + 1;
+            if (total_work >= (q_1 + 1) * (unsigned int)num_ctas) {
+                q_1 = q_1 + 1;
             }
-            if (total_work > q * (unsigned int)num_ctas) {
-                q = q + 1;
+            if (total_work > q_1 * (unsigned int)num_ctas) {
+                q_1 = q_1 + 1;
             }
-            unsigned int ideal_pairs = q;
+            unsigned int ideal_pairs = q_1;
             unsigned int balance_k = (ideal_pairs + 64 - 1) / 64;
             if (balance_k < 1) {
                 balance_k = 1;
@@ -2797,17 +2826,17 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
             }
             unsigned int chunk_divisor = balance_k * (unsigned int)num_ctas;
             float _rcp_2 = approx_rcp((float)chunk_divisor);
-            unsigned int q_1 = (unsigned int)((float)total_work * _rcp_2);
-            if (total_work < q_1 * chunk_divisor) {
-                q_1 = q_1 - 1;
+            unsigned int q_1_1 = (unsigned int)((float)total_work * _rcp_2);
+            if (total_work < q_1_1 * chunk_divisor) {
+                q_1_1 = q_1_1 - 1;
             }
-            if (total_work >= (q_1 + 1) * chunk_divisor) {
-                q_1 = q_1 + 1;
+            if (total_work >= (q_1_1 + 1) * chunk_divisor) {
+                q_1_1 = q_1_1 + 1;
             }
-            if (total_work > q_1 * chunk_divisor) {
-                q_1 = q_1 + 1;
+            if (total_work > q_1_1 * chunk_divisor) {
+                q_1_1 = q_1_1 + 1;
             }
-            unsigned int chunk_pairs_u = q_1;
+            unsigned int chunk_pairs_u = q_1_1;
             if (chunk_pairs_u < 2) {
                 chunk_pairs_u = 2;
             }
