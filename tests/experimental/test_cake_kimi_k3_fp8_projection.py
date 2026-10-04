@@ -88,6 +88,11 @@ GPU_ROWS = [
     # instance on the aligned view and the staged register instance on the 8-byte-aligned padded row stride
     ("tp8", "q_proj", 4096, 0),
     ("tp1", "o_proj", 4096, 4),
+    # Round 6 continuation 17/18 (lever SKF): tabulated ``gemm_skf`` rows (fractional wave) -- the fix-up stream-K
+    # TMA-store instance on the aligned view (256-wide and 192-wide N tiles)
+    ("tp1", "fused_qkvg", 256, 0),
+    ("tp1", "in_proj_qkvgfab", 256, 0),
+    ("tp8", "kv_a", 16384, 0),
 ]
 
 
@@ -611,6 +616,60 @@ def test_decode_config_round6_continuation_rules(arch):
     assert cb.gemm_stream_k_plan(2048, 12, 28, arch, 148, cb._m_tiles(2048), 6) is None
     assert cb.gemm_stream_k_plan(4096, 96, 28, arch, 148, cb._m_tiles(4096), 48) is None
     assert "gemm_tstore_sk" in required and "gemm_rstaged_sk" not in required
+    # Round 6 continuation 17/18 (lever SKF): the tabulated ``gemm_skf`` rows launch the fix-up stream-K instance when
+    # the launch has a fractional wave: the last full wave plus the fraction (118 / 119 tiles x 28 K iterations) is cut
+    # into 74 equal K ranges; the pair finishing a tile adds the other contributors' FP32 partials in ordinal order
+    # (reduction order of those tiles differs from the plain schedule; accepted by the user, max_abs_err 0.03125).
+    skf_rows = {k: e for k, e in DECODE_TABLE[arch].items() if "gemm_skf" in e}
+    assert sorted(skf_rows) == ["384,28,256", "386,28,256", "5,28,16384"]
+    assert all(
+        e["route"] == "gemm" and e["gemm_skf"] == 1 and "gemm_sk" not in e
+        for e in skf_rows.values()
+    )
+    # 192 tiles (1 x 192 or 128 x 3 / 2) over 74 pairs: 2 full waves + 44 -> SK region = 118 tiles x 28 = 3304 K
+    # iterations from tile 74 on, 44.6 iterations per pair, at most one contributor slot per tile, grid 148 CTAs
+    assert cb.gemm_stream_k_fixup_plan(
+        256, 384, 28, arch, 148, cb._m_tiles(256), 192, 256
+    ) == (
+        cb.StreamKFixupPlan(
+            74, 3304, 1, 74, 118, 148, 118 * cb.gemm_skf_tile_bytes(256)
+        )
+    )
+    assert cb.gemm_stream_k_fixup_plan(
+        256, 386, 28, arch, 148, cb._m_tiles(256), 193, 256
+    ) == (
+        cb.StreamKFixupPlan(
+            74, 3332, 1, 74, 119, 148, 119 * cb.gemm_skf_tile_bytes(256)
+        )
+    )
+    assert cb.gemm_stream_k_fixup_plan(
+        16384, 5, 28, arch, 148, cb._m_tiles(16384), 3, 192
+    ) == (
+        cb.StreamKFixupPlan(
+            74, 3304, 1, 74, 118, 148, 118 * cb.gemm_skf_tile_bytes(192)
+        )
+    )
+    assert cb.gemm_skf_tile_bytes(256) == cb.GEMM_SK_TILE_BYTES
+    # untabulated shapes, the ordered-form rows and whole waves keep the plain / ordered schedule
+    assert (
+        cb.gemm_stream_k_fixup_plan(4096, 5, 28, arch, 148, cb._m_tiles(4096), 3, 192)
+        is None
+    )
+    assert (
+        cb.gemm_stream_k_fixup_plan(4096, 12, 28, arch, 148, cb._m_tiles(4096), 6, 256)
+        is None
+    )
+    assert (
+        cb.gemm_stream_k_fixup_plan(
+            148 * 2, 384, 28, arch, 148, cb._m_tiles(148 * 2), 192, 256
+        )
+        is not None
+    )
+    assert {"gemm_tstore_skf", "gemm_tstore_n192_skf"} <= required
+    assert not any(
+        k.startswith(("gemm_rstaged", "gemm_n192", "gemm_pf")) and k.endswith("_skf")
+        for k in required
+    )
 
 
 def test_decode_module_stage_clamp():
@@ -743,10 +802,32 @@ def test_projection_matches_reference(tp, module, M, stride_pad):
         if sk is not None and not cb.route_available(plan.arch, (sk_key,)):
             sk = None  # only the TMA-store stream-K program ships: other views keep the plain program
         assert plan.gemm_sk == sk
+        # Round 6 continuation 17/18 (lever SKF): the tabulated ``gemm_skf`` rows with a fractional wave launch the
+        # ``_skf`` TMA-store instance (grid = 2 x the data-parallel tiles before the SK region, or one wave)
+        skf = (
+            cb.gemm_stream_k_fixup_plan(
+                M,
+                _prepared.n_tiles128,
+                _prepared.num_k_iters,
+                plan.arch,
+                plan.sm_count,
+                cb._m_tiles(M),
+                plan.gemm_n_tiles,
+                bn,
+            )
+            if sk is None and expected_kernel == "gemm_tstore"
+            else None
+        )
+        skf_key = cb.gemm_kernel_key(
+            expected_kernel + ("_n192" if bn == 192 else "") + "_skf", gpf
+        )
+        if skf is not None and not cb.route_available(plan.arch, (skf_key,)):
+            skf = None
+        assert plan.gemm_skf == skf
         assert plan.kernels[-1] == cb.gemm_kernel_key(
             expected_kernel
             + ("_n192" if bn == 192 else "")
-            + ("_sk" if sk is not None else ""),
+            + ("_sk" if sk is not None else "_skf" if skf is not None else ""),
             gpf,
         )
         assert (plan.gemm_bn, plan.gemm_n_tiles) == (
@@ -756,12 +837,21 @@ def test_projection_matches_reference(tp, module, M, stride_pad):
         assert plan.grids[-1] == (
             sk.grid
             if sk is not None
+            else skf.grid
+            if skf is not None
             else cb._gemm_grid(cb._m_tiles(M), plan.gemm_n_tiles)
         )
         if sk is not None:
             assert (
                 _workspace_sf_numel(runner)
-                >= plan.counters_offset + 512 + sk.rem * cb.GEMM_SK_TILE_BYTES
+                >= plan.counters_offset
+                + cb.GEMM_SK_FLAG_BYTES
+                + sk.rem * cb.GEMM_SK_TILE_BYTES
+            )
+        if skf is not None:
+            assert (
+                _workspace_sf_numel(runner)
+                >= plan.counters_offset + cb.GEMM_SK_FLAG_BYTES + skf.partial_bytes
             )
     if plan.route == "decode" and plan.decode.fused:
         assert runner.launch_count == 1

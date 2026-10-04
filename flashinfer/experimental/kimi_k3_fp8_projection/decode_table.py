@@ -578,7 +578,7 @@ DECODE_TABLE: dict[str, dict[str, dict[str, Any]]] = {
             "resident": False,
             "tstore": True,
         },
-        "384,28,256": {"route": "gemm"},
+        "384,28,256": {"route": "gemm", "gemm_skf": 1},
         "386,28,1": {
             "route": "decode",
             "tok": 16,
@@ -604,7 +604,7 @@ DECODE_TABLE: dict[str, dict[str, dict[str, Any]]] = {
             "persist": True,
             "resident": False,
         },
-        "386,28,256": {"route": "gemm"},
+        "386,28,256": {"route": "gemm", "gemm_skf": 1},
         "1,28,4096": {
             "route": "decode",
             "tok": 32,
@@ -633,7 +633,7 @@ DECODE_TABLE: dict[str, dict[str, dict[str, Any]]] = {
             "qer": 1,
         },
         "5,28,4096": {"route": "gemm", "gemm_bn": 192},
-        "5,28,16384": {"route": "gemm", "gemm_bn": 192},
+        "5,28,16384": {"route": "gemm", "gemm_bn": 192, "gemm_skf": 1},
         "12,28,4096": {"route": "gemm", "gemm_sk": 1, "gemm_sk_ksplit": 16},
         "56,48,4096": {"route": "gemm", "gemm_sk": 1, "gemm_sk_ksplit": 28},
     },
@@ -1183,7 +1183,7 @@ DECODE_TABLE: dict[str, dict[str, dict[str, Any]]] = {
             "resident": False,
             "tstore": True,
         },
-        "384,28,256": {"route": "gemm"},
+        "384,28,256": {"route": "gemm", "gemm_skf": 1},
         "386,28,1": {
             "route": "decode",
             "tok": 16,
@@ -1209,7 +1209,7 @@ DECODE_TABLE: dict[str, dict[str, dict[str, Any]]] = {
             "persist": True,
             "resident": False,
         },
-        "386,28,256": {"route": "gemm"},
+        "386,28,256": {"route": "gemm", "gemm_skf": 1},
         "1,28,4096": {
             "route": "decode",
             "tok": 32,
@@ -1238,7 +1238,7 @@ DECODE_TABLE: dict[str, dict[str, dict[str, Any]]] = {
             "qer": 1,
         },
         "5,28,4096": {"route": "gemm", "gemm_bn": 192},
-        "5,28,16384": {"route": "gemm", "gemm_bn": 192},
+        "5,28,16384": {"route": "gemm", "gemm_bn": 192, "gemm_skf": 1},
         "12,28,4096": {"route": "gemm", "gemm_sk": 1, "gemm_sk_ksplit": 16},
         "56,48,4096": {"route": "gemm", "gemm_sk": 1, "gemm_sk_ksplit": 28},
     },
