@@ -2107,7 +2107,6 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                         }
                         asm volatile("barrier.sync 9, 128;" ::: "memory");
                         if (wg_tid_c == 0) {
-                            asm volatile("fence.release.gpu;" ::: "memory");
                             unsigned int _atomic_old_4;
                             asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
                                 : "=r"(_atomic_old_4) : "l"(&tile_counters[counter_idx_c * 4]), "r"(static_cast<uint32_t>(1)) : "memory");
@@ -2218,7 +2217,6 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                         }
                         asm volatile("barrier.sync 9, 128;" ::: "memory");
                         if (wg_tid_c == 0) {
-                            asm volatile("fence.release.gpu;" ::: "memory");
                             unsigned int _atomic_old_5;
                             asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
                                 : "=r"(_atomic_old_5) : "l"(&tile_counters[counter_idx_c * 4]), "r"(static_cast<uint32_t>(1)) : "memory");
