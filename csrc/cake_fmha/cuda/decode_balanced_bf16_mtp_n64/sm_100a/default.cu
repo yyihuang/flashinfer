@@ -2966,11 +2966,9 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                 int wu_page_idx = wu_b * 8 + (wu_lane >> 2);
                 int wu_hg = wu_lane & 1;
                 if (wu_page_idx <= wu_max_pg) {
-                    int wu_pid = page_table[wu_r * max_pages_per_seq + wu_page_idx];
                     if ((wu_lane & 2) == 0) {
-                        asm volatile("cp.async.bulk.prefetch.tensor.5d.L2.global.tile [%0, {%1, %2, %3, %4, %5}];" :: "l"((uint64_t)(K)), "r"((int)(0)), "r"((int)(0)), "r"((int)(wu_hg)), "r"((int)(wu_h)), "r"((int)(wu_pid)) : "memory");
-                    } else {
-                        asm volatile("cp.async.bulk.prefetch.tensor.5d.L2.global.tile [%0, {%1, %2, %3, %4, %5}];" :: "l"((uint64_t)(V)), "r"((int)(0)), "r"((int)(0)), "r"((int)(wu_hg)), "r"((int)(wu_h)), "r"((int)(wu_pid)) : "memory");
+                        int wu_pid_k = page_table[wu_r * max_pages_per_seq + wu_page_idx];
+                        asm volatile("cp.async.bulk.prefetch.tensor.5d.L2.global.tile [%0, {%1, %2, %3, %4, %5}];" :: "l"((uint64_t)(K)), "r"((int)(0)), "r"((int)(0)), "r"((int)(wu_hg)), "r"((int)(wu_h)), "r"((int)(wu_pid_k)) : "memory");
                     }
                 }
                 if (wu_lane == 0) {
