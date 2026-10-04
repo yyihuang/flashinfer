@@ -3117,6 +3117,7 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                 unsigned int pack2 = 0;
                 unsigned int split2 = 0;
                 unsigned int nsplit2 = 0;
+                int ff_rb2 = 0;
                 if (b2 < batch_size) {
                     int s2 = sched_seq_lens[b2];
                     unsigned int pairs2 = (unsigned int)((s2 + 255) / 256);
@@ -3143,28 +3144,65 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                             }
                         }
                         pack2 = (unsigned int)(1 << 8 * (rb2 - 1));
+                        ff_rb2 = rb2;
                     }
                     if (n2 > 2) {
                         split2 = 1;
                         nsplit2 = n2;
                     }
                 }
+                unsigned int ff_si2 = 0;
+                unsigned int ff_pst2 = pack2;
+                if (n2 > 1) {
+                    ff_si2 = n2;
+                    ff_pst2 = ff_pst2 + 16777216;
+                }
+                uint32_t _warp_scan_sum_u32_0 = full2;
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(1));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(2));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(4));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(8));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(16));
+                unsigned int ff_incl_full = _warp_scan_sum_u32_0;
+                uint32_t _warp_scan_sum_u32_1 = ff_pst2;
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(1));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(2));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(4));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(8));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(16));
+                unsigned int ff_incl_pst = _warp_scan_sum_u32_1;
+                uint32_t _warp_scan_sum_u32_2 = ff_si2;
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(1));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(2));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(4));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(8));
+                asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(16));
+                unsigned int ff_incl_si = _warp_scan_sum_u32_2;
+                unsigned int _shfl_2 = __shfl_sync(0xFFFFFFFF, ff_incl_full, 31);
+                n_full_chunks += _shfl_2;
+                if (num_groups == 1) {
+                    unsigned int ff_rbw = (unsigned int)ff_rb2 << 28;
+                    int ff_st0 = (int)(full2 | ff_rbw);
+                    int ff_st1 = (int)ff_incl_full;
+                    int ff_st2 = (int)ff_incl_pst;
+                    int ff_st3 = (int)ff_incl_si;
+                    sched_seq_lens[32 + lane_0] = ff_st0;
+                    sched_seq_lens[64 + lane_0] = ff_st1;
+                    sched_seq_lens[96 + lane_0] = ff_st2;
+                    sched_seq_lens[128 + lane_0] = ff_st3;
+                }
                 unsigned int _warp_redux_u32_5;
-                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_5) : "r"(full2));
-                n_full_chunks += _warp_redux_u32_5;
+                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_5) : "r"(n2));
+                n_chunks_total += _warp_redux_u32_5;
                 unsigned int _warp_redux_u32_6;
-                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_6) : "r"(n2));
-                n_chunks_total += _warp_redux_u32_6;
+                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_6) : "r"(split2));
+                n_split_requests += _warp_redux_u32_6;
                 unsigned int _warp_redux_u32_7;
-                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_7) : "r"(split2));
-                n_split_requests += _warp_redux_u32_7;
-                unsigned int _warp_redux_u32_8;
-                asm volatile("redux.sync.max.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_8) : "r"(nsplit2));
-                unsigned int _max_4 = ((nmax_split) > (_warp_redux_u32_8) ? (nmax_split) : (_warp_redux_u32_8));
+                asm volatile("redux.sync.max.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_7) : "r"(nsplit2));
+                unsigned int _max_4 = ((nmax_split) > (_warp_redux_u32_7) ? (nmax_split) : (_warp_redux_u32_7));
                 nmax_split = _max_4;
-                unsigned int _warp_redux_u32_9;
-                asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(_warp_redux_u32_9) : "r"(pack2));
-                unsigned int pack_group = _warp_redux_u32_9;
+                unsigned int _shfl_3 = __shfl_sync(0xFFFFFFFF, ff_incl_pst, 31);
+                unsigned int pack_group = _shfl_3 & 16777215;
                 #pragma unroll
                 for (int bi_1 = 1; bi_1 < 4; bi_1++) {
                     rem_bucket_total[bi_1] = rem_bucket_total[bi_1] + (pack_group >> (unsigned int)(8 * (bi_1 - 1)) & 255);
@@ -3230,8 +3268,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                     }
                 }
                 first_claim = 0;
-                unsigned int _shfl_2 = __shfl_sync(0xFFFFFFFF, ticket_lane0, 0);
-                unsigned int ticket = _shfl_2;
+                unsigned int _shfl_4 = __shfl_sync(0xFFFFFFFF, ticket_lane0, 0);
+                unsigned int ticket = _shfl_4;
                 unsigned int token_base = work_stage_sched * 16;
                 unsigned int valid_tok = ((ticket < total_items) ? 1 : 0);
                 int counter_idx_r = 0;
@@ -3280,37 +3318,37 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                     mine_r = (unsigned int)items_per_chunk;
                                 }
                             }
-                            uint32_t _warp_scan_sum_u32_0 = mine_r;
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(1));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(2));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(4));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(8));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_0) : "r"(16));
-                            incl_r = _warp_scan_sum_u32_0;
-                            uint32_t _warp_scan_sum_u32_1 = si_r;
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(1));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(2));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(4));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(8));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_1) : "r"(16));
-                            incl_si_r = _warp_scan_sum_u32_1;
-                            uint32_t _warp_scan_sum_u32_2 = st_r;
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(1));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(2));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(4));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(8));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_2) : "r"(16));
-                            incl_st_r = _warp_scan_sum_u32_2;
-                            unsigned int _shfl_3 = __shfl_sync(0xFFFFFFFF, incl_r, 31);
-                            unsigned int group_total_r = _shfl_3;
+                            uint32_t _warp_scan_sum_u32_3 = mine_r;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(16));
+                            incl_r = _warp_scan_sum_u32_3;
+                            uint32_t _warp_scan_sum_u32_4 = si_r;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(16));
+                            incl_si_r = _warp_scan_sum_u32_4;
+                            uint32_t _warp_scan_sum_u32_5 = st_r;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(16));
+                            incl_st_r = _warp_scan_sum_u32_5;
+                            unsigned int _shfl_5 = __shfl_sync(0xFFFFFFFF, incl_r, 31);
+                            unsigned int group_total_r = _shfl_5;
                             if (rt_idx < rt_before + group_total_r) {
                                 break;
                             }
                             rt_before = rt_before + group_total_r;
-                            unsigned int _shfl_4 = __shfl_sync(0xFFFFFFFF, incl_si_r, 31);
-                            si_before_r = si_before_r + _shfl_4;
-                            unsigned int _shfl_5 = __shfl_sync(0xFFFFFFFF, incl_st_r, 31);
-                            st_before_r = st_before_r + _shfl_5;
+                            unsigned int _shfl_6 = __shfl_sync(0xFFFFFFFF, incl_si_r, 31);
+                            si_before_r = si_before_r + _shfl_6;
+                            unsigned int _shfl_7 = __shfl_sync(0xFFFFFFFF, incl_st_r, 31);
+                            st_before_r = st_before_r + _shfl_7;
                         }
                         unsigned int in_group_r = rt_idx - rt_before;
                         unsigned int excl_r = incl_r - mine_r;
@@ -3328,16 +3366,16 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                         unsigned int hit_mask_r = _vote_0;
                         int _ffs_0 = __ffs(hit_mask_r);
                         int hit_lane_r = _ffs_0 - 1;
-                        int _shfl_6 = __shfl_sync(0xFFFFFFFF, b_r, hit_lane_r);
-                        int sel_batch_r = _shfl_6;
-                        int _shfl_7 = __shfl_sync(0xFFFFFFFF, n_r, hit_lane_r);
-                        int sel_n_r = _shfl_7;
-                        unsigned int _shfl_8 = __shfl_sync(0xFFFFFFFF, excl_r, hit_lane_r);
-                        int sel_excl_r = (int)_shfl_8;
-                        unsigned int _shfl_9 = __shfl_sync(0xFFFFFFFF, excl_si_r, hit_lane_r);
-                        int sel_excl_si_r = (int)_shfl_9;
-                        unsigned int _shfl_10 = __shfl_sync(0xFFFFFFFF, excl_st_r, hit_lane_r);
-                        int sel_excl_st_r = (int)_shfl_10;
+                        int _shfl_8 = __shfl_sync(0xFFFFFFFF, b_r, hit_lane_r);
+                        int sel_batch_r = _shfl_8;
+                        int _shfl_9 = __shfl_sync(0xFFFFFFFF, n_r, hit_lane_r);
+                        int sel_n_r = _shfl_9;
+                        unsigned int _shfl_10 = __shfl_sync(0xFFFFFFFF, excl_r, hit_lane_r);
+                        int sel_excl_r = (int)_shfl_10;
+                        unsigned int _shfl_11 = __shfl_sync(0xFFFFFFFF, excl_si_r, hit_lane_r);
+                        int sel_excl_si_r = (int)_shfl_11;
+                        unsigned int _shfl_12 = __shfl_sync(0xFFFFFFFF, excl_st_r, hit_lane_r);
+                        int sel_excl_st_r = (int)_shfl_12;
                         int kv_head_r = (int)in_group_r - sel_excl_r;
                         int slot_tile_base_r = ((int)si_before_r + sel_excl_si_r) * items_per_chunk + kv_head_r;
                         counter_idx_r = ((int)st_before_r + sel_excl_st_r) * items_per_chunk + kv_head_r;
@@ -3408,8 +3446,48 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                         unsigned int incl_si3 = 0;
                         unsigned int incl_st3 = 0;
                         int b3 = 0;
+                        unsigned int fast_dec = 0;
+                        if (num_groups == 1) {
+                            fast_dec = 1;
+                            int ff_r0 = sched_seq_lens[32 + lane_0];
+                            int ff_r1 = sched_seq_lens[64 + lane_0];
+                            int ff_r2 = sched_seq_lens[96 + lane_0];
+                            int ff_r3 = sched_seq_lens[128 + lane_0];
+                            unsigned int ff_w0 = (unsigned int)ff_r0;
+                            unsigned int ff_w1 = (unsigned int)ff_r1;
+                            unsigned int ff_w2 = (unsigned int)ff_r2;
+                            unsigned int ff_w3 = (unsigned int)ff_r3;
+                            b3 = lane_0;
+                            if (lane_0 < batch_size) {
+                                s3 = sched_seq_lens[lane_0];
+                            }
+                            fullc3 = (int)(ff_w0 & 268435455);
+                            int ff_rb3 = (int)(ff_w0 >> 28);
+                            n3 = fullc3;
+                            if (ff_rb3 != 0) {
+                                n3 = fullc3 + 1;
+                            }
+                            mine3 = (unsigned int)fullc3;
+                            incl3 = ff_w1;
+                            if (bucket != 0) {
+                                mine3 = 0;
+                                if (ff_rb3 == bucket) {
+                                    mine3 = 1;
+                                }
+                                incl3 = ff_w2 >> (unsigned int)(8 * (bucket - 1)) & 255;
+                            }
+                            if (n3 > 1) {
+                                split_items3 = (unsigned int)n3;
+                                split_tiles3 = 1;
+                            }
+                            incl_si3 = ff_w3;
+                            incl_st3 = ff_w2 >> 24;
+                        }
                         #pragma unroll 1
                         for (int _adv = 0; _adv < 32; _adv++) {
+                            if (fast_dec == 1) {
+                                break;
+                            }
                             b3 = cursor_group * 32 + lane_0;
                             s3 = 0;
                             pairs3 = 0;
@@ -3457,37 +3535,37 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                                     }
                                 }
                             }
-                            uint32_t _warp_scan_sum_u32_3 = mine3;
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(1));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(2));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(4));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(8));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_3) : "r"(16));
-                            incl3 = _warp_scan_sum_u32_3;
-                            uint32_t _warp_scan_sum_u32_4 = split_items3;
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(1));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(2));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(4));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(8));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_4) : "r"(16));
-                            incl_si3 = _warp_scan_sum_u32_4;
-                            uint32_t _warp_scan_sum_u32_5 = split_tiles3;
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(1));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(2));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(4));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(8));
-                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_5) : "r"(16));
-                            incl_st3 = _warp_scan_sum_u32_5;
-                            unsigned int _shfl_11 = __shfl_sync(0xFFFFFFFF, incl3, 31);
-                            unsigned int group_total = _shfl_11;
+                            uint32_t _warp_scan_sum_u32_6 = mine3;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_6) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_6) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_6) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_6) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_6) : "r"(16));
+                            incl3 = _warp_scan_sum_u32_6;
+                            uint32_t _warp_scan_sum_u32_7 = split_items3;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_7) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_7) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_7) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_7) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_7) : "r"(16));
+                            incl_si3 = _warp_scan_sum_u32_7;
+                            uint32_t _warp_scan_sum_u32_8 = split_tiles3;
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_8) : "r"(1));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_8) : "r"(2));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_8) : "r"(4));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_8) : "r"(8));
+                            asm volatile("{ .reg .pred p; .reg .b32 t; shfl.sync.up.b32 t|p, %0, %1, 0, 0xffffffff; @p add.u32 %0, %0, t; }" : "+r"(_warp_scan_sum_u32_8) : "r"(16));
+                            incl_st3 = _warp_scan_sum_u32_8;
+                            unsigned int _shfl_13 = __shfl_sync(0xFFFFFFFF, incl3, 31);
+                            unsigned int group_total = _shfl_13;
                             if (local_chunk < before + group_total) {
                                 break;
                             }
                             before = before + group_total;
-                            unsigned int _shfl_12 = __shfl_sync(0xFFFFFFFF, incl_si3, 31);
-                            si_before = si_before + _shfl_12;
-                            unsigned int _shfl_13 = __shfl_sync(0xFFFFFFFF, incl_st3, 31);
-                            st_before = st_before + _shfl_13;
+                            unsigned int _shfl_14 = __shfl_sync(0xFFFFFFFF, incl_si3, 31);
+                            si_before = si_before + _shfl_14;
+                            unsigned int _shfl_15 = __shfl_sync(0xFFFFFFFF, incl_st3, 31);
+                            st_before = st_before + _shfl_15;
                             cursor_group = cursor_group + 1;
                         }
                         #pragma unroll
@@ -3515,20 +3593,20 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                         unsigned int hit_mask = _vote_1;
                         int _ffs_1 = __ffs(hit_mask);
                         int hit_lane = _ffs_1 - 1;
-                        int _shfl_14 = __shfl_sync(0xFFFFFFFF, b3, hit_lane);
-                        int sel_batch = _shfl_14;
-                        int _shfl_15 = __shfl_sync(0xFFFFFFFF, s3, hit_lane);
-                        int sel_seqlen = _shfl_15;
-                        int _shfl_16 = __shfl_sync(0xFFFFFFFF, n3, hit_lane);
-                        int sel_n = _shfl_16;
-                        int _shfl_17 = __shfl_sync(0xFFFFFFFF, fullc3, hit_lane);
-                        int sel_full = _shfl_17;
-                        unsigned int _shfl_18 = __shfl_sync(0xFFFFFFFF, excl3, hit_lane);
-                        int sel_excl = (int)_shfl_18;
-                        unsigned int _shfl_19 = __shfl_sync(0xFFFFFFFF, excl_si3, hit_lane);
-                        int sel_excl_si = (int)_shfl_19;
-                        unsigned int _shfl_20 = __shfl_sync(0xFFFFFFFF, excl_st3, hit_lane);
-                        int sel_excl_st = (int)_shfl_20;
+                        int _shfl_16 = __shfl_sync(0xFFFFFFFF, b3, hit_lane);
+                        int sel_batch = _shfl_16;
+                        int _shfl_17 = __shfl_sync(0xFFFFFFFF, s3, hit_lane);
+                        int sel_seqlen = _shfl_17;
+                        int _shfl_18 = __shfl_sync(0xFFFFFFFF, n3, hit_lane);
+                        int sel_n = _shfl_18;
+                        int _shfl_19 = __shfl_sync(0xFFFFFFFF, fullc3, hit_lane);
+                        int sel_full = _shfl_19;
+                        unsigned int _shfl_20 = __shfl_sync(0xFFFFFFFF, excl3, hit_lane);
+                        int sel_excl = (int)_shfl_20;
+                        unsigned int _shfl_21 = __shfl_sync(0xFFFFFFFF, excl_si3, hit_lane);
+                        int sel_excl_si = (int)_shfl_21;
+                        unsigned int _shfl_22 = __shfl_sync(0xFFFFFFFF, excl_st3, hit_lane);
+                        int sel_excl_st = (int)_shfl_22;
                         int sel_chunk_off = (int)in_group - sel_excl;
                         int chunk_idx = sel_full;
                         if (bucket == 0) {
@@ -3592,8 +3670,8 @@ kernel_cake_fmha_decode_balanced_bf16_mtp_n32(CakeFmhaTensorMap const* Q, CakeFm
                     : "=r"(_atomic_inc_old_0) : "l"(&queue_counters[1]), "r"(static_cast<uint32_t>(num_ctas - 1)) : "memory");
                 done_old = _atomic_inc_old_0;
             }
-            unsigned int _shfl_21 = __shfl_sync(0xFFFFFFFF, done_old, 0);
-            done_old = _shfl_21;
+            unsigned int _shfl_23 = __shfl_sync(0xFFFFFFFF, done_old, 0);
+            done_old = _shfl_23;
             if ((int)done_old == num_ctas - 1) {
                 if (lane_0 == 0) {
                     *(reinterpret_cast<unsigned int*>(queue_counters) + (0)) = 0;
