@@ -20,7 +20,7 @@ from flashinfer.mla.cake_dsv4 import (
     get_cake_dsv4_workspace_bytes,
 )
 
-_NVFP4_VARIANTS = ("nvfp4_decode_persistent", "nvfp4_decode_tile", "nvfp4_decode_cluster", "nvfp4_merge")
+_NVFP4_VARIANTS = cake._NVFP4_VARIANTS
 
 
 @pytest.mark.parametrize("backend", ["cake", "sparse"])
@@ -48,75 +48,142 @@ def test_fp8_format_accepts_every_backend():
         _check_dsv4_kv_cache_format_backend("int4", "cake")
 
 
-# (sm_count, T, topk, extra_topk) -> (num_splits, tiles_per_split, member).
-# Candidate tiles are 128 wide: topk 128 -> 1 tile, 512 -> 4; the 512@64 extra
-# table adds 4 tiles. Head counts 16 and 128 both form one 128-head tile.
-_PLAN_TABLE = {
-    # T = 1 and T = 8: ceil(SMs / T) >= every tile count -> one tile per CTA.
-    (148, 1, 128, 0): (1, 1, "tile"),
-    (148, 1, 128, 512): (5, 1, "tile"),
-    (148, 1, 512, 0): (4, 1, "tile"),
-    (148, 1, 512, 512): (8, 1, "tile"),
-    (160, 1, 128, 0): (1, 1, "tile"),
-    (160, 1, 128, 512): (5, 1, "tile"),
-    (160, 1, 512, 0): (4, 1, "tile"),
-    (160, 1, 512, 512): (8, 1, "tile"),
-    (148, 8, 128, 0): (1, 1, "tile"),
-    (148, 8, 128, 512): (5, 1, "tile"),
-    (148, 8, 512, 0): (4, 1, "tile"),
-    (148, 8, 512, 512): (8, 1, "tile"),
-    (160, 8, 128, 0): (1, 1, "tile"),
-    (160, 8, 128, 512): (5, 1, "tile"),
-    (160, 8, 512, 0): (4, 1, "tile"),
-    (160, 8, 512, 512): (8, 1, "tile"),
-    # T = 32: ceil(148 / 32) = ceil(160 / 32) = 5 splits at most.
-    (148, 32, 128, 0): (1, 1, "tile"),
-    (148, 32, 128, 512): (5, 1, "tile"),
-    (148, 32, 512, 0): (4, 1, "tile"),
-    (148, 32, 512, 512): (4, 2, "persistent"),
-    (160, 32, 128, 0): (1, 1, "tile"),
-    (160, 32, 128, 512): (5, 1, "tile"),
-    (160, 32, 512, 0): (4, 1, "tile"),
-    (160, 32, 512, 512): (4, 2, "persistent"),
-    # T = 128: two splits at most; 5 tiles -> 3 per split, 2 splits.
-    (148, 128, 128, 0): (1, 1, "tile"),
-    (148, 128, 128, 512): (2, 3, "persistent"),
-    (148, 128, 512, 0): (2, 2, "persistent"),
-    (148, 128, 512, 512): (2, 4, "persistent"),
-    (160, 128, 128, 0): (1, 1, "tile"),
-    (160, 128, 128, 512): (2, 3, "persistent"),
-    (160, 128, 512, 0): (2, 2, "persistent"),
-    (160, 128, 512, 512): (2, 4, "persistent"),
-    # T = 50 separates the SM counts: ceil(148 / 50) = 3, ceil(160 / 50) = 4.
-    (148, 50, 512, 512): (3, 3, "persistent"),
-    (160, 50, 512, 512): (4, 2, "persistent"),
-    (148, 50, 128, 512): (3, 2, "persistent"),
-    (160, 50, 128, 512): (3, 2, "persistent"),
+# (num_query_tokens, num_heads, sparse_topk, extra_topk, sm_count) -> (variant, num_splits, tiles_per_split, grid, merge_heads_per_cta)
+# generated from the Cake production plans of the 75 CAKE-821 contract rows at the exportable SM counts (round 45)
+_CAKE_PLAN_TABLE = {
+    (1, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 4, 1),
+    (1, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 4, 1),
+    (1, 16, 512, 0, 148): ('nvfp4_decode_swap_n16_oc4', 4, 1, 16, 1),
+    (1, 16, 512, 0, 152): ('nvfp4_decode_swap_n16_oc4', 4, 1, 16, 1),
+    (1, 32, 128, 0, 148): ('nvfp4_decode_swap_n32_oc4', 1, 1, 4, 1),
+    (1, 32, 128, 0, 152): ('nvfp4_decode_swap_n32_oc4', 1, 1, 4, 1),
+    (1, 32, 512, 0, 148): ('nvfp4_decode_swap_n32_oc4', 4, 1, 16, 1),
+    (1, 32, 512, 0, 152): ('nvfp4_decode_swap_n32_oc4', 4, 1, 16, 1),
+    (1, 64, 128, 0, 148): ('nvfp4_decode_tile_oc4', 1, 1, 4, 1),
+    (1, 64, 128, 0, 152): ('nvfp4_decode_tile_oc4', 1, 1, 4, 1),
+    (1, 64, 512, 0, 148): ('nvfp4_decode_tile_oc4', 4, 1, 16, 1),
+    (1, 64, 512, 0, 152): ('nvfp4_decode_tile_oc4', 4, 1, 16, 1),
+    (1, 128, 128, 0, 148): ('nvfp4_decode_tile_oc4', 1, 1, 4, 1),
+    (1, 128, 128, 0, 152): ('nvfp4_decode_tile_oc4', 1, 1, 4, 1),
+    (1, 128, 512, 0, 148): ('nvfp4_decode_tile_oc4', 4, 1, 16, 1),
+    (1, 128, 512, 0, 152): ('nvfp4_decode_tile_oc4', 4, 1, 16, 1),
+    (3, 64, 128, 132, 148): ('nvfp4_decode_tile_oc4', 3, 1, 36, 2),
+    (3, 64, 128, 132, 152): ('nvfp4_decode_tile_oc4', 3, 1, 36, 2),
+    (4, 32, 128, 0, 148): ('nvfp4_decode_swap_n32_oc4', 1, 1, 16, 1),
+    (4, 32, 128, 0, 152): ('nvfp4_decode_swap_n32_oc4', 1, 1, 16, 1),
+    (5, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 20, 1),
+    (5, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 20, 1),
+    (5, 16, 128, 128, 148): ('nvfp4_decode_swap_n16_oc4', 2, 1, 40, 1),
+    (5, 16, 128, 128, 152): ('nvfp4_decode_swap_n16_oc4', 2, 1, 40, 1),
+    (7, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 28, 1),
+    (7, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 28, 1),
+    (8, 8, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 32, 1),
+    (8, 8, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 32, 1),
+    (8, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 32, 1),
+    (8, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 32, 1),
+    (8, 16, 128, 132, 148): ('nvfp4_decode_swap_n16_oc4', 3, 1, 96, 1),
+    (8, 16, 128, 132, 152): ('nvfp4_decode_swap_n16_oc4', 3, 1, 96, 1),
+    (8, 16, 128, 512, 148): ('nvfp4_decode_swap_n16_oc2', 5, 1, 80, 1),
+    (8, 16, 128, 512, 152): ('nvfp4_decode_swap_n16_oc2', 5, 1, 80, 1),
+    (8, 16, 512, 0, 148): ('nvfp4_decode_swap_n16_oc4', 4, 1, 128, 1),
+    (8, 16, 512, 0, 152): ('nvfp4_decode_swap_n16_oc4', 4, 1, 128, 1),
+    (8, 16, 512, 512, 148): ('nvfp4_decode_swap_n16_oc2', 8, 1, 128, 1),
+    (8, 16, 512, 512, 152): ('nvfp4_decode_swap_n16_oc2', 8, 1, 128, 1),
+    (8, 32, 128, 0, 148): ('nvfp4_decode_swap_n32_oc4', 1, 1, 32, 2),
+    (8, 32, 128, 0, 152): ('nvfp4_decode_swap_n32_oc4', 1, 1, 32, 2),
+    (8, 32, 512, 0, 148): ('nvfp4_decode_swap_n32_oc4', 4, 1, 128, 2),
+    (8, 32, 512, 0, 152): ('nvfp4_decode_swap_n32_oc4', 4, 1, 128, 2),
+    (8, 64, 128, 0, 148): ('nvfp4_decode_tile_oc4', 1, 1, 32, 4),
+    (8, 64, 128, 0, 152): ('nvfp4_decode_tile_oc4', 1, 1, 32, 4),
+    (8, 64, 512, 0, 148): ('nvfp4_decode_tile_oc2', 4, 1, 64, 4),
+    (8, 64, 512, 0, 152): ('nvfp4_decode_tile_oc2', 4, 1, 64, 4),
+    (8, 128, 128, 0, 148): ('nvfp4_decode_tile_oc4', 1, 1, 32, 8),
+    (8, 128, 128, 0, 152): ('nvfp4_decode_tile_oc4', 1, 1, 32, 8),
+    (8, 128, 128, 132, 148): ('nvfp4_decode_tile_oc2', 3, 1, 48, 8),
+    (8, 128, 128, 132, 152): ('nvfp4_decode_tile_oc2', 3, 1, 48, 8),
+    (8, 128, 128, 512, 148): ('nvfp4_decode_tile_oc1', 5, 1, 40, 8),
+    (8, 128, 128, 512, 152): ('nvfp4_decode_tile_oc1', 5, 1, 40, 8),
+    (8, 128, 512, 0, 148): ('nvfp4_decode_tile_oc2', 4, 1, 64, 8),
+    (8, 128, 512, 0, 152): ('nvfp4_decode_tile_oc2', 4, 1, 64, 8),
+    (8, 128, 512, 512, 148): ('nvfp4_decode_tile_oc1', 8, 1, 64, 8),
+    (8, 128, 512, 512, 152): ('nvfp4_decode_tile_oc1', 8, 1, 64, 8),
+    (9, 8, 128, 512, 148): ('nvfp4_decode_swap_n16_oc2', 5, 1, 90, 1),
+    (9, 8, 128, 512, 152): ('nvfp4_decode_swap_n16_oc2', 5, 1, 90, 1),
+    (12, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 48, 2),
+    (12, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 48, 2),
+    (12, 16, 128, 512, 148): ('nvfp4_decode_swap_n16_oc2', 5, 1, 120, 2),
+    (12, 16, 128, 512, 152): ('nvfp4_decode_swap_n16_oc2', 5, 1, 120, 2),
+    (12, 32, 128, 0, 148): ('nvfp4_decode_swap_n32_oc4', 1, 1, 48, 4),
+    (12, 32, 128, 0, 152): ('nvfp4_decode_swap_n32_oc4', 1, 1, 48, 4),
+    (12, 32, 128, 512, 148): ('nvfp4_decode_swap_n32_oc2', 5, 1, 120, 4),
+    (12, 32, 128, 512, 152): ('nvfp4_decode_swap_n32_oc2', 5, 1, 120, 4),
+    (12, 64, 128, 0, 148): ('nvfp4_decode_tile_oc4', 1, 1, 48, 8),
+    (12, 64, 128, 0, 152): ('nvfp4_decode_tile_oc4', 1, 1, 48, 8),
+    (12, 64, 128, 512, 148): ('nvfp4_decode_tile_oc1', 5, 1, 60, 8),
+    (12, 64, 128, 512, 152): ('nvfp4_decode_tile_oc1', 5, 1, 60, 8),
+    (12, 128, 128, 0, 148): ('nvfp4_decode_tile_oc4', 1, 1, 48, 16),
+    (12, 128, 128, 0, 152): ('nvfp4_decode_tile_oc4', 1, 1, 48, 16),
+    (12, 128, 128, 512, 148): ('nvfp4_decode_tile_oc1', 5, 1, 60, 16),
+    (12, 128, 128, 512, 152): ('nvfp4_decode_tile_oc1', 5, 1, 60, 16),
+    (32, 8, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 128, 2),
+    (32, 8, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 128, 2),
+    (32, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 128, 4),
+    (32, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 128, 4),
+    (32, 16, 128, 132, 148): ('nvfp4_decode_swap_n16_oc1', 3, 1, 96, 4),
+    (32, 16, 128, 132, 152): ('nvfp4_decode_swap_n16_oc1', 3, 1, 96, 4),
+    (32, 16, 128, 512, 148): ('nvfp4_decode_pv_n16_oc1', 3, 2, 96, 4),
+    (32, 16, 128, 512, 152): ('nvfp4_decode_pv_n16_oc1', 3, 2, 96, 4),
+    (32, 16, 256, 0, 148): ('nvfp4_decode_swap_n16_oc2', 2, 1, 128, 4),
+    (32, 16, 256, 0, 152): ('nvfp4_decode_swap_n16_oc2', 2, 1, 128, 4),
+    (32, 16, 512, 0, 148): ('nvfp4_decode_swap_n16_oc1', 4, 1, 128, 4),
+    (32, 16, 512, 0, 152): ('nvfp4_decode_swap_n16_oc1', 4, 1, 128, 4),
+    (32, 16, 512, 512, 148): ('nvfp4_decode_pv_n16_oc1', 4, 2, 128, 4),
+    (32, 16, 512, 512, 152): ('nvfp4_decode_pv_n16_oc1', 4, 2, 128, 4),
+    (32, 32, 128, 0, 148): ('nvfp4_decode_swap_n32_oc4', 1, 1, 128, 8),
+    (32, 32, 128, 0, 152): ('nvfp4_decode_swap_n32_oc4', 1, 1, 128, 8),
+    (32, 32, 512, 0, 148): ('nvfp4_decode_swap_n32_oc1', 4, 1, 128, 8),
+    (32, 32, 512, 0, 152): ('nvfp4_decode_swap_n32_oc1', 4, 1, 128, 8),
+    (32, 64, 128, 0, 148): ('nvfp4_decode_tile_oc2', 1, 1, 64, 16),
+    (32, 64, 128, 0, 152): ('nvfp4_decode_tile_oc2', 1, 1, 64, 16),
+    (32, 64, 512, 0, 148): ('nvfp4_decode_tile_oc1', 4, 1, 128, 16),
+    (32, 64, 512, 0, 152): ('nvfp4_decode_tile_oc1', 4, 1, 128, 16),
+    (32, 128, 128, 0, 148): ('nvfp4_decode_tile_oc2', 1, 1, 64, 16),
+    (32, 128, 128, 0, 152): ('nvfp4_decode_tile_oc2', 1, 1, 64, 16),
+    (32, 128, 128, 132, 148): ('nvfp4_decode_t64_n64_oc1', 1, 3, 64, 16),
+    (32, 128, 128, 132, 152): ('nvfp4_decode_t64_n64_oc1', 1, 3, 64, 16),
+    (32, 128, 128, 512, 148): ('nvfp4_decode_t64_n64_oc1', 1, 5, 64, 16),
+    (32, 128, 128, 512, 152): ('nvfp4_decode_t64_n64_oc1', 1, 5, 64, 16),
+    (32, 128, 256, 0, 148): ('nvfp4_decode_t64_n64_oc1', 1, 2, 64, 16),
+    (32, 128, 256, 0, 152): ('nvfp4_decode_t64_n64_oc1', 1, 2, 64, 16),
+    (32, 128, 512, 0, 148): ('nvfp4_decode_tile_oc1', 4, 1, 128, 16),
+    (32, 128, 512, 0, 152): ('nvfp4_decode_tile_oc1', 4, 1, 128, 16),
+    (32, 128, 512, 512, 148): ('nvfp4_decode_persistent', 4, 2, 128, 16),
+    (32, 128, 512, 512, 152): ('nvfp4_decode_persistent', 4, 2, 128, 16),
+    (128, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc1', 1, 1, 128, 16),
+    (128, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc1', 1, 1, 128, 16),
+    (128, 16, 512, 0, 148): ('nvfp4_decode_pv_n16_oc1', 1, 4, 128, 16),
+    (128, 16, 512, 0, 152): ('nvfp4_decode_pv_n16_oc1', 1, 4, 128, 16),
+    (128, 32, 128, 0, 148): ('nvfp4_decode_swap_n32_oc1', 1, 1, 128, 16),
+    (128, 32, 128, 0, 152): ('nvfp4_decode_swap_n32_oc1', 1, 1, 128, 16),
+    (128, 32, 512, 0, 148): ('nvfp4_decode_pv_n32_oc1', 1, 4, 128, 16),
+    (128, 32, 512, 0, 152): ('nvfp4_decode_pv_n32_oc1', 1, 4, 128, 16),
+    (128, 64, 128, 0, 148): ('nvfp4_decode_tile_oc1', 1, 1, 128, 16),
+    (128, 64, 128, 0, 152): ('nvfp4_decode_tile_oc1', 1, 1, 128, 16),
+    (128, 64, 512, 0, 148): ('nvfp4_decode_t64_n64_oc1', 1, 4, 128, 16),
+    (128, 64, 512, 0, 152): ('nvfp4_decode_t64_n64_oc1', 1, 4, 128, 16),
+    (128, 128, 128, 0, 148): ('nvfp4_decode_tile_oc1', 1, 1, 128, 16),
+    (128, 128, 128, 0, 152): ('nvfp4_decode_tile_oc1', 1, 1, 128, 16),
+    (128, 128, 512, 0, 148): ('nvfp4_decode_persistent', 1, 4, 128, 16),
+    (128, 128, 512, 0, 152): ('nvfp4_decode_persistent', 1, 4, 128, 16),
+    (128, 128, 512, 512, 148): ('nvfp4_decode_persistent', 1, 8, 128, 16),
+    (128, 128, 512, 512, 152): ('nvfp4_decode_persistent', 1, 8, 128, 16),
 }
 
 
-# The 2-CTA cluster member (H >= 64 only) takes the row when its own split count
-# (over 2 * T CTAs) gives every CTA >= 4 tiles and its grid needs no more waves
-# than the persistent grid: (splits, tiles_per_split, member) for num_heads=128.
-_CLUSTER_TABLE = {
-    (148, 128, 512, 0): (1, 4, "cluster"),
-    (160, 128, 512, 0): (1, 4, "cluster"),
-    (148, 128, 128, 512): (1, 5, "cluster"),
-    (160, 128, 128, 512): (1, 5, "cluster"),
-    (148, 128, 512, 512): (1, 8, "cluster"),
-    (160, 128, 512, 512): (1, 8, "cluster"),
-    (148, 50, 512, 512): (2, 4, "cluster"),
-    (160, 50, 512, 512): (2, 4, "cluster"),
-}
-
-
-@pytest.mark.parametrize("num_heads", [16, 128])
-@pytest.mark.parametrize("key", sorted(_PLAN_TABLE))
-def test_nvfp4_plan_matches_cake_plan(key, num_heads):
-    sm_count, tokens, topk, extra_topk = key
-    expected_splits, expected_tiles_per_split, expected_member = _PLAN_TABLE[key]
-    if num_heads >= 64 and key in _CLUSTER_TABLE:
-        expected_splits, expected_tiles_per_split, expected_member = _CLUSTER_TABLE[key]
+@pytest.mark.parametrize("key", sorted(_CAKE_PLAN_TABLE))
+def test_nvfp4_plan_matches_cake_plan(key):
+    tokens, num_heads, topk, extra_topk, sm_count = key
+    variant, expected_splits, expected_tiles_per_split, expected_grid, expected_hpc = _CAKE_PLAN_TABLE[key]
     plan = _nvfp4_plan(
         num_query_tokens=tokens,
         num_heads=num_heads,
@@ -124,29 +191,42 @@ def test_nvfp4_plan_matches_cake_plan(key, num_heads):
         extra_topk=extra_topk,
         sm_count=sm_count,
     )
-    assert plan.num_head_tiles == 1
     assert plan.num_main_tiles == -(-topk // 128)
     assert plan.num_extra_tiles == -(-extra_topk // 128)
     assert plan.total_tiles == plan.num_main_tiles + plan.num_extra_tiles
-    assert (plan.num_splits, plan.tiles_per_split, plan.member) == (
+    assert (plan.variant, plan.num_splits, plan.tiles_per_split, plan.grid, plan.merge_heads_per_cta) == (
+        variant,
         expected_splits,
         expected_tiles_per_split,
-        expected_member,
+        expected_grid,
+        expected_hpc,
     )
+    assert plan.variant in cake._NVFP4_DECODE_VARIANTS
     # Every split owns tiles_per_split tiles and the splits cover all tiles.
     assert plan.tiles_per_split * (plan.num_splits - 1) < plan.total_tiles
     assert plan.tiles_per_split * plan.num_splits >= plan.total_tiles
-    assert plan.grid == tokens * plan.num_splits * (2 if plan.member == "cluster" else 1)
-    assert plan.merge_groups == tokens
-    assert plan.variant == {
-        "tile": "nvfp4_decode_tile",
-        "persistent": "nvfp4_decode_persistent",
-        "cluster": "nvfp4_decode_cluster",
-    }[plan.member]
+    head_tile = 64 if plan.member == "t64" else 128
+    assert plan.num_head_tiles == -(-num_heads // head_tile)
+    assert plan.merge_groups == tokens * plan.num_head_tiles
+    assert plan.merge_grid == (tokens, -(-num_heads // plan.merge_heads_per_cta), 1)
+    if plan.num_splits > 1:
+        assert tokens * -(-num_heads // plan.merge_heads_per_cta) <= sm_count or plan.merge_heads_per_cta == 16
+
+
+def test_nvfp4_variant_names():
+    assert cake._nvfp4_variant_name("persistent") == "nvfp4_decode_persistent"
+    assert cake._nvfp4_variant_name("swap", tile_n=16, o_chunks=4) == "nvfp4_decode_swap_n16_oc4"
+    assert cake._nvfp4_variant_name("tile", o_chunks=2) == "nvfp4_decode_tile_oc2"
+    assert cake._nvfp4_variant_name("t64", tile_n=64, o_chunks=1) == "nvfp4_decode_t64_n64_oc1"
+    with pytest.raises(ValueError, match="variant knob"):
+        cake._nvfp4_variant_name("pv", o_chunks=1)
+    with pytest.raises(ValueError, match="unknown NVFP4 family member"):
+        cake._nvfp4_variant_name("merge")
+    assert len(set(_NVFP4_VARIANTS)) == len(_NVFP4_VARIANTS) == 15
 
 
 def test_nvfp4_plan_head_tiles_and_caps():
-    # Head tiles are 128 wide; every supported head count forms one tile.
+    # Head tiles are 128 wide (64 on the tile64 member); one-tile rows form one head tile on every member.
     for heads in (8, 16, 32, 64, 128):
         plan = _nvfp4_plan(
             num_query_tokens=4,
@@ -156,6 +236,7 @@ def test_nvfp4_plan_head_tiles_and_caps():
             sm_count=148,
         )
         assert plan.num_head_tiles == 1
+        assert plan.member == ("swap" if heads <= 32 else "tile")
     with pytest.raises(ValueError, match="num_heads"):
         _nvfp4_plan(
             num_query_tokens=4,
@@ -164,7 +245,7 @@ def test_nvfp4_plan_head_tiles_and_caps():
             extra_topk=0,
             sm_count=148,
         )
-    # 13 candidate tiles on one token would need 13 one-tile splits (cap 12).
+    # 13 candidate tiles exceed the split cap (12) of every member.
     with pytest.raises(ValueError, match="exceeds the NVFP4 route cap"):
         _nvfp4_plan(
             num_query_tokens=1,
@@ -237,6 +318,15 @@ def test_nvfp4_argument_vocabulary():
     assert cake.canonical_arg_name("tma_buffer", "tmap_out") == "partial_O_tiles"
     assert cake.is_bindable_arg("tma_buffer", "tmap_out")
     assert cake.is_bindable_arg("tma_buffer", "tmap_q")
+    for name, canonical in (
+        ("tmap_g4d", "main_cache_g4d"),
+        ("tmap_g4f", "main_cache_g4f"),
+        ("tmap_g4dx", "extra_cache_g4d"),
+        ("tmap_g4fx", "extra_cache_g4f"),
+    ):
+        assert cake.canonical_arg_name("tma_buffer", name) == canonical
+        assert cake.is_bindable_arg("tma_buffer", name)
+    assert cake.is_bindable_arg("parameter", "heads_per_cta")
     for name in (
         "tiles_per_split",
         "total_tiles",
