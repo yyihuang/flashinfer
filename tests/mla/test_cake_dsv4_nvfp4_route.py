@@ -49,7 +49,7 @@ def test_fp8_format_accepts_every_backend():
 
 
 # (num_query_tokens, num_heads, sparse_topk, extra_topk, sm_count) -> (variant, num_splits, tiles_per_split, grid, merge_heads_per_cta)
-# generated from the Cake production plans of the 75 CAKE-821 contract rows at the exportable SM counts (round 45)
+# generated from the Cake production plans of the 76 CAKE-821 contract rows at the exportable SM counts (round 45)
 _CAKE_PLAN_TABLE = {
     (1, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 4, 1),
     (1, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 4, 1),
@@ -159,6 +159,8 @@ _CAKE_PLAN_TABLE = {
     (32, 128, 512, 0, 152): ('nvfp4_decode_tile_oc1', 4, 1, 128, 16),
     (32, 128, 512, 512, 148): ('nvfp4_decode_persistent', 4, 2, 128, 16),
     (32, 128, 512, 512, 152): ('nvfp4_decode_persistent', 4, 2, 128, 16),
+    (72, 128, 256, 0, 148): ('nvfp4_decode_cluster', 1, 2, 144, 16),
+    (72, 128, 256, 0, 152): ('nvfp4_decode_cluster', 1, 2, 144, 16),
     (128, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc1', 1, 1, 128, 16),
     (128, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc1', 1, 1, 128, 16),
     (128, 16, 512, 0, 148): ('nvfp4_decode_pv_n16_oc1', 1, 4, 128, 16),
