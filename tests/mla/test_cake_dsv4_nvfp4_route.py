@@ -49,7 +49,7 @@ def test_fp8_format_accepts_every_backend():
 
 
 # (num_query_tokens, num_heads, sparse_topk, extra_topk, sm_count) -> (variant, num_splits, tiles_per_split, grid, merge_heads_per_cta)
-# generated from the Cake production plans of the 76 CAKE-821 contract rows at the exportable SM counts (round 45)
+# generated from the Cake production plans of the 76 contract rows of the DSv4 NVFP4 shape ledger at the exportable SM counts
 _CAKE_PLAN_TABLE = {
     (1, 16, 128, 0, 148): ('nvfp4_decode_swap_n16_oc4', 1, 1, 4, 1),
     (1, 16, 128, 0, 152): ('nvfp4_decode_swap_n16_oc4', 1, 1, 4, 1),
