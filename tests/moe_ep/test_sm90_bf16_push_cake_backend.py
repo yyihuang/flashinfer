@@ -323,6 +323,7 @@ def _find_runner(root, class_name="Sm90CakeBf16MoERunner", max_depth=8):
     return None
 
 
+@requires_sm90
 @pytest.mark.parametrize(
     "token_capacity, env, expected",
     [
@@ -368,6 +369,7 @@ def test_ep1_combine_wire_per_shape_default(
     assert runner.combine_wire == expected
 
 
+@requires_sm90
 def test_ep1_clamp_limit() -> None:
     device = torch.device("cuda", 0)
     layer, w13, w2 = _build_layer(1, 0, device, clamp_limit=0.5)
