@@ -84,15 +84,22 @@ vectors clamp the active prefix of each table. The two tables are
 independent (``sparse_indices`` over ``swa_kv_cache``, ``extra_sparse_indices``
 over ``compressed_kv_cache``); there is no combined-table column offset.
 
-The launch plan (:func:`_nvfp4_plan`) reproduces the Cake ``plan()``: 128-wide
-candidate tiles, 128-head tiles, ``num_splits = ceil(SMs / (T * head_tiles))``
-clamped to the tile count, the 2-CTA cluster member for >= 4 tiles per CTA
-with ``H >= 64`` and no extra wave, and the one-tile member whenever
-``tiles_per_split == 1``. Variants ``nvfp4_decode_persistent``,
-``nvfp4_decode_tile``, ``nvfp4_decode_cluster`` and ``nvfp4_merge`` are bound through the same
-registration machinery as the BF16/FP8 routes; their generated sources land
-under ``csrc/cake_dsv4/sm_100a`` and ``csrc/cake_dsv4/sm_103a`` in a later
-commit, until which the route raises ``NotImplementedError``. Splits write
+The launch plan (:func:`_nvfp4_plan`) reproduces the Cake family ``plan()``:
+128-wide candidate tiles; rows with ``H <= 32`` run the persistent SwapsAB
+member (``pv``) when its wave-aware split rule gives more than one tile per
+CTA and the one-tile SwapsAB member (``swap``) otherwise; rows with ``H >= 64``
+pick the member and split count with the lowest modelled chain cost among the
+one-tile ``tile`` member, the persistent member, the 2-CTA ``cluster`` member
+and the tile64 member (``t64``, 64 heads per CTA). The one-tile members run
+``o_chunks`` CTAs per work item; the split merge runs on
+``merge_heads_per_cta`` heads per CTA. Each (member, retrace knobs) pair is one
+registered variant (``_nvfp4_variant_name``: ``nvfp4_decode_persistent``,
+``nvfp4_decode_cluster``, ``nvfp4_decode_t64_n64_oc1``,
+``nvfp4_decode_pv_n{16,32}_oc1``, ``nvfp4_decode_swap_n{16,32}_oc{1,2,4}``,
+``nvfp4_decode_tile_oc{1,2,4}``) plus ``nvfp4_merge``, bound through the same
+registration machinery as the BF16/FP8 routes from the generated sources under
+``csrc/cake_dsv4/sm_100a`` and ``csrc/cake_dsv4/sm_103a``; a plan that selects
+an unexported variant raises ``NotImplementedError``. Splits write
 ``partial_O [T, H, S, 512]`` BF16 and ``partial_lse [T, H, S]`` FP32 into the
 workspace; the final base-2 LSE lives in an extra ``lse`` region appended
 after ``partial_lse`` (:func:`cake_dsv4_workspace_layout` ``with_lse=True``).
@@ -156,14 +163,41 @@ _NVFP4_TOKEN_BYTES = 384
 _NVFP4_TILE_Q = 128
 _NVFP4_MAX_SPLITS = 12
 _NVFP4_HEAD_COUNTS = (8, 16, 32, 64, 128)
+_NVFP4_HEAD_DIM = 512
 _NVFP4_VARIANT_PERSISTENT = "nvfp4_decode_persistent"
-_NVFP4_VARIANT_TILE = "nvfp4_decode_tile"
 _NVFP4_VARIANT_CLUSTER = "nvfp4_decode_cluster"
-_NVFP4_CLUSTER_CTAS = 2  # CTAs per cluster of the cluster member (each owns 256 of the 512 output dims)
-_NVFP4_CLUSTER_MIN_TILES = 4  # family rule (Cake prefers_cluster): >= 4 tiles per CTA ...
-_NVFP4_CLUSTER_MIN_HEADS = 64  # ... and H >= 64 ...
-_NVFP4_CLUSTER_EXTRA_WAVES = 0  # ... and no extra wave of CTAs versus the persistent plan
 _NVFP4_VARIANT_MERGE = "nvfp4_merge"
+_NVFP4_CLUSTER_CTAS = 2  # CTAs per cluster of the cluster member (each owns 256 of the 512 output dims)
+# Family planner (Cake flashinfer_blackwell_sparse_mla_dsv4_nvfp4_decode.plan, round 43 / 45).  Multi-tile rows
+# with H <= _NVFP4_PV_MAX_HEADS take the persistent SwapsAB member ("pv") when its wave-aware split rule gives more
+# than one tile per CTA; H > _NVFP4_PV_MAX_HEADS rows pick (member, splits) with the lowest modelled chain cost among
+# the one-tile "tile" member, the persistent member, the 2-CTA cluster member (H >= _NVFP4_CLUSTER_MIN_HEADS) and
+# the tile64 member "t64" (_NVFP4_T64_HEAD_COUNTS); one-tile rows take the SwapsAB one-tile member "swap" (H <=
+# _NVFP4_SWAP_MAX_HEADS) or the "tile" member, each with its own CTAs-per-work-item split (o_chunks).
+_NVFP4_PV_MAX_HEADS = 32
+_NVFP4_SWAP_MAX_HEADS = 32
+_NVFP4_CLUSTER_MIN_HEADS = 64
+_NVFP4_T64_HEAD_COUNTS = (64, 128)
+_NVFP4_T64_TILE_Q = 64  # heads per CTA of the tile64 member (H128 runs two head tiles)
+# Round-43 chain model (Cake PLAN_CHAIN_US / PLAN_MERGE_US / PLAN_MERGE_US_PER_MB): member -> (HEAD, TILE, LOAD) us;
+# a row costs waves * (HEAD + (tiles_per_split - 1) * TILE + LOAD * min(grid, slots) / slots) plus, with more than
+# one split, MERGE + MERGE_PER_MB * (T * H * (splits + 1) * 512 * 2 bytes / 1e6).
+_NVFP4_PLAN_CHAIN_US: Mapping[str, tuple[float, float, float]] = {
+    "persistent": (11.4, 4.5, 3.1),
+    "cluster": (10.6, 3.9, 0.2),
+    "t64": (8.2, 3.5, 3.4),
+    "tile": (8.8, 0.0, 1.7),
+}
+_NVFP4_PLAN_MERGE_US = 3.9
+_NVFP4_PLAN_MERGE_US_PER_MB = 0.20
+# Persistent SwapsAB member split rule (Cake flashinfer_blackwell_sparse_mla_dsv4_nvfp4_decode_swap_pv.plan):
+# waves * (HEAD + (tiles_per_split - 1) * TILE) + MERGE over every split count, first minimum wins.
+_NVFP4_PV_PLAN_HEAD_US = 8.6
+_NVFP4_PV_PLAN_TILE_US = 3.0
+_NVFP4_PV_PLAN_MERGE_US = 1.5
+# Split merge (Cake MERGE_HEADS_PER_CTA / merge_heads_per_cta): 16 warps per CTA, one (token, head) per warp;
+# heads_per_cta is the smallest power of two whose grid T x ceil(H / hpc) stays within one CTA per SM (round 45).
+_NVFP4_MERGE_HEADS_PER_CTA = 16
 
 
 # Work feed of the BF16/H128 persistent prefill body (mirrors the Cake seed's
@@ -790,6 +824,12 @@ _TMA_SOURCE_ALIASES: Mapping[str, str] = {
     # NVFP4 decode members store their (partial) output through a TMA
     # descriptor over the [tokens, heads, splits, 512] view of partial_O.
     "tmap_out": "partial_O_tiles",
+    # The gather4 members (pv / t64) read the pools through TMA gather descriptors over 32-byte-pitch int32 row
+    # views of each flat pool (data rows and footer rows; ``_nvfp4_gather4_views``).
+    "tmap_g4d": "main_cache_g4d",
+    "tmap_g4f": "main_cache_g4f",
+    "tmap_g4dx": "extra_cache_g4d",
+    "tmap_g4fx": "extra_cache_g4f",
 }
 _SCALAR_ALIASES: Mapping[str, str] = {
     "num_q_heads": "num_heads",
@@ -824,6 +864,10 @@ _TENSOR_VALUE_NAMES = frozenset(
         "extra_lengths",
         "partial_O_tiles",
         "lse_out",
+        "main_cache_g4d",
+        "main_cache_g4f",
+        "extra_cache_g4d",
+        "extra_cache_g4f",
     }
 )
 # Kernel parameters bound as Python floats (the NVFP4 members take the LSE
@@ -858,6 +902,7 @@ _SCALAR_VALUE_NAMES = frozenset(
         "extra_page_shift",
         "main_page_stride",
         "extra_page_stride",
+        "heads_per_cta",
         *_FLOAT_SCALAR_VALUE_NAMES,
     }
 )
@@ -1864,7 +1909,11 @@ class NVFP4Plan:
     total_tiles: int
     num_splits: int
     tiles_per_split: int
-    member: Literal["persistent", "tile", "cluster"]
+    member: Literal["persistent", "cluster", "t64", "pv", "swap", "tile"]
+    sm_count: int
+    tile_n: Optional[int] = None  # heads on the MMA N side of the SwapsAB / tile64 members (retrace knob)
+    o_chunks: int = 1  # CTAs per work item of the one-tile members (retrace knob)
+    merge_heads_per_cta: int = _NVFP4_MERGE_HEADS_PER_CTA
 
     @property
     def cluster_ctas(self) -> int:
@@ -1872,19 +1921,181 @@ class NVFP4Plan:
 
     @property
     def grid(self) -> int:
-        return self.num_query_tokens * self.num_splits * self.num_head_tiles * self.cluster_ctas
+        return (
+            self.num_query_tokens
+            * self.num_splits
+            * self.num_head_tiles
+            * self.cluster_ctas
+            * self.o_chunks
+        )
 
     @property
     def merge_groups(self) -> int:
         return self.num_query_tokens * self.num_head_tiles
 
     @property
-    def variant(self) -> str:
-        if self.member == "cluster":
-            return _NVFP4_VARIANT_CLUSTER
+    def merge_grid(self) -> tuple[int, int, int]:
         return (
-            _NVFP4_VARIANT_TILE if self.member == "tile" else _NVFP4_VARIANT_PERSISTENT
+            self.num_query_tokens,
+            _ceil_div(self.num_heads, self.merge_heads_per_cta),
+            1,
         )
+
+    @property
+    def variant(self) -> str:
+        return _nvfp4_variant_name(self.member, tile_n=self.tile_n, o_chunks=self.o_chunks)
+
+
+# Retrace knobs each member's generated program is specialised on, in variant-name order (Cake
+# flashinfer_blackwell_sparse_mla_dsv4_nvfp4_program.MEMBER_VARIANT_KNOBS).
+_NVFP4_VARIANT_KNOBS: Mapping[str, tuple[str, ...]] = {
+    "persistent": (),
+    "cluster": (),
+    "t64": ("tile_n", "o_chunks"),
+    "pv": ("tile_n", "o_chunks"),
+    "swap": ("tile_n", "o_chunks"),
+    "tile": ("o_chunks",),
+}
+_NVFP4_KNOB_TAGS = {"tile_n": "n", "o_chunks": "oc"}
+
+
+def _nvfp4_variant_name(
+    member: str, *, tile_n: Optional[int] = None, o_chunks: int = 1
+) -> str:
+    """Registered variant name of a member's physical program:
+    ``nvfp4_decode_<member>[_n<tile_n>][_oc<o_chunks>]`` (the merge is ``nvfp4_merge``)."""
+    if member not in _NVFP4_VARIANT_KNOBS:
+        raise ValueError(f"unknown NVFP4 family member {member!r}")
+    values = {"tile_n": tile_n, "o_chunks": o_chunks}
+    tags = []
+    for knob in _NVFP4_VARIANT_KNOBS[member]:
+        if values[knob] is None:
+            raise ValueError(f"{member}: variant knob {knob} is required")
+        tags.append(f"_{_NVFP4_KNOB_TAGS[knob]}{int(values[knob])}")
+    return "nvfp4_decode_" + member + "".join(tags)
+
+
+# Every decode variant a plan can select (the host names them statically so the export can check that each
+# generated program is bindable): persistent, cluster, t64 n64, pv n16 / n32, swap n{16,32} x oc{1,2,4},
+# tile oc{1,2,4}.
+_NVFP4_DECODE_VARIANTS = (
+    _NVFP4_VARIANT_PERSISTENT,
+    _NVFP4_VARIANT_CLUSTER,
+    "nvfp4_decode_t64_n64_oc1",
+    "nvfp4_decode_pv_n16_oc1",
+    "nvfp4_decode_pv_n32_oc1",
+    "nvfp4_decode_swap_n16_oc1",
+    "nvfp4_decode_swap_n16_oc2",
+    "nvfp4_decode_swap_n16_oc4",
+    "nvfp4_decode_swap_n32_oc1",
+    "nvfp4_decode_swap_n32_oc2",
+    "nvfp4_decode_swap_n32_oc4",
+    "nvfp4_decode_tile_oc1",
+    "nvfp4_decode_tile_oc2",
+    "nvfp4_decode_tile_oc4",
+)
+_NVFP4_VARIANTS = (*_NVFP4_DECODE_VARIANTS, _NVFP4_VARIANT_MERGE)
+
+
+def _nvfp4_split_shape(total_tiles: int, num_splits: int) -> tuple[int, int]:
+    """Canonical (splits, tiles per split): contiguous tile ranges, the split count is the number of non-empty
+    ranges (Cake ``_split_shape``)."""
+    num_splits = max(1, min(int(num_splits), total_tiles))
+    tiles_per_split = _ceil_div(total_tiles, num_splits)
+    num_splits = _ceil_div(total_tiles, tiles_per_split)
+    if num_splits > _NVFP4_MAX_SPLITS:
+        raise ValueError(f"num_splits {num_splits} exceeds the NVFP4 route cap {_NVFP4_MAX_SPLITS}")
+    return num_splits, tiles_per_split
+
+
+def _nvfp4_plan_cost_us(
+    member: str,
+    *,
+    num_tokens: int,
+    num_heads: int,
+    head_tiles: int,
+    total_tiles: int,
+    num_splits: int,
+    sm_count: int,
+) -> float:
+    """Round-43 chain model of ``member`` running the row with ``num_splits`` splits (Cake ``plan_cost_us``)."""
+    head_us, tile_us, load_us = _NVFP4_PLAN_CHAIN_US[member]
+    num_splits, tiles_per_split = _nvfp4_split_shape(total_tiles, num_splits)
+    ctas_per_unit = _NVFP4_CLUSTER_CTAS if member == "cluster" else 1
+    grid = num_tokens * head_tiles * num_splits * ctas_per_unit
+    slots = sm_count - (sm_count % ctas_per_unit)
+    waves = _ceil_div(grid, slots)
+    chain = head_us + (tiles_per_split - 1) * tile_us + load_us * min(grid, slots) / slots
+    cost = waves * chain
+    if num_splits > 1:
+        cost += _NVFP4_PLAN_MERGE_US + _NVFP4_PLAN_MERGE_US_PER_MB * (
+            num_tokens * num_heads * (num_splits + 1) * _NVFP4_HEAD_DIM * 2 / 1e6
+        )
+    return cost
+
+
+def _nvfp4_plan_large_heads(
+    num_tokens: int, num_heads: int, total_tiles: int, sm_count: int
+) -> tuple[str, int]:
+    """(member, splits) with the lowest modelled cost for an H > _NVFP4_PV_MAX_HEADS row (Cake ``_plan_large_heads``):
+    the tile member at one tile per CTA, then persistent / cluster / tile64 over every canonical split count that
+    leaves >= 2 tiles per CTA; ties keep the earlier candidate."""
+    common = dict(num_tokens=num_tokens, num_heads=num_heads, total_tiles=total_tiles, sm_count=sm_count)
+    head_tiles = _ceil_div(num_heads, _NVFP4_TILE_Q)
+    cands = [("tile", total_tiles, _nvfp4_plan_cost_us("tile", head_tiles=head_tiles, num_splits=total_tiles, **common))]
+    for splits in range(1, min(total_tiles - 1, _NVFP4_MAX_SPLITS) + 1):
+        if _ceil_div(total_tiles, _ceil_div(total_tiles, splits)) != splits:
+            continue  # not a canonical split count
+        cands.append(("persistent", splits, _nvfp4_plan_cost_us("persistent", head_tiles=head_tiles, num_splits=splits, **common)))
+        if num_heads >= _NVFP4_CLUSTER_MIN_HEADS:
+            cands.append(("cluster", splits, _nvfp4_plan_cost_us("cluster", head_tiles=head_tiles, num_splits=splits, **common)))
+        if num_heads in _NVFP4_T64_HEAD_COUNTS:
+            cands.append(("t64", splits, _nvfp4_plan_cost_us("t64", head_tiles=_ceil_div(num_heads, _NVFP4_T64_TILE_Q), num_splits=splits, **common)))
+    best = min(cands, key=lambda c: c[2])
+    return best[0], best[1]
+
+
+def _nvfp4_pv_splits(num_tokens: int, total_tiles: int, sm_count: int) -> tuple[int, int]:
+    """Split count of the persistent SwapsAB member for an H <= 32 row (Cake swap_pv ``plan``: one CTA per SM, the
+    chain ``waves * (HEAD + (tiles - 1) * TILE) + MERGE`` minimised over the split count; first minimum wins)."""
+    best = None
+    for cand in range(1, min(total_tiles, _NVFP4_MAX_SPLITS) + 1):
+        tiles_per_split = _ceil_div(total_tiles, cand)
+        splits = _ceil_div(total_tiles, tiles_per_split)
+        waves = _ceil_div(num_tokens * splits, sm_count)
+        cost = waves * (_NVFP4_PV_PLAN_HEAD_US + (tiles_per_split - 1) * _NVFP4_PV_PLAN_TILE_US) + (
+            _NVFP4_PV_PLAN_MERGE_US if splits > 1 else 0.0
+        )
+        if best is None or cost < best[0] - 1e-9:
+            best = (cost, splits, tiles_per_split)
+    return best[1], best[2]
+
+
+def _nvfp4_swap_o_chunks(work_items: int, sm_count: int) -> int:
+    """CTAs per work item of the one-tile SwapsAB member: the largest of 4 / 2 / 1 whose grid fits one wave."""
+    if 4 * work_items <= sm_count:
+        return 4
+    if 2 * work_items <= sm_count:
+        return 2
+    return 1
+
+
+def _nvfp4_tile_o_chunks(work_items: int, sm_count: int) -> int:
+    """CTAs per work item of the one-tile member (two CTAs per SM at its footprint: half the SM count)."""
+    if 4 * work_items <= sm_count // 2:
+        return 4
+    if 2 * work_items <= sm_count // 2:
+        return 2
+    return 1
+
+
+def _nvfp4_merge_heads_per_cta(num_tokens: int, num_heads: int, sm_count: int) -> int:
+    """Heads (warps) per merge CTA: the smallest power of two <= 16 whose grid stays within one CTA per SM, else 16
+    (Cake ``merge_heads_per_cta``, round 45)."""
+    for hpc in (1, 2, 4, 8, 16):
+        if num_tokens * _ceil_div(num_heads, hpc) <= sm_count:
+            return hpc
+    return _NVFP4_MERGE_HEADS_PER_CTA
 
 
 def _nvfp4_plan(
@@ -1897,16 +2108,15 @@ def _nvfp4_plan(
 ) -> NVFP4Plan:
     """Reproduce the Cake NVFP4 family ``plan()`` and member dispatch.
 
-    One CTA per (token, head tile, split) loops over a contiguous range of
-    128-candidate tiles with an online softmax; ``num_splits`` is the smallest
-    count that covers the SMs, clamped to the tile count, then rounded so every
-    split owns ``tiles_per_split`` tiles. The 2-CTA cluster member
-    (``..._decode_cluster``: its own split count over ``2 * T * head_tiles``
-    CTAs) takes the row when its plan gives every CTA >= 4 tiles, ``H >= 64``
-    and its grid needs no more waves than the persistent grid
-    (``ceil(grid_c / (2 * (SMs // 2))) <= ceil(grid_p / SMs)``);
-    ``tiles_per_split == 1`` routes to the one-tile member (``..._decode_tile``:
-    ``num_splits == total_tiles``), everything else to the persistent member.
+    Candidate tiles are 128 wide (``total_tiles`` over both tables).  Rows with
+    ``H <= 32`` run the persistent SwapsAB member (``pv``) when its wave-aware
+    split rule gives more than one tile per CTA, otherwise the one-tile SwapsAB
+    member (``swap``, ``o_chunks`` CTAs per work item).  Rows with ``H >= 64``
+    pick (member, splits) from the round-43 chain model over the one-tile
+    ``tile`` member, the persistent member, the 2-CTA ``cluster`` member and the
+    tile64 member ``t64`` (64 heads per CTA; ``H128`` runs two head tiles).  The
+    split merge runs behind any member with ``num_splits > 1`` on
+    ``merge_heads_per_cta`` heads per CTA.
     """
     tokens = _positive_int(num_query_tokens, "num_query_tokens")
     heads = _positive_int(num_heads, "num_heads")
@@ -1925,51 +2135,88 @@ def _nvfp4_plan(
     total_tiles = main_tiles + extra_tiles
     if total_tiles < 1:
         raise ValueError("at least one candidate tile is required")
-    num_head_tiles = _ceil_div(heads, _NVFP4_TILE_Q)
-
-    def _splits(ctas_per_work_item: int) -> tuple[int, int]:
-        base_ctas = tokens * num_head_tiles * ctas_per_work_item
-        splits = max(1, min(total_tiles, _ceil_div(sms, base_ctas)))
-        per_split = _ceil_div(total_tiles, splits)
-        splits = _ceil_div(total_tiles, per_split)
-        if splits > _NVFP4_MAX_SPLITS:
-            raise ValueError(
-                f"num_splits {splits} exceeds the NVFP4 route cap {_NVFP4_MAX_SPLITS}"
-            )
-        return splits, per_split
-
-    num_splits, tiles_per_split = _splits(1)
-    member = "tile" if tiles_per_split == 1 else "persistent"
-    try:
-        cluster_splits, cluster_tiles = _splits(_NVFP4_CLUSTER_CTAS)
-    except ValueError:
-        cluster_splits, cluster_tiles = 0, 0
-    if cluster_tiles >= _NVFP4_CLUSTER_MIN_TILES and heads >= _NVFP4_CLUSTER_MIN_HEADS:
-        grid_cluster = tokens * cluster_splits * num_head_tiles * _NVFP4_CLUSTER_CTAS
-        grid_persistent = tokens * num_splits * num_head_tiles
-        waves_cluster = _ceil_div(
-            grid_cluster, _NVFP4_CLUSTER_CTAS * (sms // _NVFP4_CLUSTER_CTAS)
+    if total_tiles > _NVFP4_MAX_SPLITS:
+        raise ValueError(
+            f"total candidate tiles {total_tiles} exceeds the NVFP4 route cap {_NVFP4_MAX_SPLITS}"
         )
-        waves_persistent = _ceil_div(grid_persistent, sms)
-        if waves_cluster <= waves_persistent + _NVFP4_CLUSTER_EXTRA_WAVES:
-            member = "cluster"
-            num_splits, tiles_per_split = cluster_splits, cluster_tiles
-    return NVFP4Plan(
+    num_head_tiles = _ceil_div(heads, _NVFP4_TILE_Q)
+    common = dict(
         num_query_tokens=tokens,
         num_heads=heads,
-        num_head_tiles=num_head_tiles,
         main_width=main_width,
         extra_width=extra_topk,
         num_main_tiles=main_tiles,
         num_extra_tiles=extra_tiles,
         total_tiles=total_tiles,
-        num_splits=num_splits,
-        tiles_per_split=tiles_per_split,
-        member=member,
+        sm_count=sms,
+        merge_heads_per_cta=_nvfp4_merge_heads_per_cta(tokens, heads, sms),
+    )
+    # the persistent member's own split rule: enough CTAs to cover the SMs
+    p_splits, p_tiles = _nvfp4_split_shape(
+        total_tiles, max(1, min(total_tiles, _ceil_div(sms, tokens * num_head_tiles)))
+    )
+    if heads > _NVFP4_PV_MAX_HEADS:
+        member, splits = _nvfp4_plan_large_heads(tokens, heads, total_tiles, sms)
+        if member == "t64":
+            splits, tiles_per_split = _nvfp4_split_shape(total_tiles, splits)
+            return NVFP4Plan(
+                num_head_tiles=_ceil_div(heads, _NVFP4_T64_TILE_Q),
+                num_splits=splits,
+                tiles_per_split=tiles_per_split,
+                member="t64",
+                tile_n=_NVFP4_T64_TILE_Q,
+                o_chunks=1,
+                **common,
+            )
+        if member in ("cluster", "persistent"):
+            splits, tiles_per_split = _nvfp4_split_shape(total_tiles, splits)
+            return NVFP4Plan(
+                num_head_tiles=num_head_tiles,
+                num_splits=splits,
+                tiles_per_split=tiles_per_split,
+                member=member,
+                **common,
+            )
+        # the one-tile member: one candidate tile per CTA, o_chunks CTAs per work item
+        return NVFP4Plan(
+            num_head_tiles=num_head_tiles,
+            num_splits=total_tiles,
+            tiles_per_split=1,
+            member="tile",
+            o_chunks=_nvfp4_tile_o_chunks(tokens * total_tiles * num_head_tiles, sms),
+            **common,
+        )
+    pv_splits, pv_tiles = _nvfp4_pv_splits(tokens, total_tiles, sms)
+    if pv_tiles > 1:
+        return NVFP4Plan(
+            num_head_tiles=num_head_tiles,
+            num_splits=pv_splits,
+            tiles_per_split=pv_tiles,
+            member="pv",
+            tile_n=16 if heads <= 16 else 32,
+            o_chunks=1,
+            **common,
+        )
+    if p_tiles == 1:
+        # one-tile rows with H <= _NVFP4_SWAP_MAX_HEADS: the one-tile SwapsAB member
+        return NVFP4Plan(
+            num_head_tiles=num_head_tiles,
+            num_splits=total_tiles,
+            tiles_per_split=1,
+            member="swap",
+            tile_n=16 if heads <= 16 else 32,
+            o_chunks=_nvfp4_swap_o_chunks(tokens * total_tiles * num_head_tiles, sms),
+            **common,
+        )
+    return NVFP4Plan(
+        num_head_tiles=num_head_tiles,
+        num_splits=p_splits,
+        tiles_per_split=p_tiles,
+        member="persistent",
+        **common,
     )
 
 
-@functools.lru_cache(maxsize=None)
 def _nvfp4_sm_count(device: torch.device) -> int:
     return int(torch.cuda.get_device_properties(device).multi_processor_count)
 
@@ -2285,6 +2532,8 @@ def run_cake_dsv4_nvfp4(
     _require_nvfp4_variant(plan.variant, arch=arch)
     if num_splits > 1:
         _require_nvfp4_variant(_NVFP4_VARIANT_MERGE, arch=arch)
+    main_g4d, main_g4f = _nvfp4_gather4_views(main_flat)
+    extra_g4d, extra_g4f = _nvfp4_gather4_views(extra_flat)
 
     values: dict[str, Any] = {
         "Q": query_rows,
@@ -2292,6 +2541,10 @@ def run_cake_dsv4_nvfp4(
         "partial_O_tiles": partial_o_tiles,
         "main_cache": main_flat,
         "extra_cache": extra_flat,
+        "main_cache_g4d": main_g4d,
+        "main_cache_g4f": main_g4f,
+        "extra_cache_g4d": extra_g4d,
+        "extra_cache_g4f": extra_g4f,
         "main_indices": main_indices,
         "extra_indices": extra_indices,
         "main_lengths": main_lengths if main_lengths is not None else main_indices,
@@ -2323,6 +2576,7 @@ def run_cake_dsv4_nvfp4(
         "main_page_stride": int(main_page_stride),
         "extra_page_stride": int(extra_page_stride),
         "has_sinks": int(sinks is not None),
+        "heads_per_cta": plan.merge_heads_per_cta,
         "lse_partial_scale": float(lse_partial_scale),
         "lse_scale": lse_scale,
     }
@@ -2335,9 +2589,19 @@ def run_cake_dsv4_nvfp4(
     )
     launcher.variant(plan.variant, grid=(plan.grid, 1, 1))
     if num_splits > 1:
-        # Split merge: one CTA per (token, head) over partial_O / partial_lse.
-        launcher.reduce(_NVFP4_VARIANT_MERGE)
+        # Split merge: one CTA per (token, heads_per_cta heads) over partial_O / partial_lse.
+        launcher.variant(_NVFP4_VARIANT_MERGE, grid=plan.merge_grid)
     return out
+
+
+def _nvfp4_gather4_views(flat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """TMA gather views of a flat NVFP4 pool (``[pages, page_stride]`` uint8) for the gather4 members: 32-byte-pitch
+    int32 rows -- data rows (88 x int32, overlapping: token ``t`` of page ``p`` is row ``p * page_stride / 32 + 11 t``)
+    and footer rows (8 x int32).  Mirrors the Cake members' ``_gather4_views``."""
+    f32 = flat.view(torch.int32).reshape(-1)
+    n_rows = f32.numel() // 8
+    n_data_rows = (f32.numel() - 88) // 8 + 1  # the overlapping 88-element rows must stay inside the storage
+    return f32.as_strided((n_data_rows, 88), (8, 1)), f32.as_strided((n_rows, 8), (8, 1))
 
 
 __all__ = [
