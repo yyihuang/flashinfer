@@ -659,11 +659,15 @@ def test_decode_config_round6_continuation_rules(arch):
         cb.gemm_stream_k_fixup_plan(4096, 12, 28, arch, 148, cb._m_tiles(4096), 6, 256)
         is None
     )
+    # another M of the same 256 bucket (2 M tiles) takes the same split; a whole-wave SM count keeps the plain schedule
+    assert cb.gemm_stream_k_fixup_plan(
+        200, 384, 28, arch, 148, cb._m_tiles(200), 192, 256
+    ) == cb.gemm_stream_k_fixup_plan(
+        256, 384, 28, arch, 148, cb._m_tiles(256), 192, 256
+    )
     assert (
-        cb.gemm_stream_k_fixup_plan(
-            148 * 2, 384, 28, arch, 148, cb._m_tiles(148 * 2), 192, 256
-        )
-        is not None
+        cb.gemm_stream_k_fixup_plan(256, 384, 28, arch, 96, cb._m_tiles(256), 192, 256)
+        is None
     )
     assert {"gemm_tstore_skf", "gemm_tstore_n192_skf"} <= required
     assert not any(
