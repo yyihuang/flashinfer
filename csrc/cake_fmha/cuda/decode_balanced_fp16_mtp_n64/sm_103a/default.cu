@@ -1589,8 +1589,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                     float a_k = _exp2_3;
                                     float _exp2_4 = approx_exp2((m_k - m_new) * softmax_scale_log2);
                                     float b_k = _exp2_4;
-                                    float _fma_2 = __fmaf_rn(l_k, b_k, l_f * a_k);
-                                    l_f = _fma_2;
+                                    float _fma_6 = __fmaf_rn(l_k, b_k, l_f * a_k);
+                                    l_f = _fma_6;
                                     float _vec_load_0[4];
                                     {
                                         float4 _v4 = *reinterpret_cast<const float4*>(partial_o + (o_col_r + c_c * o_stride_r) + 0);
@@ -1601,8 +1601,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                     }
                                     #pragma unroll
                                     for (int k = 0; k < 4; k++) {
-                                        float _fma_3 = __fmaf_rn(_vec_load_0[k], b_k, acc_f[k] * a_k);
-                                        acc_f[k] = _fma_3;
+                                        float _fma_7 = __fmaf_rn(_vec_load_0[k], b_k, acc_f[k] * a_k);
+                                        acc_f[k] = _fma_7;
                                     }
                                     m_f = m_new;
                                 }
@@ -2258,11 +2258,11 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                 float w_s_f = _exp2_6;
                                 float _exp2_7 = approx_exp2((m_o_f - m_row_f) * softmax_scale_log2);
                                 float w_o_f = _exp2_7;
-                                float _fma_4 = __fmaf_rn(w_s_f, l_s_f, w_o_f * l_o_f);
-                                float den_f = _fma_4;
+                                float _fma_8 = __fmaf_rn(w_s_f, l_s_f, w_o_f * l_o_f);
+                                float den_f = _fma_8;
                                 if (chunk_c != 0) {
-                                    float _fma_5 = __fmaf_rn(w_o_f, l_o_f, w_s_f * l_s_f);
-                                    den_f = _fma_5;
+                                    float _fma_9 = __fmaf_rn(w_o_f, l_o_f, w_s_f * l_s_f);
+                                    den_f = _fma_9;
                                 }
                                 float _rcp_17 = approx_rcp(den_f);
                                 float inv_f_1 = ((den_f > 0.0f) ? _rcp_17 : 0.0f);
@@ -2271,144 +2271,144 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                 #pragma unroll
                                 for (int c = 0; c < 4; c++) {
                                     {
-                                        float _fma_6 = __fmaf_rn(_tmem_load_1[c], w_s_cf, _vec_load_1[c] * w_o_cf);
-                                        float _fma_7 = __fmaf_rn(_vec_load_1[c], w_o_cf, _tmem_load_1[c] * w_s_cf);
-                                        float o_det_f = ((chunk_c == 0) ? _fma_6 : _fma_7);
+                                        float _fma_10 = __fmaf_rn(_tmem_load_1[c], w_s_cf, _vec_load_1[c] * w_o_cf);
+                                        float _fma_11 = __fmaf_rn(_vec_load_1[c], w_o_cf, _tmem_load_1[c] * w_s_cf);
+                                        float o_det_f = ((chunk_c == 0) ? _fma_10 : _fma_11);
                                         _tmem_load_1[c] = o_det_f;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_1 = 0; c_1 < 4; c_1++) {
                                     {
-                                        float _fma_9 = __fmaf_rn(_tmem_load_1[4 + c_1], w_s_cf, _vec_load_2[c_1] * w_o_cf);
-                                        float _fma_10 = __fmaf_rn(_vec_load_2[c_1], w_o_cf, _tmem_load_1[4 + c_1] * w_s_cf);
-                                        float o_det_f_1 = ((chunk_c == 0) ? _fma_9 : _fma_10);
+                                        float _fma_13 = __fmaf_rn(_tmem_load_1[4 + c_1], w_s_cf, _vec_load_2[c_1] * w_o_cf);
+                                        float _fma_14 = __fmaf_rn(_vec_load_2[c_1], w_o_cf, _tmem_load_1[4 + c_1] * w_s_cf);
+                                        float o_det_f_1 = ((chunk_c == 0) ? _fma_13 : _fma_14);
                                         _tmem_load_1[4 + c_1] = o_det_f_1;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_2 = 0; c_2 < 4; c_2++) {
                                     {
-                                        float _fma_12 = __fmaf_rn(_tmem_load_1[8 + c_2], w_s_cf, _vec_load_3[c_2] * w_o_cf);
-                                        float _fma_13 = __fmaf_rn(_vec_load_3[c_2], w_o_cf, _tmem_load_1[8 + c_2] * w_s_cf);
-                                        float o_det_f_2 = ((chunk_c == 0) ? _fma_12 : _fma_13);
+                                        float _fma_16 = __fmaf_rn(_tmem_load_1[8 + c_2], w_s_cf, _vec_load_3[c_2] * w_o_cf);
+                                        float _fma_17 = __fmaf_rn(_vec_load_3[c_2], w_o_cf, _tmem_load_1[8 + c_2] * w_s_cf);
+                                        float o_det_f_2 = ((chunk_c == 0) ? _fma_16 : _fma_17);
                                         _tmem_load_1[8 + c_2] = o_det_f_2;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_3 = 0; c_3 < 4; c_3++) {
                                     {
-                                        float _fma_15 = __fmaf_rn(_tmem_load_1[12 + c_3], w_s_cf, _vec_load_4[c_3] * w_o_cf);
-                                        float _fma_16 = __fmaf_rn(_vec_load_4[c_3], w_o_cf, _tmem_load_1[12 + c_3] * w_s_cf);
-                                        float o_det_f_3 = ((chunk_c == 0) ? _fma_15 : _fma_16);
+                                        float _fma_19 = __fmaf_rn(_tmem_load_1[12 + c_3], w_s_cf, _vec_load_4[c_3] * w_o_cf);
+                                        float _fma_20 = __fmaf_rn(_vec_load_4[c_3], w_o_cf, _tmem_load_1[12 + c_3] * w_s_cf);
+                                        float o_det_f_3 = ((chunk_c == 0) ? _fma_19 : _fma_20);
                                         _tmem_load_1[12 + c_3] = o_det_f_3;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_4 = 0; c_4 < 4; c_4++) {
                                     {
-                                        float _fma_18 = __fmaf_rn(_tmem_load_1[16 + c_4], w_s_cf, _vec_load_5[c_4] * w_o_cf);
-                                        float _fma_19 = __fmaf_rn(_vec_load_5[c_4], w_o_cf, _tmem_load_1[16 + c_4] * w_s_cf);
-                                        float o_det_f_4 = ((chunk_c == 0) ? _fma_18 : _fma_19);
+                                        float _fma_22 = __fmaf_rn(_tmem_load_1[16 + c_4], w_s_cf, _vec_load_5[c_4] * w_o_cf);
+                                        float _fma_23 = __fmaf_rn(_vec_load_5[c_4], w_o_cf, _tmem_load_1[16 + c_4] * w_s_cf);
+                                        float o_det_f_4 = ((chunk_c == 0) ? _fma_22 : _fma_23);
                                         _tmem_load_1[16 + c_4] = o_det_f_4;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_5 = 0; c_5 < 4; c_5++) {
                                     {
-                                        float _fma_21 = __fmaf_rn(_tmem_load_1[20 + c_5], w_s_cf, _vec_load_6[c_5] * w_o_cf);
-                                        float _fma_22 = __fmaf_rn(_vec_load_6[c_5], w_o_cf, _tmem_load_1[20 + c_5] * w_s_cf);
-                                        float o_det_f_5 = ((chunk_c == 0) ? _fma_21 : _fma_22);
+                                        float _fma_25 = __fmaf_rn(_tmem_load_1[20 + c_5], w_s_cf, _vec_load_6[c_5] * w_o_cf);
+                                        float _fma_26 = __fmaf_rn(_vec_load_6[c_5], w_o_cf, _tmem_load_1[20 + c_5] * w_s_cf);
+                                        float o_det_f_5 = ((chunk_c == 0) ? _fma_25 : _fma_26);
                                         _tmem_load_1[20 + c_5] = o_det_f_5;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_6 = 0; c_6 < 4; c_6++) {
                                     {
-                                        float _fma_24 = __fmaf_rn(_tmem_load_1[24 + c_6], w_s_cf, _vec_load_7[c_6] * w_o_cf);
-                                        float _fma_25 = __fmaf_rn(_vec_load_7[c_6], w_o_cf, _tmem_load_1[24 + c_6] * w_s_cf);
-                                        float o_det_f_6 = ((chunk_c == 0) ? _fma_24 : _fma_25);
+                                        float _fma_28 = __fmaf_rn(_tmem_load_1[24 + c_6], w_s_cf, _vec_load_7[c_6] * w_o_cf);
+                                        float _fma_29 = __fmaf_rn(_vec_load_7[c_6], w_o_cf, _tmem_load_1[24 + c_6] * w_s_cf);
+                                        float o_det_f_6 = ((chunk_c == 0) ? _fma_28 : _fma_29);
                                         _tmem_load_1[24 + c_6] = o_det_f_6;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_7 = 0; c_7 < 4; c_7++) {
                                     {
-                                        float _fma_27 = __fmaf_rn(_tmem_load_1[28 + c_7], w_s_cf, _vec_load_8[c_7] * w_o_cf);
-                                        float _fma_28 = __fmaf_rn(_vec_load_8[c_7], w_o_cf, _tmem_load_1[28 + c_7] * w_s_cf);
-                                        float o_det_f_7 = ((chunk_c == 0) ? _fma_27 : _fma_28);
+                                        float _fma_31 = __fmaf_rn(_tmem_load_1[28 + c_7], w_s_cf, _vec_load_8[c_7] * w_o_cf);
+                                        float _fma_32 = __fmaf_rn(_vec_load_8[c_7], w_o_cf, _tmem_load_1[28 + c_7] * w_s_cf);
+                                        float o_det_f_7 = ((chunk_c == 0) ? _fma_31 : _fma_32);
                                         _tmem_load_1[28 + c_7] = o_det_f_7;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_8 = 0; c_8 < 4; c_8++) {
                                     {
-                                        float _fma_30 = __fmaf_rn(_tmem_load_1[32 + c_8], w_s_cf, _vec_load_9[c_8] * w_o_cf);
-                                        float _fma_31 = __fmaf_rn(_vec_load_9[c_8], w_o_cf, _tmem_load_1[32 + c_8] * w_s_cf);
-                                        float o_det_f_8 = ((chunk_c == 0) ? _fma_30 : _fma_31);
+                                        float _fma_34 = __fmaf_rn(_tmem_load_1[32 + c_8], w_s_cf, _vec_load_9[c_8] * w_o_cf);
+                                        float _fma_35 = __fmaf_rn(_vec_load_9[c_8], w_o_cf, _tmem_load_1[32 + c_8] * w_s_cf);
+                                        float o_det_f_8 = ((chunk_c == 0) ? _fma_34 : _fma_35);
                                         _tmem_load_1[32 + c_8] = o_det_f_8;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_9 = 0; c_9 < 4; c_9++) {
                                     {
-                                        float _fma_33 = __fmaf_rn(_tmem_load_1[36 + c_9], w_s_cf, _vec_load_10[c_9] * w_o_cf);
-                                        float _fma_34 = __fmaf_rn(_vec_load_10[c_9], w_o_cf, _tmem_load_1[36 + c_9] * w_s_cf);
-                                        float o_det_f_9 = ((chunk_c == 0) ? _fma_33 : _fma_34);
+                                        float _fma_37 = __fmaf_rn(_tmem_load_1[36 + c_9], w_s_cf, _vec_load_10[c_9] * w_o_cf);
+                                        float _fma_38 = __fmaf_rn(_vec_load_10[c_9], w_o_cf, _tmem_load_1[36 + c_9] * w_s_cf);
+                                        float o_det_f_9 = ((chunk_c == 0) ? _fma_37 : _fma_38);
                                         _tmem_load_1[36 + c_9] = o_det_f_9;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_10 = 0; c_10 < 4; c_10++) {
                                     {
-                                        float _fma_36 = __fmaf_rn(_tmem_load_1[40 + c_10], w_s_cf, _vec_load_11[c_10] * w_o_cf);
-                                        float _fma_37 = __fmaf_rn(_vec_load_11[c_10], w_o_cf, _tmem_load_1[40 + c_10] * w_s_cf);
-                                        float o_det_f_10 = ((chunk_c == 0) ? _fma_36 : _fma_37);
+                                        float _fma_40 = __fmaf_rn(_tmem_load_1[40 + c_10], w_s_cf, _vec_load_11[c_10] * w_o_cf);
+                                        float _fma_41 = __fmaf_rn(_vec_load_11[c_10], w_o_cf, _tmem_load_1[40 + c_10] * w_s_cf);
+                                        float o_det_f_10 = ((chunk_c == 0) ? _fma_40 : _fma_41);
                                         _tmem_load_1[40 + c_10] = o_det_f_10;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_11 = 0; c_11 < 4; c_11++) {
                                     {
-                                        float _fma_39 = __fmaf_rn(_tmem_load_1[44 + c_11], w_s_cf, _vec_load_12[c_11] * w_o_cf);
-                                        float _fma_40 = __fmaf_rn(_vec_load_12[c_11], w_o_cf, _tmem_load_1[44 + c_11] * w_s_cf);
-                                        float o_det_f_11 = ((chunk_c == 0) ? _fma_39 : _fma_40);
+                                        float _fma_43 = __fmaf_rn(_tmem_load_1[44 + c_11], w_s_cf, _vec_load_12[c_11] * w_o_cf);
+                                        float _fma_44 = __fmaf_rn(_vec_load_12[c_11], w_o_cf, _tmem_load_1[44 + c_11] * w_s_cf);
+                                        float o_det_f_11 = ((chunk_c == 0) ? _fma_43 : _fma_44);
                                         _tmem_load_1[44 + c_11] = o_det_f_11;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_12 = 0; c_12 < 4; c_12++) {
                                     {
-                                        float _fma_42 = __fmaf_rn(_tmem_load_1[48 + c_12], w_s_cf, _vec_load_13[c_12] * w_o_cf);
-                                        float _fma_43 = __fmaf_rn(_vec_load_13[c_12], w_o_cf, _tmem_load_1[48 + c_12] * w_s_cf);
-                                        float o_det_f_12 = ((chunk_c == 0) ? _fma_42 : _fma_43);
+                                        float _fma_46 = __fmaf_rn(_tmem_load_1[48 + c_12], w_s_cf, _vec_load_13[c_12] * w_o_cf);
+                                        float _fma_47 = __fmaf_rn(_vec_load_13[c_12], w_o_cf, _tmem_load_1[48 + c_12] * w_s_cf);
+                                        float o_det_f_12 = ((chunk_c == 0) ? _fma_46 : _fma_47);
                                         _tmem_load_1[48 + c_12] = o_det_f_12;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_13 = 0; c_13 < 4; c_13++) {
                                     {
-                                        float _fma_45 = __fmaf_rn(_tmem_load_1[52 + c_13], w_s_cf, _vec_load_14[c_13] * w_o_cf);
-                                        float _fma_46 = __fmaf_rn(_vec_load_14[c_13], w_o_cf, _tmem_load_1[52 + c_13] * w_s_cf);
-                                        float o_det_f_13 = ((chunk_c == 0) ? _fma_45 : _fma_46);
+                                        float _fma_49 = __fmaf_rn(_tmem_load_1[52 + c_13], w_s_cf, _vec_load_14[c_13] * w_o_cf);
+                                        float _fma_50 = __fmaf_rn(_vec_load_14[c_13], w_o_cf, _tmem_load_1[52 + c_13] * w_s_cf);
+                                        float o_det_f_13 = ((chunk_c == 0) ? _fma_49 : _fma_50);
                                         _tmem_load_1[52 + c_13] = o_det_f_13;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_14 = 0; c_14 < 4; c_14++) {
                                     {
-                                        float _fma_48 = __fmaf_rn(_tmem_load_1[56 + c_14], w_s_cf, _vec_load_15[c_14] * w_o_cf);
-                                        float _fma_49 = __fmaf_rn(_vec_load_15[c_14], w_o_cf, _tmem_load_1[56 + c_14] * w_s_cf);
-                                        float o_det_f_14 = ((chunk_c == 0) ? _fma_48 : _fma_49);
+                                        float _fma_52 = __fmaf_rn(_tmem_load_1[56 + c_14], w_s_cf, _vec_load_15[c_14] * w_o_cf);
+                                        float _fma_53 = __fmaf_rn(_vec_load_15[c_14], w_o_cf, _tmem_load_1[56 + c_14] * w_s_cf);
+                                        float o_det_f_14 = ((chunk_c == 0) ? _fma_52 : _fma_53);
                                         _tmem_load_1[56 + c_14] = o_det_f_14;
                                     }
                                 }
                                 #pragma unroll
                                 for (int c_15 = 0; c_15 < 4; c_15++) {
                                     {
-                                        float _fma_51 = __fmaf_rn(_tmem_load_1[60 + c_15], w_s_cf, _vec_load_16[c_15] * w_o_cf);
-                                        float _fma_52 = __fmaf_rn(_vec_load_16[c_15], w_o_cf, _tmem_load_1[60 + c_15] * w_s_cf);
-                                        float o_det_f_15 = ((chunk_c == 0) ? _fma_51 : _fma_52);
+                                        float _fma_55 = __fmaf_rn(_tmem_load_1[60 + c_15], w_s_cf, _vec_load_16[c_15] * w_o_cf);
+                                        float _fma_56 = __fmaf_rn(_vec_load_16[c_15], w_o_cf, _tmem_load_1[60 + c_15] * w_s_cf);
+                                        float o_det_f_15 = ((chunk_c == 0) ? _fma_55 : _fma_56);
                                         _tmem_load_1[60 + c_15] = o_det_f_15;
                                     }
                                 }
@@ -2524,8 +2524,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                     float a_k_1 = _exp2_10;
                                     float _exp2_11 = approx_exp2((m_k_1 - m_new_1) * softmax_scale_log2);
                                     float b_k_1 = _exp2_11;
-                                    float _fma_56 = __fmaf_rn(l_k_1, b_k_1, l_f_1 * a_k_1);
-                                    l_f_1 = _fma_56;
+                                    float _fma_60 = __fmaf_rn(l_k_1, b_k_1, l_f_1 * a_k_1);
+                                    l_f_1 = _fma_60;
                                     float _vec_load_17[4];
                                     {
                                         float4 _v4 = *reinterpret_cast<const float4*>(partial_o + (o_col_r_1 + c_c_1 * o_stride_r_1) + 0);
@@ -2536,8 +2536,8 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                                     }
                                     #pragma unroll
                                     for (int k_1 = 0; k_1 < 4; k_1++) {
-                                        float _fma_57 = __fmaf_rn(_vec_load_17[k_1], b_k_1, acc_f_1[k_1] * a_k_1);
-                                        acc_f_1[k_1] = _fma_57;
+                                        float _fma_61 = __fmaf_rn(_vec_load_17[k_1], b_k_1, acc_f_1[k_1] * a_k_1);
+                                        acc_f_1[k_1] = _fma_61;
                                     }
                                     m_f_1 = m_new_1;
                                 }
@@ -3311,41 +3311,45 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                 cand = l_fit;
                 cand_valid = fit_valid;
             }
-            float _rcp_9 = approx_rcp((float)cand);
-            float cand_rcp = _rcp_9;
-            unsigned int tickets_c = 0;
-            unsigned int nmax_c = 0;
-            int half_batch = (batch_size + 1) / 2;
+            float cand_f = (float)cand;
+            float _rcp_9 = approx_rcp(cand_f);
+            float cand_rcp_hi_f = _rcp_9 * 1.0000004768371582f;
+            float tickets_f = 0.0f;
+            float nmax_f = 0.0f;
+            int half_batch_f = (batch_size + 1) / 2;
             #pragma unroll 1
-            for (int hc = 0; hc < half_batch; hc++) {
-                int bc = 2 * hc + req_parity;
-                unsigned int pairs_c = 0;
-                if (bc < batch_size) {
-                    int sc = sched_seq_lens[bc];
-                    pairs_c = (unsigned int)((sc + 255) / 256);
+            for (int hcf = 0; hcf < half_batch_f; hcf++) {
+                int bcf = 2 * hcf + req_parity;
+                float pairs_cf = 0.0f;
+                if (bcf < batch_size) {
+                    int scf = sched_seq_lens[bcf];
+                    pairs_cf = (float)((scf + 255) / 256);
                 }
-                unsigned int nc1_0_4 = pairs_c + cand - 1;
-                unsigned int q_1_5 = (unsigned int)((float)nc1_0_4 * (cand_rcp * 1.0000004768371582f));
-                if (nc1_0_4 < q_1_5 * cand) {
-                    q_1_5 = q_1_5 - 1;
+                float nc_f = pairs_cf + cand_f - 1.0f;
+                float _fma_0 = __fmaf_rn(nc_f, cand_rcp_hi_f, 8388608.0f);
+                float nb_f = _fma_0 - 8388608.0f;
+                if (nc_f < nb_f * cand_f) {
+                    nb_f = nb_f - 1.0f;
                 }
-                unsigned int nb_c = q_1_5;
-                tickets_c += nb_c;
-                unsigned int _max_1 = ((nmax_c) > (nb_c) ? (nmax_c) : (nb_c));
-                nmax_c = _max_1;
+                tickets_f += nb_f;
+                float _max_1 = max_noftz(nmax_f, nb_f);
+                nmax_f = _max_1;
             }
-            unsigned int _shfl_xor_0 = __shfl_xor_sync(0xFFFFFFFF, tickets_c, 16);
-            tickets_c += _shfl_xor_0;
-            unsigned int _shfl_xor_1 = __shfl_xor_sync(0xFFFFFFFF, nmax_c, 16);
-            unsigned int _max_2 = ((nmax_c) > (_shfl_xor_1) ? (nmax_c) : (_shfl_xor_1));
-            nmax_c = _max_2;
-            tickets_c = tickets_c * (unsigned int)items_per_chunk;
-            unsigned int nc1_7 = tickets_c + (unsigned int)num_ctas - 1;
-            unsigned int q_8 = (unsigned int)((float)nc1_7 * (ctas_rcp * 1.0000004768371582f));
-            if (nc1_7 < q_8 * (unsigned int)num_ctas) {
-                q_8 = q_8 - 1;
+            float _shfl_xor_0 = __shfl_xor_sync(0xFFFFFFFF, tickets_f, 16);
+            tickets_f += _shfl_xor_0;
+            float _shfl_xor_1 = __shfl_xor_sync(0xFFFFFFFF, nmax_f, 16);
+            float _max_2 = max_noftz(nmax_f, _shfl_xor_1);
+            nmax_f = _max_2;
+            tickets_f = tickets_f * (float)items_per_chunk;
+            float ctas_f = (float)num_ctas;
+            float ctas_rcp_hi_f = ctas_rcp * 1.0000004768371582f;
+            float ncw_f = tickets_f + ctas_f - 1.0f;
+            float _fma_1 = __fmaf_rn(ncw_f, ctas_rcp_hi_f, 8388608.0f);
+            float waves_f = _fma_1 - 8388608.0f;
+            if (ncw_f < waves_f * ctas_f) {
+                waves_f = waves_f - 1.0f;
             }
-            unsigned int waves_c = q_8;
+            unsigned int nmax_c = (unsigned int)nmax_f;
             unsigned int tail_c = 0;
             if (nmax_c == 2) {
                 tail_c = 8;
@@ -3364,20 +3368,27 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                 unsigned int one_c = 1;
                 tail_c = 11 + (nmax_c + (one_c << sh_c) - 1 >> sh_c);
             }
-            unsigned int a_last_c = tickets_c - (waves_c - 1) * (unsigned int)num_ctas;
-            unsigned int _max_3 = ((a_last_c) > (sm_floor) ? (a_last_c) : (sm_floor));
-            unsigned int eff_c = _max_3;
-            unsigned int cost_c = 4 * (waves_c - 1) * (cand + 20) + tail_c;
-            unsigned int q_9 = (unsigned int)((float)(4 * cand * eff_c) * (ctas_rcp * 1.0000004768371582f));
-            if (q_9 * (unsigned int)num_ctas > 4 * cand * eff_c) {
-                q_9 = q_9 - 1;
+            float a_last_f = tickets_f - (waves_f - 1.0f) * ctas_f;
+            float _max_3 = max_noftz(a_last_f, (float)sm_floor);
+            float eff_f = _max_3;
+            float cost_f = 4.0f * (waves_f - 1.0f) * (cand_f + 20.0f) + (float)tail_c;
+            float num1_f = 4.0f * cand_f * eff_f;
+            float _fma_2 = __fmaf_rn(num1_f, ctas_rcp_hi_f, 8388608.0f);
+            float q1_f = _fma_2 - 8388608.0f;
+            if (num1_f < q1_f * ctas_f) {
+                q1_f = q1_f - 1.0f;
             }
-            cost_c += q_9 + 80;
-            unsigned int q_10 = (unsigned int)((float)(4 * cand * 5 * a_last_c) * (ctas100_rcp * 1.0000004768371582f));
-            if (q_10 * (100 * (unsigned int)num_ctas) > 4 * cand * 5 * a_last_c) {
-                q_10 = q_10 - 1;
+            cost_f += q1_f + 80.0f;
+            float num2_f = 4.0f * cand_f * 5.0f * a_last_f;
+            float ctas100_f = 100.0f * ctas_f;
+            float ctas100_rcp_hi_f = ctas100_rcp * 1.0000004768371582f;
+            float _fma_3 = __fmaf_rn(num2_f, ctas100_rcp_hi_f, 8388608.0f);
+            float q2_f = _fma_3 - 8388608.0f;
+            if (num2_f < q2_f * ctas100_f) {
+                q2_f = q2_f - 1.0f;
             }
-            cost_c += q_10;
+            cost_f += q2_f;
+            unsigned int cost_c = (unsigned int)cost_f;
             unsigned int cost_key = 4294967295;
             if (cand_valid == 1) {
                 if (req_parity == 0) {
@@ -3414,12 +3425,12 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                 if (b2 < batch_size) {
                     int s2 = sched_seq_lens[b2];
                     unsigned int pairs2 = (unsigned int)((s2 + 255) / 256);
-                    unsigned int nc1_0_5 = pairs2 + chunk_pairs_u - 1;
-                    unsigned int q_1_6 = (unsigned int)((float)nc1_0_5 * (chunk_rcp * 1.0000004768371582f));
-                    if (nc1_0_5 < q_1_6 * chunk_pairs_u) {
-                        q_1_6 = q_1_6 - 1;
+                    unsigned int nc1_0_4 = pairs2 + chunk_pairs_u - 1;
+                    unsigned int q_1_5 = (unsigned int)((float)nc1_0_4 * (chunk_rcp * 1.0000004768371582f));
+                    if (nc1_0_4 < q_1_5 * chunk_pairs_u) {
+                        q_1_5 = q_1_5 - 1;
                     }
-                    n2 = q_1_6;
+                    n2 = q_1_5;
                     full2 = n2;
                     if (pairs2 < n2 * chunk_pairs_u) {
                         full2 = n2 - 1;
@@ -3726,12 +3737,12 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                             if (b_r < batch_size) {
                                 int s_r = sched_seq_lens[b_r];
                                 int pairs_r = (s_r + 255) / 256;
-                                unsigned int nc1_0_6 = (unsigned int)pairs_r + chunk_pairs_u - 1;
-                                unsigned int q_1_7 = (unsigned int)((float)nc1_0_6 * (chunk_rcp * 1.0000004768371582f));
-                                if (nc1_0_6 < q_1_7 * chunk_pairs_u) {
-                                    q_1_7 = q_1_7 - 1;
+                                unsigned int nc1_0_5 = (unsigned int)pairs_r + chunk_pairs_u - 1;
+                                unsigned int q_1_6 = (unsigned int)((float)nc1_0_5 * (chunk_rcp * 1.0000004768371582f));
+                                if (nc1_0_5 < q_1_6 * chunk_pairs_u) {
+                                    q_1_6 = q_1_6 - 1;
                                 }
-                                n_r = (int)q_1_7;
+                                n_r = (int)q_1_6;
                                 if (n_r > 1) {
                                     si_r = (unsigned int)n_r;
                                     st_r = 1;
@@ -3918,12 +3929,12 @@ kernel_cake_fmha_decode_balanced_fp16_mtp_n64(CakeFmhaTensorMap const* Q, CakeFm
                             if (b3 < batch_size) {
                                 s3 = sched_seq_lens[b3];
                                 pairs3 = (s3 + 255) / 256;
-                                unsigned int nc1_0_7 = (unsigned int)pairs3 + chunk_pairs_u - 1;
-                                unsigned int q_1_8 = (unsigned int)((float)nc1_0_7 * (chunk_rcp * 1.0000004768371582f));
-                                if (nc1_0_7 < q_1_8 * chunk_pairs_u) {
-                                    q_1_8 = q_1_8 - 1;
+                                unsigned int nc1_0_6 = (unsigned int)pairs3 + chunk_pairs_u - 1;
+                                unsigned int q_1_7 = (unsigned int)((float)nc1_0_6 * (chunk_rcp * 1.0000004768371582f));
+                                if (nc1_0_6 < q_1_7 * chunk_pairs_u) {
+                                    q_1_7 = q_1_7 - 1;
                                 }
-                                n3 = (int)q_1_8;
+                                n3 = (int)q_1_7;
                                 fullc3 = n3;
                                 int rem3 = 0;
                                 if (pairs3 < n3 * chunk_pairs) {
