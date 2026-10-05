@@ -2584,13 +2584,16 @@ def run_cake_dsv4_nvfp4(
         arch=arch,
         workspace=workspace_buffer,
         raw=raw,
-        stream=_stream_ptr(device),
         values=values,
     )
-    launcher.variant(plan.variant, grid=(plan.grid, 1, 1))
+    launches = [launcher.variant(plan.variant, grid=(plan.grid, 1, 1))]
     if num_splits > 1:
         # Split merge: one CTA per (token, heads_per_cta heads) over partial_O / partial_lse.
-        launcher.variant(_NVFP4_VARIANT_MERGE, grid=plan.merge_grid)
+        launches.append(launcher.variant(_NVFP4_VARIANT_MERGE, grid=plan.merge_grid))
+    # One host-side critical section per call, as for the BF16 / FP8 routes
+    # (descriptor-pool bookkeeping, descriptor checks, launch enqueues).
+    with _descriptor_lock:
+        launcher.run(*launches)
     return out
 
 
