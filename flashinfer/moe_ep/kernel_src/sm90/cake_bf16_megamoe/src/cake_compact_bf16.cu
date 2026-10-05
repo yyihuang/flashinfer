@@ -138,15 +138,14 @@ __global__ void compact_bf16_persistent_kernel(
     const int32_t* __restrict__ seg_out_base, const int32_t* __restrict__ m_dev,
     int32_t* __restrict__ next_row, __nv_bfloat16* __restrict__ a_bf16,
     int32_t* __restrict__ meta_out, int32_t* __restrict__ row_expert, int H,
-    int32_t* __restrict__ grp_cnt, int32_t* __restrict__ grp_rows,
-    int32_t* __restrict__ grp_list, int32_t* __restrict__ n_groups,
-    int32_t* __restrict__ groups_per_src, const int32_t* __restrict__ round_ctr,
-    int build_groups) {
+    int32_t* __restrict__ grp_cnt, int32_t* __restrict__ grp_rows, int32_t* __restrict__ grp_list,
+    int32_t* __restrict__ n_groups, int32_t* __restrict__ groups_per_src,
+    const int32_t* __restrict__ round_ctr, int build_groups) {
   (void)next_row;
   int eps = L.ep_size;
   uint32_t const tag = build_groups ? static_cast<uint32_t>(*round_ctr) : 0u;
   int nkeys = L.num_local_experts * eps;
-  int nv = H >> 3;  // 16-byte vectors per bf16 row
+  int nv = H >> 3;       // 16-byte vectors per bf16 row
   int const m = *m_dev;  // uniform across the grid for this round
   for (int row = blockIdx.x; row < m; row += gridDim.x) {
     int seg = find_segment(seg_out_base, nkeys, row);
@@ -209,8 +208,7 @@ void sm90_cake_compact_bf16(TensorView a_bf16, TensorView meta_out, TensorView r
                             LAYOUT_PARAMS, TensorView seg_src_base, TensorView seg_out_base,
                             TensorView m_dev, TensorView next_row, TensorView grp_cnt,
                             TensorView grp_rows, TensorView grp_list, TensorView n_groups,
-                            TensorView groups_per_src, TensorView round_ctr,
-                            int64_t build_groups) {
+                            TensorView groups_per_src, TensorView round_ctr, int64_t build_groups) {
   check_layout(LAYOUT_ARGS);
   auto L = build_layout(LAYOUT_ARGS);
   int H = L.hidden;

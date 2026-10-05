@@ -146,10 +146,9 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
     int32_t* __restrict__ grp_cnt, const int32_t* __restrict__ grp_rows,
     const int32_t* __restrict__ grp_list, int32_t* __restrict__ n_groups,
     int32_t* __restrict__ groups_per_src, int32_t* __restrict__ cdone_local,
-    const int32_t* __restrict__ round_ctr, int32_t* __restrict__ blocks_done,
-    int split_partials) {
+    const int32_t* __restrict__ round_ctr, int32_t* __restrict__ blocks_done, int split_partials) {
   int const H = L.hidden;
-  int const nv = H >> 3;  // 16-byte vectors per row
+  int const nv = H >> 3;               // 16-byte vectors per row
   int const total_groups = *n_groups;  // read once: the last block zeroes it below
   // S blocks per group when the grid has room (decode sizes: the kernel is latency-bound,
   // so each block publishes a contiguous slice of the row); S == 1 at prefill sizes.
@@ -216,7 +215,8 @@ __global__ void __launch_bounds__(kThreads) combine_publish_prereduced_bf16_kern
       }
       __nv_bfloat162 o2[4];
 #pragma unroll
-      for (int j = 0; j < 4; ++j) o2[j] = __floats2bfloat162_rn(acc[2 * j], acc[2 * j + 1]);  // one RN
+      for (int j = 0; j < 4; ++j)
+        o2[j] = __floats2bfloat162_rn(acc[2 * j], acc[2 * j + 1]);  // one RN
       uint4 pk;
       memcpy(&pk, o2, sizeof(pk));
       out4[v] = pk;  // 16-byte P2P store into the owner's inbox

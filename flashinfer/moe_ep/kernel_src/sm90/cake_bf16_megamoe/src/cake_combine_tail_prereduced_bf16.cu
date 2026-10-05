@@ -59,7 +59,7 @@ namespace {
 
 constexpr int kMaxEpSize = 32;
 constexpr int kThreads = 128;
-constexpr int kMaxTopK = 8;  // matches the pipe's top_k validation
+constexpr int kMaxTopK = 8;        // matches the pipe's top_k validation
 constexpr int kColsPerThread = 8;  // one 16-byte bf16 vector per thread and slot
 constexpr int kColsPerBlock = kThreads * kColsPerThread;
 
@@ -158,10 +158,11 @@ __device__ __forceinline__ void store_out8(float* out, const float* acc) {
 template <typename TOut>
 __global__ void __launch_bounds__(kThreads)
     combine_tail_prereduced_bf16_kernel(PushLayout L, const int32_t* __restrict__ round_ctr,
-                             const int32_t* __restrict__ topk_ids, TOut* __restrict__ out,
-                             int num_tokens, int32_t* __restrict__ lc, int32_t* __restrict__ done,
-                             int nreset_lc, int nkeys, int32_t* __restrict__ blocks_done,
-                             int split_partials) {
+                                        const int32_t* __restrict__ topk_ids,
+                                        TOut* __restrict__ out, int num_tokens,
+                                        int32_t* __restrict__ lc, int32_t* __restrict__ done,
+                                        int nreset_lc, int nkeys, int32_t* __restrict__ blocks_done,
+                                        int split_partials) {
   __shared__ int s_last;
   uint32_t const tag = static_cast<uint32_t>(*round_ctr);
 
@@ -197,7 +198,7 @@ __global__ void __launch_bounds__(kThreads)
       }
       if (k_min < 0) continue;  // rank s holds none of this token's routes
       const uint4* src = reinterpret_cast<const uint4*>(L.combine_row(L.rank, t, k_min) + col);
-      accumulate_bf16x8(__ldcg(src), acc);  // L2-only load: inbox rows arrive by P2P writes
+      accumulate_bf16x8(__ldcg(src), acc);      // L2-only load: inbox rows arrive by P2P writes
       if (split_partials != 0 && k_2nd >= 0) {  // residual row of a multi-route group
         const uint4* lo = reinterpret_cast<const uint4*>(L.combine_row(L.rank, t, k_2nd) + col);
         accumulate_bf16x8(__ldcg(lo), acc);
@@ -229,9 +230,9 @@ __global__ void __launch_bounds__(kThreads)
 }  // namespace
 
 void sm90_cake_combine_tail_prereduced_bf16(TensorView out, TensorView topk_ids, LAYOUT_PARAMS,
-                                 TensorView round_ctr, TensorView lc, TensorView done,
-                                 TensorView blocks_done, int64_t num_tokens,
-                                 int64_t split_partials) {
+                                            TensorView round_ctr, TensorView lc, TensorView done,
+                                            TensorView blocks_done, int64_t num_tokens,
+                                            int64_t split_partials) {
   check_layout(LAYOUT_ARGS);
   auto L = build_layout(LAYOUT_ARGS);
   int const nkeys = L.num_local_experts * L.ep_size;
@@ -266,9 +267,9 @@ void sm90_cake_combine_tail_prereduced_bf16(TensorView out, TensorView topk_ids,
   int const nt = static_cast<int>(num_tokens);
   int const split = split_partials != 0 ? 1 : 0;
   if (out.dtype() == dl_float32) {
-    combine_tail_prereduced_bf16_kernel<float><<<grid, kThreads, 0, stream>>>(
-        L, rc, ids, static_cast<float*>(out.data_ptr()), nt, lcp, donep, nreset_lc, nkeys, bd,
-        split);
+    combine_tail_prereduced_bf16_kernel<float>
+        <<<grid, kThreads, 0, stream>>>(L, rc, ids, static_cast<float*>(out.data_ptr()), nt, lcp,
+                                        donep, nreset_lc, nkeys, bd, split);
   } else if (out.dtype() == dl_bfloat16) {
     combine_tail_prereduced_bf16_kernel<__nv_bfloat16>
         <<<grid, kThreads, 0, stream>>>(L, rc, ids, static_cast<__nv_bfloat16*>(out.data_ptr()), nt,
