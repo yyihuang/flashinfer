@@ -125,6 +125,20 @@ _SM103_EARLY_CONSUMED_RELEASE_MIN_M = {2: 768, 4: 513, 5: 384, 6: 384, 7: 256, 8
 # again (K2: f110 vs f011 0.985-0.991 at M768..2048, neutral at M3072 / 6144, 1.02-1.03 slower at
 # M12288 / 16384; K4: f110001 vs f010001 0.971-0.977 at M768, neutral at M1536, 1.025 slower at M3072).
 _SM103_EARLY_CONSUMED_RELEASE_MAX_M = {2: 2048, 4: 1023}
+# Round r5 mirrors of the Cake dispatcher's per-cell programs (``kimi_k3_attn_res._R5_*``): dense
+# persistent schedule cells (M, K) -> (sources_per_chunk, chunk_depth), the write twins' own schedule
+# cells, dense cells that add the prefix in BF16 outside the formula, sm_100a dense cells that release
+# early inside a held band / sm_103a dense cells that hold inside an early band, write cells that release
+# early although the write-held rule names their K, dense cells that leave the small-M table (the write
+# twin stays), small-M cluster cells.
+_R5_PERSISTENT_SCHEDULE_CELLS = {"sm_100a": {}, "sm_103a": {}}
+_R5_WRITE_PERSISTENT_SCHEDULE_CELLS = {"sm_100a": {}, "sm_103a": {}}
+_R5_PREFIX_BF16_ADD_CELLS = {"sm_100a": frozenset(), "sm_103a": frozenset()}
+_SM100_R5_EARLY_CONSUMED_RELEASE_CELLS: frozenset[tuple[int, int]] = frozenset()
+_SM103_R5_HELD_CONSUMED_RELEASE_CELLS: frozenset[tuple[int, int]] = frozenset()
+_R5_WRITE_EARLY_CONSUMED_RELEASE_CELLS = {"sm_100a": frozenset(), "sm_103a": frozenset()}
+_R5_SMALL_M_EXCLUDED_CELLS = {"sm_100a": frozenset(), "sm_103a": frozenset()}
+_R5_SMALL_M_CLUSTER_CELLS = {"sm_100a": {}, "sm_103a": {}}
 _WRITE_HELD_CONSUMED_RELEASE_MIN_M = {"sm_100a": {4: 1024}, "sm_103a": {4: 1024}}
 # K = 0 TMA route: grid multiple of the SM count on the promoted mid-M cells.
 _K0_TMA_GRID_MULTIPLIER_M = {
@@ -206,6 +220,9 @@ _SMALL_M_CLUSTER: dict[str, dict[int, tuple[tuple[int, int], ...]]] = {
 
 
 def _small_m_cluster(arch: str, M: int, K: int) -> int:
+    cell = _R5_SMALL_M_CLUSTER_CELLS[arch].get((M, K))
+    if cell is not None:
+        return int(cell)
     for max_m, cluster in _SMALL_M_CLUSTER[arch].get(K, ()):
         if max_m >= M:
             return int(cluster)
@@ -296,8 +313,12 @@ def _wait_policy(arch: str) -> bool:
     return arch == "sm_100a"
 
 
-def _schedule(arch: str, M: int, K: int) -> tuple[int, int]:
-    """``(sources_per_chunk, chunk_depth)`` of the persistent common path."""
+def _schedule(arch: str, M: int, K: int, write: bool = False) -> tuple[int, int]:
+    """``(sources_per_chunk, chunk_depth)`` of the persistent common path (``write``: the program the
+    snapshot-write twin is derived from; round r5 cells may give it its own schedule)."""
+    r5_cells = (_R5_WRITE_PERSISTENT_SCHEDULE_CELLS if write else _R5_PERSISTENT_SCHEDULE_CELLS)[arch]
+    if (M, K) in r5_cells:
+        return r5_cells[(M, K)]
     if (M, K) in _NC3_D3_CELLS[arch] or (
         arch == "sm_100a" and K == 4 and M >= _SM100_K4_NC3_D3_MIN_M
     ):
@@ -340,18 +361,26 @@ def _grid(M: int, num_sms: int, sources_per_chunk: int) -> tuple[int, str]:
 def _early_consumed_release(
     arch: str, M: int, K: int, grid_x: int, write: bool = False
 ) -> bool:
-    if write and _WRITE_HELD_CONSUMED_RELEASE_MIN_M[arch].get(K, M + 1) <= M:
+    if (
+        write
+        and _WRITE_HELD_CONSUMED_RELEASE_MIN_M[arch].get(K, M + 1) <= M
+        and (M, K) not in _R5_WRITE_EARLY_CONSUMED_RELEASE_CELLS[arch]
+    ):
         return False
     if arch == "sm_100a":
         return (
             K > 0
             and grid_x < M
             and (M, K) not in _SM100_HELD_CONSUMED_RELEASE_CELLS
-            and _SM100_HELD_CONSUMED_RELEASE_MAX_M.get(K, 0) < M
+            and (
+                (not write and (M, K) in _SM100_R5_EARLY_CONSUMED_RELEASE_CELLS)
+                or _SM100_HELD_CONSUMED_RELEASE_MAX_M.get(K, 0) < M
+            )
         )
     return (
         K > 0
         and grid_x < M
+        and (write or (M, K) not in _SM103_R5_HELD_CONSUMED_RELEASE_CELLS)
         and (
             (M, K) in _SM103_EARLY_CONSUMED_RELEASE_CELLS
             or (
@@ -695,7 +724,7 @@ def _plan_route_exact(
             use_pdl,
         )
     max_m = _SMALL_M_DIRECT_MAX_M[arch].get(K)
-    if max_m is not None and max_m >= M:
+    if max_m is not None and max_m >= M and (M, K) not in _R5_SMALL_M_EXCLUDED_CELLS[arch]:
         return _small_m_plan(
             arch,
             M,
@@ -748,12 +777,13 @@ def _persistent_plan_exact(
     Cake dispatcher's persistent policies (``write``: the program the snapshot-write variant is
     derived from; it holds the release from ``_WRITE_HELD_CONSUMED_RELEASE_MIN_M``)."""
     defer = _wait_policy(arch)
-    nc, depth = _schedule(arch, M, K)
+    nc, depth = _schedule(arch, M, K, write)
     grid_x, grid_policy = _grid(M, num_sms, nc)
     ecr = _early_consumed_release(arch, M, K, grid_x, write)
     pwa = _producer_wait_acquire(arch, M, K)
     prefix_bf16_add = (
-        (
+        (not write and (M, K) in _R5_PREFIX_BF16_ADD_CELLS[arch])
+        or (
             arch == "sm_100a"
             and (
                 K == 2
