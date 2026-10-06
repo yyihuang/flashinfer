@@ -46,7 +46,9 @@ def _require_cache_op_arch() -> None:
         pytest.skip("CUDA device required")
     cc = get_compute_capability(torch.device("cuda"))
     if tuple(cc) not in _CACHE_OP_CCS:
-        pytest.skip(f"NVFP4 DSv4 cache ops need SM100/SM103/SM120/SM121, got SM{cc[0]}{cc[1]}")
+        pytest.skip(
+            f"NVFP4 DSv4 cache ops need SM100/SM103/SM120/SM121, got SM{cc[0]}{cc[1]}"
+        )
 
 
 @pytest.mark.parametrize("page_size", [2, 32, 64, 128])
@@ -54,7 +56,9 @@ def _require_cache_op_arch() -> None:
 def test_nvfp4_dsv4_cache_pack_matches_reference(page_size, kv_layout):
     _require_cache_op_arch()
     torch.manual_seed(42)
-    latent_kv = torch.randn(3, page_size, _D_NOPE + _D_ROPE, dtype=torch.bfloat16, device="cuda")
+    latent_kv = torch.randn(
+        3, page_size, _D_NOPE + _D_ROPE, dtype=torch.bfloat16, device="cuda"
+    )
 
     cache = nvfp4_quantize_pack_sparse_mla_cache(latent_kv, kv_layout=kv_layout)
     data, scales = _split_cache(cache)
@@ -62,11 +66,17 @@ def test_nvfp4_dsv4_cache_pack_matches_reference(page_size, kv_layout):
 
     assert cache.dtype == torch.uint8
     expected_shape = (
-        (3, 1, page_size, _BYTES_PER_TOKEN) if kv_layout == "HND" else (3, page_size, 1, _BYTES_PER_TOKEN)
+        (3, 1, page_size, _BYTES_PER_TOKEN)
+        if kv_layout == "HND"
+        else (3, page_size, 1, _BYTES_PER_TOKEN)
     )
     assert cache.shape == expected_shape
-    torch.testing.assert_close(data[..., :_PACKED_NOPE_BYTES].reshape_as(packed_ref), packed_ref)
-    torch.testing.assert_close(data[..., _PACKED_NOPE_BYTES:].reshape_as(rope_ref), rope_ref)
+    torch.testing.assert_close(
+        data[..., :_PACKED_NOPE_BYTES].reshape_as(packed_ref), packed_ref
+    )
+    torch.testing.assert_close(
+        data[..., _PACKED_NOPE_BYTES:].reshape_as(rope_ref), rope_ref
+    )
     torch.testing.assert_close(scales[..., :28].reshape_as(scales_ref), scales_ref)
     assert torch.count_nonzero(scales[..., 28:]) == 0
 
@@ -77,7 +87,9 @@ def test_nvfp4_dsv4_cache_append_matches_pack(page_size, index_dtype):
     _require_cache_op_arch()
     torch.manual_seed(7)
     num_pages = 3
-    latent_kv = torch.randn(num_pages, page_size, _D_NOPE + _D_ROPE, dtype=torch.bfloat16, device="cuda")
+    latent_kv = torch.randn(
+        num_pages, page_size, _D_NOPE + _D_ROPE, dtype=torch.bfloat16, device="cuda"
+    )
     full_cache = nvfp4_quantize_pack_sparse_mla_cache(latent_kv)
     append_cache = torch.full_like(full_cache, 0xA5)
     slots = torch.arange(num_pages * page_size, dtype=index_dtype, device="cuda")
@@ -90,7 +102,9 @@ def test_nvfp4_dsv4_cache_append_matches_pack(page_size, index_dtype):
     rows = torch.cat([rows, rows[:1]])
     slots = torch.cat([slots, torch.full((1,), -1, dtype=index_dtype, device="cuda")])
 
-    nvfp4_quantize_append_sparse_mla_cache(rows.contiguous(), slots.contiguous(), append_cache)
+    nvfp4_quantize_append_sparse_mla_cache(
+        rows.contiguous(), slots.contiguous(), append_cache
+    )
     torch.testing.assert_close(append_cache, full_cache)
 
 
@@ -128,7 +142,9 @@ def _require_cake_arch() -> None:
         pytest.skip("CUDA device required")
     cc = get_compute_capability(torch.device("cuda"))
     if tuple(cc) not in _CAKE_CCS:
-        pytest.skip(f"backend='cake' NVFP4 decode needs SM100/SM103, got SM{cc[0]}{cc[1]}")
+        pytest.skip(
+            f"backend='cake' NVFP4 decode needs SM100/SM103, got SM{cc[0]}{cc[1]}"
+        )
 
 
 def _random_indices(num_tokens, topk, pool_rows, generator, device):
@@ -142,8 +158,9 @@ def _random_indices(num_tokens, topk, pool_rows, generator, device):
 
 def _pack_pool(num_pages, page_size, generator, device, kv_layout="HND"):
     latent = (
-        torch.randn(num_pages, page_size, _HEAD_DIM, generator=generator, device=device)
-        .to(torch.bfloat16)
+        torch.randn(
+            num_pages, page_size, _HEAD_DIM, generator=generator, device=device
+        ).to(torch.bfloat16)
         * 0.1
     )
     cache = nvfp4_quantize_pack_sparse_mla_cache(latent, kv_layout=kv_layout)
@@ -184,15 +201,17 @@ def _run_case(
     kv_rows = main_rows
     ref_idx = _masked(main_idx, main_lens)
     if extra_topk:
-        extra_cache, extra_rows = _pack_pool(extra_pages, extra_page_size, gen, device, kv_layout)
-        extra_idx = _random_indices(num_tokens, extra_topk, extra_rows.shape[0], gen, device)
+        extra_cache, extra_rows = _pack_pool(
+            extra_pages, extra_page_size, gen, device, kv_layout
+        )
+        extra_idx = _random_indices(
+            num_tokens, extra_topk, extra_rows.shape[0], gen, device
+        )
         kv_rows = torch.cat((main_rows, extra_rows))
         shifted = _masked(extra_idx, extra_lens)
         shifted = torch.where(shifted >= 0, shifted + main_rows.shape[0], shifted)
         ref_idx = torch.cat((ref_idx, shifted), dim=1)
-    sink = (
-        torch.randn(num_heads, generator=gen, device=device) if sinks else None
-    )
+    sink = torch.randn(num_heads, generator=gen, device=device) if sinks else None
     workspace = torch.empty(
         get_cake_dsv4_workspace_bytes(
             num_tokens,
@@ -232,10 +251,14 @@ def _run_case(
         extra_topk=extra_topk,
         sm_count=torch.cuda.get_device_properties(device).multi_processor_count,
     )
-    layout = cake_dsv4_workspace_layout(num_tokens, num_heads, plan.num_splits, with_lse=True)
+    layout = cake_dsv4_workspace_layout(
+        num_tokens, num_heads, plan.num_splits, with_lse=True
+    )
     lse_offset, _ = layout.lse
     lse = (
-        _workspace_bytes(workspace)[lse_offset : lse_offset + num_tokens * num_heads * 4]
+        _workspace_bytes(workspace)[
+            lse_offset : lse_offset + num_tokens * num_heads * 4
+        ]
         .view(torch.float32)
         .view(num_tokens, num_heads)
         .clone()
@@ -250,10 +273,16 @@ def _run_case(
     "num_tokens,num_heads,main_pages,topk",
     [(8, 16, 64, 128), (8, 128, 64, 128), (4, 16, 256, 512), (1, 128, 256, 512)],
 )
-def test_nvfp4_dsv4_cake_decode_matches_reference(num_tokens, num_heads, main_pages, topk):
+def test_nvfp4_dsv4_cake_decode_matches_reference(
+    num_tokens, num_heads, main_pages, topk
+):
     _require_cake_arch()
     out, lse, ref_out, ref_lse, _, _ = _run_case(
-        num_tokens=num_tokens, num_heads=num_heads, main_pages=main_pages, topk=topk, seed=11
+        num_tokens=num_tokens,
+        num_heads=num_heads,
+        main_pages=main_pages,
+        topk=topk,
+        seed=11,
     )
     assert torch.isfinite(out.float()).all()
     torch.testing.assert_close(out, ref_out, atol=_OUT_ATOL, rtol=_OUT_RTOL)
@@ -283,8 +312,12 @@ def test_nvfp4_dsv4_cake_decode_lengths_sink_and_masked_rows():
     """topk_length clamps (0 / 1 / 63 / 65 / full), -1 entries and sinks on both tables."""
     _require_cake_arch()
     device = torch.device("cuda")
-    main_lens = torch.tensor([0, 1, 63, 65, 128, 128, 7, 128], dtype=torch.int32, device=device)
-    extra_lens = torch.tensor([512, 0, 1, 500, 63, 65, 300, 512], dtype=torch.int32, device=device)
+    main_lens = torch.tensor(
+        [0, 1, 63, 65, 128, 128, 7, 128], dtype=torch.int32, device=device
+    )
+    extra_lens = torch.tensor(
+        [512, 0, 1, 500, 63, 65, 300, 512], dtype=torch.int32, device=device
+    )
     out, lse, ref_out, ref_lse, _, _ = _run_case(
         num_tokens=8,
         num_heads=32,
@@ -327,7 +360,13 @@ def test_nvfp4_dsv4_cake_decode_graph_replay_is_bitwise():
     """CUDA-graph capture of the public entry; three replays reproduce the eager bytes."""
     _require_cake_arch()
     out, lse, ref_out, _, call, _ = _run_case(
-        num_tokens=8, num_heads=128, main_pages=64, topk=128, extra_pages=64, extra_topk=512, seed=9
+        num_tokens=8,
+        num_heads=128,
+        main_pages=64,
+        topk=128,
+        extra_pages=64,
+        extra_topk=512,
+        seed=9,
     )
     torch.testing.assert_close(out, ref_out, atol=_OUT_ATOL, rtol=_OUT_RTOL)
     eager = out.clone()

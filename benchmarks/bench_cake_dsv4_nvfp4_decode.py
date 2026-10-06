@@ -83,22 +83,29 @@ def pack_pool(pool_tokens, page_size, generator, device):
     """Quantize an HBM-resident latent pool page by page (bounded temporary memory)."""
     pages = pool_tokens // page_size
     cache = None
-    chunk = max(1, (64 << 20) // (page_size * HEAD_DIM * 2))  # 64 MiB of BF16 latent per chunk
+    chunk = max(
+        1, (64 << 20) // (page_size * HEAD_DIM * 2)
+    )  # 64 MiB of BF16 latent per chunk
     for start in range(0, pages, chunk):
         count = min(chunk, pages - start)
         latent = (
-            torch.randn(count, page_size, HEAD_DIM, generator=generator, device=device)
-            .to(torch.bfloat16)
+            torch.randn(
+                count, page_size, HEAD_DIM, generator=generator, device=device
+            ).to(torch.bfloat16)
             * 0.1
         )
         packed = nvfp4_quantize_pack_sparse_mla_cache(latent)
         if cache is None:
-            cache = torch.empty((pages,) + tuple(packed.shape[1:]), dtype=packed.dtype, device=device)
+            cache = torch.empty(
+                (pages,) + tuple(packed.shape[1:]), dtype=packed.dtype, device=device
+            )
         cache[start : start + count].copy_(packed)
     return cache
 
 
-def bench_row(label, num_tokens, num_heads, topk, extra_topk, extra_page_size, device, with_trtllm):
+def bench_row(
+    label, num_tokens, num_heads, topk, extra_topk, extra_page_size, device, with_trtllm
+):
     gen = torch.Generator(device=device).manual_seed(17)
     main_cache = pack_pool(POOL_TOKENS, PAGE_SIZE, gen, device)
     main_idx = random_indices(num_tokens, topk, POOL_TOKENS, gen, device)
@@ -106,10 +113,17 @@ def bench_row(label, num_tokens, num_heads, topk, extra_topk, extra_page_size, d
     if extra_topk:
         extra_cache = pack_pool(POOL_TOKENS, extra_page_size, gen, device)
         extra_idx = random_indices(num_tokens, extra_topk, POOL_TOKENS, gen, device)
-    query = torch.randn(num_tokens, num_heads, HEAD_DIM, generator=gen, device=device).to(torch.bfloat16)
+    query = torch.randn(
+        num_tokens, num_heads, HEAD_DIM, generator=gen, device=device
+    ).to(torch.bfloat16)
     workspace = torch.empty(
         get_cake_dsv4_workspace_bytes(
-            num_tokens, num_heads, topk, torch.bfloat16, kv_cache_format="nvfp4", extra_topk=extra_topk
+            num_tokens,
+            num_heads,
+            topk,
+            torch.bfloat16,
+            kv_cache_format="nvfp4",
+            extra_topk=extra_topk,
         ),
         dtype=torch.uint8,
         device=device,
@@ -154,8 +168,9 @@ def bench_row(label, num_tokens, num_heads, topk, extra_topk, extra_page_size, d
         gathered_gb_per_s=gathered_bytes / (ms * 1e-3) / 1e9,
     )
     if with_trtllm:
-        result["trtllm_fp8_ms"] = bench_trtllm_fp8(num_tokens, num_heads, topk + extra_topk, device, gen)
-    del main_cache, extra_cache
+        result["trtllm_fp8_ms"] = bench_trtllm_fp8(
+            num_tokens, num_heads, topk + extra_topk, device, gen
+        )
     torch.cuda.empty_cache()
     return result
 
@@ -169,12 +184,18 @@ def bench_trtllm_fp8(num_tokens, num_heads, total_topk, device, gen):
     total_topk = max(total_topk, 128)
     try:
         pages = POOL_TOKENS // PAGE_SIZE
-        swa = torch.randn(pages, 1, PAGE_SIZE, HEAD_DIM, generator=gen, device=device).to(torch.float8_e4m3fn)
-        comp = torch.randn(pages, 1, PAGE_SIZE, HEAD_DIM, generator=gen, device=device).to(torch.float8_e4m3fn)
+        swa = torch.randn(
+            pages, 1, PAGE_SIZE, HEAD_DIM, generator=gen, device=device
+        ).to(torch.float8_e4m3fn)
+        comp = torch.randn(
+            pages, 1, PAGE_SIZE, HEAD_DIM, generator=gen, device=device
+        ).to(torch.float8_e4m3fn)
         idx = random_indices(num_tokens, total_topk, POOL_TOKENS, gen, device)
         lens = torch.full((num_tokens,), total_topk, dtype=torch.int32, device=device)
         seq_lens = torch.full((num_tokens,), 4096, dtype=torch.int32, device=device)
-        query = torch.randn(num_tokens, 1, num_heads, HEAD_DIM, generator=gen, device=device).to(torch.float8_e4m3fn)
+        query = torch.randn(
+            num_tokens, 1, num_heads, HEAD_DIM, generator=gen, device=device
+        ).to(torch.float8_e4m3fn)
         workspace = torch.zeros(128 * 1024 * 1024, dtype=torch.uint8, device=device)
 
         def run():
@@ -200,17 +221,27 @@ def bench_trtllm_fp8(num_tokens, num_heads, total_topk, device, gen):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--rows", nargs="*", default=None, help="row labels to run (default: all)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--rows", nargs="*", default=None, help="row labels to run (default: all)"
+    )
     parser.add_argument("--with-trtllm", action="store_true")
-    parser.add_argument("--json", default=None, help="write the results to this JSON file")
+    parser.add_argument(
+        "--json", default=None, help="write the results to this JSON file"
+    )
     args = parser.parse_args()
     device = torch.device("cuda")
     cc = tuple(get_compute_capability(device))
     if cc not in ((10, 0), (10, 3)):
-        raise SystemExit(f"backend='cake' NVFP4 decode needs SM100/SM103, got SM{cc[0]}{cc[1]}")
+        raise SystemExit(
+            f"backend='cake' NVFP4 decode needs SM100/SM103, got SM{cc[0]}{cc[1]}"
+        )
     rows = [r for r in ROWS if args.rows is None or r[0] in args.rows]
-    print(f"{torch.cuda.get_device_name(device)} (SM{cc[0]}{cc[1]}), pool {POOL_TOKENS} tokens x {BYTES_PER_TOKEN} B per cache")
+    print(
+        f"{torch.cuda.get_device_name(device)} (SM{cc[0]}{cc[1]}), pool {POOL_TOKENS} tokens x {BYTES_PER_TOKEN} B per cache"
+    )
     header = f"{'row':26s} {'member':10s} {'splits':>6s} {'cake nvfp4 ms':>14s} {'gathered GB/s':>14s}"
     if args.with_trtllm:
         header += f" {'trtllm fp8 ms':>14s}"

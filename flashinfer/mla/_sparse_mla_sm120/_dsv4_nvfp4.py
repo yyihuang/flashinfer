@@ -202,10 +202,7 @@ def _cache_shape(cache: torch.Tensor) -> tuple[int, int, str]:
         raise ValueError(f"cache must be a CUDA tensor, got {cache.device}")
     if cache.dtype != torch.uint8:
         raise ValueError(f"cache must have dtype torch.uint8, got {cache.dtype}")
-    if (
-        cache.ndim not in (3, 4)
-        or cache.shape[-1] != _DSV4_NVFP4_BYTES_PER_TOKEN
-    ):
+    if cache.ndim not in (3, 4) or cache.shape[-1] != _DSV4_NVFP4_BYTES_PER_TOKEN:
         raise ValueError(
             "cache must be [num_pages, page_size, 384], HND "
             "[num_pages, 1, page_size, 384], or NHD "
@@ -222,10 +219,7 @@ def _cache_shape(cache: torch.Tensor) -> tuple[int, int, str]:
             "cache must have a singleton latent-head dimension at axis 1 or 2"
         )
     page_dim = 1 if cache.ndim == 3 or layout == "NHD" else 2
-    if (
-        cache.stride(-1) != 1
-        or cache.stride(page_dim) != _DSV4_NVFP4_BYTES_PER_TOKEN
-    ):
+    if cache.stride(-1) != 1 or cache.stride(page_dim) != _DSV4_NVFP4_BYTES_PER_TOKEN:
         raise ValueError(
             "cache entries must be contiguous inside each page with strides "
             f"(..., {_DSV4_NVFP4_BYTES_PER_TOKEN}, 1), got {cache.stride()}"

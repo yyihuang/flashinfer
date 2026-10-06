@@ -167,7 +167,9 @@ _NVFP4_HEAD_DIM = 512
 _NVFP4_VARIANT_PERSISTENT = "nvfp4_decode_persistent"
 _NVFP4_VARIANT_CLUSTER = "nvfp4_decode_cluster"
 _NVFP4_VARIANT_MERGE = "nvfp4_merge"
-_NVFP4_CLUSTER_CTAS = 2  # CTAs per cluster of the cluster member (each owns 256 of the 512 output dims)
+_NVFP4_CLUSTER_CTAS = (
+    2  # CTAs per cluster of the cluster member (each owns 256 of the 512 output dims)
+)
 # Family planner (Cake flashinfer_blackwell_sparse_mla_dsv4_nvfp4_decode.plan, round 43 / 45).  Multi-tile rows
 # with H <= _NVFP4_PV_MAX_HEADS take the persistent SwapsAB member ("pv") when its wave-aware split rule gives more
 # than one tile per CTA; H > _NVFP4_PV_MAX_HEADS rows pick (member, splits) with the lowest modelled chain cost among
@@ -1895,6 +1897,9 @@ def _dispatch_route(route: str, L: _Launcher) -> None:
 # --------------------------------------------------------------------------- #
 
 
+NVFP4Member = Literal["persistent", "cluster", "t64", "pv", "swap", "tile"]
+
+
 @dataclass(frozen=True)
 class NVFP4Plan:
     """Launch plan of the NVFP4 decode family (Cake ``plan()`` output)."""
@@ -1909,9 +1914,11 @@ class NVFP4Plan:
     total_tiles: int
     num_splits: int
     tiles_per_split: int
-    member: Literal["persistent", "cluster", "t64", "pv", "swap", "tile"]
+    member: NVFP4Member
     sm_count: int
-    tile_n: Optional[int] = None  # heads on the MMA N side of the SwapsAB / tile64 members (retrace knob)
+    tile_n: Optional[int] = (
+        None  # heads on the MMA N side of the SwapsAB / tile64 members (retrace knob)
+    )
     o_chunks: int = 1  # CTAs per work item of the one-tile members (retrace knob)
     merge_heads_per_cta: int = _NVFP4_MERGE_HEADS_PER_CTA
 
@@ -1943,7 +1950,9 @@ class NVFP4Plan:
 
     @property
     def variant(self) -> str:
-        return _nvfp4_variant_name(self.member, tile_n=self.tile_n, o_chunks=self.o_chunks)
+        return _nvfp4_variant_name(
+            self.member, tile_n=self.tile_n, o_chunks=self.o_chunks
+        )
 
 
 # Retrace knobs each member's generated program is specialised on, in variant-name order (Cake
@@ -2004,7 +2013,9 @@ def _nvfp4_split_shape(total_tiles: int, num_splits: int) -> tuple[int, int]:
     tiles_per_split = _ceil_div(total_tiles, num_splits)
     num_splits = _ceil_div(total_tiles, tiles_per_split)
     if num_splits > _NVFP4_MAX_SPLITS:
-        raise ValueError(f"num_splits {num_splits} exceeds the NVFP4 route cap {_NVFP4_MAX_SPLITS}")
+        raise ValueError(
+            f"num_splits {num_splits} exceeds the NVFP4 route cap {_NVFP4_MAX_SPLITS}"
+        )
     return num_splits, tiles_per_split
 
 
@@ -2025,7 +2036,9 @@ def _nvfp4_plan_cost_us(
     grid = num_tokens * head_tiles * num_splits * ctas_per_unit
     slots = sm_count - (sm_count % ctas_per_unit)
     waves = _ceil_div(grid, slots)
-    chain = head_us + (tiles_per_split - 1) * tile_us + load_us * min(grid, slots) / slots
+    chain = (
+        head_us + (tiles_per_split - 1) * tile_us + load_us * min(grid, slots) / slots
+    )
     cost = waves * chain
     if num_splits > 1:
         cost += _NVFP4_PLAN_MERGE_US + _NVFP4_PLAN_MERGE_US_PER_MB * (
@@ -2036,26 +2049,68 @@ def _nvfp4_plan_cost_us(
 
 def _nvfp4_plan_large_heads(
     num_tokens: int, num_heads: int, total_tiles: int, sm_count: int
-) -> tuple[str, int]:
+) -> tuple[NVFP4Member, int]:
     """(member, splits) with the lowest modelled cost for an H > _NVFP4_PV_MAX_HEADS row (Cake ``_plan_large_heads``):
     the tile member at one tile per CTA, then persistent / cluster / tile64 over every canonical split count that
     leaves >= 2 tiles per CTA; ties keep the earlier candidate."""
-    common = dict(num_tokens=num_tokens, num_heads=num_heads, total_tiles=total_tiles, sm_count=sm_count)
+    common = dict(
+        num_tokens=num_tokens,
+        num_heads=num_heads,
+        total_tiles=total_tiles,
+        sm_count=sm_count,
+    )
     head_tiles = _ceil_div(num_heads, _NVFP4_TILE_Q)
-    cands = [("tile", total_tiles, _nvfp4_plan_cost_us("tile", head_tiles=head_tiles, num_splits=total_tiles, **common))]
+    cands: list[tuple[NVFP4Member, int, float]] = [
+        (
+            "tile",
+            total_tiles,
+            _nvfp4_plan_cost_us(
+                "tile", head_tiles=head_tiles, num_splits=total_tiles, **common
+            ),
+        )
+    ]
     for splits in range(1, min(total_tiles - 1, _NVFP4_MAX_SPLITS) + 1):
         if _ceil_div(total_tiles, _ceil_div(total_tiles, splits)) != splits:
             continue  # not a canonical split count
-        cands.append(("persistent", splits, _nvfp4_plan_cost_us("persistent", head_tiles=head_tiles, num_splits=splits, **common)))
+        cands.append(
+            (
+                "persistent",
+                splits,
+                _nvfp4_plan_cost_us(
+                    "persistent", head_tiles=head_tiles, num_splits=splits, **common
+                ),
+            )
+        )
         if num_heads >= _NVFP4_CLUSTER_MIN_HEADS:
-            cands.append(("cluster", splits, _nvfp4_plan_cost_us("cluster", head_tiles=head_tiles, num_splits=splits, **common)))
+            cands.append(
+                (
+                    "cluster",
+                    splits,
+                    _nvfp4_plan_cost_us(
+                        "cluster", head_tiles=head_tiles, num_splits=splits, **common
+                    ),
+                )
+            )
         if num_heads in _NVFP4_T64_HEAD_COUNTS:
-            cands.append(("t64", splits, _nvfp4_plan_cost_us("t64", head_tiles=_ceil_div(num_heads, _NVFP4_T64_TILE_Q), num_splits=splits, **common)))
+            cands.append(
+                (
+                    "t64",
+                    splits,
+                    _nvfp4_plan_cost_us(
+                        "t64",
+                        head_tiles=_ceil_div(num_heads, _NVFP4_T64_TILE_Q),
+                        num_splits=splits,
+                        **common,
+                    ),
+                )
+            )
     best = min(cands, key=lambda c: c[2])
     return best[0], best[1]
 
 
-def _nvfp4_pv_splits(num_tokens: int, total_tiles: int, sm_count: int) -> tuple[int, int]:
+def _nvfp4_pv_splits(
+    num_tokens: int, total_tiles: int, sm_count: int
+) -> tuple[int, int]:
     """Split count of the persistent SwapsAB member for an H <= 32 row (Cake swap_pv ``plan``: one CTA per SM, the
     chain ``waves * (HEAD + (tiles - 1) * TILE) + MERGE`` minimised over the split count; first minimum wins)."""
     best = None
@@ -2063,9 +2118,9 @@ def _nvfp4_pv_splits(num_tokens: int, total_tiles: int, sm_count: int) -> tuple[
         tiles_per_split = _ceil_div(total_tiles, cand)
         splits = _ceil_div(total_tiles, tiles_per_split)
         waves = _ceil_div(num_tokens * splits, sm_count)
-        cost = waves * (_NVFP4_PV_PLAN_HEAD_US + (tiles_per_split - 1) * _NVFP4_PV_PLAN_TILE_US) + (
-            _NVFP4_PV_PLAN_MERGE_US if splits > 1 else 0.0
-        )
+        cost = waves * (
+            _NVFP4_PV_PLAN_HEAD_US + (tiles_per_split - 1) * _NVFP4_PV_PLAN_TILE_US
+        ) + (_NVFP4_PV_PLAN_MERGE_US if splits > 1 else 0.0)
         if best is None or cost < best[0] - 1e-9:
             best = (cost, splits, tiles_per_split)
     return best[1], best[2]
@@ -2603,8 +2658,12 @@ def _nvfp4_gather4_views(flat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor
     and footer rows (8 x int32).  Mirrors the Cake members' ``_gather4_views``."""
     f32 = flat.view(torch.int32).reshape(-1)
     n_rows = f32.numel() // 8
-    n_data_rows = (f32.numel() - 88) // 8 + 1  # the overlapping 88-element rows must stay inside the storage
-    return f32.as_strided((n_data_rows, 88), (8, 1)), f32.as_strided((n_rows, 8), (8, 1))
+    n_data_rows = (
+        f32.numel() - 88
+    ) // 8 + 1  # the overlapping 88-element rows must stay inside the storage
+    return f32.as_strided((n_data_rows, 88), (8, 1)), f32.as_strided(
+        (n_rows, 8), (8, 1)
+    )
 
 
 __all__ = [
