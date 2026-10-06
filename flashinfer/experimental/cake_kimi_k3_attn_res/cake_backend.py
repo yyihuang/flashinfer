@@ -214,11 +214,12 @@ def _small_m_cluster(arch: str, M: int, K: int) -> int:
 
 
 # Mirror of ``kimi_k3_attn_res._FAST_MATH_BANDS`` (round r5): per program class ("small_m" /
-# "persistent"), K -> inclusive M bands whose program compiles with --use_fast_math (kernel key
-# ``_fm``, schedule id ``_fastmath``; the exported record carries the compile flag).
+# "persistent" and their snapshot-write twins "small_m_write" / "persistent_write"), K -> inclusive
+# M bands whose program compiles with --use_fast_math (kernel key ``_fm``, schedule id ``_fastmath``;
+# the exported record carries the compile flag).
 _FAST_MATH_BANDS = {
-    "sm_100a": {"small_m": {}, "persistent": {}},
-    "sm_103a": {"small_m": {}, "persistent": {}},
+    "sm_100a": {"small_m": {}, "persistent": {}, "small_m_write": {}, "persistent_write": {}},
+    "sm_103a": {"small_m": {}, "persistent": {}, "small_m_write": {}, "persistent_write": {}},
 }
 
 
@@ -428,7 +429,7 @@ def _small_m_plan(
     the module default of K), ``write_block`` = the snapshot-write variant (round r4).
     ``exact_key`` marks a registered-variant fallback of that exact plan."""
     threads = DIRECT_THREADS // cluster
-    fast_math = _fast_math(arch, M, K, "small_m")
+    fast_math = _fast_math(arch, M, K, "small_m_write" if write_block else "small_m")
     nc_suffix = "" if sources_per_chunk is None else f"_nc{int(sources_per_chunk)}"
     fm_suffix = "_fastmath" if fast_math else ""
     fm_key = "_fm" if fast_math else ""
@@ -836,7 +837,7 @@ def _persistent_plan_exact(
         k8_sm103_nonallocator_qk_prelude,
     )
     bits = "".join("1" if flag else "0" for flag in flags)
-    fast_math = _fast_math(arch, M, K, "persistent")
+    fast_math = _fast_math(arch, M, K, "persistent_write" if write else "persistent")
     key = f"persistent:k{K}_nc{nc}_d{depth}_f{bits}" + ("_fm" if fast_math else "")
     schedule_id = _persistent_schedule_id(nc, depth, bits) + ("_fastmath" if fast_math else "")
     wait_policy = "deferred_wait_st" if defer else "control_wait_st"
