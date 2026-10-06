@@ -217,7 +217,8 @@ def test_plan_route_sm103_k2_k4_consumed_release_bands(M, K, pdl, early):
     flag is the release policy; the band edges are the dispatcher / evaluator / FI mirror constants."""
     plan = plan_route("sm_103a", SM_COUNT, M, K, pdl)
     assert plan.kind == "persistent", plan
-    flags = plan.kernel_key.rsplit("_f", 1)[1]
+    # round r5: the fast-math axis (``_fm``) follows the flag tuple in the kernel key
+    flags = plan.kernel_key.removesuffix("_fm").rsplit("_f", 1)[1]
     assert (flags[0] == "1") is early, (plan.kernel_key, early)
 
 
@@ -291,22 +292,24 @@ def test_plan_route_snapshot_write_takes_the_write_variants(arch, M, K, pdl):
 def test_snapshot_write_fallback_stays_in_the_write_family(monkeypatch):
     """A registered-variant fallback of a snapshot-write plan only ever selects another
     small-M write program (the snapshot store exists nowhere else)."""
+    # round r5: the write twin's fast-math class is part of the key; the fallback never crosses it either
+    fm = "_fm" if cb._fast_math("sm_100a", 64, 7, "small_m_write") else ""
     table = {
-        "small_m_direct:k7_write": "m1",
-        "small_m_direct:k7": "m2",
+        f"small_m_direct:k7{fm}_write": "m1",
+        f"small_m_direct:k7{fm}": "m2",
         "persistent:k7_nc4_d2_f110000000000000": "m3",
     }
     monkeypatch.setattr(cb, "KERNELS", {"sm_100a": table})
     exact = cb._plan_route_exact("sm_100a", SM_COUNT, 64, 7, False, block_write_idx=7)
     assert exact.kernel_key not in table
     resolved = cb._resolve_registered(exact, SM_COUNT, 64)
-    assert resolved.kernel_key == "small_m_direct:k7_write"
+    assert resolved.kernel_key == f"small_m_direct:k7{fm}_write"
     assert resolved.fallback_from == exact.kernel_key
     assert (
         resolved.route_id.endswith(".registered_fallback")
         and ".write1." in resolved.route_id
     )
-    monkeypatch.setattr(cb, "KERNELS", {"sm_100a": {"small_m_direct:k7": "m2"}})
+    monkeypatch.setattr(cb, "KERNELS", {"sm_100a": {f"small_m_direct:k7{fm}": "m2"}})
     unresolved = cb._resolve_registered(exact, SM_COUNT, 64)
     assert (
         unresolved.kernel_key == exact.kernel_key and unresolved.fallback_from is None
