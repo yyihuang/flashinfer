@@ -305,7 +305,10 @@ _FAST_MATH_BANDS = {
             2: ((384, 512), (768, 768)),
             3: ((256, 384),),
             4: ((192, 768),),
-            5: ((512, 1024),),
+            # Three structural fm cells (512 nc3_d3, 768 nc3_d3, 1024 nc4_d3), not a sweep band: the
+            # production nc4_d2 program between them measured slower with fast-math (check P
+            # p_m700_k5 / p_m1001_k5 0.97 vs the exact program 0.98-0.99).
+            5: ((512, 512), (768, 768), (1024, 1024)),
             6: ((192, 192),),
             7: ((192, 384), (768, 768)),
             8: ((512, 768), (1536, 1536)),
