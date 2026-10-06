@@ -273,9 +273,14 @@ def test_plan_route_snapshot_write_takes_the_write_variants(arch, M, K, pdl):
         fm = cb._fast_math(arch, M, K, "small_m_write")
         family = "direct" if cluster == 1 else f"cluster{cluster}"
         assert plan.kind == "small_m"
-        assert plan.kernel_key == f"small_m_{family}:k{K}{nc_suffix}{'_fm' if fm else ''}_write"
+        assert (
+            plan.kernel_key
+            == f"small_m_{family}:k{K}{nc_suffix}{'_fm' if fm else ''}_write"
+        )
         assert plan.grid_x == M * cluster and plan.threads == 256 // cluster
-        assert plan.schedule_id.endswith(f"_regres_fp32x2{nc_suffix}{'_fastmath' if fm else ''}_write")
+        assert plan.schedule_id.endswith(
+            f"_regres_fp32x2{nc_suffix}{'_fastmath' if fm else ''}_write"
+        )
     else:
         assert plan.kind == "persistent"
         assert plan.kernel_key == f"{dense.kernel_key}_write"
@@ -380,7 +385,9 @@ def test_small_m_table_boundary():
                     if cluster == 1
                     else f"small_m_cluster{cluster}:k{K}{suffix}"
                 )
-                assert at.schedule_id.endswith(("" if nc is None else f"_nc{nc}") + ("_fastmath" if fm else ""))
+                assert at.schedule_id.endswith(
+                    ("" if nc is None else f"_nc{nc}") + ("_fastmath" if fm else "")
+                )
                 assert (at.kind, at.kernel_key, at.grid_x, at.threads) == (
                     "small_m",
                     key,

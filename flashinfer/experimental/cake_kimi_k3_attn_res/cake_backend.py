@@ -278,7 +278,7 @@ def _small_m_cluster(arch: str, M: int, K: int) -> int:
 # M = hi for lo <= M <= hi (dense programs only; the write twin keeps exact cells). sm_100a: (384,2)
 # serves 257..383, (1024,2) 769..1023, (1536,2) 1025..1535, (192,6) / (192,7) 129..191;
 # sm_103a: (192,7) 129..191. Paired check P rows at M141 / M200 / M300 / M1001 / M1300 measure them.
-_R5_CELL_RANGES = {
+_R5_CELL_RANGES: dict[str, dict[int, tuple[tuple[int, int], ...]]] = {
     "sm_100a": {
         2: ((257, 384), (769, 1024), (1025, 1536)),
         6: ((129, 192),),
