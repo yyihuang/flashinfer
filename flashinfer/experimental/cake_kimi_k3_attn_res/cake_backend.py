@@ -79,6 +79,7 @@ ARCHES = tuple(sorted(set(SUPPORTED_COMPUTE_CAPABILITIES.values())))
 # ---------------------------------------------------------------------------
 _SM103_EARLY_CONSUMED_RELEASE_CELLS = frozenset(
     {
+        (256, 3),
         (256, 8),
         (512, 4),
         (512, 8),
@@ -88,6 +89,7 @@ _SM103_EARLY_CONSUMED_RELEASE_CELLS = frozenset(
         (2048, 1),
         (2048, 4),
         (2048, 8),
+        (3072, 1),
         (4096, 1),
         (4096, 2),
         (4096, 4),
@@ -97,6 +99,7 @@ _SM103_EARLY_CONSUMED_RELEASE_CELLS = frozenset(
         (4096, 8),
         (8192, 1),
         (8192, 8),
+        (12288, 1),
         (16384, 1),
         (16384, 8),
     }
@@ -131,14 +134,40 @@ _SM103_EARLY_CONSUMED_RELEASE_MAX_M = {2: 2048, 4: 1023}
 # early inside a held band / sm_103a dense cells that hold inside an early band, write cells that release
 # early although the write-held rule names their K, dense cells that leave the small-M table (the write
 # twin stays), small-M cluster cells.
-_R5_PERSISTENT_SCHEDULE_CELLS = {"sm_100a": {}, "sm_103a": {}}
-_R5_WRITE_PERSISTENT_SCHEDULE_CELLS = {"sm_100a": {}, "sm_103a": {}}
-_R5_PREFIX_BF16_ADD_CELLS = {"sm_100a": frozenset(), "sm_103a": frozenset()}
-_SM100_R5_EARLY_CONSUMED_RELEASE_CELLS: frozenset[tuple[int, int]] = frozenset()
-_SM103_R5_HELD_CONSUMED_RELEASE_CELLS: frozenset[tuple[int, int]] = frozenset()
-_R5_WRITE_EARLY_CONSUMED_RELEASE_CELLS = {"sm_100a": frozenset(), "sm_103a": frozenset()}
-_R5_SMALL_M_EXCLUDED_CELLS = {"sm_100a": frozenset(), "sm_103a": frozenset()}
-_R5_SMALL_M_CLUSTER_CELLS = {"sm_100a": {}, "sm_103a": {}}
+_R5_PERSISTENT_SCHEDULE_CELLS = {
+    "sm_100a": {
+        (256, 3): (2, 2),
+        (192, 6): (3, 2),
+        (192, 7): (3, 2),
+        (384, 2): (2, 2),
+        (512, 2): (3, 2),
+        (1024, 2): (3, 2),
+        (1536, 2): (3, 2),
+    },
+    "sm_103a": {
+        (256, 3): (2, 2),
+        (192, 6): (3, 2),
+        (192, 7): (3, 2),
+        (384, 2): (3, 2),
+        (512, 5): (3, 3),
+        (768, 5): (3, 3),
+        (1024, 5): (4, 3),
+        (768, 2): (3, 2),
+    },
+}
+_R5_WRITE_PERSISTENT_SCHEDULE_CELLS = {"sm_100a": {(1024, 4): (3, 2)}, "sm_103a": {}}
+_R5_PREFIX_BF16_ADD_CELLS = {
+    "sm_100a": frozenset({(256, 3), (192, 6), (192, 7)}),
+    "sm_103a": frozenset({(256, 3), (192, 6), (384, 2), (768, 2)}),
+}
+_SM100_R5_EARLY_CONSUMED_RELEASE_CELLS: frozenset[tuple[int, int]] = frozenset({(384, 2), (512, 2)})
+_SM103_R5_HELD_CONSUMED_RELEASE_CELLS: frozenset[tuple[int, int]] = frozenset({(512, 5), (768, 5)})
+_R5_WRITE_EARLY_CONSUMED_RELEASE_CELLS = {"sm_100a": frozenset({(1024, 4)}), "sm_103a": frozenset()}
+_R5_SMALL_M_EXCLUDED_CELLS = {"sm_100a": frozenset({(256, 3)}), "sm_103a": frozenset({(256, 3)})}
+# Dense cells above the small-M table that run the direct kernel (chunk from _R5_SMALL_M_CHUNK_CELLS).
+_R5_SMALL_M_INCLUDED_CELLS = {"sm_100a": frozenset(), "sm_103a": frozenset({(192, 5)})}
+_R5_SMALL_M_CHUNK_CELLS = {"sm_100a": {}, "sm_103a": {(192, 5): 6}}
+_R5_SMALL_M_CLUSTER_CELLS = {"sm_100a": {}, "sm_103a": {(192, 2): 2}}
 _WRITE_HELD_CONSUMED_RELEASE_MIN_M = {"sm_100a": {4: 1024}, "sm_103a": {4: 1024}}
 # K = 0 TMA route: grid multiple of the SM count on the promoted mid-M cells.
 _K0_TMA_GRID_MULTIPLIER_M = {
@@ -146,7 +175,7 @@ _K0_TMA_GRID_MULTIPLIER_M = {
     "sm_103a": {256: 2, 512: 3, 1024: 3},
 }
 _SM100_RELAXED_PRODUCER_WAIT_CELLS: frozenset[tuple[int, int]] = frozenset()
-_SM103_RELAXED_PRODUCER_WAIT_CELLS = frozenset({(4096, 5)})
+_SM103_RELAXED_PRODUCER_WAIT_CELLS = frozenset({(4096, 5), (1024, 5)})
 _NATIVE_ROUTES = (
     # name, {arch: routed M}, num_blocks, PDL modes, consumed-release policy
     (
@@ -235,8 +264,55 @@ def _small_m_cluster(arch: str, M: int, K: int) -> int:
 # M bands whose program compiles with --use_fast_math (kernel key ``_fm``, schedule id ``_fastmath``;
 # the exported record carries the compile flag).
 _FAST_MATH_BANDS = {
-    "sm_100a": {"small_m": {}, "persistent": {}, "small_m_write": {}, "persistent_write": {}},
-    "sm_103a": {"small_m": {}, "persistent": {}, "small_m_write": {}, "persistent_write": {}},
+    "sm_100a": {
+        "small_m": {
+            1: ((1, 512),),
+            2: ((1, 256),),
+            3: ((1, 192),),
+            4: ((1, 128),),
+            5: ((1, 128),),
+            6: ((1, 1), (5, 128)),
+            7: ((1, 128),),
+            8: ((1, 16),),
+        },
+        "persistent": {
+            1: ((768, 1536),),
+            2: ((384, 1536),),
+            3: ((256, 256), (384, 768)),
+            4: ((192, 1536),),
+            5: ((192, 192),),
+            6: ((192, 512),),
+            7: ((192, 512),),
+            8: ((96, 192),),
+        },
+        "small_m_write": {1: ((1, 256),), 4: ((1, 64),), 7: ((1, 64),)},
+        "persistent_write": {4: ((256, 256), (1024, 1024))},
+    },
+    "sm_103a": {
+        "small_m": {
+            0: ((1, 512),),
+            1: ((1, 512),),
+            2: ((1, 256),),
+            3: ((1, 2),),
+            4: ((1, 128),),
+            5: ((24, 128), (192, 192)),
+            6: ((1, 128),),
+            7: ((1, 128),),
+            8: ((1, 2), (6, 6)),
+        },
+        "persistent": {
+            1: ((768, 2048), (3072, 3072), (12288, 12288)),
+            2: ((384, 512), (768, 768)),
+            3: ((256, 384),),
+            4: ((192, 768),),
+            5: ((512, 1024),),
+            6: ((192, 192),),
+            7: ((192, 384), (768, 768)),
+            8: ((512, 768), (1536, 1536)),
+        },
+        "small_m_write": {1: ((1, 256),), 4: ((1, 64),), 7: ((1, 64),)},
+        "persistent_write": {4: ((256, 256),)},
+    },
 }
 
 
@@ -258,6 +334,9 @@ _SMALL_M_CHUNK_BANDS: dict[str, dict[int, tuple[tuple[int, int], ...]]] = {
 
 def _small_m_sources_per_chunk(arch: str, M: int, K: int) -> int | None:
     default = 4 if K <= 3 else 3
+    cell = _R5_SMALL_M_CHUNK_CELLS[arch].get((M, K))
+    if cell is not None:
+        return None if int(cell) == default else int(cell)
     for max_m, sources_per_chunk in _SMALL_M_CHUNK_BANDS[arch].get(K, ()):
         if max_m >= M:
             return None if int(sources_per_chunk) == default else int(sources_per_chunk)
@@ -724,7 +803,9 @@ def _plan_route_exact(
             use_pdl,
         )
     max_m = _SMALL_M_DIRECT_MAX_M[arch].get(K)
-    if max_m is not None and max_m >= M and (M, K) not in _R5_SMALL_M_EXCLUDED_CELLS[arch]:
+    if (M, K) in _R5_SMALL_M_INCLUDED_CELLS[arch] or (
+        max_m is not None and max_m >= M and (M, K) not in _R5_SMALL_M_EXCLUDED_CELLS[arch]
+    ):
         return _small_m_plan(
             arch,
             M,
