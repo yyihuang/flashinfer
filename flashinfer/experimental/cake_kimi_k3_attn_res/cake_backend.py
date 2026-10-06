@@ -212,6 +212,22 @@ def _small_m_cluster(arch: str, M: int, K: int) -> int:
     return 1
 
 
+
+# Mirror of ``kimi_k3_attn_res._FAST_MATH_BANDS`` (round r5): per program class ("small_m" /
+# "persistent"), K -> inclusive M bands whose program compiles with --use_fast_math (kernel key
+# ``_fm``, schedule id ``_fastmath``; the exported record carries the compile flag).
+_FAST_MATH_BANDS = {
+    "sm_100a": {"small_m": {}, "persistent": {}},
+    "sm_103a": {"small_m": {}, "persistent": {}},
+}
+
+
+def _fast_math(gpu_arch, M, num_blocks, program):
+    return any(
+        min_m <= M <= max_m
+        for min_m, max_m in _FAST_MATH_BANDS[gpu_arch][program].get(num_blocks, ())
+    )
+
 # Online-softmax chunk size of the small-M programs: K -> ((max_m, sources_per_chunk), ...) bands in
 # ascending max_m; the first band with max_m >= M applies, K absent or M above the last band -> the
 # program default (nc4 for K <= 3, nc3 for K >= 4). The mid-M cells mirror the chunking of the
@@ -376,9 +392,9 @@ _PERSISTENT_FLAG_PWA = 1
 _PERSISTENT_FLAG_PREFIX_BF16_ADD = 2
 _PERSISTENT_FLAG_PREFIX_ROUND_ONCE = 3
 _PERSISTENT_FLAG_ONE_TOKEN_PER_CTA = 4
-_PERSISTENT_KEY = re.compile(r"^persistent:k(\d+)_nc(\d+)_d(\d+)_f([01]+)(_write)?$")
+_PERSISTENT_KEY = re.compile(r"^persistent:k(\d+)_nc(\d+)_d(\d+)_f([01]+)(_fm)?(_write)?$")
 _SMALL_M_KEY = re.compile(
-    r"^small_m_(direct|cluster(\d+)):k(\d+)(?:_nc(\d+))?(_write)?$"
+    r"^small_m_(direct|cluster(\d+)):k(\d+)(?:_nc(\d+))?(_fm)?(_write)?$"
 )
 
 
@@ -412,16 +428,19 @@ def _small_m_plan(
     the module default of K), ``write_block`` = the snapshot-write variant (round r4).
     ``exact_key`` marks a registered-variant fallback of that exact plan."""
     threads = DIRECT_THREADS // cluster
+    fast_math = _fast_math(arch, M, K, "small_m")
     nc_suffix = "" if sources_per_chunk is None else f"_nc{int(sources_per_chunk)}"
+    fm_suffix = "_fastmath" if fast_math else ""
+    fm_key = "_fm" if fast_math else ""
     write_suffix = "_write" if write_block else ""
     if cluster == 1:
-        schedule_id = f"small_m_direct_cta256_regres_fp32x2{nc_suffix}{write_suffix}"
+        schedule_id = f"small_m_direct_cta256_regres_fp32x2{nc_suffix}{fm_suffix}{write_suffix}"
         grid_policy = "one_token_per_cta"
-        kernel_key = f"small_m_direct:k{K}{nc_suffix}{write_suffix}"
+        kernel_key = f"small_m_direct:k{K}{nc_suffix}{fm_key}{write_suffix}"
     else:
-        schedule_id = f"small_m_cluster{cluster}_cta{threads}_regres_fp32x2{nc_suffix}{write_suffix}"
+        schedule_id = f"small_m_cluster{cluster}_cta{threads}_regres_fp32x2{nc_suffix}{fm_suffix}{write_suffix}"
         grid_policy = f"one_token_per_cluster{cluster}"
-        kernel_key = f"small_m_cluster{cluster}:k{K}{nc_suffix}{write_suffix}"
+        kernel_key = f"small_m_cluster{cluster}:k{K}{nc_suffix}{fm_key}{write_suffix}"
     route_id = (
         f"{schedule_id}.{arch}.none_k{K}.k{K}.delta1.write{int(write_block)}.norm1."
         f"pdl{int(use_pdl)}.{grid_policy}"
@@ -453,14 +472,18 @@ def _persistent_fallback(
         if exact
         else (None, None, None)
     )
-    want_write = bool(exact and exact.group(5)) or plan.kernel_key.endswith("_write")
+    want_write = bool(exact and exact.group(6)) or plan.kernel_key.endswith("_write")
+    want_fm = bool(exact and exact.group(5)) or "_fm" in plan.kernel_key
     candidates = []
     for key in table:
         match = _PERSISTENT_KEY.match(key)
         if match is None or int(match.group(1)) != K:
             continue
-        if bool(match.group(5)) != want_write:
+        if bool(match.group(6)) != want_write:
             # the snapshot store exists only in the write variants: never cross that line
+            continue
+        if bool(match.group(5)) != want_fm:
+            # fast-math programs round differently (one BF16 ulp class): never substitute across it
             continue
         nc, depth, bits = int(match.group(2)), int(match.group(3)), match.group(4)
         score = (
@@ -483,6 +506,8 @@ def _persistent_fallback(
     else:
         grid_x, grid_policy = _grid(M, num_sms, nc)
     schedule_id = _persistent_schedule_id(nc, depth, bits)
+    if want_fm:
+        schedule_id += "_fastmath"
     if want_write:
         schedule_id += "_write"
     wait_policy = "deferred_wait_st" if _wait_policy(plan.arch) else "control_wait_st"
@@ -519,11 +544,12 @@ def _resolve_registered(plan: RoutePlan, num_sms: int, M: int) -> RoutePlan:
             return plan
         K = int(match.group(3))
         same_cluster = int(match.group(2)) if match.group(2) else 1
-        write_block = match.group(5) is not None
+        fm_key = match.group(5) or ""
+        write_block = match.group(6) is not None
         write_suffix = "_write" if write_block else ""
         for cluster in (same_cluster, 2, 4, 1):
             family = "direct" if cluster == 1 else f"cluster{cluster}"
-            if f"small_m_{family}:k{K}{write_suffix}" in table:
+            if f"small_m_{family}:k{K}{fm_key}{write_suffix}" in table:
                 return _small_m_plan(
                     plan.arch,
                     M,
@@ -810,8 +836,9 @@ def _persistent_plan_exact(
         k8_sm103_nonallocator_qk_prelude,
     )
     bits = "".join("1" if flag else "0" for flag in flags)
-    key = f"persistent:k{K}_nc{nc}_d{depth}_f{bits}"
-    schedule_id = _persistent_schedule_id(nc, depth, bits)
+    fast_math = _fast_math(arch, M, K, "persistent")
+    key = f"persistent:k{K}_nc{nc}_d{depth}_f{bits}" + ("_fm" if fast_math else "")
+    schedule_id = _persistent_schedule_id(nc, depth, bits) + ("_fastmath" if fast_math else "")
     wait_policy = "deferred_wait_st" if defer else "control_wait_st"
     route_id = f"{schedule_id}.{arch}.{wait_policy}.k{K}.delta1.write0.norm1.pdl{int(use_pdl)}.{grid_policy}"
     return RoutePlan(
