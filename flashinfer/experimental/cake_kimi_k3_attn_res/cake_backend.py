@@ -121,9 +121,9 @@ _SM100_K4_NC3_D3_MIN_M = 1025
 # sm_100a dense cells that hold the consumed-stage release through the output stats.
 _SM100_HELD_CONSUMED_RELEASE_CELLS = frozenset({(4096, 5)})
 # Round r4 (direction 2): sm_100a bands just above the grid that keep the release held (K -> last M).
-_SM100_HELD_CONSUMED_RELEASE_MAX_M = {2: 768, 3: 384, 4: 255, 5: 192, 6: 192, 7: 255}
+_SM100_HELD_CONSUMED_RELEASE_MAX_M = {2: 768, 3: 384, 4: 255, 5: 192, 6: 192, 7: 192}
 # Round r4 (direction 2): sm_103a bands that release early (K -> first M).
-_SM103_EARLY_CONSUMED_RELEASE_MIN_M = {2: 768, 4: 513, 5: 384, 6: 384, 7: 256, 8: 257}
+_SM103_EARLY_CONSUMED_RELEASE_MIN_M = {2: 768, 4: 513, 5: 384, 6: 384, 7: 193, 8: 257}
 # Round r4 (K2 / K4 screening): the early-release band is bounded above where the held program wins
 # again (K2: f110 vs f011 0.985-0.991 at M768..2048, neutral at M3072 / 6144, 1.02-1.03 slower at
 # M12288 / 16384; K4: f110001 vs f010001 0.971-0.977 at M768, neutral at M1536, 1.025 slower at M3072).
@@ -263,12 +263,33 @@ def _small_m_cluster(arch: str, M: int, K: int) -> int:
 # "persistent" and their snapshot-write twins "small_m_write" / "persistent_write"), K -> inclusive
 # M bands whose program compiles with --use_fast_math (kernel key ``_fm``, schedule id ``_fastmath``;
 # the exported record carries the compile flag).
+# Round r5 (dense coverage D): a structural cell also serves the off-grid M just below it whose r4
+# program lost its only grid row to the cell (the run's grid representative WAS that row in r4), so
+# every dense M resolves to an exported program: (lo, hi) -> the r5 cell tables are consulted with
+# M = hi for lo <= M <= hi (dense programs only; the write twin keeps exact cells). sm_100a: (384,2)
+# serves 257..383, (1024,2) 769..1023, (1536,2) 1025..1535, (192,6) / (192,7) 129..191;
+# sm_103a: (192,7) 129..191. Paired check P rows at M141 / M200 / M300 / M1001 / M1300 measure them.
+_R5_CELL_RANGES = {
+    "sm_100a": {2: ((257, 384), (769, 1024), (1025, 1536)), 6: ((129, 192),), 7: ((129, 192),)},
+    "sm_103a": {7: ((129, 192),)},
+}
+
+
+def _cell_m(arch: str, M: int, K: int) -> int:
+    """The structural-cell M whose round-r5 tables apply to a dense row (``M`` itself outside the ranges)."""
+
+    for lo, hi in _R5_CELL_RANGES[arch].get(K, ()):
+        if lo <= M <= hi:
+            return hi
+    return M
+
+
 _FAST_MATH_BANDS = {
     "sm_100a": {
         "small_m": {
             1: ((1, 512),),
             2: ((1, 256),),
-            3: ((1, 192),),
+            3: ((1, 255),),
             4: ((1, 128),),
             5: ((1, 128),),
             6: ((1, 1), (5, 128)),
@@ -277,13 +298,13 @@ _FAST_MATH_BANDS = {
         },
         "persistent": {
             1: ((768, 1536),),
-            2: ((384, 1536),),
-            3: ((256, 256), (384, 768)),
-            4: ((192, 1536),),
-            5: ((192, 192),),
-            6: ((192, 512),),
-            7: ((192, 512),),
-            8: ((96, 192),),
+            2: ((257, 1536),),
+            3: ((256, 768),),
+            4: ((129, 1536),),
+            5: ((129, 192),),
+            6: ((129, 512),),
+            7: ((129, 512),),
+            8: ((65, 255),),
         },
         "small_m_write": {1: ((1, 256),), 4: ((1, 64),), 7: ((1, 64),)},
         "persistent_write": {4: ((256, 256), (1024, 1024))},
@@ -295,7 +316,7 @@ _FAST_MATH_BANDS = {
             2: ((1, 256),),
             3: ((1, 2),),
             4: ((1, 128),),
-            5: ((24, 128), (192, 192)),
+            5: ((17, 128), (192, 192)),
             6: ((1, 128),),
             7: ((1, 128),),
             8: ((1, 2), (6, 6)),
@@ -304,13 +325,13 @@ _FAST_MATH_BANDS = {
             1: ((768, 2048), (3072, 3072), (12288, 12288)),
             2: ((384, 512), (768, 768)),
             3: ((256, 384),),
-            4: ((192, 768),),
+            4: ((129, 1023),),
             # Three structural fm cells (512 nc3_d3, 768 nc3_d3, 1024 nc4_d3), not a sweep band: the
             # production nc4_d2 program between them measured slower with fast-math (check P
             # p_m700_k5 / p_m1001_k5 0.97 vs the exact program 0.98-0.99).
             5: ((512, 512), (768, 768), (1024, 1024)),
             6: ((192, 192),),
-            7: ((192, 384), (768, 768)),
+            7: ((129, 384), (768, 768)),
             8: ((512, 768), (1536, 1536)),
         },
         "small_m_write": {1: ((1, 256),), 4: ((1, 64),), 7: ((1, 64),)},
@@ -399,8 +420,9 @@ def _schedule(arch: str, M: int, K: int, write: bool = False) -> tuple[int, int]
     """``(sources_per_chunk, chunk_depth)`` of the persistent common path (``write``: the program the
     snapshot-write twin is derived from; round r5 cells may give it its own schedule)."""
     r5_cells = (_R5_WRITE_PERSISTENT_SCHEDULE_CELLS if write else _R5_PERSISTENT_SCHEDULE_CELLS)[arch]
-    if (M, K) in r5_cells:
-        return r5_cells[(M, K)]
+    cell = (M if write else _cell_m(arch, M, K), K)
+    if cell in r5_cells:
+        return r5_cells[cell]
     if (M, K) in _NC3_D3_CELLS[arch] or (
         arch == "sm_100a" and K == 4 and M >= _SM100_K4_NC3_D3_MIN_M
     ):
@@ -455,7 +477,7 @@ def _early_consumed_release(
             and grid_x < M
             and (M, K) not in _SM100_HELD_CONSUMED_RELEASE_CELLS
             and (
-                (not write and (M, K) in _SM100_R5_EARLY_CONSUMED_RELEASE_CELLS)
+                (not write and (_cell_m(arch, M, K), K) in _SM100_R5_EARLY_CONSUMED_RELEASE_CELLS)
                 or _SM100_HELD_CONSUMED_RELEASE_MAX_M.get(K, 0) < M
             )
         )
@@ -866,7 +888,7 @@ def _persistent_plan_exact(
     ecr = _early_consumed_release(arch, M, K, grid_x, write)
     pwa = _producer_wait_acquire(arch, M, K)
     prefix_bf16_add = (
-        (not write and (M, K) in _R5_PREFIX_BF16_ADD_CELLS[arch])
+        (not write and (_cell_m(arch, M, K), K) in _R5_PREFIX_BF16_ADD_CELLS[arch])
         or (
             arch == "sm_100a"
             and (
