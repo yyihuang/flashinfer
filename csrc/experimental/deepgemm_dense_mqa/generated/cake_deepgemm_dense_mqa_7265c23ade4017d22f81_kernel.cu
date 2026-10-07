@@ -198,7 +198,7 @@ __device__ __forceinline__ uint32_t make_warp_uniform(uint32_t val) {
 extern "C" {
 
 __global__ __launch_bounds__(384, LAUNCH_MIN_BLOCKS) void
-kernel_cake_deepgemm_dense_mqa_692681fd5a2def3dc5fb(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap KV, const __grid_constant__ CUtensorMap KV_scales, const __grid_constant__ CUtensorMap Weights, float* __restrict__ Logits, int* __restrict__ context_lens, int* __restrict__ block_table, int block_table_stride, int batch_size, int num_sms, int stride_logits, unsigned int* __restrict__ sched_counters)
+kernel_cake_deepgemm_dense_mqa_7265c23ade4017d22f81(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap KV, const __grid_constant__ CUtensorMap KV_scales, const __grid_constant__ CUtensorMap Weights, float* __restrict__ Logits, int* __restrict__ context_lens, int* __restrict__ block_table, int block_table_stride, int batch_size, int num_sms, int stride_logits, unsigned int* __restrict__ sched_counters)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -339,7 +339,7 @@ kernel_cake_deepgemm_dense_mqa_692681fd5a2def3dc5fb(const __grid_constant__ CUte
     int dy_n = 0;
     if (dy_q < batch_size) {
         int dy_seg = (dy_ctx + 256 - 1) / 256;
-        dy_n = (dy_seg + 4 - 1) / 4;
+        dy_n = (dy_seg + 8 - 1) / 8;
     }
     int dy_lane_sum = dy_n;
     int _shfl_up_0 = __shfl_up_sync(0xFFFFFFFF, dy_lane_sum, 1, 32);
@@ -464,8 +464,8 @@ kernel_cake_deepgemm_dense_mqa_692681fd5a2def3dc5fb(const __grid_constant__ CUte
                     int dl_c = mt_k - dl_prev;
                     int ctx_last = context_lens[dl_req * K_NEXT_N + (K_NEXT_N - 1)];
                     int num_kv_splits = (ctx_last + 256 - 1) / 256;
-                    int dl_slo = dl_c * 4;
-                    int dl_shi_raw = dl_slo + 4;
+                    int dl_slo = dl_c * 8;
+                    int dl_shi_raw = dl_slo + 8;
                     int dl_shi = ((dl_shi_raw < num_kv_splits) ? dl_shi_raw : num_kv_splits);
                     if (dl_req != mt_cur) {
                         if (mt_cur >= 0) {
@@ -599,8 +599,8 @@ kernel_cake_deepgemm_dense_mqa_692681fd5a2def3dc5fb(const __grid_constant__ CUte
                     int dl_c_1 = lq_k - dl_prev_1;
                     int ctx_last_1 = context_lens[dl_req_1 * K_NEXT_N + (K_NEXT_N - 1)];
                     int num_kv_splits_1 = (ctx_last_1 + 256 - 1) / 256;
-                    int dl_slo_1 = dl_c_1 * 4;
-                    int dl_shi_raw_1 = dl_slo_1 + 4;
+                    int dl_slo_1 = dl_c_1 * 8;
+                    int dl_shi_raw_1 = dl_slo_1 + 8;
                     int dl_shi_1 = ((dl_shi_raw_1 < num_kv_splits_1) ? dl_shi_raw_1 : num_kv_splits_1);
                     if (dl_req_1 != lq_cur) {
                         lq_cur = dl_req_1;
@@ -659,8 +659,8 @@ kernel_cake_deepgemm_dense_mqa_692681fd5a2def3dc5fb(const __grid_constant__ CUte
                     int dl_c_2 = lk_k - dl_prev_2;
                     int ctx_last_2 = context_lens[dl_req_2 * K_NEXT_N + (K_NEXT_N - 1)];
                     int num_kv_splits_2 = (ctx_last_2 + 256 - 1) / 256;
-                    int dl_slo_2 = dl_c_2 * 4;
-                    int dl_shi_raw_2 = dl_slo_2 + 4;
+                    int dl_slo_2 = dl_c_2 * 8;
+                    int dl_shi_raw_2 = dl_slo_2 + 8;
                     int dl_shi_2 = ((dl_shi_raw_2 < num_kv_splits_2) ? dl_shi_raw_2 : num_kv_splits_2);
                     int ctx_last_0 = context_lens[dl_req_2 * K_NEXT_N + (K_NEXT_N - 1)];
                     int num_kv_splits_1_1 = (ctx_last_0 + 256 - 1) / 256;
@@ -689,10 +689,27 @@ kernel_cake_deepgemm_dense_mqa_692681fd5a2def3dc5fb(const __grid_constant__ CUte
                         }
                         mbarrier_wait(kv_empty_addr + (lk_stage) * 8, _phase_kv_empty);
                         if (elect_sync()) {
-                            #pragma unroll
-                            for (int i_1 = 0; i_1 < K_NUM_BLOCKS_PER_SPLIT; i_1++) {
-                                tma_3d_gmem2smem(smem_kv_addr + lk_stage * 32768 + (unsigned int)(i_1 * (K_BLOCK_KV * 128)), (&KV), 0, 0, page_idx_reg[i_1], kv_full_addr + (lk_stage) * 8);
-                                tma_2d_gmem2smem(smem_kv_scales_addr + lk_stage * 1024 + (unsigned int)(i_1 * (K_BLOCK_KV * 4)), (&KV_scales), K_SCALE_TAIL_F32, page_idx_reg[i_1], kv_full_addr + (lk_stage) * 8);
+                            int kv_ef_ctx = block_table_stride * K_BLOCK_KV;
+                            if (kv_ef_ctx >= 16384) {
+                                #pragma unroll
+                                for (int i_1 = 0; i_1 < K_NUM_BLOCKS_PER_SPLIT; i_1++) {
+                                    asm volatile(
+                                        "cp.async.bulk.tensor.3d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                        " [%0], [%1, {%2, %3, %4}], [%5], %6;"
+                                        :: "r"(smem_kv_addr + lk_stage * 32768 + (unsigned int)(i_1 * (K_BLOCK_KV * 128))), "l"((&KV)), "r"(0), "r"(0), "r"(page_idx_reg[i_1]),
+                                           "r"(kv_full_addr + (lk_stage) * 8), "l"(0x12F0000000000000ULL) : "memory");
+                                    asm volatile(
+                                        "cp.async.bulk.tensor.2d.shared::cta.global.mbarrier::complete_tx::bytes.L2::cache_hint"
+                                        " [%0], [%1, {%2, %3}], [%4], %5;"
+                                        :: "r"(smem_kv_scales_addr + lk_stage * 1024 + (unsigned int)(i_1 * (K_BLOCK_KV * 4))), "l"((&KV_scales)), "r"(K_SCALE_TAIL_F32), "r"(page_idx_reg[i_1]),
+                                           "r"(kv_full_addr + (lk_stage) * 8), "l"(0x12F0000000000000ULL) : "memory");
+                                }
+                            } else {
+                                #pragma unroll
+                                for (int i_2 = 0; i_2 < K_NUM_BLOCKS_PER_SPLIT; i_2++) {
+                                    tma_3d_gmem2smem(smem_kv_addr + lk_stage * 32768 + (unsigned int)(i_2 * (K_BLOCK_KV * 128)), (&KV), 0, 0, page_idx_reg[i_2], kv_full_addr + (lk_stage) * 8);
+                                    tma_2d_gmem2smem(smem_kv_scales_addr + lk_stage * 1024 + (unsigned int)(i_2 * (K_BLOCK_KV * 4)), (&KV_scales), K_SCALE_TAIL_F32, page_idx_reg[i_2], kv_full_addr + (lk_stage) * 8);
+                                }
                             }
                             mbarrier_arrive_expect_tx(kv_full_addr + (lk_stage) * 8, 33792);
                         }
@@ -741,8 +758,8 @@ kernel_cake_deepgemm_dense_mqa_692681fd5a2def3dc5fb(const __grid_constant__ CUte
                     int dl_c_3 = mm_k - dl_prev_3;
                     int ctx_last_3 = context_lens[dl_req_3 * K_NEXT_N + (K_NEXT_N - 1)];
                     int num_kv_splits_3 = (ctx_last_3 + 256 - 1) / 256;
-                    int dl_slo_3 = dl_c_3 * 4;
-                    int dl_shi_raw_3 = dl_slo_3 + 4;
+                    int dl_slo_3 = dl_c_3 * 8;
+                    int dl_shi_raw_3 = dl_slo_3 + 8;
                     int dl_shi_3 = ((dl_shi_raw_3 < num_kv_splits_3) ? dl_shi_raw_3 : num_kv_splits_3);
                     if (dl_req_3 != mm_cur) {
                         if (mm_cur >= 0) {
