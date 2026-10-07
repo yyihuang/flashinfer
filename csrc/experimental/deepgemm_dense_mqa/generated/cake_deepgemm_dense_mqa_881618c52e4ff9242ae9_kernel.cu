@@ -191,7 +191,7 @@ __device__ __forceinline__ uint32_t make_warp_uniform(uint32_t val) {
 extern "C" {
 
 __global__ __launch_bounds__(384, LAUNCH_MIN_BLOCKS) void
-kernel_cake_deepgemm_dense_mqa_3eb5fdde04a2d8d733d7(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap KV, const __grid_constant__ CUtensorMap KV_scales, const __grid_constant__ CUtensorMap Weights, float* __restrict__ Logits, int* __restrict__ context_lens, int* __restrict__ block_table, int block_table_stride, int batch_size, int num_sms, int stride_logits)
+kernel_cake_deepgemm_dense_mqa_881618c52e4ff9242ae9(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap KV, const __grid_constant__ CUtensorMap KV_scales, const __grid_constant__ CUtensorMap Weights, float* __restrict__ Logits, int* __restrict__ context_lens, int* __restrict__ block_table, int block_table_stride, int batch_size, int num_sms, int stride_logits, unsigned int* __restrict__ sched_counters)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -299,118 +299,236 @@ kernel_cake_deepgemm_dense_mqa_3eb5fdde04a2d8d733d7(const __grid_constant__ CUte
     // Kernel post-init ops
     const int tmem_tmem_acc = taddr;
     asm volatile("griddepcontrol.wait;" ::: "memory");
-    int sc_tid = tid;
-    int sc_lane = lane;
-    int sc_warp = warp;
-    int sc_row_base = sc_tid * 11;
-    int sc_local[11];
-    int sc_running = 0;
-    #pragma unroll
-    for (int i = 0; i < 11; i++) {
-        int sc_q = sc_row_base + i;
-        int sc_nseg = 0;
-        if (sc_q < batch_size) {
-            int sc_ctx = context_lens[sc_q * 2 + 1];
-            sc_nseg = (sc_ctx + 256 - 1) / 256;
+    if (batch_size <= 384) {
+        int fs_q = tid;
+        int fs_lane = lane;
+        int fs_warp = warp;
+        int fs_qc = ((fs_q < batch_size) ? fs_q : batch_size - 1);
+        int fs_ctx = context_lens[fs_qc * 2 + 1];
+        int fs_n = 0;
+        if (fs_q < batch_size) {
+            fs_n = (fs_ctx + 256 - 1) / 256;
         }
-        sc_running += sc_nseg;
-        sc_local[i] = sc_running;
-    }
-    int sc_thread_total = sc_running;
-    int sc_lane_sum = sc_thread_total;
-    int _shfl_up_0 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 1, 32);
-    int sc_up = _shfl_up_0;
-    if (sc_lane >= 1) {
-        sc_lane_sum += sc_up;
-    }
-    int _shfl_up_1 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 2, 32);
-    int sc_up_0 = _shfl_up_1;
-    if (sc_lane >= 2) {
-        sc_lane_sum += sc_up_0;
-    }
-    int _shfl_up_2 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 4, 32);
-    int sc_up_1 = _shfl_up_2;
-    if (sc_lane >= 4) {
-        sc_lane_sum += sc_up_1;
-    }
-    int _shfl_up_3 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 8, 32);
-    int sc_up_2 = _shfl_up_3;
-    if (sc_lane >= 8) {
-        sc_lane_sum += sc_up_2;
-    }
-    int _shfl_up_4 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 16, 32);
-    int sc_up_3 = _shfl_up_4;
-    if (sc_lane >= 16) {
-        sc_lane_sum += sc_up_3;
-    }
-    if (sc_lane == 31) {
-        sched_warp_sums[sc_warp] = sc_lane_sum;
-    }
-    __syncthreads();
-    int sc_warp_total = 0;
-    if (sc_lane < 12) {
-        sc_warp_total = sched_warp_sums[sc_lane];
-    }
-    int sc_warp_sum = sc_warp_total;
-    int _shfl_up_5 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 1, 32);
-    int sc_up2 = _shfl_up_5;
-    if (sc_lane >= 1) {
-        sc_warp_sum += sc_up2;
-    }
-    int _shfl_up_6 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 2, 32);
-    int sc_up2_4 = _shfl_up_6;
-    if (sc_lane >= 2) {
-        sc_warp_sum += sc_up2_4;
-    }
-    int _shfl_up_7 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 4, 32);
-    int sc_up2_5 = _shfl_up_7;
-    if (sc_lane >= 4) {
-        sc_warp_sum += sc_up2_5;
-    }
-    int _shfl_up_8 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 8, 32);
-    int sc_up2_6 = _shfl_up_8;
-    if (sc_lane >= 8) {
-        sc_warp_sum += sc_up2_6;
-    }
-    int _shfl_up_9 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 16, 32);
-    int sc_up2_7 = _shfl_up_9;
-    if (sc_lane >= 16) {
-        sc_warp_sum += sc_up2_7;
-    }
-    int _shfl_0 = __shfl_sync(0xFFFFFFFF, sc_warp_sum, 11);
-    int sc_total = _shfl_0;
-    int _shfl_1 = __shfl_sync(0xFFFFFFFF, sc_warp_sum - sc_warp_total, sc_warp);
-    int sc_preceding = _shfl_1;
-    int sc_offset = sc_lane_sum - sc_thread_total + sc_preceding;
-    #pragma unroll
-    for (int i_1 = 0; i_1 < 11; i_1++) {
-        int sc_qo = sc_row_base + i_1;
-        if (sc_qo < batch_size) {
-            sched_prefix[sc_qo] = sc_local[i_1] + sc_offset;
+        int fs_lane_sum = fs_n;
+        int _shfl_up_0 = __shfl_up_sync(0xFFFFFFFF, fs_lane_sum, 1, 32);
+        int fs_up = _shfl_up_0;
+        if (fs_lane >= 1) {
+            fs_lane_sum += fs_up;
         }
-    }
-    __syncthreads();
-    if (sc_tid < 2) {
-        int sc_sm = bid + sc_tid;
-        int sc_qd = sc_total / num_sms;
-        int sc_rd = sc_total % num_sms;
-        int sc_min = ((sc_sm < sc_rd) ? sc_sm : sc_rd);
-        int sc_start = sc_sm * sc_qd + sc_min;
-        int sc_lo = 0;
-        int sc_hi = batch_size;
+        int _shfl_up_1 = __shfl_up_sync(0xFFFFFFFF, fs_lane_sum, 2, 32);
+        int fs_up_0 = _shfl_up_1;
+        if (fs_lane >= 2) {
+            fs_lane_sum += fs_up_0;
+        }
+        int _shfl_up_2 = __shfl_up_sync(0xFFFFFFFF, fs_lane_sum, 4, 32);
+        int fs_up_1 = _shfl_up_2;
+        if (fs_lane >= 4) {
+            fs_lane_sum += fs_up_1;
+        }
+        int _shfl_up_3 = __shfl_up_sync(0xFFFFFFFF, fs_lane_sum, 8, 32);
+        int fs_up_2 = _shfl_up_3;
+        if (fs_lane >= 8) {
+            fs_lane_sum += fs_up_2;
+        }
+        int _shfl_up_4 = __shfl_up_sync(0xFFFFFFFF, fs_lane_sum, 16, 32);
+        int fs_up_3 = _shfl_up_4;
+        if (fs_lane >= 16) {
+            fs_lane_sum += fs_up_3;
+        }
+        if (fs_lane == 31) {
+            sched_warp_sums[fs_warp] = fs_lane_sum;
+        }
+        __syncthreads();
+        int fs_warp_total = 0;
+        if (fs_lane < 12) {
+            fs_warp_total = sched_warp_sums[fs_lane];
+        }
+        int fs_warp_sum = fs_warp_total;
+        int _shfl_up_5 = __shfl_up_sync(0xFFFFFFFF, fs_warp_sum, 1, 32);
+        int fs_up2 = _shfl_up_5;
+        if (fs_lane >= 1) {
+            fs_warp_sum += fs_up2;
+        }
+        int _shfl_up_6 = __shfl_up_sync(0xFFFFFFFF, fs_warp_sum, 2, 32);
+        int fs_up2_4 = _shfl_up_6;
+        if (fs_lane >= 2) {
+            fs_warp_sum += fs_up2_4;
+        }
+        int _shfl_up_7 = __shfl_up_sync(0xFFFFFFFF, fs_warp_sum, 4, 32);
+        int fs_up2_5 = _shfl_up_7;
+        if (fs_lane >= 4) {
+            fs_warp_sum += fs_up2_5;
+        }
+        int _shfl_up_8 = __shfl_up_sync(0xFFFFFFFF, fs_warp_sum, 8, 32);
+        int fs_up2_6 = _shfl_up_8;
+        if (fs_lane >= 8) {
+            fs_warp_sum += fs_up2_6;
+        }
+        int _shfl_up_9 = __shfl_up_sync(0xFFFFFFFF, fs_warp_sum, 16, 32);
+        int fs_up2_7 = _shfl_up_9;
+        if (fs_lane >= 16) {
+            fs_warp_sum += fs_up2_7;
+        }
+        int _shfl_0 = __shfl_sync(0xFFFFFFFF, fs_warp_sum, 11);
+        int fs_total = _shfl_0;
+        int _shfl_1 = __shfl_sync(0xFFFFFFFF, fs_warp_sum - fs_warp_total, fs_warp);
+        int fs_preceding = _shfl_1;
+        int fs_incl = fs_lane_sum + fs_preceding;
+        int fs_prev = fs_incl - fs_n;
+        int fs_qd = fs_total / num_sms;
+        int fs_rd = fs_total % num_sms;
+        int fs_sm = bid;
+        int fs_min = ((fs_sm < fs_rd) ? fs_sm : fs_rd);
+        int fs_start = fs_sm * fs_qd + fs_min;
+        if (fs_q < batch_size) {
+            if (fs_n > 0) {
+                if (fs_prev <= fs_start) {
+                    if (fs_start < fs_incl) {
+                        sched_bounds[0] = fs_q;
+                        sched_bounds[1] = fs_start - fs_prev;
+                    }
+                }
+            }
+        }
+        if (tid == 0) {
+            if (fs_start >= fs_total) {
+                sched_bounds[0] = batch_size;
+                sched_bounds[1] = fs_start - fs_total;
+            }
+        }
+        int fs_sm_8 = bid + 1;
+        int fs_min_9 = ((fs_sm_8 < fs_rd) ? fs_sm_8 : fs_rd);
+        int fs_start_10 = fs_sm_8 * fs_qd + fs_min_9;
+        if (fs_q < batch_size) {
+            if (fs_n > 0) {
+                if (fs_prev <= fs_start_10) {
+                    if (fs_start_10 < fs_incl) {
+                        sched_bounds[2] = fs_q;
+                        sched_bounds[3] = fs_start_10 - fs_prev;
+                    }
+                }
+            }
+        }
+        if (tid == 0) {
+            if (fs_start_10 >= fs_total) {
+                sched_bounds[2] = batch_size;
+                sched_bounds[3] = fs_start_10 - fs_total;
+            }
+        }
+    } else {
+        int sc_tid = tid;
+        int sc_lane = lane;
+        int sc_warp = warp;
+        int sc_row_base = sc_tid * 11;
+        int sc_local[11];
+        int sc_running = 0;
         #pragma unroll
-        for (int _ = 0; _ < 13; _++) {
-            int sc_mid = (sc_lo + sc_hi) / 2;
-            int sc_midr = ((sc_mid < batch_size) ? sc_mid : batch_size - 1);
-            int sc_le = ((sc_start >= sched_prefix[sc_midr]) ? 1 : 0);
-            int sc_inb = ((sc_mid < batch_size) ? 1 : 0);
-            int sc_go = sc_le * sc_inb;
-            sc_lo = ((sc_go != 0) ? sc_mid + 1 : sc_lo);
-            sc_hi = ((sc_go == 0) ? sc_mid : sc_hi);
+        for (int i = 0; i < 11; i++) {
+            int sc_q = sc_row_base + i;
+            int sc_nseg = 0;
+            if (sc_q < batch_size) {
+                int sc_ctx = context_lens[sc_q * 2 + 1];
+                sc_nseg = (sc_ctx + 256 - 1) / 256;
+            }
+            sc_running += sc_nseg;
+            sc_local[i] = sc_running;
         }
-        int sc_prev = ((sc_lo > 0) ? sched_prefix[sc_lo - 1] : 0);
-        sched_bounds[sc_tid * 2] = sc_lo;
-        sched_bounds[sc_tid * 2 + 1] = sc_start - sc_prev;
+        int sc_thread_total = sc_running;
+        int sc_lane_sum = sc_thread_total;
+        int _shfl_up_10 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 1, 32);
+        int sc_up = _shfl_up_10;
+        if (sc_lane >= 1) {
+            sc_lane_sum += sc_up;
+        }
+        int _shfl_up_11 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 2, 32);
+        int sc_up_0 = _shfl_up_11;
+        if (sc_lane >= 2) {
+            sc_lane_sum += sc_up_0;
+        }
+        int _shfl_up_12 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 4, 32);
+        int sc_up_1 = _shfl_up_12;
+        if (sc_lane >= 4) {
+            sc_lane_sum += sc_up_1;
+        }
+        int _shfl_up_13 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 8, 32);
+        int sc_up_2 = _shfl_up_13;
+        if (sc_lane >= 8) {
+            sc_lane_sum += sc_up_2;
+        }
+        int _shfl_up_14 = __shfl_up_sync(0xFFFFFFFF, sc_lane_sum, 16, 32);
+        int sc_up_3 = _shfl_up_14;
+        if (sc_lane >= 16) {
+            sc_lane_sum += sc_up_3;
+        }
+        if (sc_lane == 31) {
+            sched_warp_sums[sc_warp] = sc_lane_sum;
+        }
+        __syncthreads();
+        int sc_warp_total = 0;
+        if (sc_lane < 12) {
+            sc_warp_total = sched_warp_sums[sc_lane];
+        }
+        int sc_warp_sum = sc_warp_total;
+        int _shfl_up_15 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 1, 32);
+        int sc_up2 = _shfl_up_15;
+        if (sc_lane >= 1) {
+            sc_warp_sum += sc_up2;
+        }
+        int _shfl_up_16 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 2, 32);
+        int sc_up2_4 = _shfl_up_16;
+        if (sc_lane >= 2) {
+            sc_warp_sum += sc_up2_4;
+        }
+        int _shfl_up_17 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 4, 32);
+        int sc_up2_5 = _shfl_up_17;
+        if (sc_lane >= 4) {
+            sc_warp_sum += sc_up2_5;
+        }
+        int _shfl_up_18 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 8, 32);
+        int sc_up2_6 = _shfl_up_18;
+        if (sc_lane >= 8) {
+            sc_warp_sum += sc_up2_6;
+        }
+        int _shfl_up_19 = __shfl_up_sync(0xFFFFFFFF, sc_warp_sum, 16, 32);
+        int sc_up2_7 = _shfl_up_19;
+        if (sc_lane >= 16) {
+            sc_warp_sum += sc_up2_7;
+        }
+        int _shfl_2 = __shfl_sync(0xFFFFFFFF, sc_warp_sum, 11);
+        int sc_total = _shfl_2;
+        int _shfl_3 = __shfl_sync(0xFFFFFFFF, sc_warp_sum - sc_warp_total, sc_warp);
+        int sc_preceding = _shfl_3;
+        int sc_offset = sc_lane_sum - sc_thread_total + sc_preceding;
+        #pragma unroll
+        for (int i_1 = 0; i_1 < 11; i_1++) {
+            int sc_qo = sc_row_base + i_1;
+            if (sc_qo < batch_size) {
+                sched_prefix[sc_qo] = sc_local[i_1] + sc_offset;
+            }
+        }
+        __syncthreads();
+        if (sc_tid < 2) {
+            int sc_sm = bid + sc_tid;
+            int sc_qd = sc_total / num_sms;
+            int sc_rd = sc_total % num_sms;
+            int sc_min = ((sc_sm < sc_rd) ? sc_sm : sc_rd);
+            int sc_start = sc_sm * sc_qd + sc_min;
+            int sc_lo = 0;
+            int sc_hi = batch_size;
+            #pragma unroll
+            for (int _ = 0; _ < 13; _++) {
+                int sc_mid = (sc_lo + sc_hi) / 2;
+                int sc_midr = ((sc_mid < batch_size) ? sc_mid : batch_size - 1);
+                int sc_le = ((sc_start >= sched_prefix[sc_midr]) ? 1 : 0);
+                int sc_inb = ((sc_mid < batch_size) ? 1 : 0);
+                int sc_go = sc_le * sc_inb;
+                sc_lo = ((sc_go != 0) ? sc_mid + 1 : sc_lo);
+                sc_hi = ((sc_go == 0) ? sc_mid : sc_hi);
+            }
+            int sc_prev = ((sc_lo > 0) ? sched_prefix[sc_lo - 1] : 0);
+            sched_bounds[sc_tid * 2] = sc_lo;
+            sched_bounds[sc_tid * 2 + 1] = sc_start - sc_prev;
+        }
     }
     asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
     __syncthreads();
@@ -612,8 +730,8 @@ kernel_cake_deepgemm_dense_mqa_3eb5fdde04a2d8d733d7(const __grid_constant__ CUte
                             int src_lane = page_base - page_blk * 32;
                             #pragma unroll
                             for (int i_2 = 0; i_2 < K_NUM_BLOCKS_PER_SPLIT; i_2++) {
-                                int _shfl_2 = __shfl_sync(0xFFFFFFFF, cached_coord, src_lane + i_2);
-                                page_idx_reg[i_2] = _shfl_2;
+                                int _shfl_4 = __shfl_sync(0xFFFFFFFF, cached_coord, src_lane + i_2);
+                                page_idx_reg[i_2] = _shfl_4;
                             }
                             mbarrier_wait(kv_empty_addr + (lk_stage) * 8, _phase_kv_empty);
                             if (elect_sync()) {

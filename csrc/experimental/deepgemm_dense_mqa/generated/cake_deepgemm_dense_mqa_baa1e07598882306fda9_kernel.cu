@@ -230,7 +230,7 @@ __device__ __forceinline__ uint32_t make_warp_uniform(uint32_t val) {
 extern "C" {
 
 __global__ __launch_bounds__(384, LAUNCH_MIN_BLOCKS) void
-kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap KV, const __grid_constant__ CUtensorMap Weights, const __grid_constant__ CUtensorMap SF_Q, const __grid_constant__ CUtensorMap SF_KV, float* __restrict__ Logits, int* __restrict__ cu_seq_len_k_start, int* __restrict__ cu_seq_len_k_end, int seq_len, int seq_len_kv, int stride_logits, int num_q_blocks, unsigned int* __restrict__ ScheduleMeta)
+kernel_cake_deepgemm_dense_mqa_baa1e07598882306fda9(const __grid_constant__ CUtensorMap Q, const __grid_constant__ CUtensorMap KV, const __grid_constant__ CUtensorMap Weights, const __grid_constant__ CUtensorMap SF_Q, const __grid_constant__ CUtensorMap SF_KV, float* __restrict__ Logits, int* __restrict__ cu_seq_len_k_start, int* __restrict__ cu_seq_len_k_end, int seq_len, int seq_len_kv, int stride_logits, int num_q_blocks, unsigned int* __restrict__ ScheduleMeta)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -288,10 +288,10 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
             mbarrier_init(smem + 205824, 1);
             mbarrier_init(smem + 205832, 1);
             mbarrier_init(smem + 205840, 1);
-            // q_empty: 3 barriers, init_count=288
-            mbarrier_init(smem + 205848, 288);
-            mbarrier_init(smem + 205856, 288);
-            mbarrier_init(smem + 205864, 288);
+            // q_empty: 3 barriers, init_count=257
+            mbarrier_init(smem + 205848, 257);
+            mbarrier_init(smem + 205856, 257);
+            mbarrier_init(smem + 205864, 257);
             // --- pipeline 'kv_pipe' ---
             // kv_full: 10 barriers, init_count=1
             mbarrier_init(smem + 205872, 1);
@@ -441,21 +441,23 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
                                 float2 _sum1 = make_float2(0.0f, 0.0f);
                                 #pragma unroll
                                 for (int _j = 0; _j < 32; _j += 4) {
-                                    float2 _a0_raw = make_float2(_tmem_load_0[0 + _j], _tmem_load_0[0 + _j + 1]);
-                                    float2 _a0_abs = make_float2(fabsf(_tmem_load_0[0 + _j]), fabsf(_tmem_load_0[0 + _j + 1]));
-                                    float2 _a0;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a0) : "l"(*(const unsigned long long*)&_a0_raw), "l"(*(const unsigned long long*)&_a0_abs));
-                                    float2 _b0 = make_float2(weights_reg[0 + _j], weights_reg[0 + _j + 1]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum0) : "l"(*(const unsigned long long*)&_a0), "l"(*(const unsigned long long*)&_b0));
-                                    float2 _a1_raw = make_float2(_tmem_load_0[0 + _j + 2], _tmem_load_0[0 + _j + 3]);
-                                    float2 _a1_abs = make_float2(fabsf(_tmem_load_0[0 + _j + 2]), fabsf(_tmem_load_0[0 + _j + 3]));
-                                    float2 _a1;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a1) : "l"(*(const unsigned long long*)&_a1_raw), "l"(*(const unsigned long long*)&_a1_abs));
-                                    float2 _b1 = make_float2(weights_reg[0 + _j + 2], weights_reg[0 + _j + 3]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum1) : "l"(*(const unsigned long long*)&_a1), "l"(*(const unsigned long long*)&_b1));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum0) : "f"(_tmem_load_0[0 + _j + 0]), "f"(_tmem_load_0[0 + _j + 1]), "f"(weights_reg[0 + _j + 0]), "f"(weights_reg[0 + _j + 1]));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum1) : "f"(_tmem_load_0[0 + _j + 2]), "f"(_tmem_load_0[0 + _j + 3]), "f"(weights_reg[0 + _j + 2]), "f"(weights_reg[0 + _j + 3]));
                                 }
                                 float2 _sum;
-                                asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
+                                asm("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
                                 _relu_wsum_0 = (_sum.x + _sum.y) * 0.5f;
                             }
                             float weighted_sum = _relu_wsum_0;
@@ -474,21 +476,23 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
                                 float2 _sum1 = make_float2(0.0f, 0.0f);
                                 #pragma unroll
                                 for (int _j = 0; _j < 32; _j += 4) {
-                                    float2 _a0_raw = make_float2(_tmem_load_1[0 + _j], _tmem_load_1[0 + _j + 1]);
-                                    float2 _a0_abs = make_float2(fabsf(_tmem_load_1[0 + _j]), fabsf(_tmem_load_1[0 + _j + 1]));
-                                    float2 _a0;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a0) : "l"(*(const unsigned long long*)&_a0_raw), "l"(*(const unsigned long long*)&_a0_abs));
-                                    float2 _b0 = make_float2(weights_reg[32 + _j], weights_reg[32 + _j + 1]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum0) : "l"(*(const unsigned long long*)&_a0), "l"(*(const unsigned long long*)&_b0));
-                                    float2 _a1_raw = make_float2(_tmem_load_1[0 + _j + 2], _tmem_load_1[0 + _j + 3]);
-                                    float2 _a1_abs = make_float2(fabsf(_tmem_load_1[0 + _j + 2]), fabsf(_tmem_load_1[0 + _j + 3]));
-                                    float2 _a1;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a1) : "l"(*(const unsigned long long*)&_a1_raw), "l"(*(const unsigned long long*)&_a1_abs));
-                                    float2 _b1 = make_float2(weights_reg[32 + _j + 2], weights_reg[32 + _j + 3]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum1) : "l"(*(const unsigned long long*)&_a1), "l"(*(const unsigned long long*)&_b1));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum0) : "f"(_tmem_load_1[0 + _j + 0]), "f"(_tmem_load_1[0 + _j + 1]), "f"(weights_reg[32 + _j + 0]), "f"(weights_reg[32 + _j + 1]));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum1) : "f"(_tmem_load_1[0 + _j + 2]), "f"(_tmem_load_1[0 + _j + 3]), "f"(weights_reg[32 + _j + 2]), "f"(weights_reg[32 + _j + 3]));
                                 }
                                 float2 _sum;
-                                asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
+                                asm("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
                                 _relu_wsum_1 = (_sum.x + _sum.y) * 0.5f;
                             }
                             float weighted_sum_1 = _relu_wsum_1;
@@ -510,21 +514,23 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
                                 float2 _sum1 = make_float2(0.0f, 0.0f);
                                 #pragma unroll
                                 for (int _j = 0; _j < 32; _j += 4) {
-                                    float2 _a0_raw = make_float2(_tmem_load_2[0 + _j], _tmem_load_2[0 + _j + 1]);
-                                    float2 _a0_abs = make_float2(fabsf(_tmem_load_2[0 + _j]), fabsf(_tmem_load_2[0 + _j + 1]));
-                                    float2 _a0;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a0) : "l"(*(const unsigned long long*)&_a0_raw), "l"(*(const unsigned long long*)&_a0_abs));
-                                    float2 _b0 = make_float2(weights_reg[64 + _j], weights_reg[64 + _j + 1]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum0) : "l"(*(const unsigned long long*)&_a0), "l"(*(const unsigned long long*)&_b0));
-                                    float2 _a1_raw = make_float2(_tmem_load_2[0 + _j + 2], _tmem_load_2[0 + _j + 3]);
-                                    float2 _a1_abs = make_float2(fabsf(_tmem_load_2[0 + _j + 2]), fabsf(_tmem_load_2[0 + _j + 3]));
-                                    float2 _a1;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a1) : "l"(*(const unsigned long long*)&_a1_raw), "l"(*(const unsigned long long*)&_a1_abs));
-                                    float2 _b1 = make_float2(weights_reg[64 + _j + 2], weights_reg[64 + _j + 3]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum1) : "l"(*(const unsigned long long*)&_a1), "l"(*(const unsigned long long*)&_b1));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum0) : "f"(_tmem_load_2[0 + _j + 0]), "f"(_tmem_load_2[0 + _j + 1]), "f"(weights_reg[64 + _j + 0]), "f"(weights_reg[64 + _j + 1]));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum1) : "f"(_tmem_load_2[0 + _j + 2]), "f"(_tmem_load_2[0 + _j + 3]), "f"(weights_reg[64 + _j + 2]), "f"(weights_reg[64 + _j + 3]));
                                 }
                                 float2 _sum;
-                                asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
+                                asm("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
                                 _relu_wsum_2 = (_sum.x + _sum.y) * 0.5f;
                             }
                             float weighted_sum_2 = _relu_wsum_2;
@@ -543,21 +549,23 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
                                 float2 _sum1 = make_float2(0.0f, 0.0f);
                                 #pragma unroll
                                 for (int _j = 0; _j < 32; _j += 4) {
-                                    float2 _a0_raw = make_float2(_tmem_load_3[0 + _j], _tmem_load_3[0 + _j + 1]);
-                                    float2 _a0_abs = make_float2(fabsf(_tmem_load_3[0 + _j]), fabsf(_tmem_load_3[0 + _j + 1]));
-                                    float2 _a0;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a0) : "l"(*(const unsigned long long*)&_a0_raw), "l"(*(const unsigned long long*)&_a0_abs));
-                                    float2 _b0 = make_float2(weights_reg[96 + _j], weights_reg[96 + _j + 1]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum0) : "l"(*(const unsigned long long*)&_a0), "l"(*(const unsigned long long*)&_b0));
-                                    float2 _a1_raw = make_float2(_tmem_load_3[0 + _j + 2], _tmem_load_3[0 + _j + 3]);
-                                    float2 _a1_abs = make_float2(fabsf(_tmem_load_3[0 + _j + 2]), fabsf(_tmem_load_3[0 + _j + 3]));
-                                    float2 _a1;
-                                    asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_a1) : "l"(*(const unsigned long long*)&_a1_raw), "l"(*(const unsigned long long*)&_a1_abs));
-                                    float2 _b1 = make_float2(weights_reg[96 + _j + 2], weights_reg[96 + _j + 3]);
-                                    asm volatile("fma.rn.f32x2 %0, %1, %2, %0;" : "+l"(*(unsigned long long*)&_sum1) : "l"(*(const unsigned long long*)&_a1), "l"(*(const unsigned long long*)&_b1));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum0) : "f"(_tmem_load_3[0 + _j + 0]), "f"(_tmem_load_3[0 + _j + 1]), "f"(weights_reg[96 + _j + 0]), "f"(weights_reg[96 + _j + 1]));
+                                    asm("{\n\t.reg .f32 _ab0, _ab1;\n\t.reg .b64 _pr, _pa, _pb;\n\t"
+                                        "abs.f32 _ab0, %1;\n\tabs.f32 _ab1, %2;\n\t"
+                                        "mov.b64 _pr, {%1, %2};\n\tmov.b64 _pa, {_ab0, _ab1};\n\t"
+                                        "add.rn.f32x2 _pr, _pr, _pa;\n\t"
+                                        "mov.b64 _pb, {%3, %4};\n\t"
+                                        "fma.rn.f32x2 %0, _pr, _pb, %0;\n\t}"
+                                        : "+l"(*(unsigned long long*)&_sum1) : "f"(_tmem_load_3[0 + _j + 2]), "f"(_tmem_load_3[0 + _j + 3]), "f"(weights_reg[96 + _j + 2]), "f"(weights_reg[96 + _j + 3]));
                                 }
                                 float2 _sum;
-                                asm volatile("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
+                                asm("add.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&_sum) : "l"(*(const unsigned long long*)&_sum0), "l"(*(const unsigned long long*)&_sum1));
                                 _relu_wsum_3 = (_sum.x + _sum.y) * 0.5f;
                             }
                             float weighted_sum_3 = _relu_wsum_3;
@@ -691,6 +699,7 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
             unsigned int mma_q_stage = 0;
             unsigned int mma_kv_stage = 0;
             unsigned int mma_tmem_stage = 0;
+            bool _elect_sync_0 = elect_sync();
             unsigned int first_q_3 = bid;
             unsigned int q_step_4 = num_bids;
             unsigned int split_offset_4 = 0;
@@ -737,7 +746,7 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
                     asm volatile("st.shared.b32 [%0], %1;" :: "r"(smem_sf_q_addr + mma_q_stage * 512 + (unsigned int)((lane * 4 + (lane >> 3 ^ 2)) * 4)), "r"((_sf_v[2])));
                     asm volatile("st.shared.b32 [%0], %1;" :: "r"(smem_sf_q_addr + mma_q_stage * 512 + (unsigned int)((lane * 4 + (lane >> 3 ^ 3)) * 4)), "r"((_sf_v[3])));
                     asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
-                    if (elect_sync()) {
+                    if (_elect_sync_0) {
                         tcgen05_cp_32x128b_warpx4(tmem_tmem_sf_q, make_sf_cp_desc_lo_sbo128((((smem_sf_q_addr) >> 4) + (mma_q_stage) * 32)));
                     }
                     __syncwarp();
@@ -767,7 +776,7 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
                         asm volatile("st.shared.b32 [%0], %1;" :: "r"(sfkv_smem + 512 + (lane * 4 + (lane >> 3 ^ 2)) * 4), "r"((_sf_v_1[2])));
                         asm volatile("st.shared.b32 [%0], %1;" :: "r"(sfkv_smem + 512 + (lane * 4 + (lane >> 3 ^ 3)) * 4), "r"((_sf_v_1[3])));
                         asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
-                        if (elect_sync()) {
+                        if (_elect_sync_0) {
                             tcgen05_cp_32x128b_warpx4(tmem_tmem_sf_kv, make_sf_cp_desc_lo_sbo128((((smem_sf_kv_addr) >> 4) + (mma_kv_stage) * 64)));
                             tcgen05_cp_32x128b_warpx4((tmem_tmem_sf_kv + 4), make_sf_cp_desc_lo_sbo128((((smem_sf_kv_addr) >> 4) + (mma_kv_stage) * 64 + 32)));
                             mbarrier_wait(umma_empty_addr + (mma_tmem_stage) * 8, _phase_umma_empty);
@@ -808,7 +817,10 @@ kernel_cake_deepgemm_dense_mqa_7a43f9a21e23875fe07f(const __grid_constant__ CUte
                         mma_kv_stage += 1;
                         if (mma_kv_stage == 10) { mma_kv_stage = 0; _phase_kv_full ^= 1; }
                     }
-                    mbarrier_arrive(q_empty_addr + (mma_q_stage) * 8);
+                    if (_elect_sync_0) {
+                        tcgen05_commit(q_empty_addr + (mma_q_stage) * 8);
+                    }
+                    __syncwarp();
                     mma_q_stage += 1;
                     if (mma_q_stage == 3) { mma_q_stage = 0; _phase_q_full_1 ^= 1; }
                 }
