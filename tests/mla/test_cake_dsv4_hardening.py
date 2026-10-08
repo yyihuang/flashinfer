@@ -78,8 +78,9 @@ def _skip_unless_cake_gpu() -> None:
 
 
 def _compressed_topk(h_q: int) -> int:
-    # swa128+topk4x profiles: sparse_topk 384 / 640 / 1152 (page size 64).
-    return {32: 256, 64: 512, 128: 1024}[h_q]
+    # swa128+topk4x profiles: sparse_topk 384 / 640 / 1152 (page size 64); the
+    # low-head rows (8 / 16 heads) follow the same 8 x heads rule.
+    return {8: 64, 16: 128, 32: 256, 64: 512, 128: 1024}[h_q]
 
 
 def _make_case(
@@ -298,6 +299,15 @@ def test_lens_offset_matches_pre_added_lens(h_q, dtype, s_q, separate):
     assert torch.equal(shifted, baseline)
 
 
+def _drop_sink(tc) -> None:
+    """Run the testcase without an attention sink (``sinks=None`` on the host)."""
+    try:
+        tc.attn_sink = None
+    except Exception:  # frozen dataclass
+        object.__setattr__(tc, "attn_sink", None)
+
+
+@pytest.mark.parametrize("sinks", ["sink", "no-sink"])
 @pytest.mark.parametrize(
     "h_q,dtype",
     [
@@ -306,9 +316,16 @@ def test_lens_offset_matches_pre_added_lens(h_q, dtype, s_q, separate):
         for d in DTYPES
     ],
 )
-def test_all_invalid_rows(h_q, dtype):
+def test_all_invalid_rows(h_q, dtype, sinks):
+    """Every row all ``-1`` (combined table): zeros, like the reference and trtllm-gen.
+
+    Without a sink such a row has an empty softmax (zero denominator), the case
+    a producer must handle by selecting a zero normaliser rather than ``rcp(0)``.
+    """
     _skip_unless_cake_gpu()
     p, tc = _make_case(h_q, dtype, 4, varlen=True, all_invalid=True)
+    if sinks == "no-sink":
+        _drop_sink(tc)
     inputs = _Inputs(p, tc)
     assert bool((inputs.combined_indices == -1).all())
     out = _out_like(inputs)
@@ -316,7 +333,92 @@ def test_all_invalid_rows(h_q, dtype):
     torch.cuda.synchronize()
     got = _rows(out, inputs)
     assert not torch.isnan(got).any()
-    _assert_close(got, inputs.reference_rows(), dtype)
+    assert not torch.isinf(got).any()
+    expected = inputs.reference_rows()
+    assert bool((expected == 0).all())
+    _assert_close(got, expected, dtype)
+
+
+_SWA_ONLY_HEADS = (8, 16, 32, 64, 128)
+
+
+def _swa_only_inputs(p, tc, *, sinks: bool) -> dict:
+    """The SWA-only call form (sglang): ``sparse_indices`` is the 128-wide SWA table,
+    ``sparse_topk_lens`` the SWA lengths (the window when the generator gives none),
+    ``compressed_kv_cache`` passed through so the host takes the swa128 routes."""
+    swa_idx = tc.kv_scope.indices_in_kvcache[tc.valid_q].contiguous()
+    lens = getattr(tc.kv_scope, "topk_length", None)
+    if lens is not None:
+        swa_lens = ref._topk_length_for_flashinfer(lens, tc.valid_q).contiguous()
+    else:
+        swa_lens = torch.full(
+            (int(swa_idx.shape[0]),),
+            ref.DSV4_SWA_TOPK,
+            dtype=torch.int32,
+            device=swa_idx.device,
+        )
+    return dict(
+        query=tc.q[tc.valid_q].contiguous(),
+        swa_kv_cache=tc.kv_scope.get_kvcache_for_flashinfer("HND"),
+        compressed_kv_cache=tc.extra_kv_scope.get_kvcache_for_flashinfer("HND"),
+        seq_lens=tc.kv_scope.cache_seqlens,
+        sparse_indices=swa_idx,
+        sparse_topk_lens=swa_lens,
+        bmm1_scale=ref._scale_for_flashinfer(p, tc.sm_scale),
+        bmm2_scale=ref._scale_for_flashinfer(p, 1.0),
+        sinks=tc.attn_sink if sinks else None,
+        kv_layout="HND",
+        cum_seq_lens_q=ref._make_cum_seq_lens(tc.q_lens),
+        max_q_len=p.s_q,
+        enable_pdl=False,
+    )
+
+
+@pytest.mark.parametrize("sinks", ["sink", "no-sink"])
+@pytest.mark.parametrize("s_q", Q_LENS)
+@pytest.mark.parametrize(
+    "h_q,dtype",
+    [
+        pytest.param(h, d, id=f"h{h}-{'bf16' if d == torch.bfloat16 else 'fp8'}")
+        for h in _SWA_ONLY_HEADS
+        for d in DTYPES
+    ],
+)
+def test_all_invalid_rows_swa_only(h_q, dtype, s_q, sinks):
+    """Every SWA slot ``-1`` in the SWA-only call form, with and without a sink, on
+    every head count the swa128 routes serve (8 / 16 / 32 / 64 / 128): zeros, like
+    the reference and trtllm-gen.  The no-sink cells are the lonely-row case
+    (empty softmax) of the dedicated low-head BF16 SWA decode programs."""
+    _skip_unless_cake_gpu()
+    p, tc = _make_case(h_q, dtype, s_q, varlen=True, all_invalid=True)
+    if sinks == "no-sink":
+        _drop_sink(tc)
+    kwargs = _swa_only_inputs(p, tc, sinks=sinks == "sink")
+    assert bool((kwargs["sparse_indices"] == -1).all())
+    num_tokens = int(kwargs["query"].shape[0])
+    sparse_topk = int(kwargs["sparse_indices"].shape[1])
+    workspace = torch.empty(
+        get_cake_dsv4_workspace_bytes(num_tokens, h_q, sparse_topk, dtype),
+        dtype=torch.uint8,
+        device="cuda:0",
+    )
+    cake_dsv4_workspace_reset(workspace)
+    out = torch.full(
+        kwargs["query"].shape, float("nan"), dtype=torch.bfloat16, device="cuda:0"
+    )
+    trtllm_batch_decode_sparse_mla_dsv4(
+        workspace_buffer=workspace, out=out, backend="cake", **kwargs
+    )
+    torch.cuda.synchronize()
+    got = out.reshape(num_tokens, h_q, p.d_v)
+    ref_out, _ = ref.ref_sparse_attn_decode(
+        p, dataclasses.replace(tc, extra_kv_scope=None)
+    )
+    expected = ref_out[tc.valid_q].reshape(num_tokens, h_q, p.d_v)
+    assert bool((expected == 0).all())
+    assert not torch.isnan(got).any()
+    assert not torch.isinf(got).any()
+    _assert_close(got, expected, dtype)
 
 
 @pytest.mark.parametrize(
