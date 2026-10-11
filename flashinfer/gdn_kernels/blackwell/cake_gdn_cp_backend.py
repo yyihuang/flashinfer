@@ -287,8 +287,10 @@ def _arch_for(device: torch.device) -> GDNCPArch:
         return "sm_100a"
     if capability == (10, 3):
         return "sm_103a"
+    if capability == (10, 7):
+        return "sm_107a"
     raise ValueError(
-        "GDN CP-prefill requires exact compute capability 10.0 or 10.3, "
+        "GDN CP-prefill requires exact compute capability 10.0, 10.3 or 10.7, "
         f"got {capability[0]}.{capability[1]}"
     )
 
@@ -528,9 +530,11 @@ def _build_plan(
         max_cp_chunks_per_seq=_ceil_div(max_seqlen, cp_chunk_len),
         t_kernel=t_kernel,
         mn_kernel=f"mn_precompute{dtype_suffix}",
+        # sm_107a runs the fp32 SIMT fixup only (no TF32 UTCMMA recurrence);
+        # sm_100a/sm_103a keep the parallelism-based choice unchanged.
         fixup_kernel=(
             "state_fixup_simt_row4"
-            if total_tokens <= (num_seqs - 1) * max_seqlen
+            if arch == "sm_107a" or total_tokens <= (num_seqs - 1) * max_seqlen
             else _choose_fixup_kind(num_seqs * num_sab_heads, num_sms)
         ),
         prefill_kernel=prefill_kernel,

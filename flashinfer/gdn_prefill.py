@@ -589,6 +589,15 @@ def _format_dtype_list(dtypes: tuple[torch.dtype, ...]) -> str:
     return ", ".join(str(dtype).removeprefix("torch.") for dtype in dtypes)
 
 
+_CAKE_GDN_CP_CAPABILITIES = ((10, 0), (10, 3), (10, 7))
+# Explicit SM107 band for the automatic (``use_cp="auto"``) Cake GDN CP route.
+# 52 is the largest ``num_seqs * num_sab_heads`` for which ``should_use_cp_host``
+# holds on the 212-SM part (``4 * work < 212``); 4096 is the shortest
+# ``max_seqlen`` admitted to the band.
+_CAKE_GDN_CP_SM107A_MAX_PARALLEL_STATES = 52
+_CAKE_GDN_CP_SM107A_MIN_MAX_SEQLEN = 4096
+
+
 def _use_gdn_cp_sm100(
     *,
     initial_state: Optional[torch.Tensor],
@@ -1230,13 +1239,9 @@ def chunk_gated_delta_rule(
         _device_name,
         device_capability=_device_capability,
     )
-    will_use_cp = use_cp is True or (
-        backend != "cake_gdn" and use_cp == "auto" and cp_heuristic_matches
-    )
-    use_gdn_cp_backend = bool(
+    cake_cp_domain_matches = bool(
         backend == "cake_gdn"
-        and will_use_cp
-        and _device_capability in ((10, 0), (10, 3))
+        and _device_capability in _CAKE_GDN_CP_CAPABILITIES
         and _use_gdn_cp_sm100(
             initial_state=initial_state,
             output_state=output_state,
@@ -1247,9 +1252,27 @@ def chunk_gated_delta_rule(
         )
         and _is_gdn_cp_sm100_supported_shape(q, k, v)
     )
+    # SM107 only: ``use_cp="auto"`` enters Cake CP inside an explicit shape
+    # band (fp32 SIMT fixup route).  SM100/SM103 still reach Cake CP only
+    # with ``use_cp=True``.
+    cake_cp_sm107a_band = (
+        cake_cp_domain_matches
+        and use_cp == "auto"
+        and _device_capability == (10, 7)
+        and num_seqs * num_sab_heads <= _CAKE_GDN_CP_SM107A_MAX_PARALLEL_STATES
+        and cp_max_seqlen >= _CAKE_GDN_CP_SM107A_MIN_MAX_SEQLEN
+    )
+    will_use_cp = (
+        use_cp is True
+        or (backend != "cake_gdn" and use_cp == "auto" and cp_heuristic_matches)
+        or cake_cp_sm107a_band
+    )
+    use_gdn_cp_backend = bool(
+        backend == "cake_gdn" and will_use_cp and cake_cp_domain_matches
+    )
     if backend == "cake_gdn" and will_use_cp and not use_gdn_cp_backend:
         raise ValueError(
-            "Cake GDN CP requires SM100/SM103 and supported head, state and "
+            "Cake GDN CP requires SM100/SM103/SM107 and supported head, state and "
             "checkpoint configurations"
         )
     if state_indices is not None:
