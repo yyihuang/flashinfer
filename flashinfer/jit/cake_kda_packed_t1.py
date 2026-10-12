@@ -35,6 +35,7 @@ CakeKDAPackedT1Variant = Literal[
     "cpasync_tile128_ilp4",
     "cpasync_tile64_register_pipeline",
     "cpasync_tile64_register_pipeline_early_publish",
+    "cpasync_tile64_register_pipeline_early_publish_s3",
     "cpasync_tile128_packed_state_v_private_prefetch",
     "cpasync_tile128_v_private_prefetch",
     "cpasync_tile128_paired_row_pipeline",
@@ -51,6 +52,7 @@ CAKE_KDA_PACKED_T1_VARIANTS: tuple[CakeKDAPackedT1Variant, ...] = (
     "cpasync_tile128_ilp4",
     "cpasync_tile64_register_pipeline",
     "cpasync_tile64_register_pipeline_early_publish",
+    "cpasync_tile64_register_pipeline_early_publish_s3",
     "cpasync_tile128_packed_state_v_private_prefetch",
     "cpasync_tile128_v_private_prefetch",
     "cpasync_tile128_paired_row_pipeline",
@@ -143,6 +145,18 @@ CAKE_KDA_PACKED_T1_VARIANT_METADATA: dict[
         smem_bytes=16384,
         requires_aux_vec4=True,
     ),
+    # Three-stage ring of the same early-publish schedule (two prologue chunks,
+    # 12 KiB of smem); bitwise identical to the four-stage body.  Qualified for
+    # compute capability 10.7 only, where it serves the upper part of the
+    # B19-B63 band (CAKE-1272).
+    "cpasync_tile64_register_pipeline_early_publish_s3": CakeKDAPackedT1VariantMetadata(
+        body="cake_kda_packed_t1_cpasync_tile64_register_pipeline_early_publish_s3.cu",
+        symbol="kernel_flashinfer_packed_kda_t1_cpasync_tile64_register_pipeline_early_publish_s3",
+        value_tiles=2,
+        threads=128,
+        smem_bytes=12288,
+        requires_aux_vec4=True,
+    ),
     "cpasync_tile128_packed_state_v_private_prefetch": CakeKDAPackedT1VariantMetadata(
         body="cake_kda_packed_t1_cpasync_tile128_packed_state_v_private_prefetch.cu",
         symbol=(
@@ -206,11 +220,17 @@ _CAKE_KDA_PACKED_T1_ALIGNED_BANDS_SM100: tuple[
     (152, "cpasync_tile128_paired_row_pipeline"),
     (None, "cpasync_tile128_register_pipeline"),
 )
+# CAKE-1272 (R20): the band edge between the four-stage and the three-stage
+# early-publish bodies is PROVISIONAL (set from the R19 family-cubin arms:
+# three stages slower at B <= 32, equal at B36, 3.4-3.9 % faster at B48) and is
+# fixed by the R20 native-cubin A/B before this table ships.
+_CAKE_KDA_PACKED_T1_S3_BAND_EDGE = 36
 _CAKE_KDA_PACKED_T1_ALIGNED_BANDS_SM107: tuple[
     tuple[Optional[int], CakeKDAPackedT1Variant], ...
 ] = (
     (18, "register_tile16"),
-    (63, "cpasync_tile64_register_pipeline_early_publish"),
+    (_CAKE_KDA_PACKED_T1_S3_BAND_EDGE, "cpasync_tile64_register_pipeline_early_publish"),
+    (63, "cpasync_tile64_register_pipeline_early_publish_s3"),
     (None, "cpasync_tile128_register_pipeline"),
 )
 CAKE_KDA_PACKED_T1_ALIGNED_BANDS: dict[
