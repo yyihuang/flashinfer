@@ -42,7 +42,6 @@ _MIXED_WIDTH = 3 * _HEADS * _HEAD_DIM
 _SM107_NATIVE_VARIANTS: frozenset[str] = frozenset(
     {
         "cpasync_tile64_register_pipeline_early_publish",
-        "cpasync_tile64_register_pipeline_early_publish_s3",
         "cpasync_tile64_register_pipeline_early_publish_bulk1",
     }
 )

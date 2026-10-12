@@ -702,8 +702,6 @@ def test_kernel_facade_selects_optimized_variant_and_caller_stream_cpu(monkeypat
     ("capability", "variant", "expected"),
     [
         ((10, 7), "cpasync_tile64_register_pipeline_early_publish", "sm107a"),
-        ((10, 7), "cpasync_tile64_register_pipeline_early_publish_s3", "sm107a"),
-        ((10, 3), "cpasync_tile64_register_pipeline_early_publish_s3", "sm100f"),
         ((10, 7), "cpasync_tile64_register_pipeline_early_publish_bulk1", "sm107a"),
         ((10, 3), "cpasync_tile64_register_pipeline_early_publish_bulk1", "sm100f"),
         ((10, 7), "register_tile16", "sm100f"),
