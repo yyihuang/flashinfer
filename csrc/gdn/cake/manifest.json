@@ -8666,6 +8666,84 @@
       },
       "threads": 128,
       "tma_abi": "pointer"
+    },
+    {
+      "architectures": [
+        "sm_107a"
+      ],
+      "compile_options": [
+        "--use_fast_math"
+      ],
+      "cuda_symbol": "kernel_cake_gdn_7e82d148307d65d2b341",
+      "defines": {
+        "H": "16",
+        "HV": "32",
+        "SCALE": "0.08838834764831845"
+      },
+      "domain": "decode",
+      "dynamic_smem_bytes": 18304,
+      "host_binding": {
+        "entry": "run_decode_gdn_decode_pretranspose_splitv8_tilev32_bulk_0a432ee086a8",
+        "module_ident": "cake_gdn_7e82d148307d65d2b341_fc1d275105",
+        "path": "host/cake_gdn_7e82d148307d65d2b341_0a432ee086a8.cc"
+      },
+      "name": "decode_gdn_decode_pretranspose_splitv8_tilev32_bulk_0a432ee086a8",
+      "outputs": [
+        {
+          "architectures": [
+            "sm_107a"
+          ],
+          "path": "cuda/cake_gdn_7e82d148307d65d2b341_497d2f1a207d.cu"
+        }
+      ],
+      "source_schedule": "flashinfer.cake_gdn.generated.decode:gdn_decode_pretranspose_splitv8_tilev32_bulk",
+      "source_symbol": "cake_gdn_7e82d148307d65d2b341",
+      "specializations": {
+        "H": 16,
+        "HV": 32,
+        "SCALE": 0.08838834764831845
+      },
+      "threads": 128,
+      "tma_abi": "pointer"
+    },
+    {
+      "architectures": [
+        "sm_107a"
+      ],
+      "compile_options": [
+        "--use_fast_math"
+      ],
+      "cuda_symbol": "kernel_cake_gdn_7e82d148307d65d2b341",
+      "defines": {
+        "H": "16",
+        "HV": "32",
+        "SCALE": "1.0"
+      },
+      "domain": "decode",
+      "dynamic_smem_bytes": 18304,
+      "host_binding": {
+        "entry": "run_decode_gdn_decode_pretranspose_splitv8_tilev32_bulk_9128efd6051a",
+        "module_ident": "cake_gdn_7e82d148307d65d2b341_921d2e1942",
+        "path": "host/cake_gdn_7e82d148307d65d2b341_9128efd6051a.cc"
+      },
+      "name": "decode_gdn_decode_pretranspose_splitv8_tilev32_bulk_9128efd6051a",
+      "outputs": [
+        {
+          "architectures": [
+            "sm_107a"
+          ],
+          "path": "cuda/cake_gdn_7e82d148307d65d2b341_497d2f1a207d.cu"
+        }
+      ],
+      "source_schedule": "flashinfer.cake_gdn.generated.decode:gdn_decode_pretranspose_splitv8_tilev32_bulk",
+      "source_symbol": "cake_gdn_7e82d148307d65d2b341",
+      "specializations": {
+        "H": 16,
+        "HV": 32,
+        "SCALE": 1.0
+      },
+      "threads": 128,
+      "tma_abi": "pointer"
     }
   ]
 }

@@ -666,18 +666,23 @@ CAKE_GDN_FP32_MTP_ARCH_BODIES: dict[tuple[str, str], str] = {
 }
 # The fp32-state T=1 pretranspose body (`..._splitv8`, route `indexed_fp32_t1_splitv8`)
 # is routed per architecture by the state-head count B*HV: Rubin (sm_107a) runs the
-# shipped `splitv8` body (TILE_V 16, eight CTAs per state head) below 256 state heads
-# and its `splitv8_tilev32` twin (TILE_V 32, four CTAs per state head; bitwise-identical
-# output, only the row -> CTA mapping changes) from 256 state heads on: 5-8.5 % faster
-# on R200 from 256 through 2048 state heads, 11-17 % slower at 32 and 128.  B200 / B300
-# keep `splitv8` at every count.  Mirrors `FP32_T1_SPLITV8_TILEV32_MIN_STATE_HEADS` /
-# `FP32_T1_SPLITV8_ARCH_BANDS` / `select_fp32_t1_splitv8_route` in
-# loom.examples.weave.gdn_decode_pretranspose (the Cake tree cross-checks these copies).
+# shipped `splitv8` body (TILE_V 16, eight CTAs per state head) below 256 state heads,
+# its `splitv8_tilev32_bulk` twin (TILE_V 32, four CTAs per state head, the state tile
+# fetched by one cp.async.bulk + mbarrier; bitwise-identical output) from 256 through
+# 1023 state heads (7-8 % faster than `splitv8_tilev32` there) and its `splitv8_tilev32`
+# twin (TILE_V 32, four CTAs per state head, cp.async; bitwise-identical output, only the
+# row -> CTA mapping changes) from 1024 state heads on.  B200 / B300 keep `splitv8` at
+# every count.  Mirrors `FP32_T1_SPLITV8_TILEV32_MIN_STATE_HEADS` /
+# `FP32_T1_SPLITV8_BULK_MAX_STATE_HEADS` / `FP32_T1_SPLITV8_ARCH_BANDS` /
+# `select_fp32_t1_splitv8_route` in loom.examples.weave.gdn_decode_pretranspose (the
+# Cake tree cross-checks these copies).
 CAKE_GDN_FP32_T1_SPLITV8_TILEV32_MIN_STATE_HEADS = 256
+CAKE_GDN_FP32_T1_SPLITV8_BULK_MAX_STATE_HEADS = 1023
 # (largest state-head count of the band or None for the open last band, body)
 CAKE_GDN_FP32_T1_SPLITV8_ARCH_BANDS: dict[str, tuple[tuple[int | None, str], ...]] = {
     "sm_107a": (
         (CAKE_GDN_FP32_T1_SPLITV8_TILEV32_MIN_STATE_HEADS - 1, "splitv8"),
+        (CAKE_GDN_FP32_T1_SPLITV8_BULK_MAX_STATE_HEADS, "splitv8_tilev32_bulk"),
         (None, "splitv8_tilev32"),
     ),
 }
@@ -687,11 +692,12 @@ CAKE_GDN_FP32_T1_SPLITV8_ARCH_BANDS: dict[str, tuple[tuple[int | None, str], ...
 CAKE_GDN_FP32_T1_CTAS_PER_STATE: dict[str, int] = {
     "gdn_decode_pretranspose_splitv8": 8,
     "gdn_decode_pretranspose_splitv8_tilev32": 4,
+    "gdn_decode_pretranspose_splitv8_tilev32_bulk": 4,
 }
 
 
 def cake_gdn_fp32_t1_route(batch_size: int, num_v_heads: int, arch: CakeGDNArch) -> str:
-    """Body (``splitv8`` or ``splitv8_tilev32``) of the fp32-state T=1 pretranspose route for ``batch_size * num_v_heads`` state heads on ``arch``."""
+    """Body (``splitv8``, ``splitv8_tilev32_bulk`` or ``splitv8_tilev32``) of the fp32-state T=1 pretranspose route for ``batch_size * num_v_heads`` state heads on ``arch``."""
 
     bands = CAKE_GDN_FP32_T1_SPLITV8_ARCH_BANDS.get(arch)
     if bands is None:
@@ -1029,8 +1035,9 @@ def select_cake_gdn_decode_variant(
         )
     if layout == "pretranspose":
         # The body follows the state-head count per architecture (sm_107a runs the
-        # `splitv8_tilev32` twin from 256 state heads); the route id names a twin and
-        # the host reads the record's CTAs per state head for the grid.
+        # `splitv8_tilev32_bulk` twin from 256 and the `splitv8_tilev32` twin from 1024
+        # state heads); the route id names a twin and the host reads the record's CTAs
+        # per state head for the grid.
         body = cake_gdn_fp32_t1_route(batch_size, num_v_heads, arch)
         schedule_attr = f"gdn_decode_pretranspose_{body}"
         route = "flashinfer.gdn_decode.indexed_fp32_t1_splitv8" + body.removeprefix(
