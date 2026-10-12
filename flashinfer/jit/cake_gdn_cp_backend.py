@@ -1028,6 +1028,36 @@ MODULES: dict[str, dict[str, Any]] = {
         },
         "arches": ["sm_100a", "sm_103a", "sm_107a"],
     },
+    "cake_gdn_cp_ff1b109526253ca46c0c": {
+        "sources": [
+            "gdn/gdn_cp/cake_gdn_cp_ff1b109526253ca46c0c_kernel.cu",
+            "gdn/gdn_cp/cake_gdn_cp_ff1b109526253ca46c0c_binding.cu",
+        ],
+        "kernel": "kernel_cake_gdn_cp_ff1b109526253ca46c0c",
+        "compile_flags": [],
+        "ffi_entry": "run",
+        "arg_plan": [
+            ["tma_buffer", "K"],
+            ["buffer", "beta"],
+            ["buffer", "t"],
+            ["buffer", "cu_seqlens"],
+            ["parameter", "num_k_heads"],
+            ["parameter", "num_sab_heads"],
+            ["parameter", "total_t_blocks"],
+            ["parameter", "num_seqs"],
+            ["grid", "grid_x"],
+            ["grid", "grid_y"],
+            ["grid", "grid_z"],
+        ],
+        "launch": {
+            "block": [128, 1, 1],
+            "cluster": [1, 1, 1],
+            "dynamic_smem_bytes": 24960,
+            "cooperative": False,
+            "use_pdl": False,
+        },
+        "arches": ["sm_107a"],
+    },
 }
 KERNELS: dict[str, Any] = {
     "sm_100a": {
@@ -1100,8 +1130,6 @@ KERNELS: dict[str, Any] = {
         "t_precompute_gb300_hv48_min6": "cake_gdn_cp_6a6a9d040a98ccea86c9",
     },
     "sm_107a": {
-        # fp32 SIMT fixup only: the TF32 UTCMMA fixups are not registered
-        # for sm_107a, so any plan naming them fails in ``program_for``.
         "cp_prefill": "cake_gdn_cp_d5727d042939d5b90479",
         "cp_prefill_bf16": "cake_gdn_cp_6856273b89c0049e09b9",
         "cp_prefill_checkpoint": "cake_gdn_cp_d5727d042939d5b90479",
@@ -1130,9 +1158,9 @@ KERNELS: dict[str, Any] = {
         "state_scatter_fp16_int64": "cake_gdn_cp_4e5f37aac06abc7b42a0",
         "state_scatter_fp32": "cake_gdn_cp_3df53d2d65fb731b7e09",
         "state_scatter_fp32_int64": "cake_gdn_cp_182ccae8c184a6945d27",
-        "t_precompute": "cake_gdn_cp_6a6a9d040a98ccea86c9",
+        "t_precompute": "cake_gdn_cp_ff1b109526253ca46c0c",
         "t_precompute_bf16": "cake_gdn_cp_0d2152b1fca65e744033",
-        "t_precompute_gb300_hv48_min6": "cake_gdn_cp_6a6a9d040a98ccea86c9",
+        "t_precompute_gb300_hv48_min6": "cake_gdn_cp_ff1b109526253ca46c0c",
     },
 }
 
