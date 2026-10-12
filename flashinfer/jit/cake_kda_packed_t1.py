@@ -36,6 +36,7 @@ CakeKDAPackedT1Variant = Literal[
     "cpasync_tile64_register_pipeline",
     "cpasync_tile64_register_pipeline_early_publish",
     "cpasync_tile64_register_pipeline_early_publish_s3",
+    "cpasync_tile64_register_pipeline_early_publish_bulk1",
     "cpasync_tile128_packed_state_v_private_prefetch",
     "cpasync_tile128_v_private_prefetch",
     "cpasync_tile128_paired_row_pipeline",
@@ -54,6 +55,7 @@ CAKE_KDA_PACKED_T1_VARIANTS: tuple[CakeKDAPackedT1Variant, ...] = (
     "cpasync_tile64_register_pipeline_early_publish",
     # cpasync_tile64_register_pipeline_early_publish_s3 joins this table (and the
     # 10.7 band) in the commit that lands its exporter-rendered body (CAKE-1272).
+    "cpasync_tile64_register_pipeline_early_publish_bulk1",
     "cpasync_tile128_packed_state_v_private_prefetch",
     "cpasync_tile128_v_private_prefetch",
     "cpasync_tile128_paired_row_pipeline",
@@ -158,6 +160,21 @@ CAKE_KDA_PACKED_T1_VARIANT_METADATA: dict[
         smem_bytes=12288,
         requires_aux_vec4=True,
     ),
+    # The same early-publish schedule with the 16 KiB state prologue issued as
+    # one cp.async.bulk transaction completed on an mbarrier instead of the
+    # four-stage cp.async ring (17408 B of smem: a 1 KiB control prefix for the
+    # barrier, the 16 KiB state tile, the V staging); bitwise identical to the
+    # four-stage body.  Qualified for compute capability 10.7 only, where it
+    # serves the top of the B19-B63 band (1.8-2.2 % faster at B56 on both
+    # measured seeds, tied or slower at B20-B48).
+    "cpasync_tile64_register_pipeline_early_publish_bulk1": CakeKDAPackedT1VariantMetadata(
+        body="cake_kda_packed_t1_cpasync_tile64_register_pipeline_early_publish_bulk1.cu",
+        symbol="kernel_flashinfer_packed_kda_t1_cpasync_tile64_register_pipeline_early_publish_bulk1",
+        value_tiles=2,
+        threads=128,
+        smem_bytes=17408,
+        requires_aux_vec4=True,
+    ),
     "cpasync_tile128_packed_state_v_private_prefetch": CakeKDAPackedT1VariantMetadata(
         body="cake_kda_packed_t1_cpasync_tile128_packed_state_v_private_prefetch.cu",
         symbol=(
@@ -221,14 +238,19 @@ _CAKE_KDA_PACKED_T1_ALIGNED_BANDS_SM100: tuple[
     (152, "cpasync_tile128_paired_row_pipeline"),
     (None, "cpasync_tile128_register_pipeline"),
 )
-# CAKE-1272 (R20): the three-stage early-publish sibling splits this band only
-# once its body ships; the edge comes from the R20 native-cubin A/B, not from
-# the R19 family-cubin arms.
+# The 10.7 tile-64 band is split at B48: the four-stage cp.async ring body
+# carries B19-B48 and the single-transaction cp.async.bulk sibling carries
+# B49-B63.  The edge is the last measured row where the ring body is not
+# slower (B48; the bulk body is 1.8-2.2 % faster at B56 on both seeds, native
+# cubin, same output bits); B57-B63 follow B56.  The three-stage early-publish
+# sibling stays out of this table (slower than the four-stage ring at every
+# measured row under the native 10.7 compile).
 _CAKE_KDA_PACKED_T1_ALIGNED_BANDS_SM107: tuple[
     tuple[Optional[int], CakeKDAPackedT1Variant], ...
 ] = (
     (18, "register_tile16"),
-    (63, "cpasync_tile64_register_pipeline_early_publish"),
+    (48, "cpasync_tile64_register_pipeline_early_publish"),
+    (63, "cpasync_tile64_register_pipeline_early_publish_bulk1"),
     (None, "cpasync_tile128_register_pipeline"),
 )
 CAKE_KDA_PACKED_T1_ALIGNED_BANDS: dict[
