@@ -598,6 +598,44 @@ _CAKE_GDN_CP_SM107A_MAX_PARALLEL_STATES = 52
 _CAKE_GDN_CP_SM107A_MIN_MAX_SEQLEN = 4096
 
 
+def _cake_gdn_cp_sm107a_plan_pays(
+    *,
+    num_seqs: int,
+    num_sab_heads: int,
+    max_seqlen: int,
+    total_tokens: int,
+    num_sms: int,
+) -> bool:
+    """Measured band of the automatic SM107 Cake CP route.
+
+    Cake CP beats the sequential Cake kernel only with enough chunks per
+    sequence (at least 6 of at least 512 tokens) or with long chunks (at least
+    4096 tokens); the plan is the backend's own physical chunk plan.
+    """
+
+    from .gdn_kernels.blackwell import cake_gdn_cp_backend as _cp
+
+    if total_tokens <= 0 or max_seqlen <= 0:
+        return False
+    source = _cp._choose_chunk_len(
+        total_tokens=total_tokens,
+        num_seqs=num_seqs,
+        max_seqlen=max_seqlen,
+        num_heads=num_sab_heads,
+        num_sms=num_sms,
+    )
+    physical = _cp._default_physical_chunk_len(
+        source_chunk_len=source,
+        total_tokens=total_tokens,
+        num_seqs=num_seqs,
+        max_seqlen=max_seqlen,
+        num_heads=num_sab_heads,
+        num_sms=num_sms,
+    )
+    chunks = -(-max_seqlen // physical)
+    return physical >= 4096 or (chunks >= 6 and physical >= 512)
+
+
 def _use_gdn_cp_sm100(
     *,
     initial_state: Optional[torch.Tensor],
@@ -1261,6 +1299,13 @@ def chunk_gated_delta_rule(
         and _device_capability == (10, 7)
         and num_seqs * num_sab_heads <= _CAKE_GDN_CP_SM107A_MAX_PARALLEL_STATES
         and cp_max_seqlen >= _CAKE_GDN_CP_SM107A_MIN_MAX_SEQLEN
+        and _cake_gdn_cp_sm107a_plan_pays(
+            num_seqs=num_seqs,
+            num_sab_heads=num_sab_heads,
+            max_seqlen=cp_max_seqlen,
+            total_tokens=total_seq_len,
+            num_sms=_sm_count,
+        )
     )
     will_use_cp = (
         use_cp is True
