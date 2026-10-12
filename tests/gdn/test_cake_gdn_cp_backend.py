@@ -1443,7 +1443,8 @@ def test_explicit_cake_cp_rejects_unsupported_domain_without_fallback(
     unsupported: str,
 ) -> None:
     calls: list[str] = []
-    capability = (10, 7) if unsupported == "architecture" else (10, 3)
+    # Compute capability 10.7 joined the Cake CP domain; 12.0 stays outside it.
+    capability = (12, 0) if unsupported == "architecture" else (10, 3)
     monkeypatch.setattr(gdn_prefill, "get_device_sm_count", lambda _device: 152)
     monkeypatch.setattr(
         gdn_prefill, "get_compute_capability", lambda _device: capability
