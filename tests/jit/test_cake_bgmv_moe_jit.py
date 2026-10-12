@@ -101,7 +101,7 @@ def test_jit_spec_binds_generated_source_per_arch(
 
     spec = cake_bgmv_moe.gen_cake_bgmv_moe_module(hidden_size, dtype, arch)
     uri = cake_bgmv_moe.get_cake_bgmv_moe_uri(hidden_size, dtype, arch)
-    metadata = cake_bgmv_moe._metadata(hidden_size, dtype)
+    metadata = cake_bgmv_moe._metadata(hidden_size, dtype, arch)
 
     assert spec.name == uri
     assert uri.endswith(f"_{arch}")
@@ -298,7 +298,7 @@ def test_generic_jit_spec_binds_generated_source_per_arch(
 
     spec = cake_bgmv_moe.gen_cake_bgmv_moe_generic_module(rank, dtype, arch)
     uri = cake_bgmv_moe.get_cake_bgmv_moe_generic_uri(rank, dtype, arch)
-    metadata = cake_bgmv_moe._generic_metadata(rank, dtype)
+    metadata = cake_bgmv_moe._generic_metadata(rank, dtype, arch)
 
     assert spec.name == uri
     assert (
@@ -648,3 +648,73 @@ def test_order_remap_selector_and_workspace():
     assert not select(512, 256, 8, 128, 7168, 64, "sm90a")  # too few routes
     assert not select(8192, 4096, 8, 128, 7168, 64, "sm90a")  # beyond one CTA
     assert not select(2048, 1024, 64, 128, 7168, 64, "sm90a")  # 8192 bins
+
+
+def test_sm107a_bodies_are_selected_for_the_hoisted_shapes_only():
+    """The compute-capability-10.7 records exist for bf16 hidden 2688/3072 and generic bf16 rank 32."""
+
+    csrc_dir = cake_bgmv_moe._get_csrc_dir()
+    assert (
+        cake_bgmv_moe._metadata(3072, "bfloat16", "sm107a").body
+        == "cake_bgmv_moe_bf16_h3072_sm107a.cu"
+    )
+    assert (
+        cake_bgmv_moe._metadata(2688, "bfloat16", "sm107a").body
+        == "cake_bgmv_moe_bf16_h2688_sm107a.cu"
+    )
+    assert (
+        cake_bgmv_moe._metadata(3072, "float16", "sm107a").body
+        == "cake_bgmv_moe_f16_h3072.cu"
+    )
+    for arch in ("sm90a", "sm100a", "sm103a", None):
+        assert (
+            cake_bgmv_moe._metadata(3072, "bfloat16", arch).body
+            == "cake_bgmv_moe_bf16_h3072.cu"
+        )
+        assert (
+            cake_bgmv_moe._generic_metadata(32, "bfloat16", arch).body
+            == "cake_bgmv_moe_generic_bf16_r32.cu"
+        )
+    assert (
+        cake_bgmv_moe._generic_metadata(32, "bfloat16", "sm107a").body
+        == "cake_bgmv_moe_generic_bf16_r32_sm107a.cu"
+    )
+    assert (
+        cake_bgmv_moe._generic_metadata(16, "bfloat16", "sm107a").body
+        == "cake_bgmv_moe_generic_bf16_r16.cu"
+    )
+    assert (
+        cake_bgmv_moe._generic_metadata(32, "float16", "sm107a").body
+        == "cake_bgmv_moe_generic_f16_r32.cu"
+    )
+    pairs = [
+        (
+            cake_bgmv_moe._metadata(hidden, "bfloat16"),
+            cake_bgmv_moe._metadata(hidden, "bfloat16", "sm107a"),
+        )
+        for hidden in (2688, 3072)
+    ] + [
+        (
+            cake_bgmv_moe._generic_metadata(32, "bfloat16"),
+            cake_bgmv_moe._generic_metadata(32, "bfloat16", "sm107a"),
+        )
+    ]
+
+    def smem_lines(text):
+        return sorted(
+            line
+            for line in text.splitlines()
+            if line.startswith("#define CAKE_BGMV_MOE_") and "SMEM" in line
+        )
+
+    for shared, hoisted in pairs:
+        # Same kernel symbols and launch constants; only the expand prologue differs.
+        assert shared[1:] == hoisted[1:]
+        shared_body = (csrc_dir / shared.body).read_text()
+        hoisted_body = (csrc_dir / hoisted.body).read_text()
+        for symbol in hoisted[1:]:
+            assert symbol in hoisted_body
+        # The generic records carry the target after the rank note on the same comment line.
+        assert "Target: sm_107a only" in hoisted_body
+        assert "Target: sm_90a, sm_100a, sm_103a" in shared_body
+        assert smem_lines(shared_body) == smem_lines(hoisted_body)

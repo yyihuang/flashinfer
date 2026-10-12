@@ -460,11 +460,26 @@ def _check_hidden_size(hidden_size: int) -> None:
         )
 
 
-def _metadata(hidden_size: int, dtype: CakeBGMVMoEDType) -> CakeBGMVMoEMetadata:
+# Compute-capability-10.7-only records: the same kernels with the index-hoist prologue of the
+# token-owned expand kernels (bitwise identical outputs), rendered for the measured shapes.  Every
+# other (arch, dtype, shape) compiles the shared body.
+_SM107A_BODY_ARCH: CakeBGMVMoEArch = "sm107a"
+_SM107A_SPECIALIZED_BODIES = frozenset({("bfloat16", 2688), ("bfloat16", 3072)})
+_SM107A_GENERIC_BODIES = frozenset({("bfloat16", 32)})
+
+
+def _body_suffix(arch: Optional[CakeBGMVMoEArch], has_record: bool) -> str:
+    return "_sm107a" if arch == _SM107A_BODY_ARCH and has_record else ""
+
+
+def _metadata(
+    hidden_size: int, dtype: CakeBGMVMoEDType, arch: Optional[CakeBGMVMoEArch] = None
+) -> CakeBGMVMoEMetadata:
     _check_hidden_size(hidden_size)
     tag = _dtype_tag(dtype)
+    suffix = _body_suffix(arch, (dtype, hidden_size) in _SM107A_SPECIALIZED_BODIES)
     return CakeBGMVMoEMetadata(
-        body=f"cake_bgmv_moe_{tag}_h{hidden_size}.cu",
+        body=f"cake_bgmv_moe_{tag}_h{hidden_size}{suffix}.cu",
         shrink_decode_symbol=(
             f"kernel_flashinfer_bgmv_moe_shrink_{tag}_h{hidden_size}_r32_p4_s3"
         ),
@@ -592,11 +607,14 @@ def cake_bgmv_moe_variant(
     return None
 
 
-def _generic_metadata(rank: int, dtype: CakeBGMVMoEDType) -> CakeBGMVMoEGenericMetadata:
+def _generic_metadata(
+    rank: int, dtype: CakeBGMVMoEDType, arch: Optional[CakeBGMVMoEArch] = None
+) -> CakeBGMVMoEGenericMetadata:
     _check_generic_rank(rank)
     tag = _dtype_tag(dtype)
+    suffix = _body_suffix(arch, (dtype, rank) in _SM107A_GENERIC_BODIES)
     return CakeBGMVMoEGenericMetadata(
-        body=f"cake_bgmv_moe_generic_{tag}_r{rank}.cu",
+        body=f"cake_bgmv_moe_generic_{tag}_r{rank}{suffix}.cu",
         shrink_decode_symbol=(
             f"kernel_flashinfer_bgmv_moe_shrink_generic_{tag}_r{rank}_p4_s3"
         ),
@@ -883,7 +901,7 @@ def gen_cake_bgmv_moe_generic_module(
     dtype: CakeBGMVMoEDType,
     arch: CakeBGMVMoEArch = "sm100a",
 ) -> JitSpec:
-    metadata = _generic_metadata(rank, dtype)
+    metadata = _generic_metadata(rank, dtype, arch)
     target = _check_arch(arch)
     csrc_dir = _get_csrc_dir()
     include_dir = _get_include_dir()
@@ -942,7 +960,7 @@ def gen_cake_bgmv_moe_module(
     dtype: CakeBGMVMoEDType,
     arch: CakeBGMVMoEArch = "sm100a",
 ) -> JitSpec:
-    metadata = _metadata(hidden_size, dtype)
+    metadata = _metadata(hidden_size, dtype, arch)
     target = _check_arch(arch)
     csrc_dir = _get_csrc_dir()
     include_dir = _get_include_dir()
