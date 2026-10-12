@@ -730,6 +730,8 @@ def test_kernel_facade_native_sm107_target_is_variant_keyed_cpu(
     ("batch", "expected_variant", "expected_target"),
     [
         (16, "register_tile16", "sm100f"),
+        (17, "register_tile16", "sm100f"),
+        (18, "cpasync_tile64_register_pipeline_early_publish", "sm107a"),
         (19, "cpasync_tile64_register_pipeline_early_publish", "sm107a"),
         (32, "cpasync_tile64_register_pipeline_early_publish", "sm107a"),
         (48, "cpasync_tile64_register_pipeline_early_publish", "sm107a"),
