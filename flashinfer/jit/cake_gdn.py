@@ -728,13 +728,19 @@ def cake_gdn_fp32_t1_ctas_per_state(variant_name: str) -> int:
 # `select_nontranspose_fp32_t1_body` in loom.examples.weave.gdn_decode_pretranspose (the
 # Cake tree cross-checks these copies).
 CAKE_GDN_NONTRANSPOSE_FP32_T1_SMALL_BATCH_THRESHOLD = 32
+# The body rule's finer band: `mid` = THRESHOLD <= B < MID_BATCH_LIMIT, the lower part of
+# the public `large` band (mirrors `NONTRANSPOSE_MID_BATCH_LIMIT`).
+CAKE_GDN_NONTRANSPOSE_FP32_T1_MID_BATCH_LIMIT = 128
 CAKE_GDN_NONTRANSPOSE_FP32_T1_BASE_SCHEDULES: dict[str, str] = {
     "small": "gdn_decode_nontranspose_fp32_t1_small",
     "large": "gdn_decode_nontranspose_fp32_t1",
 }
-# ((architecture, band) -> schedule of the twin the rule routes there)
+# ((architecture, rule band) -> schedule of the twin the rule routes there; the rule
+# band is `small` / `mid` / `large`, the route id and the base schedule follow the public
+# band `small` / `large`)
 CAKE_GDN_NONTRANSPOSE_FP32_T1_ARCH_BODIES: dict[tuple[str, str], str] = {
     ("sm_107a", "small"): "gdn_decode_nontranspose_fp32_t1_mid4",
+    ("sm_107a", "mid"): "gdn_decode_nontranspose_fp32_t1_mid4",
 }
 # CTAs per state head each nontranspose fp32 T=1 body launches (the host grid is B * HV
 # times this), keyed by the record's schedule.
@@ -750,13 +756,21 @@ def cake_gdn_nontranspose_fp32_t1_route(
 ) -> tuple[str, str]:
     """``(schedule, route id)`` of the fp32-state T=1 K-major decode for ``batch_size`` rows on ``arch``."""
 
+    rows = int(batch_size)
     band = (
         "small"
-        if int(batch_size) < CAKE_GDN_NONTRANSPOSE_FP32_T1_SMALL_BATCH_THRESHOLD
+        if rows < CAKE_GDN_NONTRANSPOSE_FP32_T1_SMALL_BATCH_THRESHOLD
+        else "large"
+    )
+    rule_band = (
+        "small"
+        if rows < CAKE_GDN_NONTRANSPOSE_FP32_T1_SMALL_BATCH_THRESHOLD
+        else "mid"
+        if rows < CAKE_GDN_NONTRANSPOSE_FP32_T1_MID_BATCH_LIMIT
         else "large"
     )
     base = CAKE_GDN_NONTRANSPOSE_FP32_T1_BASE_SCHEDULES[band]
-    schedule = CAKE_GDN_NONTRANSPOSE_FP32_T1_ARCH_BODIES.get((arch, band), base)
+    schedule = CAKE_GDN_NONTRANSPOSE_FP32_T1_ARCH_BODIES.get((arch, rule_band), base)
     route = f"flashinfer.gdn_decode.direct_fp32_t1_nontranspose_{band}"
     if schedule != base:
         route += "_" + schedule.removeprefix("gdn_decode_nontranspose_fp32_t1_")
