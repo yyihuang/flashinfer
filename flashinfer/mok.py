@@ -17,6 +17,7 @@ IMBALANCE_COMM_SMS = {
     (10, 0): {"bf16": (24, 28)},
 }
 IMBALANCE_THRESHOLD = 1.5
+IMBALANCE_SOURCE_LIMIT = 1.5
 
 
 def resolve_imbalance_comm_sms(precision, device=None):
@@ -93,6 +94,7 @@ def create_mok_bf16_workspace(
     precision="bf16",
     imbalance_comm_sms="auto",
     imbalance_threshold=IMBALANCE_THRESHOLD,
+    imbalance_source_limit=IMBALANCE_SOURCE_LIMIT,
 ):
     """Collectively create a caller-owned ``(config, workspace)`` pair.
 
@@ -113,7 +115,11 @@ def create_mok_bf16_workspace(
     generation for ``precision`` (:func:`resolve_imbalance_comm_sms`; B200 BF16:
     24 / 28, no row elsewhere, so the fixed split stays in force there), ``None``
     keeps the fixed split and a pair sets it. ``precision`` only selects that row. Balanced steps
-    never switch. ``CAKE_MOK_COMM_SPLIT_LOG=1`` prints each split change.
+    never switch. The switch also requires balanced source rows: the largest
+    per-source-rank count of gathered IDs must be at most
+    ``imbalance_source_limit`` (1.5) times the mean (``None`` drops the condition);
+    with ragged source rows the fixed split is faster.
+    ``CAKE_MOK_COMM_SPLIT_LOG=1`` prints each split change.
     """
     from .experimental.cake_mok_bf16.workspace import MoKConfig
     from .experimental.cake_mok_bf16.backend import create_source_workspace
@@ -139,6 +145,7 @@ def create_mok_bf16_workspace(
         bwd_num_comm_sms=bwd_num_comm_sms,
         imbalance_comm_sms=imbalance_comm_sms,
         imbalance_threshold=imbalance_threshold,
+        imbalance_source_limit=imbalance_source_limit,
         minibatch_size=minibatch_size,
         macrobatch_size=macrobatch_size,
         schedule_capacity_multiplier=schedule_capacity_multiplier,

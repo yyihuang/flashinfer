@@ -28,9 +28,14 @@ class MoKConfig:
     # recompute launch follows the forward count. The load is observed without
     # a host synchronization (pinned copy behind a CUDA event) and is identical
     # on every rank. ``None`` keeps the fixed split; see
-    # ``MoKFunctional._comm_split``.
+    # ``MoKFunctional._comm_split``. The switch also requires balanced source
+    # rows: the largest per-source-rank count of gathered IDs must be at most
+    # ``imbalance_source_limit`` times the mean (``None`` drops this condition);
+    # with ragged source rows the heaviest source rank's communication is the
+    # critical path and the fixed split is faster.
     imbalance_comm_sms: tuple[int, int] | None = None
     imbalance_threshold: float = 1.5
+    imbalance_source_limit: float | None = 1.5
     minibatch_size: int = 4096
     macrobatch_size: int = 131072
     schedule_capacity_multiplier: float = 0.5

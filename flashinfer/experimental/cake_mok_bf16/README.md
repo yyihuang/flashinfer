@@ -164,8 +164,12 @@ to recreate the workspace.
   copies the counts into pinned host memory behind a CUDA event (no host
   synchronization; the gathered IDs are identical on every rank; skipped during
   graph capture). While the hottest rank's load is at least `imbalance_threshold`
-  (1.5) x the mean load, the later launches use the (forward, backward) imbalance
-  split; balanced steps are unchanged. Measured row (`IMBALANCE_COMM_SMS`): B200
+  (1.5) x the mean load and the source rows are balanced (largest per-source-rank
+  count of gathered IDs at most `imbalance_source_limit` (1.5) x the mean; `None`
+  drops the condition), the later launches use the (forward, backward) imbalance
+  split; balanced steps are unchanged, and so are ragged-source steps, where the
+  heaviest source rank's communication is the critical path (B200 EP8 BF16
+  ragged + imbalanced rows: fixed split faster by 1-2 %). Measured row (`IMBALANCE_COMM_SMS`): B200
   BF16 24 / 28, from an EP8 complete training step with one rank's experts at
   twice the routing probability, two rounds against the reference (fixed 20 / 24
   -0.89 % / +0.20 %, fixed 24 / 28 -1.33 % / -1.06 %); no row elsewhere.

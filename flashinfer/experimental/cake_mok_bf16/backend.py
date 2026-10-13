@@ -82,13 +82,33 @@ def count_routed_load(routes, ep_size, local_experts):
     return (owner.unsqueeze(0) == ranks.unsqueeze(1)).sum(dim=1)
 
 
-def select_comm_split(loads, base, hot, threshold):
-    """Communication-SM split for an observed per-rank routed-row ``loads`` sequence.
+def count_source_load(routes, ep_size):
+    """Valid gathered ids per source rank.
 
-    Returns ``hot`` when it is set and the largest load is at least ``threshold``
-    times the mean load (``sum(loads) / len(loads)``), else ``base``. Host-only;
-    ``loads`` may be a list, a tuple or a CPU tensor. No observation yet or a
-    zero total load (every rank empty) keeps ``base``.
+    ``routes`` is the all-gathered expert-id buffer laid out as ``ep_size`` equal
+    slabs, one per source rank, with ``-1`` padding beyond each rank's rows.
+    Returns an int64 tensor of ``ep_size`` counts (rows x topk of every source
+    rank) on the device of ``routes``: one reduction, no atomics, no host
+    synchronization.
+    """
+    return (routes.reshape(ep_size, -1) >= 0).sum(dim=1)
+
+
+def select_comm_split(
+    loads, base, hot, threshold, source_loads=(), source_limit=None
+):
+    """Communication-SM split for an observed per-rank ``loads`` sequence.
+
+    Returns ``hot`` when it is set, the largest routed-row load is at least
+    ``threshold`` times the mean load (``sum(loads) / len(loads)``) and, when
+    ``source_limit`` is set, the largest per-source-rank load in
+    ``source_loads`` is at most ``source_limit`` times its mean; else ``base``.
+    The imbalance split moves SMs from communication to expert compute, which
+    pays off while the per-rank communication is balanced; with ragged source
+    rows the heaviest source rank's dispatch and combine are the critical path
+    and the fixed split is faster. Host-only; the sequences may be lists,
+    tuples or CPU tensors. No observation yet or a zero total (every rank
+    empty) keeps ``base``.
     """
     if hot is None:
         return tuple(base)
@@ -96,9 +116,14 @@ def select_comm_split(loads, base, hot, threshold):
     total = sum(values)
     if total <= 0:
         return tuple(base)
-    if max(values) * len(values) >= threshold * total:
-        return tuple(hot)
-    return tuple(base)
+    if max(values) * len(values) < threshold * total:
+        return tuple(base)
+    sources = [int(value) for value in source_loads]
+    if source_limit is not None and sources:
+        source_total = sum(sources)
+        if source_total <= 0 or max(sources) * len(sources) > source_limit * source_total:
+            return tuple(base)
+    return tuple(hot)
 
 
 class MoKFunctional:
@@ -312,6 +337,15 @@ class MoKFunctional:
                 raise ValueError(
                     "imbalance_threshold must be a finite number above 1.0"
                 )
+            limit = config.imbalance_source_limit
+            if limit is not None and (
+                type(limit) not in (int, float)
+                or not math.isfinite(limit)
+                or limit < 1.0
+            ):
+                raise ValueError(
+                    "imbalance_source_limit must be None or a finite number of at least 1.0"
+                )
         if (
             type(config.minibatch_size) is not int
             or config.minibatch_size <= 0
@@ -388,13 +422,16 @@ class MoKFunctional:
         if entry is None and create:
             entry = {
                 "host": [
-                    torch.empty(workspace.ep_size, dtype=torch.int64, pin_memory=True)
+                    torch.empty(
+                        2, workspace.ep_size, dtype=torch.int64, pin_memory=True
+                    )
                     for _ in range(2)
                 ],
                 "events": [torch.cuda.Event() for _ in range(2)],
                 "slot": 0,
                 "pending": None,
                 "loads": (),
+                "sources": (),
                 "split": None,
             }
             self._load_state[id(workspace)] = entry
@@ -404,8 +441,9 @@ class MoKFunctional:
         """Queue an asynchronous observation of the per-rank routed-row load.
 
         Every rank counts the gathered expert IDs per owning rank
-        (``count_routed_load``: padding and invalid IDs excluded) on device and
-        copies the counts into pinned host memory behind a CUDA event: no host
+        (``count_routed_load``: padding and invalid IDs excluded) and the valid
+        IDs per source rank (``count_source_load``) on device and copies both
+        count vectors into pinned host memory behind a CUDA event: no host
         synchronization. ``_comm_split`` reads the latest completed observation,
         so a split change takes effect from the first later launch whose event
         has completed. Skipped during CUDA Graph capture: captured launches keep
@@ -417,13 +455,12 @@ class MoKFunctional:
         ):
             return
         entry = self._load_entry(workspace, create=True)
-        loads = count_routed_load(
-            workspace.all_gather_top_experts_buffer,
-            workspace.ep_size,
-            self.local_experts,
-        )
+        routes = workspace.all_gather_top_experts_buffer
+        loads = count_routed_load(routes, workspace.ep_size, self.local_experts)
+        sources = count_source_load(routes, workspace.ep_size)
         slot = entry["slot"] ^ 1
-        entry["host"][slot].copy_(loads, non_blocking=True)
+        entry["host"][slot][0].copy_(loads, non_blocking=True)
+        entry["host"][slot][1].copy_(sources, non_blocking=True)
         entry["events"][slot].record()
         entry["slot"] = entry["pending"] = slot
 
@@ -438,20 +475,30 @@ class MoKFunctional:
             return base
         pending = entry["pending"]
         if pending is not None and not capturing and entry["events"][pending].query():
-            entry["loads"] = entry["host"][pending].tolist()
+            entry["loads"], entry["sources"] = (
+                tuple(row) for row in entry["host"][pending].tolist()
+            )
             entry["pending"] = None
         split = select_comm_split(
-            entry["loads"], base, config.imbalance_comm_sms, config.imbalance_threshold
+            entry["loads"],
+            base,
+            config.imbalance_comm_sms,
+            config.imbalance_threshold,
+            entry["sources"],
+            config.imbalance_source_limit,
         )
         if split != entry["split"]:
             entry["split"] = split
             if os.environ.get("CAKE_MOK_COMM_SPLIT_LOG", "0") not in ("", "0"):
-                loads = entry["loads"]
-                total = sum(loads)
-                ratio = f"{max(loads) * len(loads) / total:.3f}" if total else "n/a"
+
+                def ratio(values):
+                    total = sum(values)
+                    return f"{max(values) * len(values) / total:.3f}" if total else "n/a"
+
                 print(
                     f"[cake_mok_bf16 rank {workspace.ep_rank}] communication split -> "
-                    f"{split} (max/mean routed load {ratio})",
+                    f"{split} (max/mean routed load {ratio(entry['loads'])}, "
+                    f"max/mean source load {ratio(entry['sources'])})",
                     file=sys.stderr,
                     flush=True,
                 )

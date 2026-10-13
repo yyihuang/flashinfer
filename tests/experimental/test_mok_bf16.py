@@ -448,6 +448,21 @@ def test_count_routed_load_matches_a_reference_count():
     assert count_routed_load(empty, ep_size, local_experts).tolist() == [0] * ep_size
 
 
+def test_count_source_load_counts_valid_ids_per_source_slab():
+    """Host-only: the per-source-rank load is the number of valid ids in each
+    rank's slab of the gathered buffer (padding -1 excluded)."""
+    from flashinfer.experimental.cake_mok_bf16.backend import count_source_load
+
+    routes = torch.tensor(
+        [[[0, 5], [11, -1]], [[3, 3], [-1, -1]], [[-1, -1], [-1, -1]], [[8, 9], [10, 2]]],
+        dtype=torch.int32,
+    )
+    sources = count_source_load(routes, 4)
+    assert sources.dtype == torch.int64
+    assert sources.tolist() == [3, 2, 0, 4]
+    assert count_source_load(routes.reshape(-1), 4).tolist() == [3, 2, 0, 4]
+
+
 def test_select_comm_split_decision_table():
     """Host-only: the imbalance-aware split is a pure function of the observed
     per-rank loads, ``hot`` when max load >= threshold x mean load, else ``base``."""
@@ -465,6 +480,18 @@ def test_select_comm_split_decision_table():
     loads = torch.tensor([300, 100, 100, 100], dtype=torch.int32)
     assert select_comm_split(loads, base, hot, 1.5) == hot
     assert select_comm_split(loads, base, [24, 28], 1.5) == (24, 28)
+    # Source-row balance: the hot split needs the largest per-source-rank load
+    # at most source_limit x the mean; ragged sources keep the fixed split.
+    hot_loads = [300, 100, 100, 100]
+    assert select_comm_split(hot_loads, base, hot, 1.5, [8, 8, 8, 8], 1.5) == hot
+    assert select_comm_split(hot_loads, base, hot, 1.5, [12, 8, 8, 4], 1.5) == hot  # 1.5
+    assert select_comm_split(hot_loads, base, hot, 1.5, [16, 8, 8, 0], 1.5) == base  # 2.0
+    assert select_comm_split(hot_loads, base, hot, 1.5, [8, 16, 16, 0], 1.5) == base  # 1.6
+    assert select_comm_split(hot_loads, base, hot, 1.5, [16, 8, 8, 0], None) == hot
+    assert select_comm_split(hot_loads, base, hot, 1.5, (), 1.5) == hot  # no source counts
+    assert select_comm_split(hot_loads, base, hot, 1.5, [0, 0, 0, 0], 1.5) == base
+    sources = torch.tensor([32767, 16172, 16231, 0], dtype=torch.int64) * 8
+    assert select_comm_split(hot_loads, base, hot, 1.5, sources, 1.5) == base
 
 
 @pytest.mark.parametrize(
@@ -502,9 +529,12 @@ def test_imbalance_comm_sms_defaults_keep_the_fixed_split():
     config = MoKConfig()
     assert config.imbalance_comm_sms is None
     assert config.imbalance_threshold == 1.5
+    assert config.imbalance_source_limit == 1.5
     facade = inspect.signature(mok.create_mok_bf16_workspace).parameters
     assert facade["imbalance_comm_sms"].default == "auto"
     assert facade["imbalance_threshold"].default == 1.5
+    assert facade["imbalance_source_limit"].default == 1.5
+    assert mok.IMBALANCE_SOURCE_LIMIT == 1.5
     # The measured row (backend README); a change here is a shipping change.
     assert mok.IMBALANCE_COMM_SMS == {(10, 0): {"bf16": (24, 28)}}
     assert mok.IMBALANCE_THRESHOLD == 1.5
