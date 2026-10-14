@@ -847,11 +847,13 @@ def test_nontranspose_fp32_t1_body_rule_follows_the_batch_band() -> None:
     }
     assert cake_gdn.CAKE_GDN_NONTRANSPOSE_FP32_T1_ARCH_BODIES == {
         ("sm_107a", "small"): "gdn_decode_nontranspose_fp32_t1_mid4",
+        ("sm_107a", "large"): "gdn_decode_nontranspose_fp32_t1_tilev32_x2",
     }
     assert cake_gdn.CAKE_GDN_NONTRANSPOSE_FP32_T1_CTAS_PER_STATE == {
         "gdn_decode_nontranspose_fp32_t1_small": 8,
         "gdn_decode_nontranspose_fp32_t1": 1,
         "gdn_decode_nontranspose_fp32_t1_mid4": 4,
+        "gdn_decode_nontranspose_fp32_t1_tilev32_x2": 2,
     }
     rule = cake_gdn.cake_gdn_nontranspose_fp32_t1_route
     small = (
@@ -866,6 +868,10 @@ def test_nontranspose_fp32_t1_body_rule_follows_the_batch_band() -> None:
         "gdn_decode_nontranspose_fp32_t1_mid4",
         "flashinfer.gdn_decode.direct_fp32_t1_nontranspose_small_mid4",
     )
+    x2 = (  # measurement tree: the large band runs the tilev32_x2 twin on sm_107a
+        "gdn_decode_nontranspose_fp32_t1_tilev32_x2",
+        "flashinfer.gdn_decode.direct_fp32_t1_nontranspose_large_tilev32_x2",
+    )
     for arch in ("sm_100a", "sm_103a"):
         for batch_size in (1, 4, 8, 16, 31):
             assert rule(batch_size, arch) == small
@@ -875,7 +881,7 @@ def test_nontranspose_fp32_t1_body_rule_follows_the_batch_band() -> None:
     for batch_size in (1, 4, 8, 16, 31):
         assert rule(batch_size, "sm_107a") == mid4
     for batch_size in (32, 64, 128, 512):
-        assert rule(batch_size, "sm_107a") == large
+        assert rule(batch_size, "sm_107a") == x2
 
 
 @pytest.mark.parametrize("arch", ["sm_100a", "sm_103a", "sm_107a"])
@@ -890,7 +896,8 @@ def test_decode_resolver_routes_the_fp32_nontranspose_t1_body_per_batch_band(
         route = _decode(arch=arch, layout="nontranspose", batch_size=batch_size)
         band = "small" if batch_size < 32 else "large"
         mid4 = arch == "sm_107a" and batch_size < 32
-        suffix = "_mid4" if mid4 else ""
+        x2 = arch == "sm_107a" and batch_size >= 32
+        suffix = "_mid4" if mid4 else "_tilev32_x2" if x2 else ""
         assert (
             route.route_id
             == f"flashinfer.gdn_decode.direct_fp32_t1_nontranspose_{band}{suffix}"
@@ -898,6 +905,8 @@ def test_decode_resolver_routes_the_fp32_nontranspose_t1_body_per_batch_band(
         schedule = (
             "nontranspose_fp32_t1_mid4"
             if mid4
+            else "nontranspose_fp32_t1_tilev32_x2"
+            if x2
             else "nontranspose_fp32_t1_small"
             if band == "small"
             else "nontranspose_fp32_t1"
@@ -915,7 +924,7 @@ def test_decode_resolver_routes_the_fp32_nontranspose_t1_body_per_batch_band(
         assert record["specializations"]["HV"] == 32
         assert cake_gdn.cake_gdn_nontranspose_fp32_t1_ctas_per_state(
             route.variant_name
-        ) == (4 if mid4 else 8 if band == "small" else 1)
+        ) == (4 if mid4 else 2 if x2 else 8 if band == "small" else 1)
     # the H4 / HV8 trace geometry ships a small record of its own and follows the rule
     trace = _decode(
         arch=arch,

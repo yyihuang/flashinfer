@@ -678,9 +678,7 @@ def cake_gdn_bf16_t1_route(
 # of the serial recurrence, fully unrolled token loop; bitwise-identical output),
 # B200/B300 keep the shipped body.  Mirrors
 # loom.examples.weave.gdn_decode_pretranspose.select_bf16_verify_tile16_body.
-CAKE_GDN_BF16_VERIFY_TILE16_ARCH_BODIES: dict[str, str] = {
-    "sm_107a": "tile16_vpre_es_pro"
-}
+CAKE_GDN_BF16_VERIFY_TILE16_ARCH_BODIES: dict[str, str] = {"sm_107a": "tile16_vpre_es_pro"}
 
 
 def cake_gdn_bf16_verify_tile16_schedule(arch: CakeGDNArch) -> str:
@@ -793,6 +791,7 @@ CAKE_GDN_NONTRANSPOSE_FP32_T1_BASE_SCHEDULES: dict[str, str] = {
 # ((architecture, band) -> schedule of the twin the rule routes there)
 CAKE_GDN_NONTRANSPOSE_FP32_T1_ARCH_BODIES: dict[tuple[str, str], str] = {
     ("sm_107a", "small"): "gdn_decode_nontranspose_fp32_t1_mid4",
+    ("sm_107a", "large"): "gdn_decode_nontranspose_fp32_t1_tilev32_x2",
 }
 # CTAs per state head each nontranspose fp32 T=1 body launches (the host grid is B * HV
 # times this), keyed by the record's schedule.
@@ -800,6 +799,7 @@ CAKE_GDN_NONTRANSPOSE_FP32_T1_CTAS_PER_STATE: dict[str, int] = {
     "gdn_decode_nontranspose_fp32_t1_small": 8,
     "gdn_decode_nontranspose_fp32_t1": 1,
     "gdn_decode_nontranspose_fp32_t1_mid4": 4,
+    "gdn_decode_nontranspose_fp32_t1_tilev32_x2": 2,
 }
 
 
