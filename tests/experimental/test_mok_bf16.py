@@ -427,25 +427,154 @@ def test_epilogues(topk, tokens, hidden):
     assert torch.equal(epilogues.backward(shared, routed), expected_dx.bfloat16())
 
 
-def test_count_routed_load_matches_a_reference_count():
-    """Host-only: the per-rank load histogram counts the valid gathered ids by
-    owning rank and ignores padding (-1) and out-of-range ids."""
-    from flashinfer.experimental.cake_mok_bf16.backend import count_routed_load
+def _compare_and_reduce_routed_load(routes, ep_size, local_experts):
+    """Reference only: the former per-rank count. Floor-divide every id by the
+    local expert count and compare the owner against each rank."""
+    flat = routes.reshape(-1)
+    owner = torch.div(flat, local_experts, rounding_mode="floor")
+    ranks = torch.arange(ep_size, device=flat.device, dtype=owner.dtype)
+    return (owner.unsqueeze(0) == ranks.unsqueeze(1)).sum(dim=1)
 
+
+def _python_routed_load(routes, ep_size, local_experts):
+    expected = [0] * ep_size
+    for e in routes.reshape(-1).tolist():
+        if 0 <= e < ep_size * local_experts:
+            expected[e // local_experts] += 1
+    return expected
+
+
+def test_routed_load_below_matches_the_compare_and_reduce_count():
+    """Host-only: the counts below each rank boundary, differenced on the host,
+    equal the former compare-and-reduce per-rank count and a plain Python count
+    on random ids with padding (-1), other negative ids, ids beyond the expert
+    range, int32 and int64 ids, ragged and zero rows, 1-d and 0-d inputs and
+    every scheduler layout, so the load ratio and the split decision are
+    unchanged."""
+    from flashinfer.experimental.cake_mok_bf16.backend import (
+        count_routes_below,
+        routed_load_bounds,
+        routed_load_from_below,
+        select_comm_split,
+    )
+
+    generator = torch.Generator().manual_seed(1)
+    cases = 0
+    for ep_size, local_experts in SCHEDULER_LAYOUTS:
+        limit = ep_size * local_experts
+        shapes = (
+            (ep_size, 0, 8),
+            (ep_size, 1, 2),
+            (ep_size, 7, 8),
+            (ep_size, 64, 8),
+            (37,),
+            (),
+        )
+        for shape in shapes:
+            for dtype in (torch.int32, torch.int64):
+                routes = torch.randint(
+                    -3, limit + 5, shape, dtype=dtype, generator=generator
+                )
+                if routes.ndim == 3 and routes.shape[1] > 1:
+                    routes[1:, routes.shape[1] // 2 :] = -1  # ragged: padded rows
+                bounds = routed_load_bounds(ep_size, local_experts, routes)
+                assert bounds.dtype == routes.dtype
+                assert bounds.tolist() == [
+                    k * local_experts for k in range(ep_size + 1)
+                ]
+                below = count_routes_below(routes, bounds)
+                assert below.dtype == torch.int64
+                assert below.shape == (ep_size + 1,)
+                flat = routes.reshape(-1)
+                assert below[0].item() == int((flat < 0).sum())
+                assert below[-1].item() == int(((flat >= 0) & (flat < limit)).sum())
+                loads = routed_load_from_below(below.tolist())
+                reference = _compare_and_reduce_routed_load(
+                    routes, ep_size, local_experts
+                )
+                assert reference.dtype == torch.int64
+                assert loads == reference.tolist()
+                assert loads == _python_routed_load(routes, ep_size, local_experts)
+                assert routed_load_from_below(below) == loads  # CPU tensor input
+                cases += 1
+    assert cases == len(SCHEDULER_LAYOUTS) * 6 * 2
+
+    # The documented example, one hot rank and one balanced step: the decision
+    # under the shipped thresholds follows the same loads as before.
     ep_size, local_experts = 4, 3
     routes = torch.tensor(
         [[0, 5, 11, -1], [3, 3, 12, -7], [8, 9, 10, 11], [-1, -1, -1, 2]],
         dtype=torch.int32,
     )
-    expected = [0] * ep_size
-    for e in routes.reshape(-1).tolist():
-        if 0 <= e < ep_size * local_experts:
-            expected[e // local_experts] += 1
-    loads = count_routed_load(routes, ep_size, local_experts)
-    assert loads.dtype == torch.int64
-    assert loads.tolist() == expected == [2, 3, 1, 4]
+    bounds = routed_load_bounds(ep_size, local_experts, routes)
+    # ids below 0, 3, 6, 9, 12: five negatives, then {0, 2}, {5, 3, 3}, {8},
+    # {11, 9, 10, 11}; 12 is beyond the expert range.
+    assert count_routes_below(routes, bounds).tolist() == [5, 7, 10, 11, 15]
+    loads = routed_load_from_below(count_routes_below(routes, bounds))
+    reference = _compare_and_reduce_routed_load(routes, ep_size, local_experts)
+    assert loads == reference.tolist() == [2, 3, 1, 4]
     empty = torch.full((6,), -1, dtype=torch.int32)
-    assert count_routed_load(empty, ep_size, local_experts).tolist() == [0] * ep_size
+    bounds = routed_load_bounds(ep_size, local_experts, empty)
+    assert routed_load_from_below(count_routes_below(empty, bounds)) == [0] * ep_size
+    base, hot = (20, 24), (24, 28)
+    for ep_size, local_experts, threshold in ((8, 32, 4.0), (8, 32, 2.7)):
+        limit = ep_size * local_experts
+        hot_rank = torch.randint(
+            0, local_experts, (ep_size, 64, 8), generator=generator
+        )
+        hot_rank[:, :8] = torch.randint(0, limit, (ep_size, 8, 8), generator=generator)
+        balanced = torch.randint(0, limit, (ep_size, 64, 8), generator=generator)
+        for routes, expected_split in ((hot_rank, hot), (balanced, base)):
+            routes = routes.to(torch.int32)
+            bounds = routed_load_bounds(ep_size, local_experts, routes)
+            loads = routed_load_from_below(count_routes_below(routes, bounds).tolist())
+            reference = _compare_and_reduce_routed_load(
+                routes, ep_size, local_experts
+            ).tolist()
+            assert loads == reference
+            assert (
+                select_comm_split(loads, base, hot, threshold)
+                == select_comm_split(reference, base, hot, threshold)
+                == expected_split
+            )
+
+
+def test_routed_load_observation_does_not_synchronize_the_host():
+    """GPU: the per-step kernel pair and the pinned non-blocking copy run under
+    ``torch.cuda.set_sync_debug_mode("error")``, and the copied counts equal
+    the former compare-and-reduce count."""
+    from flashinfer.experimental.cake_mok_bf16.backend import (
+        count_routes_below,
+        routed_load_bounds,
+        routed_load_from_below,
+    )
+
+    if not torch.cuda.is_available():
+        pytest.skip("Requires a CUDA device")
+    ep_size, local_experts = 8, 32
+    routes = torch.randint(
+        -1,
+        ep_size * local_experts,
+        (ep_size, 512, 8),
+        dtype=torch.int32,
+        device="cuda",
+    )
+    routes[3:, 256:] = -1
+    bounds = routed_load_bounds(ep_size, local_experts, routes)
+    host = torch.empty(ep_size + 1, dtype=torch.int64, pin_memory=True)
+    event = torch.cuda.Event()
+    torch.cuda.synchronize()
+    torch.cuda.set_sync_debug_mode("error")
+    try:
+        below = count_routes_below(routes, bounds)
+        host.copy_(below, non_blocking=True)
+        event.record()
+    finally:
+        torch.cuda.set_sync_debug_mode("default")
+    event.synchronize()
+    assert below.device == routes.device and below.dtype == torch.int64
+    reference = _compare_and_reduce_routed_load(routes, ep_size, local_experts)
+    assert routed_load_from_below(host.tolist()) == reference.tolist()
 
 
 def test_select_comm_split_decision_table():

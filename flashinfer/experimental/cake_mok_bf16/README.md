@@ -160,10 +160,14 @@ to recreate the workspace.
   are positive and even, leaving compute SMs available.
 - Imbalance-aware split (`MoKConfig.imbalance_comm_sms` / `imbalance_threshold`;
   factory default `imbalance_comm_sms="auto"`, `None` keeps the fixed split): every
-  `build_schedule` counts the gathered expert IDs per owning rank on device and
-  copies the counts into pinned host memory behind a CUDA event (no host
-  synchronization; the gathered IDs are identical on every rank; skipped during
-  graph capture). While the hottest rank's load is at least `imbalance_threshold`
+  `build_schedule` counts on device how many gathered expert IDs lie below each
+  rank's first expert ID (one comparison and one exact integer reduction; no
+  floor division, atomics or host-side output sizing) and copies the
+  `ep_size + 1` cumulative counts into pinned host memory behind a CUDA event
+  (no host synchronization; the per-rank loads are their adjacent differences,
+  taken on the host; padding `-1` and out-of-range IDs are excluded; the
+  gathered IDs are identical on every rank; skipped during graph capture).
+  While the hottest rank's load is at least `imbalance_threshold`
   x the mean load (facade default `"auto"`: the precision's value in
   `IMBALANCE_THRESHOLDS`, BF16 4, MXFP8 2.7), the later launches use the
   (forward, backward) imbalance split; balanced steps are unchanged. Measured
