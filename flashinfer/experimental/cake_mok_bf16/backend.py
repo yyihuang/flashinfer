@@ -104,7 +104,7 @@ def routed_load_from_below(below):
     integers): ``[below[1] - below[0], ..., below[E] - below[E - 1]]``.
     """
     values = [int(value) for value in below]
-    return [upper - lower for lower, upper in zip(values, values[1:])]
+    return [upper - lower for lower, upper in zip(values, values[1:], strict=False)]
 
 
 def select_comm_split(loads, base, hot, threshold):
