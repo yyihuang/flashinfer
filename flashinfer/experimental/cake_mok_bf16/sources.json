@@ -355,8 +355,8 @@
           "sm_100a/cake_mok_forward_mxfp8_binding.cu"
         ],
         "sha256": [
-          "fc8c3615f217120da2b2910b35ae1eec678384096bdbf7ac375ac12861b65956",
-          "e6f202e4497a2ce117ce48c03329f2cd431af041ffb61749a016e0656ca91211"
+          "98bc36c5859464b8937d6353797eab6a55bc35372ae2118abd6b732ab90f8635",
+          "272ed0fa2771ff3e794edafabcc86051eeb525c49c3c163026c98b89ba4cc4b8"
         ],
         "arguments": [
           [
@@ -617,8 +617,8 @@
           "sm_107a/cake_mok_forward_mxfp8_binding.cu"
         ],
         "sha256": [
-          "c93a70b36674a2156b91a43a30bd5942dc71efb7368dfc8096da54e94f143dec",
-          "c269d9ea57a308115f4869e305ef9227bc80be74e100a0cacf351216396b7696"
+          "9ec8f814d71c9a37b4d0aa16adde1c5dbbf4bd8fbb2ac83d107a707ea87c0546",
+          "7fe70762e53293a021bef77cea7c4665de90dc79d52a51d0927e397fb9dc70aa"
         ],
         "arguments": [
           [
@@ -884,8 +884,8 @@
           "sm_100a/cake_mok_recompute_mxfp8_binding.cu"
         ],
         "sha256": [
-          "647c55c15b9b3a59696c2783ca99bedba2d20b3075bb02c960444a5b8b1a9349",
-          "e5f4f6c82b7ebea26902f0c984cffc1249bf1f43865c373f5ff381d1c9f91587"
+          "00692d16d92ccd01330703954c07bb0f229325f3eb8b272c38acaebae9b4e351",
+          "6d2a5c8ec6d24e8ad80a16f09eefb1a501ab009db4998db8e843a1e750598cd2"
         ],
         "arguments": [
           [
@@ -1102,8 +1102,8 @@
           "sm_107a/cake_mok_recompute_mxfp8_binding.cu"
         ],
         "sha256": [
-          "871ce81969aab2e73294da012215e5ee9ab92a52738ecfd1823da1bc71cc4609",
-          "add2689ae9f2406b6ead44ebbe4f4886c13d3715d82f706b98289290b15a2344"
+          "e1e5eff91baf1dbc9f88ec334cd79fac017999ef60cbf12413bd56fe19777824",
+          "e6bf05824cbdb6b95478624a23574757d92e78de88c728e1519ce5750dfee261"
         ],
         "arguments": [
           [
@@ -1681,8 +1681,8 @@
           "sm_100a/cake_mok_backward_mxfp8_binding.cu"
         ],
         "sha256": [
-          "9b87a01547c9450528282bb44abbc010f832348b7cd16ab0d3d7e076e764005a",
-          "5503012e2d61823ff33c118ebe1637549cc2d36844c8897ad3c7e8200675023b"
+          "54d261b35f1752a71f391403cf9c563e17976a7807b90c808fab34a27af28a51",
+          "d53ca63bea6398144a583915ef54a6b20e45dd2ca587aef11fa991b79d65f2ef"
         ],
         "arguments": [
           [
@@ -2179,8 +2179,8 @@
           "sm_107a/cake_mok_backward_mxfp8_binding.cu"
         ],
         "sha256": [
-          "e8f3a3194869051d5e18f4801536de9d276a01a8cc8d92db3699eaa6b0b58ee0",
-          "03131440e887ebd348ac0f9d6f57cf359671737f07b721cc7c587630c767156d"
+          "817885270202799b1c284b3b8f01d07fcccf6cd50700b1000816e86e7b851afd",
+          "e6b50b5512d082a43e41f470772b1cc569f204331b7cdf2dac01a1c3f85aabf7"
         ],
         "arguments": [
           [
@@ -3038,8 +3038,8 @@
           "sm_100a/cake_mok_backward_mxfp8_fp32_binding.cu"
         ],
         "sha256": [
-          "bde2aea588ed152734654d1bc8b9f76b46943280e455ae18b9294c304364b240",
-          "320dee281352966abe204ac87b001cc3cd13ffc2a7d64ffe0b97901c6b334047"
+          "dcda7da5afcf34e3ec7ff706d08c12b56c4afb2e513ecb4dc632f036d70211a1",
+          "f6724e0c88100d1311cb4b073bd9158a5df59aeb5b23462348cae5d3c5434350"
         ],
         "arguments": [
           [
@@ -3536,8 +3536,8 @@
           "sm_107a/cake_mok_backward_mxfp8_fp32_binding.cu"
         ],
         "sha256": [
-          "6ca12fe63a8c3eba70ebce1ac0e083fdb97d27009363d4d73520a188fe16cb39",
-          "3657fc04e611ffcd1b4caccfcf2af056e22cbec3dae44c85587ccc2c2101cb94"
+          "10cc67ec4ca0cc0a31b523f0e4afe6e289f4a3cb13c390b731e96ca29e305532",
+          "a247c20850538cbbdce5aa4449795078ad861e8899c5727da6486afadfc89913"
         ],
         "arguments": [
           [
@@ -4383,8 +4383,8 @@
           "sm_100a/cake_mok_forward_mxfp8_clamped_binding.cu"
         ],
         "sha256": [
-          "c5a0e34d43ef5b42bad474694b6e9c1bd82a43208df7acb7c49191c9520b6fd7",
-          "93f7390b207feadfddc22afc7a512932acca9bd26e91a6ae9b7633da244279f6"
+          "2676af4b928bafe83695513d27c3cd722dccbef35a50e38d109c462f6ba61014",
+          "8b5c968ee40e0fe710a4a7e45ac36d681784ffc1f774494fece39d8cd91eef63"
         ],
         "arguments": [
           [
@@ -4645,8 +4645,8 @@
           "sm_107a/cake_mok_forward_mxfp8_clamped_binding.cu"
         ],
         "sha256": [
-          "2bb26ad78906f56ca743d64389fc9d034571d2ed620ef2006809ded69d274075",
-          "2ea78247bde4861627177f654bd257cd3858f0d15f92f4094a22c6ef2f96ac81"
+          "4e68872e0c75dc6672161456deea2150127b4ce1499a7377a224a1d7a7b03953",
+          "154c4325a45dbfe7220c2ff87fc47bf86f86b6f63339803d7e643e8c22d0a3f3"
         ],
         "arguments": [
           [
@@ -4912,8 +4912,8 @@
           "sm_100a/cake_mok_recompute_mxfp8_clamped_binding.cu"
         ],
         "sha256": [
-          "d9e7452442e5e4196084dbc8b6c286bebf403c221b0eda9b9c33b9b40d1ef8e9",
-          "e174c633fc361ff5c815c62418108ce4773b8c6f5551c32e2c4d11856585cdbe"
+          "8cea6767e777ed787d371da39ab1557e6cf67f1ade84dadd258008d7f19fdf44",
+          "614b0e89cacf179be3507ad81f68f4ec60d8c7bd267bcfa36ac7173f649f9c14"
         ],
         "arguments": [
           [
@@ -5130,8 +5130,8 @@
           "sm_107a/cake_mok_recompute_mxfp8_clamped_binding.cu"
         ],
         "sha256": [
-          "86513fc4ac3d43ec4a7161027acc0f8d33d050490e54640eae4cc333c8a18e18",
-          "1da95d34315bd801df8c4cb80513fa475e569a09e2dbee427245b90612013ddc"
+          "2ac99ed0bc0f648fa29c15830b9a1bd7d511110af231fe425860cb5cc0b9ab1b",
+          "cb2c66a81d773636d2219958988fde367e829caff34bd0cd6cd1a8381b77fc59"
         ],
         "arguments": [
           [
@@ -5709,8 +5709,8 @@
           "sm_100a/cake_mok_backward_mxfp8_clamped_binding.cu"
         ],
         "sha256": [
-          "db7fcf8461e1fcea7c51651b7cb6a722268347571882db2c302daf5fc33e1216",
-          "21348391ca445c9a92b67af42fe0c6fe56be61967692adaeb742bca3f1194a0c"
+          "01e41a1ebc21f2c10e78fa48a06f0f014b3535b122e87117091271178a22f4d4",
+          "4f1710f456bd63a9768244725bbb8eb556ce4e79cc280cae8c1d7e1368845102"
         ],
         "arguments": [
           [
@@ -6207,8 +6207,8 @@
           "sm_107a/cake_mok_backward_mxfp8_clamped_binding.cu"
         ],
         "sha256": [
-          "8525dfc7c9456fa997778a1ef215a33442093471d1f38c43c045212054decc02",
-          "7fb53cd0f72a7b47c920995dff98b9e5885648e71aec353050ad5562da54c0f9"
+          "828ab3050539990575d80ad80cc377cd4f7948adcd1c9ceb5a2ce65c1f31d043",
+          "ccacca62d8fd95a37b898b1224ad8a71aede9cbf05fc565502c8b22aa6a5f58a"
         ],
         "arguments": [
           [
@@ -7066,8 +7066,8 @@
           "sm_100a/cake_mok_backward_mxfp8_clamped_fp32_binding.cu"
         ],
         "sha256": [
-          "81c4edb0ec4791c25bd422dc3ff685af48f10503247dcdd08487edd8e249f6d2",
-          "c65aa8b209ccb06e86a38b1dbc832625de9f3fdb418f0fd073910daedd7b1dba"
+          "36b40f962e35f27dfa518470e89bba8dbc9beab9e2817542ae06fae41241b584",
+          "34f089e08136d90f63804ad5315d0a8f91b966dce33005a2abf20a381d9ae99b"
         ],
         "arguments": [
           [
@@ -7564,8 +7564,8 @@
           "sm_107a/cake_mok_backward_mxfp8_clamped_fp32_binding.cu"
         ],
         "sha256": [
-          "edf726f51a435f6c381de010d024532175230f76cf5e1811e5e05f024e916d56",
-          "9d7072829ee20488721adc41a24665fc58403b753d9d5ff63c6a6f943c66cc28"
+          "464253d5ccd3a3415936a32fa9583adefa44b0be215df87c1ecae2482c56c4ef",
+          "956f4d133808a7eaa527a8a96ab5fa83a703479d628d8bea520b1c60080c41dd"
         ],
         "arguments": [
           [

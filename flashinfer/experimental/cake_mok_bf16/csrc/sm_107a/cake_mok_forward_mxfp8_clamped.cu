@@ -312,6 +312,13 @@ __device__ __forceinline__ uint64_t make_sf_cp_desc_sbo128(int addr) {
 }
 
 
+__device__ __forceinline__ uint64_t make_sf_cp_desc_lo_sbo128(int lo) {
+    const int SBO = 128;
+    return (uint64_t)(uint32_t)lo
+         | (desc_encode(SBO) << 32ULL)
+         | (1ULL << 46ULL);
+}
+
 
 __device__ __forceinline__ void tcgen05_cp_32x128b_warpx4_cta2(
     int taddr, uint64_t s_desc) {
@@ -3301,6 +3308,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     ring_1 = (ring_1 + 1) % 4;
                                 }
                                 tcgen05_commit_cg2_multicast(output_arrived_addr, (uint16_t)(3));
+                                phase_bits_2 = phase_bits_2 ^ 8388608;
+                                unsigned int bits_1 = phase_bits_2;
+                                if ((bits_1 >> 7 & 1) != 0) {
+                                    bits_1 = bits_1 ^ 128;
+                                }
+                                phase_bits_2 = bits_1;
                             }
                         }
                     } else if (tid < 128) {
@@ -8027,6 +8040,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     ring_3 = (ring_3 + 1) % 4;
                                 }
                                 tcgen05_commit_cg2_multicast(output_arrived_addr, (uint16_t)(3));
+                                phase_bits_3 = phase_bits_3 ^ 8388608;
+                                unsigned int bits_2 = phase_bits_3;
+                                if ((bits_2 >> 7 & 1) != 0) {
+                                    bits_2 = bits_2 ^ 128;
+                                }
+                                phase_bits_3 = bits_2;
                             }
                         }
                     } else if (tid < 128) {
@@ -8334,20 +8353,39 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                             if (warp == 4) {
                                 if (elect_sync()) {
                                     int ring_6 = 0;
-                                    mbarrier_wait(output_finished_addr, phase_bits_4 >> 22 & 1);
-                                    phase_bits_4 = phase_bits_4 ^ 4194304;
+                                    unsigned int previous_deep = phase_bits_4 >> 7 & 1;
+                                    if (previous_deep == 0) {
+                                        mbarrier_wait(output_finished_addr, phase_bits_4 >> 22 & 1);
+                                    } else {
+                                        mbarrier_wait(output_arrived_addr, phase_bits_4 >> 23 & 1);
+                                    }
                                     asm volatile("tcgen05.fence::after_thread_sync;");
+                                    mbarrier_arrive_expect_tx(scales_arrived_addr, 5120);
+                                    mbarrier_wait(scales_arrived_addr, phase_bits_4 >> 8 & 1);
+                                    tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfa, make_sf_cp_desc_lo_sbo128((((smem_v43_addr) >> 4))));
+                                    tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb, make_sf_cp_desc_lo_sbo128((((smem_v44_addr) >> 4))));
+                                    tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb + 4), make_sf_cp_desc_lo_sbo128((((smem_v44_addr) >> 4) + 32)));
+                                    tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb_hi, make_sf_cp_desc_lo_sbo128((((smem_v45_addr) >> 4))));
+                                    tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb_hi + 4), make_sf_cp_desc_lo_sbo128((((smem_v45_addr) >> 4) + 32)));
+                                    tcgen05_commit_cg2_multicast(scales_finished_addr, (uint16_t)(3));
+                                    if (previous_deep != 0) {
+                                        mbarrier_wait(output_finished_addr, phase_bits_4 >> 22 & 1);
+                                        asm volatile("tcgen05.fence::after_thread_sync;");
+                                    }
+                                    phase_bits_4 = phase_bits_4 ^ 4194304;
                                     #pragma unroll 1
                                     for (int idx_6 = 0; idx_6 < iterations_2; idx_6++) {
-                                        mbarrier_arrive_expect_tx(scales_arrived_addr + (ring_6) * 8, 5120);
-                                        mbarrier_wait(scales_arrived_addr + (ring_6) * 8, phase_bits_4 >> (unsigned int)(8 + ring_6) & 1);
                                         int buffer = idx_6 % 3;
-                                        tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfa + buffer * 4, make_sf_cp_desc_sbo128(smem_v43_addr + (unsigned int)(ring_6 * 512)));
-                                        tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb + buffer * 8, make_sf_cp_desc_sbo128(smem_v44_addr + (unsigned int)(ring_6 * 1024)));
-                                        tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb + buffer * 8 + 4), make_sf_cp_desc_sbo128((smem_v44_addr + (unsigned int)(ring_6 * 1024) + 512)));
-                                        tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb_hi + buffer * 8, make_sf_cp_desc_sbo128(smem_v45_addr + (unsigned int)(ring_6 * 1024)));
-                                        tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb_hi + buffer * 8 + 4), make_sf_cp_desc_sbo128((smem_v45_addr + (unsigned int)(ring_6 * 1024) + 512)));
-                                        tcgen05_commit_cg2_multicast(scales_finished_addr + (ring_6) * 8, (uint16_t)(3));
+                                        if (idx_6 != 0) {
+                                            mbarrier_arrive_expect_tx(scales_arrived_addr + (ring_6) * 8, 5120);
+                                            mbarrier_wait(scales_arrived_addr + (ring_6) * 8, phase_bits_4 >> (unsigned int)(8 + ring_6) & 1);
+                                            tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfa + buffer * 4, make_sf_cp_desc_sbo128(smem_v43_addr + (unsigned int)(ring_6 * 512)));
+                                            tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb + buffer * 8, make_sf_cp_desc_sbo128(smem_v44_addr + (unsigned int)(ring_6 * 1024)));
+                                            tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb + buffer * 8 + 4), make_sf_cp_desc_sbo128((smem_v44_addr + (unsigned int)(ring_6 * 1024) + 512)));
+                                            tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb_hi + buffer * 8, make_sf_cp_desc_sbo128(smem_v45_addr + (unsigned int)(ring_6 * 1024)));
+                                            tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb_hi + buffer * 8 + 4), make_sf_cp_desc_sbo128((smem_v45_addr + (unsigned int)(ring_6 * 1024) + 512)));
+                                            tcgen05_commit_cg2_multicast(scales_finished_addr + (ring_6) * 8, (uint16_t)(3));
+                                        }
                                         mbarrier_arrive_expect_tx(gemm_arrived_addr + (ring_6) * 8, 98304);
                                         mbarrier_wait(gemm_arrived_addr + (ring_6) * 8, phase_bits_4 >> (unsigned int)ring_6 & 1);
                                         int _mma_a_lo_4 = (((smem_v40_addr) >> 4) & 0x3FFF) + (ring_6) * 1024;
@@ -8377,6 +8415,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         ring_6 = (ring_6 + 1) % 4;
                                     }
                                     tcgen05_commit_cg2_multicast(output_arrived_addr, (uint16_t)(3));
+                                    phase_bits_4 = phase_bits_4 ^ 8388608;
+                                    unsigned int bits_3 = phase_bits_4;
+                                    if ((bits_3 >> 7 & 1) != 0) {
+                                        bits_3 = bits_3 ^ 128;
+                                    }
+                                    phase_bits_4 = bits_3;
                                 }
                             }
                         } else {
@@ -11151,20 +11195,39 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                             if (warp == 4) {
                                 if (elect_sync()) {
                                     int ring_9 = 0;
-                                    mbarrier_wait(output_finished_addr, phase_bits_6 >> 22 & 1);
-                                    phase_bits_6 = phase_bits_6 ^ 4194304;
+                                    unsigned int previous_deep_1 = phase_bits_6 >> 7 & 1;
+                                    if (previous_deep_1 == 0) {
+                                        mbarrier_wait(output_finished_addr, phase_bits_6 >> 22 & 1);
+                                    } else {
+                                        mbarrier_wait(output_arrived_addr, phase_bits_6 >> 23 & 1);
+                                    }
                                     asm volatile("tcgen05.fence::after_thread_sync;");
+                                    mbarrier_arrive_expect_tx(scales_arrived_addr, 5120);
+                                    mbarrier_wait(scales_arrived_addr, phase_bits_6 >> 8 & 1);
+                                    tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfa, make_sf_cp_desc_lo_sbo128((((smem_v43_addr) >> 4))));
+                                    tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb, make_sf_cp_desc_lo_sbo128((((smem_v44_addr) >> 4))));
+                                    tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb + 4), make_sf_cp_desc_lo_sbo128((((smem_v44_addr) >> 4) + 32)));
+                                    tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb_hi, make_sf_cp_desc_lo_sbo128((((smem_v45_addr) >> 4))));
+                                    tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb_hi + 4), make_sf_cp_desc_lo_sbo128((((smem_v45_addr) >> 4) + 32)));
+                                    tcgen05_commit_cg2_multicast(scales_finished_addr, (uint16_t)(3));
+                                    if (previous_deep_1 != 0) {
+                                        mbarrier_wait(output_finished_addr, phase_bits_6 >> 22 & 1);
+                                        asm volatile("tcgen05.fence::after_thread_sync;");
+                                    }
+                                    phase_bits_6 = phase_bits_6 ^ 4194304;
                                     #pragma unroll 1
                                     for (int idx_9 = 0; idx_9 < iterations_3; idx_9++) {
-                                        mbarrier_arrive_expect_tx(scales_arrived_addr + (ring_9) * 8, 5120);
-                                        mbarrier_wait(scales_arrived_addr + (ring_9) * 8, phase_bits_6 >> (unsigned int)(8 + ring_9) & 1);
                                         int buffer_1 = idx_9 % 3;
-                                        tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfa + buffer_1 * 4, make_sf_cp_desc_sbo128(smem_v43_addr + (unsigned int)(ring_9 * 512)));
-                                        tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb + buffer_1 * 8, make_sf_cp_desc_sbo128(smem_v44_addr + (unsigned int)(ring_9 * 1024)));
-                                        tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb + buffer_1 * 8 + 4), make_sf_cp_desc_sbo128((smem_v44_addr + (unsigned int)(ring_9 * 1024) + 512)));
-                                        tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb_hi + buffer_1 * 8, make_sf_cp_desc_sbo128(smem_v45_addr + (unsigned int)(ring_9 * 1024)));
-                                        tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb_hi + buffer_1 * 8 + 4), make_sf_cp_desc_sbo128((smem_v45_addr + (unsigned int)(ring_9 * 1024) + 512)));
-                                        tcgen05_commit_cg2_multicast(scales_finished_addr + (ring_9) * 8, (uint16_t)(3));
+                                        if (idx_9 != 0) {
+                                            mbarrier_arrive_expect_tx(scales_arrived_addr + (ring_9) * 8, 5120);
+                                            mbarrier_wait(scales_arrived_addr + (ring_9) * 8, phase_bits_6 >> (unsigned int)(8 + ring_9) & 1);
+                                            tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfa + buffer_1 * 4, make_sf_cp_desc_sbo128(smem_v43_addr + (unsigned int)(ring_9 * 512)));
+                                            tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb + buffer_1 * 8, make_sf_cp_desc_sbo128(smem_v44_addr + (unsigned int)(ring_9 * 1024)));
+                                            tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb + buffer_1 * 8 + 4), make_sf_cp_desc_sbo128((smem_v44_addr + (unsigned int)(ring_9 * 1024) + 512)));
+                                            tcgen05_cp_32x128b_warpx4_cta2(tmem_tmem_sfb_hi + buffer_1 * 8, make_sf_cp_desc_sbo128(smem_v45_addr + (unsigned int)(ring_9 * 1024)));
+                                            tcgen05_cp_32x128b_warpx4_cta2((tmem_tmem_sfb_hi + buffer_1 * 8 + 4), make_sf_cp_desc_sbo128((smem_v45_addr + (unsigned int)(ring_9 * 1024) + 512)));
+                                            tcgen05_commit_cg2_multicast(scales_finished_addr + (ring_9) * 8, (uint16_t)(3));
+                                        }
                                         mbarrier_arrive_expect_tx(gemm_arrived_addr + (ring_9) * 8, 98304);
                                         mbarrier_wait(gemm_arrived_addr + (ring_9) * 8, phase_bits_6 >> (unsigned int)ring_9 & 1);
                                         int _mma_a_lo_6 = (((smem_v40_addr) >> 4) & 0x3FFF) + (ring_9) * 1024;
@@ -11194,6 +11257,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         ring_9 = (ring_9 + 1) % 4;
                                     }
                                     tcgen05_commit_cg2_multicast(output_arrived_addr, (uint16_t)(3));
+                                    phase_bits_6 = phase_bits_6 ^ 8388608;
+                                    unsigned int bits_4 = phase_bits_6;
+                                    if ((bits_4 >> 7 & 1) != 0) {
+                                        bits_4 = bits_4 ^ 128;
+                                    }
+                                    phase_bits_6 = bits_4;
                                 }
                             }
                         } else {
