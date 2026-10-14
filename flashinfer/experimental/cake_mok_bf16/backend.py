@@ -62,24 +62,49 @@ class MoKForwardContext(native.MoKForwardContext):
     schedule: native.MoKSchedule
 
 
-def count_routed_load(routes, ep_size, local_experts):
-    """Routed rows per owning rank over the gathered expert ids ``routes``.
+def routed_load_bounds(ep_size, local_experts, routes):
+    """Expert-id boundaries ``[0, L, 2L, ..., ep_size * L]`` (``L`` =
+    ``local_experts``) for :func:`count_routes_below`: rank ``r`` owns the ids
+    in ``[bounds[r], bounds[r + 1])``. Built in the dtype and on the device of
+    the gathered ids ``routes`` so the comparison needs no type promotion.
+    Build once per workspace; every step's kernel pair then reads it.
+    """
+    return torch.arange(
+        0,
+        (ep_size + 1) * local_experts,
+        local_experts,
+        dtype=routes.dtype,
+        device=routes.device,
+    )
 
-    ``routes`` may have any shape; an id ``e`` in ``[0, ep_size * local_experts)``
-    is owned by rank ``e // local_experts``. Negative ids (padding) and ids at or
-    beyond the limit are not counted. Returns an int64 tensor of ``ep_size``
-    counts on the device of ``routes``.
 
-    Compare-and-reduce rather than ``scatter_add_`` or ``torch.bincount``:
-    ``scatter_add_`` issues one global atomic per id on ``ep_size`` addresses
-    and serialises there, and ``bincount`` sizes its output from ``max()`` on
-    the host, a device synchronization. This form has neither; its transient is
-    an ``ep_size`` x ``ids`` boolean tensor.
+def count_routes_below(routes, bounds):
+    """How many gathered expert ids ``routes`` (any shape) lie below each entry
+    of ``bounds`` (:func:`routed_load_bounds`): an int64 tensor of
+    ``len(bounds)`` cumulative counts on the device of ``routes``.
+
+    The routed load of rank ``r`` is ``below[r + 1] - below[r]``
+    (:func:`routed_load_from_below`): for integer ids, ``e // L == r`` exactly
+    when ``r * L <= e < (r + 1) * L``. Negative ids (padding) are below every
+    boundary and cancel in each difference; ids at or beyond ``ep_size * L``
+    are below none, so neither is counted. One comparison kernel and one exact
+    integer reduction: no floor-division pass, no atomics and no output-size
+    query (``torch.bincount`` sizes its result from ``max()`` on the host, a
+    device synchronization; ``scatter_add_`` / ``index_add_`` / ``histc``
+    serialise atomics on ``ep_size`` addresses and raise under deterministic
+    algorithms). The transient is a ``len(bounds)`` x ``ids`` boolean tensor.
     """
     flat = routes.reshape(-1)
-    owner = torch.div(flat, local_experts, rounding_mode="floor")
-    ranks = torch.arange(ep_size, device=flat.device, dtype=owner.dtype)
-    return (owner.unsqueeze(0) == ranks.unsqueeze(1)).sum(dim=1)
+    return (flat.unsqueeze(0) < bounds.unsqueeze(1)).sum(dim=1)
+
+
+def routed_load_from_below(below):
+    """Host-only: routed rows per owning rank from the cumulative counts of
+    :func:`count_routes_below` (a list, tuple or CPU tensor of ``ep_size + 1``
+    integers): ``[below[1] - below[0], ..., below[E] - below[E - 1]]``.
+    """
+    values = [int(value) for value in below]
+    return [upper - lower for lower, upper in zip(values, values[1:])]
 
 
 def select_comm_split(loads, base, hot, threshold):
@@ -387,8 +412,15 @@ class MoKFunctional:
         entry = self._load_state.get(id(workspace))
         if entry is None and create:
             entry = {
+                "bounds": routed_load_bounds(
+                    workspace.ep_size,
+                    self.local_experts,
+                    workspace.all_gather_top_experts_buffer,
+                ),
                 "host": [
-                    torch.empty(workspace.ep_size, dtype=torch.int64, pin_memory=True)
+                    torch.empty(
+                        workspace.ep_size + 1, dtype=torch.int64, pin_memory=True
+                    )
                     for _ in range(2)
                 ],
                 "events": [torch.cuda.Event() for _ in range(2)],
@@ -403,13 +435,14 @@ class MoKFunctional:
     def _observe_load(self, workspace, config):
         """Queue an asynchronous observation of the per-rank routed-row load.
 
-        Every rank counts the gathered expert IDs per owning rank
-        (``count_routed_load``: padding and invalid IDs excluded) on device and
-        copies the counts into pinned host memory behind a CUDA event: no host
-        synchronization. ``_comm_split`` reads the latest completed observation,
-        so a split change takes effect from the first later launch whose event
-        has completed. Skipped during CUDA Graph capture: captured launches keep
-        the split in force at capture time.
+        Every rank counts the gathered expert IDs below each rank boundary
+        (``count_routes_below``, one comparison and one reduction; padding and
+        invalid IDs excluded) on device and copies the ``ep_size + 1`` counts
+        into pinned host memory behind a CUDA event: no host synchronization.
+        ``_comm_split`` differences the latest completed observation on the
+        host, so a split change takes effect from the first later launch whose
+        event has completed. Skipped during CUDA Graph capture: captured
+        launches keep the split in force at capture time.
         """
         if (
             config.imbalance_comm_sms is None
@@ -417,13 +450,11 @@ class MoKFunctional:
         ):
             return
         entry = self._load_entry(workspace, create=True)
-        loads = count_routed_load(
-            workspace.all_gather_top_experts_buffer,
-            workspace.ep_size,
-            self.local_experts,
+        below = count_routes_below(
+            workspace.all_gather_top_experts_buffer, entry["bounds"]
         )
         slot = entry["slot"] ^ 1
-        entry["host"][slot].copy_(loads, non_blocking=True)
+        entry["host"][slot].copy_(below, non_blocking=True)
         entry["events"][slot].record()
         entry["slot"] = entry["pending"] = slot
 
@@ -438,7 +469,7 @@ class MoKFunctional:
             return base
         pending = entry["pending"]
         if pending is not None and not capturing and entry["events"][pending].query():
-            entry["loads"] = entry["host"][pending].tolist()
+            entry["loads"] = routed_load_from_below(entry["host"][pending].tolist())
             entry["pending"] = None
         split = select_comm_split(
             entry["loads"], base, config.imbalance_comm_sms, config.imbalance_threshold
