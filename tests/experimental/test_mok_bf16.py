@@ -483,7 +483,7 @@ def test_select_comm_split_decision_table():
         ((10, 0), "bf16", (24, 28)),
         ((10, 0), "mxfp8", (44, 36)),
         ((10, 3), "bf16", None),
-        ((10, 3), "mxfp8", None),
+        ((10, 3), "mxfp8", (44, 36)),
         ((10, 7), "bf16", None),
         ((12, 0), "bf16", None),
     ],
@@ -518,7 +518,10 @@ def test_imbalance_comm_sms_defaults_keep_the_fixed_split():
     assert facade["imbalance_threshold"].default == "auto"
     # The measured rows and thresholds (backend README); a change here is a
     # shipping change. The backend default is the BF16 threshold.
-    assert mok.IMBALANCE_COMM_SMS == {(10, 0): {"bf16": (24, 28), "mxfp8": (44, 36)}}
+    assert mok.IMBALANCE_COMM_SMS == {
+        (10, 0): {"bf16": (24, 28), "mxfp8": (44, 36)},
+        (10, 3): {"mxfp8": (44, 36)},
+    }
     assert mok.IMBALANCE_THRESHOLDS == {"bf16": 4.0, "mxfp8": 2.7}
     assert mok.resolve_imbalance_threshold("bf16") == config.imbalance_threshold
     assert mok.resolve_imbalance_threshold("mxfp8") == 2.7

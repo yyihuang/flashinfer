@@ -24,8 +24,13 @@ MOK_PRECISIONS = ("bf16", "mxfp8")
 # 4 ranks at 2.4x +0.8 % (one screening round). The MXFP8 threshold sits
 # between the measured 2.4x (no gain) and 3.0x (gain). Balanced steps never
 # switch, so the fixed split stays in force for them.
+# GB300 (compute capability 10.3) MXFP8 row 44 / 36: one EP4 screening round
+# against the fixed 40 / 32 on one node: hottest rank at 3.5x -1.4 %, at 2.4x
+# -0.0 %, balanced +0.4 %; the per-generation paired confirmation (two rounds,
+# facade path) is recorded in the backend README.
 IMBALANCE_COMM_SMS = {
     (10, 0): {"bf16": (24, 28), "mxfp8": (44, 36)},
+    (10, 3): {"mxfp8": (44, 36)},
 }
 IMBALANCE_THRESHOLDS = {"bf16": 4.0, "mxfp8": 2.7}
 
