@@ -940,7 +940,7 @@ def test_decode_resolver_routes_the_bf16_wide_body_per_architecture(arch) -> Non
     # unrolled `wide128_vpre` schedule, B200 / B300 keep the shipped body.  The
     # route id (flavour + grid tile) is the same on every architecture, and the
     # T=1 band rows keep the shipped wide body everywhere.
-    assert cake_gdn.CAKE_GDN_BF16_WIDE_ARCH_BODIES == {"sm_107a": "wide128_vpre"}
+    assert cake_gdn.CAKE_GDN_BF16_WIDE_ARCH_BODIES == {"sm_107a": "wide128_vpre_u2"}
     body = "wide128_vpre" if arch == "sm_107a" else "wide128"
     rows = [
         # (overrides, expected route id)

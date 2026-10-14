@@ -678,9 +678,7 @@ def cake_gdn_bf16_t1_route(
 # of the serial recurrence, fully unrolled token loop; bitwise-identical output),
 # B200/B300 keep the shipped body.  Mirrors
 # loom.examples.weave.gdn_decode_pretranspose.select_bf16_verify_tile16_body.
-CAKE_GDN_BF16_VERIFY_TILE16_ARCH_BODIES: dict[str, str] = {
-    "sm_107a": "tile16_vpre_es_pro"
-}
+CAKE_GDN_BF16_VERIFY_TILE16_ARCH_BODIES: dict[str, str] = {"sm_107a": "tile16_vpre_es_pro"}
 
 
 def cake_gdn_bf16_verify_tile16_schedule(arch: CakeGDNArch) -> str:
@@ -695,7 +693,7 @@ def cake_gdn_bf16_verify_tile16_schedule(arch: CakeGDNArch) -> str:
 # barrier, token loop unrolled; bitwise-identical output), every other
 # architecture and every T=1 band row the shipped wide body.  Mirrors
 # `BF16_WIDE_ARCH_BODIES` / `select_bf16_wide_body` of the Cake exporter.
-CAKE_GDN_BF16_WIDE_ARCH_BODIES: dict[str, str] = {"sm_107a": "wide128_vpre"}
+CAKE_GDN_BF16_WIDE_ARCH_BODIES: dict[str, str] = {"sm_107a": "wide128_vpre_u2"}
 # The promoted fp32-state MTP update body (B4 T4 with the intermediate-state cache,
 # `..._mtp_t4_splitv8`) is routed per architecture as well: Rubin (sm_107a) runs its
 # `_pro` twin (producer phase parallel over the draft tokens, every independent global
