@@ -487,7 +487,9 @@ def test_routed_load_below_matches_the_compare_and_reduce_count():
                 assert below.shape == (ep_size + 1,)
                 flat = routes.reshape(-1)
                 assert below[0].item() == int((flat < 0).sum())
-                assert below[-1].item() == int(((flat >= 0) & (flat < limit)).sum())
+                # below[E] counts every id < E * L, the negative padding included (it
+                # cancels in the per-rank differences); the documented example below has 15.
+                assert below[-1].item() == int((flat < limit).sum())
                 loads = routed_load_from_below(below.tolist())
                 reference = _compare_and_reduce_routed_load(
                     routes, ep_size, local_experts
