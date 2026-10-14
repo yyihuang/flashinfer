@@ -470,14 +470,55 @@ def test_cake_concat_mla_k_split_rule(tokens, element_bytes, target, expected):
     )
 
 
+@pytest.mark.parametrize(
+    ("tokens", "element_bytes", "target", "expected"),
+    [
+        # 1-byte tokens: window 2 -> 424 one-CTA windows at 848 tokens (one wave), 425 at 849.
+        (847, 1, "sm107a", 0),
+        (848, 1, "sm107a", 0),
+        (849, 1, "sm107a", 424),
+        (1023, 1, "sm107a", 424),
+        (1025, 1, "sm107a", 424),
+        (4096, 1, "sm107a", 424),
+        # 2-byte tokens: window 1 -> the split rule still fires at 212 (grid_y 2), one wave up to 424.
+        (212, 2, "sm107a", 0),
+        (213, 2, "sm107a", 0),
+        (424, 2, "sm107a", 0),
+        (425, 2, "sm107a", 424),
+        (4096, 2, "sm107a", 424),
+        (1, 1, "sm107a", 0),
+        (0, 1, "sm107a", 0),
+        (849, 1, "sm103a", 0),
+        (849, 1, "sm100f", 0),
+    ],
+)
+def test_cake_concat_mla_k_persist_rule(tokens, element_bytes, target, expected):
+    from flashinfer.jit import cake_concat_mla_k
+
+    persist = cake_concat_mla_k.cake_concat_mla_k_persist_ctas(
+        tokens, element_bytes, target
+    )
+    assert persist == expected
+    if persist:
+        # The persistent launch fires only where the split rule keeps one CTA per
+        # window and that grid exceeds one wave of the shipped launch bounds.
+        assert (
+            cake_concat_mla_k.cake_concat_mla_k_split_ctas(tokens, element_bytes, target)
+            == 1
+        )
+        window = cake_concat_mla_k.cake_concat_mla_k_tokens_per_cta(element_bytes)
+        assert -(-tokens // window) > persist
+
+
 def test_cake_concat_mla_k_modules_are_selected_per_target():
     from flashinfer.jit import cake_concat_mla_k
 
     spec = cake_concat_mla_k.get_cake_concat_mla_k_module_spec()
-    assert set(spec.modules) == {"sm_103a", "sm_107a"}
+    assert set(spec.modules) == {"shared", "split", "persist"}
     shared = spec.module_for("sm103a")
     assert spec.module_for("sm100f") is shared
     assert spec.module_for("sm103a", 6) is shared
+    assert spec.module_for("sm103a", 1, 424) is shared
     # The split module serves only launches with grid_y > 1 on the split arch.
     assert spec.module_for("sm107a") is shared
     assert spec.module_for("sm107a", 1) is shared
@@ -487,6 +528,14 @@ def test_cake_concat_mla_k_modules_are_selected_per_target():
     assert split.device_path != shared.device_path
     assert "gridDim.y" in split.device_path.read_text()
     assert "gridDim.y" not in shared.device_path.read_text()
+    # The persistent module serves only launches with persist_ctas > 0 on sm107a.
+    persist = spec.module_for("sm107a", 1, 424)
+    assert persist is not shared and persist is not split
+    assert persist.role == "persist" and split.role == "split" and shared.role == "shared"
+    assert persist.module_ident != split.module_ident
+    persist_text = persist.device_path.read_text()
+    assert "gridDim.x" in persist_text
+    assert "gridDim.y" not in persist_text and "blockIdx.y" not in persist_text
     assert cake_concat_mla_k.get_cake_concat_mla_k_uri("sm103a").startswith(
         shared.module_ident
     )
@@ -496,7 +545,37 @@ def test_cake_concat_mla_k_modules_are_selected_per_target():
     assert cake_concat_mla_k.get_cake_concat_mla_k_uri("sm107a", split=True).startswith(
         split.module_ident
     )
+    assert cake_concat_mla_k.get_cake_concat_mla_k_uri(
+        "sm107a", persist=True
+    ).startswith(persist.module_ident)
+    with pytest.raises(ValueError, match="split or persistent, not both"):
+        cake_concat_mla_k.get_cake_concat_mla_k_uri("sm107a", split=True, persist=True)
     assert spec.split_rule["module"].startswith("split module when split_ctas > 1")
+    assert spec.persist_rule["module"].startswith("persistent module when persist_ctas > 0")
+    assert spec.persist_rule["max_ctas"] == 424
+
+
+@pytest.mark.parametrize("num_tokens", [849, 1023, 1025])
+@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+def test_cake_concat_mla_k_persist_rows(num_tokens: int, dtype: torch.dtype):
+    """Token counts past one wave of 2-token windows: byte-exact on every target (persistent module on SM107)."""
+
+    _require_cake_concat_mla_k()
+    from flashinfer.jit import cake_concat_mla_k
+
+    target = cake_concat_mla_k.cake_concat_mla_k_target(torch.device("cuda"))
+    persist = cake_concat_mla_k.cake_concat_mla_k_persist_ctas(num_tokens, 1, target)
+    assert persist == (424 if target == "sm107a" else 0)
+    torch.manual_seed(17)
+    k, k_nope, k_rope = _make_cake_tensors(num_tokens, dtype, "contiguous", False)
+    k.fill_(0)
+    concat_mla_k(k, k_nope, k_rope, backend="cake")
+    expected = torch.empty_like(k)
+    expected[..., :QK_NOPE_HEAD_DIM] = k_nope
+    expected[..., QK_NOPE_HEAD_DIM:] = k_rope.expand(num_tokens, NUM_LOCAL_HEADS, -1)
+    assert torch.equal(
+        k.contiguous().view(torch.uint8), expected.contiguous().view(torch.uint8)
+    )
 
 
 def test_cake_concat_mla_k_rejects_unsupported_arch(monkeypatch):

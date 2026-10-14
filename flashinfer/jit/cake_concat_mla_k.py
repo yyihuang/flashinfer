@@ -21,10 +21,11 @@ from .core import (
 )
 
 CakeConcatMLAKTarget = Literal["sm100f", "sm103a", "sm107a"]
-# Two delivered modules of arch-neutral source text (vector copy, no tcgen05/TMA):
+# Three delivered modules of arch-neutral source text (vector copy, no tcgen05/TMA):
 # the sm_103a render is the one-CTA-per-token-window module that sm100f and
-# sm103a compile with their own flags; the sm_107a render is the slot-split
-# module (gridDim.y CTAs share one token window) that sm107a compiles.
+# sm103a compile with their own flags; the two sm_107a renders are the slot-split
+# module (gridDim.y CTAs share one token window) and the persistent-window module
+# (persist_ctas CTAs loop over the windows) that sm107a compiles.
 _TARGET_FLAGS = {
     "sm100f": sm100f_nvcc_flags,
     "sm103a": sm103a_nvcc_flags,
@@ -32,6 +33,7 @@ _TARGET_FLAGS = {
 }
 _SHARED_ARCH = "sm_103a"
 _SPLIT_ARCH = "sm_107a"
+_PERSIST_ARCH = "sm_107a"
 _TARGET_RENDER_ARCH: dict[str, str] = {
     "sm100f": _SHARED_ARCH,
     "sm103a": _SHARED_ARCH,
@@ -39,6 +41,14 @@ _TARGET_RENDER_ARCH: dict[str, str] = {
 }
 _RENDER_ARCHES = (_SHARED_ARCH, _SPLIT_ARCH)
 _SPLIT_TRACE_GLOBALS = {"SPLIT_CTAS": True}
+_PERSIST_TRACE_GLOBALS = {"PERSIST_CTAS": True}
+# Manifest order of the delivered modules: (arch, role, route.trace_globals, route.stage).
+_SHARED_ROLE, _SPLIT_ROLE, _PERSIST_ROLE = "shared", "split", "persist"
+_RENDER_MODULES: tuple[tuple[str, str, dict[str, bool] | None, str], ...] = (
+    (_SHARED_ARCH, _SHARED_ROLE, None, "vector_copy"),
+    (_SPLIT_ARCH, _SPLIT_ROLE, _SPLIT_TRACE_GLOBALS, "vector_copy"),
+    (_PERSIST_ARCH, _PERSIST_ROLE, _PERSIST_TRACE_GLOBALS, "vector_copy_persist"),
+)
 
 _MANIFEST_NAME = "cake_concat_mla_k_import_manifest.json"
 _SCHEMA = "cake.library_export.v5"
@@ -57,6 +67,15 @@ _EXPECTED_SPLIT_RULE: dict[str, Any] = {
         "split module when split_ctas > 1; else the one-CTA-per-window module "
         "(same machine code as the other arches)"
     ),
+}
+_EXPECTED_PERSIST_RULE: dict[str, Any] = {
+    "arches": [_PERSIST_ARCH],
+    "max_ctas": 424,
+    "rule": (
+        "split_ctas == 1 and grid_x > max_ctas -> persist_ctas = max_ctas "
+        "(grid = persist_ctas, 1, 1); 0 elsewhere"
+    ),
+    "module": "persistent module when persist_ctas > 0; else the split rule's module",
 }
 _EXPECTED_CONTRACT: dict[str, Any] = {
     "arches": list(_RENDER_ARCHES),
@@ -81,11 +100,17 @@ _EXPECTED_CONTRACT: dict[str, Any] = {
     ],
     # The host wrapper mirrors this launch rule: one CTA copies two 1-byte
     # tokens or one 2-byte token (six 16-byte vectors per thread either way);
-    # on the split module gridDim.y CTAs share one token window (split_rule).
+    # on the split module gridDim.y CTAs share one token window (split_rule);
+    # on the persistent module persist_ctas CTAs loop over the windows
+    # (persist_rule, checked first).
     "launch_policy": {
         "block": [512, 1, 1],
-        "grid": "ceil(tokens / tokens_per_cta[element_bytes]), split_ctas, 1",
+        "grid": (
+            "ceil(tokens / tokens_per_cta[element_bytes]), split_ctas, 1; "
+            "persist_ctas, 1, 1 when persist_ctas > 0"
+        ),
         "min_blocks_per_sm": 2,
+        "persist_rule": _EXPECTED_PERSIST_RULE,
         "split_rule": _EXPECTED_SPLIT_RULE,
         "tokens_per_cta": {"element_bytes_1": 2, "element_bytes_2": 1},
     },
@@ -97,8 +122,11 @@ _EXPECTED_CONTRACT: dict[str, Any] = {
     ],
     "public_api": "flashinfer.concat_ops.concat_mla_k",
     "signature": "concat_mla_k(k, k_nope, k_rope) -> None",
-    "stages": ["vector_copy"],
-    "stages_by_arch": {arch: ["vector_copy"] for arch in _RENDER_ARCHES},
+    "stages": ["vector_copy", "vector_copy_persist"],
+    "stages_by_arch": {
+        _SHARED_ARCH: ["vector_copy"],
+        _SPLIT_ARCH: ["vector_copy", "vector_copy_persist"],
+    },
 }
 _EXPECTED_BUILD_CONTRACT = {
     "architecture_source": "modules[].arch",
@@ -151,6 +179,7 @@ class CakeConcatMLAKModule:
     """Verified source closure and cache identity of one rendered module."""
 
     arch: str
+    role: str
     module_ident: str
     closure_sha256: str
     device_path: Path
@@ -159,20 +188,25 @@ class CakeConcatMLAKModule:
 
 @dataclass(frozen=True)
 class CakeConcatMLAKModuleSpec:
-    """Verified per-arch modules and launch rules of the exported package."""
+    """Verified modules (by role: shared / split / persist) and launch rules of the exported package."""
 
     modules: Mapping[str, CakeConcatMLAKModule]
     tokens_per_cta: Mapping[int, int]
     block: tuple[int, int, int]
     split_rule: Mapping[str, Any]
+    persist_rule: Mapping[str, Any]
 
     def module_for(
-        self, target: CakeConcatMLAKTarget, split_ctas: int = 1
+        self,
+        target: CakeConcatMLAKTarget,
+        split_ctas: int = 1,
+        persist_ctas: int = 0,
     ) -> CakeConcatMLAKModule:
-        """The module of one launch: the split module only when ``split_ctas > 1``.
+        """The module of one launch: persistent when ``persist_ctas > 0``, split when ``split_ctas > 1``.
 
-        At ``split_ctas == 1`` every target, the split arch included, runs the
-        one-CTA-per-window module (the manifest's ``split_rule.module``).
+        Both exist only on the sm_107a target.  Otherwise every target, the
+        sm_107a one included, runs the one-CTA-per-window module (the
+        manifest's ``split_rule.module`` / ``persist_rule.module``).
         """
         try:
             arch = _TARGET_RENDER_ARCH[target]
@@ -180,9 +214,11 @@ class CakeConcatMLAKModuleSpec:
             raise ValueError(
                 f"unsupported Cake concat MLA K target: {target}"
             ) from None
-        if arch == _SPLIT_ARCH and int(split_ctas) <= 1:
-            arch = _SHARED_ARCH
-        return self.modules[arch]
+        if arch == _PERSIST_ARCH and int(persist_ctas) > 0:
+            return self.modules[_PERSIST_ROLE]
+        if arch == _SPLIT_ARCH and int(split_ctas) > 1:
+            return self.modules[_SPLIT_ROLE]
+        return self.modules[_SHARED_ROLE]
 
 
 def _require_manifest(condition: bool, message: str) -> None:
@@ -279,9 +315,13 @@ def get_cake_concat_mla_k_module_spec() -> CakeConcatMLAKModuleSpec:
     )
 
     modules = payload.get("modules")
-    _require_manifest(isinstance(modules, list) and len(modules) == 2, "modules")
+    _require_manifest(
+        isinstance(modules, list) and len(modules) == len(_RENDER_MODULES), "modules"
+    )
     files = payload.get("files")
-    _require_manifest(isinstance(files, list) and len(files) == 4, "files")
+    _require_manifest(
+        isinstance(files, list) and len(files) == 2 * len(_RENDER_MODULES), "files"
+    )
     file_receipts = {
         item.get("path"): (item.get("kind"), item.get("sha256"), item.get("bytes"))
         for item in files
@@ -291,19 +331,20 @@ def get_cake_concat_mla_k_module_spec() -> CakeConcatMLAKModuleSpec:
     expected_receipts: dict[str, tuple[Any, Any, Any]] = {}
     for index, module in enumerate(modules):
         label = f"modules[{index}]"
+        expected_arch, role, trace_globals, stage = _RENDER_MODULES[index]
         _require_manifest(isinstance(module, dict), f"{label} must be an object")
         arch = module.get("arch")
         _require_manifest(
-            arch == _RENDER_ARCHES[index],
-            f"{label}.arch must be {_RENDER_ARCHES[index]}",
+            arch == expected_arch,
+            f"{label}.arch must be {expected_arch}",
         )
         assert isinstance(arch, str)
-        verified[arch] = _verify_module(
-            csrc_dir, module, label, arch, expected_receipts
+        verified[role] = _verify_module(
+            csrc_dir, module, label, arch, role, trace_globals, stage, expected_receipts
         )
     _require_manifest(
         file_receipts == expected_receipts,
-        "files must match the complete closures of both modules",
+        "files must match the complete closures of the three modules",
     )
     tokens_per_cta = _EXPECTED_CONTRACT["launch_policy"]["tokens_per_cta"]
     block = _EXPECTED_LAUNCH["block"]
@@ -315,6 +356,7 @@ def get_cake_concat_mla_k_module_spec() -> CakeConcatMLAKModuleSpec:
         },
         block=(int(block[0]), int(block[1]), int(block[2])),
         split_rule=dict(_EXPECTED_SPLIT_RULE),
+        persist_rule=dict(_EXPECTED_PERSIST_RULE),
     )
 
 
@@ -323,6 +365,9 @@ def _verify_module(
     module: dict,
     label: str,
     arch: str,
+    role: str,
+    trace_globals: dict[str, bool] | None,
+    stage: str,
     expected_receipts: dict[str, tuple[Any, Any, Any]],
 ) -> CakeConcatMLAKModule:
     name = module.get("name")
@@ -358,13 +403,12 @@ def _verify_module(
     )
     _require_manifest(module.get("launch") == _EXPECTED_LAUNCH, f"{label}.launch")
     route = module.get("route")
-    expected_trace_globals = _SPLIT_TRACE_GLOBALS if arch == _SPLIT_ARCH else None
     _require_manifest(
         isinstance(route, dict)
         and route.get("template") == _EXPECTED_ROUTE_TEMPLATE
-        and route.get("stage") == "vector_copy"
+        and route.get("stage") == stage
         and route.get("specialization") == {}
-        and route.get("trace_globals") == expected_trace_globals,
+        and route.get("trace_globals") == trace_globals,
         f"{label}.route",
     )
     source_build = module.get("source_build")
@@ -427,6 +471,7 @@ def _verify_module(
     )
     return CakeConcatMLAKModule(
         arch=arch,
+        role=role,
         module_ident=module_ident,
         closure_sha256=closure_sha256,
         device_path=device_path,
@@ -473,6 +518,31 @@ def cake_concat_mla_k_split_ctas(
     return best
 
 
+def cake_concat_mla_k_persist_ctas(
+    tokens: int, element_bytes: int, target: CakeConcatMLAKTarget
+) -> int:
+    """``gridDim.x`` of a persistent launch, or 0 (the manifest's ``launch_policy.persist_rule``).
+
+    0 on every target whose module is the one-CTA-per-window or the split
+    render.  On the persistent module's target, when the split rule keeps one
+    CTA per window and the one-CTA-per-window grid exceeds ``max_ctas``,
+    ``max_ctas`` CTAs loop over the token windows (``gridDim.y == 1``).
+    """
+
+    spec = get_cake_concat_mla_k_module_spec()
+    if target not in _TARGET_RENDER_ARCH:
+        raise ValueError(f"unsupported Cake concat MLA K target: {target}")
+    rule = spec.persist_rule
+    if _TARGET_RENDER_ARCH[target] not in rule["arches"] or tokens <= 0:
+        return 0
+    if cake_concat_mla_k_split_ctas(tokens, element_bytes, target) != 1:
+        return 0
+    window = cake_concat_mla_k_tokens_per_cta(element_bytes)
+    grid_x = (int(tokens) + window - 1) // window
+    max_ctas = int(rule["max_ctas"])
+    return max_ctas if grid_x > max_ctas else 0
+
+
 def cake_concat_mla_k_target(device) -> CakeConcatMLAKTarget:
     """Select the physical JIT target for one supported Blackwell device."""
 
@@ -504,29 +574,40 @@ def cake_concat_mla_k_target(device) -> CakeConcatMLAKTarget:
     )
 
 
-def get_cake_concat_mla_k_uri(target: CakeConcatMLAKTarget, split: bool = False) -> str:
+def _module_of(
+    target: CakeConcatMLAKTarget, split: bool, persist: bool
+) -> CakeConcatMLAKModule:
     if target not in _TARGET_FLAGS:
         raise ValueError(f"unsupported Cake concat MLA K target: {target}")
-    module = get_cake_concat_mla_k_module_spec().module_for(target, 2 if split else 1)
+    if split and persist:
+        raise ValueError("a Cake concat MLA K launch is split or persistent, not both")
+    return get_cake_concat_mla_k_module_spec().module_for(
+        target, 2 if split else 1, 1 if persist else 0
+    )
+
+
+def get_cake_concat_mla_k_uri(
+    target: CakeConcatMLAKTarget, split: bool = False, persist: bool = False
+) -> str:
+    module = _module_of(target, split, persist)
     return f"{module.module_ident}_{target}_{module.closure_sha256}"
 
 
 @functools.cache
 def gen_cake_concat_mla_k_module(
-    target: CakeConcatMLAKTarget, split: bool = False
+    target: CakeConcatMLAKTarget, split: bool = False, persist: bool = False
 ) -> JitSpec:
     """Generate one target-specific JIT module from separate source units.
 
-    ``split`` selects the split module (launches with ``grid_y > 1``); it is
-    only distinct from the shared module on the split arch.
+    ``split`` selects the split module (launches with ``grid_y > 1``) and
+    ``persist`` the persistent module (launches with ``persist_ctas`` CTAs);
+    both are only distinct from the shared module on the sm_107a target.
     """
 
-    if target not in _TARGET_FLAGS:
-        raise ValueError(f"unsupported Cake concat MLA K target: {target}")
-    module = get_cake_concat_mla_k_module_spec().module_for(target, 2 if split else 1)
+    module = _module_of(target, split, persist)
     csrc_dir = _get_csrc_dir()
     jit_spec = gen_jit_spec(
-        name=get_cake_concat_mla_k_uri(target, split),
+        name=get_cake_concat_mla_k_uri(target, split, persist),
         sources=[module.device_path, module.binding_path],
         extra_cuda_cflags=[*_TARGET_FLAGS[target]],
         extra_include_paths=[csrc_dir, csrc_dir.parent, _get_include_dir()],
@@ -537,20 +618,30 @@ def gen_cake_concat_mla_k_module(
 
 
 @functools.cache
-def load_cake_concat_mla_k_module(target: CakeConcatMLAKTarget, split: bool = False):
-    module = gen_cake_concat_mla_k_module(target, split).build_and_load()
-    logger.info("Loaded Cake concat MLA K %s module (split=%s)", target, split)
+def load_cake_concat_mla_k_module(
+    target: CakeConcatMLAKTarget, split: bool = False, persist: bool = False
+):
+    module = gen_cake_concat_mla_k_module(target, split, persist).build_and_load()
+    logger.info(
+        "Loaded Cake concat MLA K %s module (split=%s, persist=%s)",
+        target,
+        split,
+        persist,
+    )
     return module
 
 
-def get_cake_concat_mla_k_module(device, split: bool = False):
-    return load_cake_concat_mla_k_module(cake_concat_mla_k_target(device), split)
+def get_cake_concat_mla_k_module(device, split: bool = False, persist: bool = False):
+    return load_cake_concat_mla_k_module(
+        cake_concat_mla_k_target(device), split, persist
+    )
 
 
 __all__ = [
     "CakeConcatMLAKTarget",
     "CakeConcatMLAKModule",
     "CakeConcatMLAKModuleSpec",
+    "cake_concat_mla_k_persist_ctas",
     "cake_concat_mla_k_split_ctas",
     "cake_concat_mla_k_target",
     "cake_concat_mla_k_tokens_per_cta",
