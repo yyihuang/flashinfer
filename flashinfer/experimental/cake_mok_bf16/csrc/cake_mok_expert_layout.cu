@@ -61,6 +61,7 @@ kernel_cake_mok_expert_layout(int* __restrict__ counts, int* __restrict__ schedu
     const int cta_rank = 0;
 
     // === Task calls (dependency order) ===
+    int header = (3 * experts + 3) / 4 * 4;
     if (tid == 0) {
         int offset = 0;
         #pragma unroll 1
@@ -88,9 +89,16 @@ kernel_cake_mok_expert_layout(int* __restrict__ counts, int* __restrict__ schedu
             real = real - 1;
         }
         layout[2 * experts + expert_1] = real;
+        int scheduled = layout[expert_1];
+        int first_block = start / 256;
+        int end_blocks = first_block + scheduled / 256;
         #pragma unroll 1
-        for (int block = start / 256; block < (start + layout[expert_1]) / 256; block++) {
-            layout[3 * experts + block] = expert_1;
+        for (int block = first_block; block < (start + scheduled) / 256; block++) {
+            int entry = header + 4 * block;
+            layout[entry] = expert_1;
+            layout[entry + 1] = first_block;
+            layout[entry + 2] = end_blocks;
+            layout[entry + 3] = 0;
         }
     }
 }

@@ -80,19 +80,26 @@ def swiglu_backward_tasks(tiles):
 
 
 def expert_layout(module, counts, capacity, schedule_rank):
-    """Device expert layout ``[counts | row offsets | real rows | block expert]``.
+    """Device expert layout ``[counts | row offsets | real rows | pad | 16-byte entry per 256-row block]``.
 
     ``module`` is the prepared ``expert_layout`` kernel. ``capacity`` bounds
     the routed rows (a multiple of 256); ``schedule_rank`` marks padding rows
-    with a negative peer. Blocks past the scheduled rows are left unwritten;
-    the fused kernels never read them.
+    with a negative peer. The table holds
+    ``((3 * experts + 3) // 4) * 4 + 4 * (capacity // 256)`` int32 words: the
+    three per-expert tables padded to a 16-byte multiple, then one 16-byte
+    entry ``{expert, first block, end block, 0}`` per 256-row block, so a
+    routed GEMM task resolves its expert and rows with one 128-bit load.
+    Blocks past the scheduled rows are left unwritten; the fused kernels
+    never read them.
     """
     import torch
     import tvm_ffi
 
     experts = counts.numel()
     layout = torch.empty(
-        3 * experts + capacity // 256, dtype=torch.int32, device=counts.device
+        ((3 * experts + 3) // 4) * 4 + 4 * (capacity // 256),
+        dtype=torch.int32,
+        device=counts.device,
     )
     with tvm_ffi.use_torch_stream():
         module.launch(

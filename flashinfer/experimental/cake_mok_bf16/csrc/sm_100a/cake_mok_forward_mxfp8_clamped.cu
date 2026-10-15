@@ -3097,6 +3097,67 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
             }
         }
         int current_local = result;
+        int enabled = 0;
+        int local_task = 0;
+        int macro_1 = 0;
+        int mini_2 = 0;
+        int col_blocks_3 = (intermediate + 256 - 1) / 256;
+        if (cluster >= 0 && cluster < true_clusters) {
+            int compute = cluster - comm_clusters;
+            if (compute >= shared_tasks) {
+                int ordered_mini = (compute - shared_tasks) / mini_tasks;
+                int task_2 = (compute - shared_tasks) % mini_tasks;
+                int macro_0 = macros - 1;
+                int mini_1_1 = ordered_mini;
+                if (ordered_mini >= last_minis) {
+                    macro_0 = macros - 2 - (ordered_mini - last_minis) / minis_per_macro;
+                    mini_1_1 = (ordered_mini - last_minis) % minis_per_macro;
+                }
+                macro_1 = macro_0;
+                mini_2 = mini_1_1;
+                if (task_2 < mini_gate) {
+                    enabled = 1;
+                    local_task = task_2;
+                    if (task_2 >= gate_tiles) {
+                        local_task = task_2 - gate_tiles;
+                    }
+                } else if (task_2 >= mini_gate + mini_swiglu) {
+                    enabled = 1;
+                    local_task = task_2 - mini_gate - mini_swiglu;
+                    col_blocks_3 = (hidden + 256 - 1) / 256;
+                }
+            }
+        }
+        int expert = 0;
+        int offset = 0;
+        int end = 0;
+        if (enabled != 0) {
+            int first_block = (macro_1 * (macro_size / mini_size) + mini_2) * (mini_size / 256);
+            int _min_25 = ((first_block + mini_size / 256) < (tokens / 256) ? (first_block + mini_size / 256) : (tokens / 256));
+            int end_block = _min_25;
+            int block = first_block + local_task / col_blocks_3;
+            if (block < end_block) {
+                int _vec_load_0[4];
+                {
+                    const int4* _ivptr_18 = reinterpret_cast<const int4*>(counts + (3 * experts + 3) / 4 * 4 + 4 * block);
+                    int4 _ivld_18;
+                    _ivld_18 = *_ivptr_18;
+                    _vec_load_0[0 + 0] = _ivld_18.x;
+                    _vec_load_0[0 + 1] = _ivld_18.y;
+                    _vec_load_0[0 + 2] = _ivld_18.z;
+                    _vec_load_0[0 + 3] = _ivld_18.w;
+                }
+                int expert_0 = _vec_load_0[0];
+                int offset_1 = _vec_load_0[1];
+                int end_2 = _vec_load_0[2];
+                expert = expert_0;
+                offset = offset_1;
+                end = end_2;
+            }
+        }
+        int layout_expert = expert;
+        int layout_offset = offset;
+        int layout_end = end;
         while (cluster >= 0 && cluster < true_clusters) {
             if (tid / 32 == 5) {
                 if (warp == 5) {
@@ -3114,34 +3175,34 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                     }
                 }
             }
-            int compute = cluster - comm_clusters;
-            if (compute < shared_fused) {
-                int col_blocks_3 = (intermediate + 256 - 1) / 256;
+            int compute_1 = cluster - comm_clusters;
+            if (compute_1 < shared_fused) {
+                int col_blocks_0 = (intermediate + 256 - 1) / 256;
                 int x = -1;
                 int y = -1;
-                int expert = -1;
+                int expert_1 = -1;
                 int k_start = 0;
                 int k_end = 0;
                 int first = 0;
                 int row_blocks = local_tokens / 256;
-                if (compute < row_blocks * col_blocks_3) {
-                    int supergroup = compute / (row_blocks * 8);
-                    int full_cols = col_blocks_3 / 8 * 8;
+                if (compute_1 < row_blocks * col_blocks_0) {
+                    int supergroup = compute_1 / (row_blocks * 8);
+                    int full_cols = col_blocks_0 / 8 * 8;
                     int row_4 = 0;
                     int col_32 = 0;
-                    if (compute < row_blocks * full_cols) {
-                        row_4 = compute % (row_blocks * 8) / 8;
-                        col_32 = supergroup * 8 + compute % 8;
+                    if (compute_1 < row_blocks * full_cols) {
+                        row_4 = compute_1 % (row_blocks * 8) / 8;
+                        col_32 = supergroup * 8 + compute_1 % 8;
                     } else {
-                        row_4 = (compute - row_blocks * full_cols) / (col_blocks_3 - full_cols);
-                        col_32 = full_cols + (compute - row_blocks * full_cols) % (col_blocks_3 - full_cols);
+                        row_4 = (compute_1 - row_blocks * full_cols) / (col_blocks_0 - full_cols);
+                        col_32 = full_cols + (compute_1 - row_blocks * full_cols) % (col_blocks_0 - full_cols);
                     }
                     if ((supergroup & 1) != 0) {
                         row_4 = row_blocks - row_4 - 1;
                     }
                     x = row_4;
                     y = col_32;
-                    expert = 0;
+                    expert_1 = 0;
                 }
                 unsigned int phase_bits_2 = gemm_bits;
                 int has_hi = 0;
@@ -3149,15 +3210,15 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                 int global_mini = 0;
                 int macro_rows_1 = 0;
                 int iterations = hidden / 64;
-                if (expert < 0) {
+                if (expert_1 < 0) {
                     if (tid == 0) {
                     }
                 } else if (tid / 32 == 7) {
                     if (warp == 7) {
                         if (elect_sync()) {
                             {
-                                int _min_25 = ((mini_size) < (tokens - global_mini * mini_size) ? (mini_size) : (tokens - global_mini * mini_size));
-                                int _max_1 = ((0) > (_min_25) ? (0) : (_min_25));
+                                int _min_26 = ((mini_size) < (tokens - global_mini * mini_size) ? (mini_size) : (tokens - global_mini * mini_size));
+                                int _max_1 = ((0) > (_min_26) ? (0) : (_min_26));
                                 int mini_rows_3 = _max_1;
                                 int required_3 = (mini_rows_3 + 127) / 128 * ((hidden + 511) / 512);
                             }
@@ -3185,12 +3246,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 asm volatile(
                                     "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                     " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-                                    :: "r"(b_smem_addr + (unsigned int)(ring * 16384)), "l"((&wg_shared)), "r"(0), "r"(y * 256 + cta_rank_0 * 128), "r"(idx), "r"(expert), "r"(0),
+                                    :: "r"(b_smem_addr + (unsigned int)(ring * 16384)), "l"((&wg_shared)), "r"(0), "r"(y * 256 + cta_rank_0 * 128), "r"(idx), "r"(expert_1), "r"(0),
                                        "r"(((gemm_arrived_addr + (ring) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(1 << cta_rank_0)) : "memory");
                                 asm volatile(
                                     "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                     " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-                                    :: "r"(b_hi_addr + (unsigned int)(ring * 16384)), "l"((&wu_shared)), "r"(0), "r"(y * 256 + cta_rank_0 * 128), "r"(idx), "r"(expert), "r"(0),
+                                    :: "r"(b_hi_addr + (unsigned int)(ring * 16384)), "l"((&wu_shared)), "r"(0), "r"(y * 256 + cta_rank_0 * 128), "r"(idx), "r"(expert_1), "r"(0),
                                        "r"(((gemm_arrived_addr + (ring) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(1 << cta_rank_0)) : "memory");
                                 phase_bits_2 = phase_bits_2 ^ (unsigned int)(1 << 16 + ring);
                                 ring = (ring + 1) % 4;
@@ -3481,16 +3542,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y = _cvt_f32_0.y;
                         float up_x = _cvt_f32_1.x;
                         float up_y = _cvt_f32_1.y;
-                        float _min_26 = fminf(gate_x, swiglu_limit);
-                        gate_x = _min_26;
-                        float _min_27 = fminf(gate_y, swiglu_limit);
-                        gate_y = _min_27;
+                        float _min_27 = fminf(gate_x, swiglu_limit);
+                        gate_x = _min_27;
+                        float _min_28 = fminf(gate_y, swiglu_limit);
+                        gate_y = _min_28;
                         float _fmax_24 = fmaxf(up_x, -swiglu_limit);
-                        float _min_28 = fminf(_fmax_24, swiglu_limit);
-                        up_x = _min_28;
+                        float _min_29 = fminf(_fmax_24, swiglu_limit);
+                        up_x = _min_29;
                         float _fmax_25 = fmaxf(up_y, -swiglu_limit);
-                        float _min_29 = fminf(_fmax_25, swiglu_limit);
-                        up_y = _min_29;
+                        float _min_30 = fminf(_fmax_25, swiglu_limit);
+                        up_y = _min_30;
                         float _exp_0 = expf(gate_x * -1.0f);
                         float denominator_x = _exp_0 + 1.0f;
                         float _exp_1 = expf(gate_y * -1.0f);
@@ -3505,16 +3566,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_4 = _cvt_f32_2.y;
                         float up_x_5 = _cvt_f32_3.x;
                         float up_y_6 = _cvt_f32_3.y;
-                        float _min_30 = fminf(gate_x_3, swiglu_limit);
-                        gate_x_3 = _min_30;
-                        float _min_31 = fminf(gate_y_4, swiglu_limit);
-                        gate_y_4 = _min_31;
+                        float _min_31 = fminf(gate_x_3, swiglu_limit);
+                        gate_x_3 = _min_31;
+                        float _min_32 = fminf(gate_y_4, swiglu_limit);
+                        gate_y_4 = _min_32;
                         float _fmax_26 = fmaxf(up_x_5, -swiglu_limit);
-                        float _min_32 = fminf(_fmax_26, swiglu_limit);
-                        up_x_5 = _min_32;
+                        float _min_33 = fminf(_fmax_26, swiglu_limit);
+                        up_x_5 = _min_33;
                         float _fmax_27 = fmaxf(up_y_6, -swiglu_limit);
-                        float _min_33 = fminf(_fmax_27, swiglu_limit);
-                        up_y_6 = _min_33;
+                        float _min_34 = fminf(_fmax_27, swiglu_limit);
+                        up_y_6 = _min_34;
                         float _exp_2 = expf(gate_x_3 * -1.0f);
                         float denominator_x_7 = _exp_2 + 1.0f;
                         float _exp_3 = expf(gate_y_4 * -1.0f);
@@ -3529,16 +3590,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_12 = _cvt_f32_4.y;
                         float up_x_13 = _cvt_f32_5.x;
                         float up_y_14 = _cvt_f32_5.y;
-                        float _min_34 = fminf(gate_x_11, swiglu_limit);
-                        gate_x_11 = _min_34;
-                        float _min_35 = fminf(gate_y_12, swiglu_limit);
-                        gate_y_12 = _min_35;
+                        float _min_35 = fminf(gate_x_11, swiglu_limit);
+                        gate_x_11 = _min_35;
+                        float _min_36 = fminf(gate_y_12, swiglu_limit);
+                        gate_y_12 = _min_36;
                         float _fmax_28 = fmaxf(up_x_13, -swiglu_limit);
-                        float _min_36 = fminf(_fmax_28, swiglu_limit);
-                        up_x_13 = _min_36;
+                        float _min_37 = fminf(_fmax_28, swiglu_limit);
+                        up_x_13 = _min_37;
                         float _fmax_29 = fmaxf(up_y_14, -swiglu_limit);
-                        float _min_37 = fminf(_fmax_29, swiglu_limit);
-                        up_y_14 = _min_37;
+                        float _min_38 = fminf(_fmax_29, swiglu_limit);
+                        up_y_14 = _min_38;
                         float _exp_4 = expf(gate_x_11 * -1.0f);
                         float denominator_x_15 = _exp_4 + 1.0f;
                         float _exp_5 = expf(gate_y_12 * -1.0f);
@@ -3553,16 +3614,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_20 = _cvt_f32_6.y;
                         float up_x_21 = _cvt_f32_7.x;
                         float up_y_22 = _cvt_f32_7.y;
-                        float _min_38 = fminf(gate_x_19, swiglu_limit);
-                        gate_x_19 = _min_38;
-                        float _min_39 = fminf(gate_y_20, swiglu_limit);
-                        gate_y_20 = _min_39;
+                        float _min_39 = fminf(gate_x_19, swiglu_limit);
+                        gate_x_19 = _min_39;
+                        float _min_40 = fminf(gate_y_20, swiglu_limit);
+                        gate_y_20 = _min_40;
                         float _fmax_30 = fmaxf(up_x_21, -swiglu_limit);
-                        float _min_40 = fminf(_fmax_30, swiglu_limit);
-                        up_x_21 = _min_40;
+                        float _min_41 = fminf(_fmax_30, swiglu_limit);
+                        up_x_21 = _min_41;
                         float _fmax_31 = fmaxf(up_y_22, -swiglu_limit);
-                        float _min_41 = fminf(_fmax_31, swiglu_limit);
-                        up_y_22 = _min_41;
+                        float _min_42 = fminf(_fmax_31, swiglu_limit);
+                        up_y_22 = _min_42;
                         float _exp_6 = expf(gate_x_19 * -1.0f);
                         float denominator_x_23 = _exp_6 + 1.0f;
                         float _exp_7 = expf(gate_y_20 * -1.0f);
@@ -3577,16 +3638,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_28 = _cvt_f32_8.y;
                         float up_x_29 = _cvt_f32_9.x;
                         float up_y_30 = _cvt_f32_9.y;
-                        float _min_42 = fminf(gate_x_27, swiglu_limit);
-                        gate_x_27 = _min_42;
-                        float _min_43 = fminf(gate_y_28, swiglu_limit);
-                        gate_y_28 = _min_43;
+                        float _min_43 = fminf(gate_x_27, swiglu_limit);
+                        gate_x_27 = _min_43;
+                        float _min_44 = fminf(gate_y_28, swiglu_limit);
+                        gate_y_28 = _min_44;
                         float _fmax_32 = fmaxf(up_x_29, -swiglu_limit);
-                        float _min_44 = fminf(_fmax_32, swiglu_limit);
-                        up_x_29 = _min_44;
+                        float _min_45 = fminf(_fmax_32, swiglu_limit);
+                        up_x_29 = _min_45;
                         float _fmax_33 = fmaxf(up_y_30, -swiglu_limit);
-                        float _min_45 = fminf(_fmax_33, swiglu_limit);
-                        up_y_30 = _min_45;
+                        float _min_46 = fminf(_fmax_33, swiglu_limit);
+                        up_y_30 = _min_46;
                         float _exp_8 = expf(gate_x_27 * -1.0f);
                         float denominator_x_31 = _exp_8 + 1.0f;
                         float _exp_9 = expf(gate_y_28 * -1.0f);
@@ -3601,16 +3662,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_36 = _cvt_f32_10.y;
                         float up_x_37 = _cvt_f32_11.x;
                         float up_y_38 = _cvt_f32_11.y;
-                        float _min_46 = fminf(gate_x_35, swiglu_limit);
-                        gate_x_35 = _min_46;
-                        float _min_47 = fminf(gate_y_36, swiglu_limit);
-                        gate_y_36 = _min_47;
+                        float _min_47 = fminf(gate_x_35, swiglu_limit);
+                        gate_x_35 = _min_47;
+                        float _min_48 = fminf(gate_y_36, swiglu_limit);
+                        gate_y_36 = _min_48;
                         float _fmax_34 = fmaxf(up_x_37, -swiglu_limit);
-                        float _min_48 = fminf(_fmax_34, swiglu_limit);
-                        up_x_37 = _min_48;
+                        float _min_49 = fminf(_fmax_34, swiglu_limit);
+                        up_x_37 = _min_49;
                         float _fmax_35 = fmaxf(up_y_38, -swiglu_limit);
-                        float _min_49 = fminf(_fmax_35, swiglu_limit);
-                        up_y_38 = _min_49;
+                        float _min_50 = fminf(_fmax_35, swiglu_limit);
+                        up_y_38 = _min_50;
                         float _exp_10 = expf(gate_x_35 * -1.0f);
                         float denominator_x_39 = _exp_10 + 1.0f;
                         float _exp_11 = expf(gate_y_36 * -1.0f);
@@ -3625,16 +3686,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_44 = _cvt_f32_12.y;
                         float up_x_45 = _cvt_f32_13.x;
                         float up_y_46 = _cvt_f32_13.y;
-                        float _min_50 = fminf(gate_x_43, swiglu_limit);
-                        gate_x_43 = _min_50;
-                        float _min_51 = fminf(gate_y_44, swiglu_limit);
-                        gate_y_44 = _min_51;
+                        float _min_51 = fminf(gate_x_43, swiglu_limit);
+                        gate_x_43 = _min_51;
+                        float _min_52 = fminf(gate_y_44, swiglu_limit);
+                        gate_y_44 = _min_52;
                         float _fmax_36 = fmaxf(up_x_45, -swiglu_limit);
-                        float _min_52 = fminf(_fmax_36, swiglu_limit);
-                        up_x_45 = _min_52;
+                        float _min_53 = fminf(_fmax_36, swiglu_limit);
+                        up_x_45 = _min_53;
                         float _fmax_37 = fmaxf(up_y_46, -swiglu_limit);
-                        float _min_53 = fminf(_fmax_37, swiglu_limit);
-                        up_y_46 = _min_53;
+                        float _min_54 = fminf(_fmax_37, swiglu_limit);
+                        up_y_46 = _min_54;
                         float _exp_12 = expf(gate_x_43 * -1.0f);
                         float denominator_x_47 = _exp_12 + 1.0f;
                         float _exp_13 = expf(gate_y_44 * -1.0f);
@@ -3649,16 +3710,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_52 = _cvt_f32_14.y;
                         float up_x_53 = _cvt_f32_15.x;
                         float up_y_54 = _cvt_f32_15.y;
-                        float _min_54 = fminf(gate_x_51, swiglu_limit);
-                        gate_x_51 = _min_54;
-                        float _min_55 = fminf(gate_y_52, swiglu_limit);
-                        gate_y_52 = _min_55;
+                        float _min_55 = fminf(gate_x_51, swiglu_limit);
+                        gate_x_51 = _min_55;
+                        float _min_56 = fminf(gate_y_52, swiglu_limit);
+                        gate_y_52 = _min_56;
                         float _fmax_38 = fmaxf(up_x_53, -swiglu_limit);
-                        float _min_56 = fminf(_fmax_38, swiglu_limit);
-                        up_x_53 = _min_56;
+                        float _min_57 = fminf(_fmax_38, swiglu_limit);
+                        up_x_53 = _min_57;
                         float _fmax_39 = fmaxf(up_y_54, -swiglu_limit);
-                        float _min_57 = fminf(_fmax_39, swiglu_limit);
-                        up_y_54 = _min_57;
+                        float _min_58 = fminf(_fmax_39, swiglu_limit);
+                        up_y_54 = _min_58;
                         float _exp_14 = expf(gate_x_51 * -1.0f);
                         float denominator_x_55 = _exp_14 + 1.0f;
                         float _exp_15 = expf(gate_y_52 * -1.0f);
@@ -3673,16 +3734,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_60 = _cvt_f32_16.y;
                         float up_x_61 = _cvt_f32_17.x;
                         float up_y_62 = _cvt_f32_17.y;
-                        float _min_58 = fminf(gate_x_59, swiglu_limit);
-                        gate_x_59 = _min_58;
-                        float _min_59 = fminf(gate_y_60, swiglu_limit);
-                        gate_y_60 = _min_59;
+                        float _min_59 = fminf(gate_x_59, swiglu_limit);
+                        gate_x_59 = _min_59;
+                        float _min_60 = fminf(gate_y_60, swiglu_limit);
+                        gate_y_60 = _min_60;
                         float _fmax_40 = fmaxf(up_x_61, -swiglu_limit);
-                        float _min_60 = fminf(_fmax_40, swiglu_limit);
-                        up_x_61 = _min_60;
+                        float _min_61 = fminf(_fmax_40, swiglu_limit);
+                        up_x_61 = _min_61;
                         float _fmax_41 = fmaxf(up_y_62, -swiglu_limit);
-                        float _min_61 = fminf(_fmax_41, swiglu_limit);
-                        up_y_62 = _min_61;
+                        float _min_62 = fminf(_fmax_41, swiglu_limit);
+                        up_y_62 = _min_62;
                         float _exp_16 = expf(gate_x_59 * -1.0f);
                         float denominator_x_63 = _exp_16 + 1.0f;
                         float _exp_17 = expf(gate_y_60 * -1.0f);
@@ -3697,16 +3758,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_68 = _cvt_f32_18.y;
                         float up_x_69 = _cvt_f32_19.x;
                         float up_y_70 = _cvt_f32_19.y;
-                        float _min_62 = fminf(gate_x_67, swiglu_limit);
-                        gate_x_67 = _min_62;
-                        float _min_63 = fminf(gate_y_68, swiglu_limit);
-                        gate_y_68 = _min_63;
+                        float _min_63 = fminf(gate_x_67, swiglu_limit);
+                        gate_x_67 = _min_63;
+                        float _min_64 = fminf(gate_y_68, swiglu_limit);
+                        gate_y_68 = _min_64;
                         float _fmax_42 = fmaxf(up_x_69, -swiglu_limit);
-                        float _min_64 = fminf(_fmax_42, swiglu_limit);
-                        up_x_69 = _min_64;
+                        float _min_65 = fminf(_fmax_42, swiglu_limit);
+                        up_x_69 = _min_65;
                         float _fmax_43 = fmaxf(up_y_70, -swiglu_limit);
-                        float _min_65 = fminf(_fmax_43, swiglu_limit);
-                        up_y_70 = _min_65;
+                        float _min_66 = fminf(_fmax_43, swiglu_limit);
+                        up_y_70 = _min_66;
                         float _exp_18 = expf(gate_x_67 * -1.0f);
                         float denominator_x_71 = _exp_18 + 1.0f;
                         float _exp_19 = expf(gate_y_68 * -1.0f);
@@ -3721,16 +3782,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_76 = _cvt_f32_20.y;
                         float up_x_77 = _cvt_f32_21.x;
                         float up_y_78 = _cvt_f32_21.y;
-                        float _min_66 = fminf(gate_x_75, swiglu_limit);
-                        gate_x_75 = _min_66;
-                        float _min_67 = fminf(gate_y_76, swiglu_limit);
-                        gate_y_76 = _min_67;
+                        float _min_67 = fminf(gate_x_75, swiglu_limit);
+                        gate_x_75 = _min_67;
+                        float _min_68 = fminf(gate_y_76, swiglu_limit);
+                        gate_y_76 = _min_68;
                         float _fmax_44 = fmaxf(up_x_77, -swiglu_limit);
-                        float _min_68 = fminf(_fmax_44, swiglu_limit);
-                        up_x_77 = _min_68;
+                        float _min_69 = fminf(_fmax_44, swiglu_limit);
+                        up_x_77 = _min_69;
                         float _fmax_45 = fmaxf(up_y_78, -swiglu_limit);
-                        float _min_69 = fminf(_fmax_45, swiglu_limit);
-                        up_y_78 = _min_69;
+                        float _min_70 = fminf(_fmax_45, swiglu_limit);
+                        up_y_78 = _min_70;
                         float _exp_20 = expf(gate_x_75 * -1.0f);
                         float denominator_x_79 = _exp_20 + 1.0f;
                         float _exp_21 = expf(gate_y_76 * -1.0f);
@@ -3745,16 +3806,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_84 = _cvt_f32_22.y;
                         float up_x_85 = _cvt_f32_23.x;
                         float up_y_86 = _cvt_f32_23.y;
-                        float _min_70 = fminf(gate_x_83, swiglu_limit);
-                        gate_x_83 = _min_70;
-                        float _min_71 = fminf(gate_y_84, swiglu_limit);
-                        gate_y_84 = _min_71;
+                        float _min_71 = fminf(gate_x_83, swiglu_limit);
+                        gate_x_83 = _min_71;
+                        float _min_72 = fminf(gate_y_84, swiglu_limit);
+                        gate_y_84 = _min_72;
                         float _fmax_46 = fmaxf(up_x_85, -swiglu_limit);
-                        float _min_72 = fminf(_fmax_46, swiglu_limit);
-                        up_x_85 = _min_72;
+                        float _min_73 = fminf(_fmax_46, swiglu_limit);
+                        up_x_85 = _min_73;
                         float _fmax_47 = fmaxf(up_y_86, -swiglu_limit);
-                        float _min_73 = fminf(_fmax_47, swiglu_limit);
-                        up_y_86 = _min_73;
+                        float _min_74 = fminf(_fmax_47, swiglu_limit);
+                        up_y_86 = _min_74;
                         float _exp_22 = expf(gate_x_83 * -1.0f);
                         float denominator_x_87 = _exp_22 + 1.0f;
                         float _exp_23 = expf(gate_y_84 * -1.0f);
@@ -3769,16 +3830,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_92 = _cvt_f32_24.y;
                         float up_x_93 = _cvt_f32_25.x;
                         float up_y_94 = _cvt_f32_25.y;
-                        float _min_74 = fminf(gate_x_91, swiglu_limit);
-                        gate_x_91 = _min_74;
-                        float _min_75 = fminf(gate_y_92, swiglu_limit);
-                        gate_y_92 = _min_75;
+                        float _min_75 = fminf(gate_x_91, swiglu_limit);
+                        gate_x_91 = _min_75;
+                        float _min_76 = fminf(gate_y_92, swiglu_limit);
+                        gate_y_92 = _min_76;
                         float _fmax_48 = fmaxf(up_x_93, -swiglu_limit);
-                        float _min_76 = fminf(_fmax_48, swiglu_limit);
-                        up_x_93 = _min_76;
+                        float _min_77 = fminf(_fmax_48, swiglu_limit);
+                        up_x_93 = _min_77;
                         float _fmax_49 = fmaxf(up_y_94, -swiglu_limit);
-                        float _min_77 = fminf(_fmax_49, swiglu_limit);
-                        up_y_94 = _min_77;
+                        float _min_78 = fminf(_fmax_49, swiglu_limit);
+                        up_y_94 = _min_78;
                         float _exp_24 = expf(gate_x_91 * -1.0f);
                         float denominator_x_95 = _exp_24 + 1.0f;
                         float _exp_25 = expf(gate_y_92 * -1.0f);
@@ -3793,16 +3854,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_100 = _cvt_f32_26.y;
                         float up_x_101 = _cvt_f32_27.x;
                         float up_y_102 = _cvt_f32_27.y;
-                        float _min_78 = fminf(gate_x_99, swiglu_limit);
-                        gate_x_99 = _min_78;
-                        float _min_79 = fminf(gate_y_100, swiglu_limit);
-                        gate_y_100 = _min_79;
+                        float _min_79 = fminf(gate_x_99, swiglu_limit);
+                        gate_x_99 = _min_79;
+                        float _min_80 = fminf(gate_y_100, swiglu_limit);
+                        gate_y_100 = _min_80;
                         float _fmax_50 = fmaxf(up_x_101, -swiglu_limit);
-                        float _min_80 = fminf(_fmax_50, swiglu_limit);
-                        up_x_101 = _min_80;
+                        float _min_81 = fminf(_fmax_50, swiglu_limit);
+                        up_x_101 = _min_81;
                         float _fmax_51 = fmaxf(up_y_102, -swiglu_limit);
-                        float _min_81 = fminf(_fmax_51, swiglu_limit);
-                        up_y_102 = _min_81;
+                        float _min_82 = fminf(_fmax_51, swiglu_limit);
+                        up_y_102 = _min_82;
                         float _exp_26 = expf(gate_x_99 * -1.0f);
                         float denominator_x_103 = _exp_26 + 1.0f;
                         float _exp_27 = expf(gate_y_100 * -1.0f);
@@ -3817,16 +3878,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_108 = _cvt_f32_28.y;
                         float up_x_109 = _cvt_f32_29.x;
                         float up_y_110 = _cvt_f32_29.y;
-                        float _min_82 = fminf(gate_x_107, swiglu_limit);
-                        gate_x_107 = _min_82;
-                        float _min_83 = fminf(gate_y_108, swiglu_limit);
-                        gate_y_108 = _min_83;
+                        float _min_83 = fminf(gate_x_107, swiglu_limit);
+                        gate_x_107 = _min_83;
+                        float _min_84 = fminf(gate_y_108, swiglu_limit);
+                        gate_y_108 = _min_84;
                         float _fmax_52 = fmaxf(up_x_109, -swiglu_limit);
-                        float _min_84 = fminf(_fmax_52, swiglu_limit);
-                        up_x_109 = _min_84;
+                        float _min_85 = fminf(_fmax_52, swiglu_limit);
+                        up_x_109 = _min_85;
                         float _fmax_53 = fmaxf(up_y_110, -swiglu_limit);
-                        float _min_85 = fminf(_fmax_53, swiglu_limit);
-                        up_y_110 = _min_85;
+                        float _min_86 = fminf(_fmax_53, swiglu_limit);
+                        up_y_110 = _min_86;
                         float _exp_28 = expf(gate_x_107 * -1.0f);
                         float denominator_x_111 = _exp_28 + 1.0f;
                         float _exp_29 = expf(gate_y_108 * -1.0f);
@@ -3841,16 +3902,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_116 = _cvt_f32_30.y;
                         float up_x_117 = _cvt_f32_31.x;
                         float up_y_118 = _cvt_f32_31.y;
-                        float _min_86 = fminf(gate_x_115, swiglu_limit);
-                        gate_x_115 = _min_86;
-                        float _min_87 = fminf(gate_y_116, swiglu_limit);
-                        gate_y_116 = _min_87;
+                        float _min_87 = fminf(gate_x_115, swiglu_limit);
+                        gate_x_115 = _min_87;
+                        float _min_88 = fminf(gate_y_116, swiglu_limit);
+                        gate_y_116 = _min_88;
                         float _fmax_54 = fmaxf(up_x_117, -swiglu_limit);
-                        float _min_88 = fminf(_fmax_54, swiglu_limit);
-                        up_x_117 = _min_88;
+                        float _min_89 = fminf(_fmax_54, swiglu_limit);
+                        up_x_117 = _min_89;
                         float _fmax_55 = fmaxf(up_y_118, -swiglu_limit);
-                        float _min_89 = fminf(_fmax_55, swiglu_limit);
-                        up_y_118 = _min_89;
+                        float _min_90 = fminf(_fmax_55, swiglu_limit);
+                        up_y_118 = _min_90;
                         float _exp_30 = expf(gate_x_115 * -1.0f);
                         float denominator_x_119 = _exp_30 + 1.0f;
                         float _exp_31 = expf(gate_y_116 * -1.0f);
@@ -3865,16 +3926,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_124 = _cvt_f32_32.y;
                         float up_x_125 = _cvt_f32_33.x;
                         float up_y_126 = _cvt_f32_33.y;
-                        float _min_90 = fminf(gate_x_123, swiglu_limit);
-                        gate_x_123 = _min_90;
-                        float _min_91 = fminf(gate_y_124, swiglu_limit);
-                        gate_y_124 = _min_91;
+                        float _min_91 = fminf(gate_x_123, swiglu_limit);
+                        gate_x_123 = _min_91;
+                        float _min_92 = fminf(gate_y_124, swiglu_limit);
+                        gate_y_124 = _min_92;
                         float _fmax_56 = fmaxf(up_x_125, -swiglu_limit);
-                        float _min_92 = fminf(_fmax_56, swiglu_limit);
-                        up_x_125 = _min_92;
+                        float _min_93 = fminf(_fmax_56, swiglu_limit);
+                        up_x_125 = _min_93;
                         float _fmax_57 = fmaxf(up_y_126, -swiglu_limit);
-                        float _min_93 = fminf(_fmax_57, swiglu_limit);
-                        up_y_126 = _min_93;
+                        float _min_94 = fminf(_fmax_57, swiglu_limit);
+                        up_y_126 = _min_94;
                         float _exp_32 = expf(gate_x_123 * -1.0f);
                         float denominator_x_127 = _exp_32 + 1.0f;
                         float _exp_33 = expf(gate_y_124 * -1.0f);
@@ -3889,16 +3950,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_132 = _cvt_f32_34.y;
                         float up_x_133 = _cvt_f32_35.x;
                         float up_y_134 = _cvt_f32_35.y;
-                        float _min_94 = fminf(gate_x_131, swiglu_limit);
-                        gate_x_131 = _min_94;
-                        float _min_95 = fminf(gate_y_132, swiglu_limit);
-                        gate_y_132 = _min_95;
+                        float _min_95 = fminf(gate_x_131, swiglu_limit);
+                        gate_x_131 = _min_95;
+                        float _min_96 = fminf(gate_y_132, swiglu_limit);
+                        gate_y_132 = _min_96;
                         float _fmax_58 = fmaxf(up_x_133, -swiglu_limit);
-                        float _min_96 = fminf(_fmax_58, swiglu_limit);
-                        up_x_133 = _min_96;
+                        float _min_97 = fminf(_fmax_58, swiglu_limit);
+                        up_x_133 = _min_97;
                         float _fmax_59 = fmaxf(up_y_134, -swiglu_limit);
-                        float _min_97 = fminf(_fmax_59, swiglu_limit);
-                        up_y_134 = _min_97;
+                        float _min_98 = fminf(_fmax_59, swiglu_limit);
+                        up_y_134 = _min_98;
                         float _exp_34 = expf(gate_x_131 * -1.0f);
                         float denominator_x_135 = _exp_34 + 1.0f;
                         float _exp_35 = expf(gate_y_132 * -1.0f);
@@ -3913,16 +3974,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_140 = _cvt_f32_36.y;
                         float up_x_141 = _cvt_f32_37.x;
                         float up_y_142 = _cvt_f32_37.y;
-                        float _min_98 = fminf(gate_x_139, swiglu_limit);
-                        gate_x_139 = _min_98;
-                        float _min_99 = fminf(gate_y_140, swiglu_limit);
-                        gate_y_140 = _min_99;
+                        float _min_99 = fminf(gate_x_139, swiglu_limit);
+                        gate_x_139 = _min_99;
+                        float _min_100 = fminf(gate_y_140, swiglu_limit);
+                        gate_y_140 = _min_100;
                         float _fmax_60 = fmaxf(up_x_141, -swiglu_limit);
-                        float _min_100 = fminf(_fmax_60, swiglu_limit);
-                        up_x_141 = _min_100;
+                        float _min_101 = fminf(_fmax_60, swiglu_limit);
+                        up_x_141 = _min_101;
                         float _fmax_61 = fmaxf(up_y_142, -swiglu_limit);
-                        float _min_101 = fminf(_fmax_61, swiglu_limit);
-                        up_y_142 = _min_101;
+                        float _min_102 = fminf(_fmax_61, swiglu_limit);
+                        up_y_142 = _min_102;
                         float _exp_36 = expf(gate_x_139 * -1.0f);
                         float denominator_x_143 = _exp_36 + 1.0f;
                         float _exp_37 = expf(gate_y_140 * -1.0f);
@@ -3937,16 +3998,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_148 = _cvt_f32_38.y;
                         float up_x_149 = _cvt_f32_39.x;
                         float up_y_150 = _cvt_f32_39.y;
-                        float _min_102 = fminf(gate_x_147, swiglu_limit);
-                        gate_x_147 = _min_102;
-                        float _min_103 = fminf(gate_y_148, swiglu_limit);
-                        gate_y_148 = _min_103;
+                        float _min_103 = fminf(gate_x_147, swiglu_limit);
+                        gate_x_147 = _min_103;
+                        float _min_104 = fminf(gate_y_148, swiglu_limit);
+                        gate_y_148 = _min_104;
                         float _fmax_62 = fmaxf(up_x_149, -swiglu_limit);
-                        float _min_104 = fminf(_fmax_62, swiglu_limit);
-                        up_x_149 = _min_104;
+                        float _min_105 = fminf(_fmax_62, swiglu_limit);
+                        up_x_149 = _min_105;
                         float _fmax_63 = fmaxf(up_y_150, -swiglu_limit);
-                        float _min_105 = fminf(_fmax_63, swiglu_limit);
-                        up_y_150 = _min_105;
+                        float _min_106 = fminf(_fmax_63, swiglu_limit);
+                        up_y_150 = _min_106;
                         float _exp_38 = expf(gate_x_147 * -1.0f);
                         float denominator_x_151 = _exp_38 + 1.0f;
                         float _exp_39 = expf(gate_y_148 * -1.0f);
@@ -3961,16 +4022,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_156 = _cvt_f32_40.y;
                         float up_x_157 = _cvt_f32_41.x;
                         float up_y_158 = _cvt_f32_41.y;
-                        float _min_106 = fminf(gate_x_155, swiglu_limit);
-                        gate_x_155 = _min_106;
-                        float _min_107 = fminf(gate_y_156, swiglu_limit);
-                        gate_y_156 = _min_107;
+                        float _min_107 = fminf(gate_x_155, swiglu_limit);
+                        gate_x_155 = _min_107;
+                        float _min_108 = fminf(gate_y_156, swiglu_limit);
+                        gate_y_156 = _min_108;
                         float _fmax_64 = fmaxf(up_x_157, -swiglu_limit);
-                        float _min_108 = fminf(_fmax_64, swiglu_limit);
-                        up_x_157 = _min_108;
+                        float _min_109 = fminf(_fmax_64, swiglu_limit);
+                        up_x_157 = _min_109;
                         float _fmax_65 = fmaxf(up_y_158, -swiglu_limit);
-                        float _min_109 = fminf(_fmax_65, swiglu_limit);
-                        up_y_158 = _min_109;
+                        float _min_110 = fminf(_fmax_65, swiglu_limit);
+                        up_y_158 = _min_110;
                         float _exp_40 = expf(gate_x_155 * -1.0f);
                         float denominator_x_159 = _exp_40 + 1.0f;
                         float _exp_41 = expf(gate_y_156 * -1.0f);
@@ -3985,16 +4046,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_164 = _cvt_f32_42.y;
                         float up_x_165 = _cvt_f32_43.x;
                         float up_y_166 = _cvt_f32_43.y;
-                        float _min_110 = fminf(gate_x_163, swiglu_limit);
-                        gate_x_163 = _min_110;
-                        float _min_111 = fminf(gate_y_164, swiglu_limit);
-                        gate_y_164 = _min_111;
+                        float _min_111 = fminf(gate_x_163, swiglu_limit);
+                        gate_x_163 = _min_111;
+                        float _min_112 = fminf(gate_y_164, swiglu_limit);
+                        gate_y_164 = _min_112;
                         float _fmax_66 = fmaxf(up_x_165, -swiglu_limit);
-                        float _min_112 = fminf(_fmax_66, swiglu_limit);
-                        up_x_165 = _min_112;
+                        float _min_113 = fminf(_fmax_66, swiglu_limit);
+                        up_x_165 = _min_113;
                         float _fmax_67 = fmaxf(up_y_166, -swiglu_limit);
-                        float _min_113 = fminf(_fmax_67, swiglu_limit);
-                        up_y_166 = _min_113;
+                        float _min_114 = fminf(_fmax_67, swiglu_limit);
+                        up_y_166 = _min_114;
                         float _exp_42 = expf(gate_x_163 * -1.0f);
                         float denominator_x_167 = _exp_42 + 1.0f;
                         float _exp_43 = expf(gate_y_164 * -1.0f);
@@ -4009,16 +4070,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_172 = _cvt_f32_44.y;
                         float up_x_173 = _cvt_f32_45.x;
                         float up_y_174 = _cvt_f32_45.y;
-                        float _min_114 = fminf(gate_x_171, swiglu_limit);
-                        gate_x_171 = _min_114;
-                        float _min_115 = fminf(gate_y_172, swiglu_limit);
-                        gate_y_172 = _min_115;
+                        float _min_115 = fminf(gate_x_171, swiglu_limit);
+                        gate_x_171 = _min_115;
+                        float _min_116 = fminf(gate_y_172, swiglu_limit);
+                        gate_y_172 = _min_116;
                         float _fmax_68 = fmaxf(up_x_173, -swiglu_limit);
-                        float _min_116 = fminf(_fmax_68, swiglu_limit);
-                        up_x_173 = _min_116;
+                        float _min_117 = fminf(_fmax_68, swiglu_limit);
+                        up_x_173 = _min_117;
                         float _fmax_69 = fmaxf(up_y_174, -swiglu_limit);
-                        float _min_117 = fminf(_fmax_69, swiglu_limit);
-                        up_y_174 = _min_117;
+                        float _min_118 = fminf(_fmax_69, swiglu_limit);
+                        up_y_174 = _min_118;
                         float _exp_44 = expf(gate_x_171 * -1.0f);
                         float denominator_x_175 = _exp_44 + 1.0f;
                         float _exp_45 = expf(gate_y_172 * -1.0f);
@@ -4033,16 +4094,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_180 = _cvt_f32_46.y;
                         float up_x_181 = _cvt_f32_47.x;
                         float up_y_182 = _cvt_f32_47.y;
-                        float _min_118 = fminf(gate_x_179, swiglu_limit);
-                        gate_x_179 = _min_118;
-                        float _min_119 = fminf(gate_y_180, swiglu_limit);
-                        gate_y_180 = _min_119;
+                        float _min_119 = fminf(gate_x_179, swiglu_limit);
+                        gate_x_179 = _min_119;
+                        float _min_120 = fminf(gate_y_180, swiglu_limit);
+                        gate_y_180 = _min_120;
                         float _fmax_70 = fmaxf(up_x_181, -swiglu_limit);
-                        float _min_120 = fminf(_fmax_70, swiglu_limit);
-                        up_x_181 = _min_120;
+                        float _min_121 = fminf(_fmax_70, swiglu_limit);
+                        up_x_181 = _min_121;
                         float _fmax_71 = fmaxf(up_y_182, -swiglu_limit);
-                        float _min_121 = fminf(_fmax_71, swiglu_limit);
-                        up_y_182 = _min_121;
+                        float _min_122 = fminf(_fmax_71, swiglu_limit);
+                        up_y_182 = _min_122;
                         float _exp_46 = expf(gate_x_179 * -1.0f);
                         float denominator_x_183 = _exp_46 + 1.0f;
                         float _exp_47 = expf(gate_y_180 * -1.0f);
@@ -4057,16 +4118,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_188 = _cvt_f32_48.y;
                         float up_x_189 = _cvt_f32_49.x;
                         float up_y_190 = _cvt_f32_49.y;
-                        float _min_122 = fminf(gate_x_187, swiglu_limit);
-                        gate_x_187 = _min_122;
-                        float _min_123 = fminf(gate_y_188, swiglu_limit);
-                        gate_y_188 = _min_123;
+                        float _min_123 = fminf(gate_x_187, swiglu_limit);
+                        gate_x_187 = _min_123;
+                        float _min_124 = fminf(gate_y_188, swiglu_limit);
+                        gate_y_188 = _min_124;
                         float _fmax_72 = fmaxf(up_x_189, -swiglu_limit);
-                        float _min_124 = fminf(_fmax_72, swiglu_limit);
-                        up_x_189 = _min_124;
+                        float _min_125 = fminf(_fmax_72, swiglu_limit);
+                        up_x_189 = _min_125;
                         float _fmax_73 = fmaxf(up_y_190, -swiglu_limit);
-                        float _min_125 = fminf(_fmax_73, swiglu_limit);
-                        up_y_190 = _min_125;
+                        float _min_126 = fminf(_fmax_73, swiglu_limit);
+                        up_y_190 = _min_126;
                         float _exp_48 = expf(gate_x_187 * -1.0f);
                         float denominator_x_191 = _exp_48 + 1.0f;
                         float _exp_49 = expf(gate_y_188 * -1.0f);
@@ -4081,16 +4142,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_196 = _cvt_f32_50.y;
                         float up_x_197 = _cvt_f32_51.x;
                         float up_y_198 = _cvt_f32_51.y;
-                        float _min_126 = fminf(gate_x_195, swiglu_limit);
-                        gate_x_195 = _min_126;
-                        float _min_127 = fminf(gate_y_196, swiglu_limit);
-                        gate_y_196 = _min_127;
+                        float _min_127 = fminf(gate_x_195, swiglu_limit);
+                        gate_x_195 = _min_127;
+                        float _min_128 = fminf(gate_y_196, swiglu_limit);
+                        gate_y_196 = _min_128;
                         float _fmax_74 = fmaxf(up_x_197, -swiglu_limit);
-                        float _min_128 = fminf(_fmax_74, swiglu_limit);
-                        up_x_197 = _min_128;
+                        float _min_129 = fminf(_fmax_74, swiglu_limit);
+                        up_x_197 = _min_129;
                         float _fmax_75 = fmaxf(up_y_198, -swiglu_limit);
-                        float _min_129 = fminf(_fmax_75, swiglu_limit);
-                        up_y_198 = _min_129;
+                        float _min_130 = fminf(_fmax_75, swiglu_limit);
+                        up_y_198 = _min_130;
                         float _exp_50 = expf(gate_x_195 * -1.0f);
                         float denominator_x_199 = _exp_50 + 1.0f;
                         float _exp_51 = expf(gate_y_196 * -1.0f);
@@ -4105,16 +4166,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_204 = _cvt_f32_52.y;
                         float up_x_205 = _cvt_f32_53.x;
                         float up_y_206 = _cvt_f32_53.y;
-                        float _min_130 = fminf(gate_x_203, swiglu_limit);
-                        gate_x_203 = _min_130;
-                        float _min_131 = fminf(gate_y_204, swiglu_limit);
-                        gate_y_204 = _min_131;
+                        float _min_131 = fminf(gate_x_203, swiglu_limit);
+                        gate_x_203 = _min_131;
+                        float _min_132 = fminf(gate_y_204, swiglu_limit);
+                        gate_y_204 = _min_132;
                         float _fmax_76 = fmaxf(up_x_205, -swiglu_limit);
-                        float _min_132 = fminf(_fmax_76, swiglu_limit);
-                        up_x_205 = _min_132;
+                        float _min_133 = fminf(_fmax_76, swiglu_limit);
+                        up_x_205 = _min_133;
                         float _fmax_77 = fmaxf(up_y_206, -swiglu_limit);
-                        float _min_133 = fminf(_fmax_77, swiglu_limit);
-                        up_y_206 = _min_133;
+                        float _min_134 = fminf(_fmax_77, swiglu_limit);
+                        up_y_206 = _min_134;
                         float _exp_52 = expf(gate_x_203 * -1.0f);
                         float denominator_x_207 = _exp_52 + 1.0f;
                         float _exp_53 = expf(gate_y_204 * -1.0f);
@@ -4129,16 +4190,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_212 = _cvt_f32_54.y;
                         float up_x_213 = _cvt_f32_55.x;
                         float up_y_214 = _cvt_f32_55.y;
-                        float _min_134 = fminf(gate_x_211, swiglu_limit);
-                        gate_x_211 = _min_134;
-                        float _min_135 = fminf(gate_y_212, swiglu_limit);
-                        gate_y_212 = _min_135;
+                        float _min_135 = fminf(gate_x_211, swiglu_limit);
+                        gate_x_211 = _min_135;
+                        float _min_136 = fminf(gate_y_212, swiglu_limit);
+                        gate_y_212 = _min_136;
                         float _fmax_78 = fmaxf(up_x_213, -swiglu_limit);
-                        float _min_136 = fminf(_fmax_78, swiglu_limit);
-                        up_x_213 = _min_136;
+                        float _min_137 = fminf(_fmax_78, swiglu_limit);
+                        up_x_213 = _min_137;
                         float _fmax_79 = fmaxf(up_y_214, -swiglu_limit);
-                        float _min_137 = fminf(_fmax_79, swiglu_limit);
-                        up_y_214 = _min_137;
+                        float _min_138 = fminf(_fmax_79, swiglu_limit);
+                        up_y_214 = _min_138;
                         float _exp_54 = expf(gate_x_211 * -1.0f);
                         float denominator_x_215 = _exp_54 + 1.0f;
                         float _exp_55 = expf(gate_y_212 * -1.0f);
@@ -4153,16 +4214,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_220 = _cvt_f32_56.y;
                         float up_x_221 = _cvt_f32_57.x;
                         float up_y_222 = _cvt_f32_57.y;
-                        float _min_138 = fminf(gate_x_219, swiglu_limit);
-                        gate_x_219 = _min_138;
-                        float _min_139 = fminf(gate_y_220, swiglu_limit);
-                        gate_y_220 = _min_139;
+                        float _min_139 = fminf(gate_x_219, swiglu_limit);
+                        gate_x_219 = _min_139;
+                        float _min_140 = fminf(gate_y_220, swiglu_limit);
+                        gate_y_220 = _min_140;
                         float _fmax_80 = fmaxf(up_x_221, -swiglu_limit);
-                        float _min_140 = fminf(_fmax_80, swiglu_limit);
-                        up_x_221 = _min_140;
+                        float _min_141 = fminf(_fmax_80, swiglu_limit);
+                        up_x_221 = _min_141;
                         float _fmax_81 = fmaxf(up_y_222, -swiglu_limit);
-                        float _min_141 = fminf(_fmax_81, swiglu_limit);
-                        up_y_222 = _min_141;
+                        float _min_142 = fminf(_fmax_81, swiglu_limit);
+                        up_y_222 = _min_142;
                         float _exp_56 = expf(gate_x_219 * -1.0f);
                         float denominator_x_223 = _exp_56 + 1.0f;
                         float _exp_57 = expf(gate_y_220 * -1.0f);
@@ -4177,16 +4238,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_228 = _cvt_f32_58.y;
                         float up_x_229 = _cvt_f32_59.x;
                         float up_y_230 = _cvt_f32_59.y;
-                        float _min_142 = fminf(gate_x_227, swiglu_limit);
-                        gate_x_227 = _min_142;
-                        float _min_143 = fminf(gate_y_228, swiglu_limit);
-                        gate_y_228 = _min_143;
+                        float _min_143 = fminf(gate_x_227, swiglu_limit);
+                        gate_x_227 = _min_143;
+                        float _min_144 = fminf(gate_y_228, swiglu_limit);
+                        gate_y_228 = _min_144;
                         float _fmax_82 = fmaxf(up_x_229, -swiglu_limit);
-                        float _min_144 = fminf(_fmax_82, swiglu_limit);
-                        up_x_229 = _min_144;
+                        float _min_145 = fminf(_fmax_82, swiglu_limit);
+                        up_x_229 = _min_145;
                         float _fmax_83 = fmaxf(up_y_230, -swiglu_limit);
-                        float _min_145 = fminf(_fmax_83, swiglu_limit);
-                        up_y_230 = _min_145;
+                        float _min_146 = fminf(_fmax_83, swiglu_limit);
+                        up_y_230 = _min_146;
                         float _exp_58 = expf(gate_x_227 * -1.0f);
                         float denominator_x_231 = _exp_58 + 1.0f;
                         float _exp_59 = expf(gate_y_228 * -1.0f);
@@ -4201,16 +4262,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_236 = _cvt_f32_60.y;
                         float up_x_237 = _cvt_f32_61.x;
                         float up_y_238 = _cvt_f32_61.y;
-                        float _min_146 = fminf(gate_x_235, swiglu_limit);
-                        gate_x_235 = _min_146;
-                        float _min_147 = fminf(gate_y_236, swiglu_limit);
-                        gate_y_236 = _min_147;
+                        float _min_147 = fminf(gate_x_235, swiglu_limit);
+                        gate_x_235 = _min_147;
+                        float _min_148 = fminf(gate_y_236, swiglu_limit);
+                        gate_y_236 = _min_148;
                         float _fmax_84 = fmaxf(up_x_237, -swiglu_limit);
-                        float _min_148 = fminf(_fmax_84, swiglu_limit);
-                        up_x_237 = _min_148;
+                        float _min_149 = fminf(_fmax_84, swiglu_limit);
+                        up_x_237 = _min_149;
                         float _fmax_85 = fmaxf(up_y_238, -swiglu_limit);
-                        float _min_149 = fminf(_fmax_85, swiglu_limit);
-                        up_y_238 = _min_149;
+                        float _min_150 = fminf(_fmax_85, swiglu_limit);
+                        up_y_238 = _min_150;
                         float _exp_60 = expf(gate_x_235 * -1.0f);
                         float denominator_x_239 = _exp_60 + 1.0f;
                         float _exp_61 = expf(gate_y_236 * -1.0f);
@@ -4225,16 +4286,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_244 = _cvt_f32_62.y;
                         float up_x_245 = _cvt_f32_63.x;
                         float up_y_246 = _cvt_f32_63.y;
-                        float _min_150 = fminf(gate_x_243, swiglu_limit);
-                        gate_x_243 = _min_150;
-                        float _min_151 = fminf(gate_y_244, swiglu_limit);
-                        gate_y_244 = _min_151;
+                        float _min_151 = fminf(gate_x_243, swiglu_limit);
+                        gate_x_243 = _min_151;
+                        float _min_152 = fminf(gate_y_244, swiglu_limit);
+                        gate_y_244 = _min_152;
                         float _fmax_86 = fmaxf(up_x_245, -swiglu_limit);
-                        float _min_152 = fminf(_fmax_86, swiglu_limit);
-                        up_x_245 = _min_152;
+                        float _min_153 = fminf(_fmax_86, swiglu_limit);
+                        up_x_245 = _min_153;
                         float _fmax_87 = fmaxf(up_y_246, -swiglu_limit);
-                        float _min_153 = fminf(_fmax_87, swiglu_limit);
-                        up_y_246 = _min_153;
+                        float _min_154 = fminf(_fmax_87, swiglu_limit);
+                        up_y_246 = _min_154;
                         float _exp_62 = expf(gate_x_243 * -1.0f);
                         float denominator_x_247 = _exp_62 + 1.0f;
                         float _exp_63 = expf(gate_y_244 * -1.0f);
@@ -4257,10 +4318,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_33 = col_tile_8 * 16 + lane_1 / 16 * 8;
                                 unsigned int address_3 = d_smem_addr + (unsigned int)((row_5 * 32 + col_33) * 2);
                                 address_3 = address_3 ^ (address_3 & 511) >> 7 << 4;
-                                int offset = half_8 * 8 + col_tile_8 * 4;
-                                uint32_t _stmatrix_addr_18 = static_cast<uint32_t>(address_3);
+                                int offset_4 = half_8 * 8 + col_tile_8 * 4;
+                                uint32_t _stmatrix_addr_19 = static_cast<uint32_t>(address_3);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_18), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset + 3]))
+                                    :: "r"(_stmatrix_addr_19), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4 + 3]))
                                     : "memory");
                             }
                         }
@@ -4287,10 +4348,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_34 = col_tile_9 * 16 + lane_253 / 16 * 8;
                                 unsigned int address_3_1 = d_smem_addr + 8192 + (unsigned int)((row_6 * 32 + col_34) * 2);
                                 address_3_1 = address_3_1 ^ (address_3_1 & 511) >> 7 << 4;
-                                int offset_1 = half_9 * 8 + col_tile_9 * 4;
-                                uint32_t _stmatrix_addr_19 = static_cast<uint32_t>(address_3_1);
+                                int offset_4_1 = half_9 * 8 + col_tile_9 * 4;
+                                uint32_t _stmatrix_addr_20 = static_cast<uint32_t>(address_3_1);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_19), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_1 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_1 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_1 + 3]))
+                                    :: "r"(_stmatrix_addr_20), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_1 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_1 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_1 + 3]))
                                     : "memory");
                             }
                         }
@@ -4317,10 +4378,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_35 = col_tile_10 * 16 + lane_255 / 16 * 8;
                                 unsigned int address_3_2 = d_smem_addr + 16384 + (unsigned int)((row_7 * 32 + col_35) * 2);
                                 address_3_2 = address_3_2 ^ (address_3_2 & 511) >> 7 << 4;
-                                int offset_2 = half_10 * 8 + col_tile_10 * 4;
-                                uint32_t _stmatrix_addr_20 = static_cast<uint32_t>(address_3_2);
+                                int offset_4_2 = half_10 * 8 + col_tile_10 * 4;
+                                uint32_t _stmatrix_addr_21 = static_cast<uint32_t>(address_3_2);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_20), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_2 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_2 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_2 + 3]))
+                                    :: "r"(_stmatrix_addr_21), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_2 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_2 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_2 + 3]))
                                     : "memory");
                             }
                         }
@@ -4347,10 +4408,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_36 = col_tile_11 * 16 + lane_257 / 16 * 8;
                                 unsigned int address_3_3 = d_smem_addr + (unsigned int)((row_8 * 32 + col_36) * 2);
                                 address_3_3 = address_3_3 ^ (address_3_3 & 511) >> 7 << 4;
-                                int offset_3 = 16 + half_11 * 8 + col_tile_11 * 4;
-                                uint32_t _stmatrix_addr_21 = static_cast<uint32_t>(address_3_3);
+                                int offset_4_3 = 16 + half_11 * 8 + col_tile_11 * 4;
+                                uint32_t _stmatrix_addr_22 = static_cast<uint32_t>(address_3_3);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_21), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_3])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_3 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_3 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_3 + 3]))
+                                    :: "r"(_stmatrix_addr_22), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4_3])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4_3 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4_3 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed[offset_4_3 + 3]))
                                     : "memory");
                             }
                         }
@@ -4377,10 +4438,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_37 = col_tile_12 * 16 + lane_259 / 16 * 8;
                                 unsigned int address_3_4 = d_smem_addr + 8192 + (unsigned int)((row_9 * 32 + col_37) * 2);
                                 address_3_4 = address_3_4 ^ (address_3_4 & 511) >> 7 << 4;
-                                int offset_4 = 16 + half_12 * 8 + col_tile_12 * 4;
-                                uint32_t _stmatrix_addr_22 = static_cast<uint32_t>(address_3_4);
+                                int offset_4_4 = 16 + half_12 * 8 + col_tile_12 * 4;
+                                uint32_t _stmatrix_addr_23 = static_cast<uint32_t>(address_3_4);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_22), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4 + 3]))
+                                    :: "r"(_stmatrix_addr_23), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_4])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_4 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_4 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed[offset_4_4 + 3]))
                                     : "memory");
                             }
                         }
@@ -4407,10 +4468,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_38 = col_tile_13 * 16 + lane_261 / 16 * 8;
                                 unsigned int address_3_5 = d_smem_addr + 16384 + (unsigned int)((row_10 * 32 + col_38) * 2);
                                 address_3_5 = address_3_5 ^ (address_3_5 & 511) >> 7 << 4;
-                                int offset_5 = 16 + half_13 * 8 + col_tile_13 * 4;
-                                uint32_t _stmatrix_addr_23 = static_cast<uint32_t>(address_3_5);
+                                int offset_4_5 = 16 + half_13 * 8 + col_tile_13 * 4;
+                                uint32_t _stmatrix_addr_24 = static_cast<uint32_t>(address_3_5);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_23), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_5])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_5 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_5 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_5 + 3]))
+                                    :: "r"(_stmatrix_addr_24), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_5])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_5 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_5 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed[offset_4_5 + 3]))
                                     : "memory");
                             }
                         }
@@ -4613,16 +4674,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_270 = _cvt_f32_64.y;
                         float up_x_271 = _cvt_f32_65.x;
                         float up_y_272 = _cvt_f32_65.y;
-                        float _min_154 = fminf(gate_x_269, swiglu_limit);
-                        gate_x_269 = _min_154;
-                        float _min_155 = fminf(gate_y_270, swiglu_limit);
-                        gate_y_270 = _min_155;
+                        float _min_155 = fminf(gate_x_269, swiglu_limit);
+                        gate_x_269 = _min_155;
+                        float _min_156 = fminf(gate_y_270, swiglu_limit);
+                        gate_y_270 = _min_156;
                         float _fmax_88 = fmaxf(up_x_271, -swiglu_limit);
-                        float _min_156 = fminf(_fmax_88, swiglu_limit);
-                        up_x_271 = _min_156;
+                        float _min_157 = fminf(_fmax_88, swiglu_limit);
+                        up_x_271 = _min_157;
                         float _fmax_89 = fmaxf(up_y_272, -swiglu_limit);
-                        float _min_157 = fminf(_fmax_89, swiglu_limit);
-                        up_y_272 = _min_157;
+                        float _min_158 = fminf(_fmax_89, swiglu_limit);
+                        up_y_272 = _min_158;
                         float _exp_64 = expf(gate_x_269 * -1.0f);
                         float denominator_x_273 = _exp_64 + 1.0f;
                         float _exp_65 = expf(gate_y_270 * -1.0f);
@@ -4637,16 +4698,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_278 = _cvt_f32_66.y;
                         float up_x_279 = _cvt_f32_67.x;
                         float up_y_280 = _cvt_f32_67.y;
-                        float _min_158 = fminf(gate_x_277, swiglu_limit);
-                        gate_x_277 = _min_158;
-                        float _min_159 = fminf(gate_y_278, swiglu_limit);
-                        gate_y_278 = _min_159;
+                        float _min_159 = fminf(gate_x_277, swiglu_limit);
+                        gate_x_277 = _min_159;
+                        float _min_160 = fminf(gate_y_278, swiglu_limit);
+                        gate_y_278 = _min_160;
                         float _fmax_90 = fmaxf(up_x_279, -swiglu_limit);
-                        float _min_160 = fminf(_fmax_90, swiglu_limit);
-                        up_x_279 = _min_160;
+                        float _min_161 = fminf(_fmax_90, swiglu_limit);
+                        up_x_279 = _min_161;
                         float _fmax_91 = fmaxf(up_y_280, -swiglu_limit);
-                        float _min_161 = fminf(_fmax_91, swiglu_limit);
-                        up_y_280 = _min_161;
+                        float _min_162 = fminf(_fmax_91, swiglu_limit);
+                        up_y_280 = _min_162;
                         float _exp_66 = expf(gate_x_277 * -1.0f);
                         float denominator_x_281 = _exp_66 + 1.0f;
                         float _exp_67 = expf(gate_y_278 * -1.0f);
@@ -4661,16 +4722,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_286 = _cvt_f32_68.y;
                         float up_x_287 = _cvt_f32_69.x;
                         float up_y_288 = _cvt_f32_69.y;
-                        float _min_162 = fminf(gate_x_285, swiglu_limit);
-                        gate_x_285 = _min_162;
-                        float _min_163 = fminf(gate_y_286, swiglu_limit);
-                        gate_y_286 = _min_163;
+                        float _min_163 = fminf(gate_x_285, swiglu_limit);
+                        gate_x_285 = _min_163;
+                        float _min_164 = fminf(gate_y_286, swiglu_limit);
+                        gate_y_286 = _min_164;
                         float _fmax_92 = fmaxf(up_x_287, -swiglu_limit);
-                        float _min_164 = fminf(_fmax_92, swiglu_limit);
-                        up_x_287 = _min_164;
+                        float _min_165 = fminf(_fmax_92, swiglu_limit);
+                        up_x_287 = _min_165;
                         float _fmax_93 = fmaxf(up_y_288, -swiglu_limit);
-                        float _min_165 = fminf(_fmax_93, swiglu_limit);
-                        up_y_288 = _min_165;
+                        float _min_166 = fminf(_fmax_93, swiglu_limit);
+                        up_y_288 = _min_166;
                         float _exp_68 = expf(gate_x_285 * -1.0f);
                         float denominator_x_289 = _exp_68 + 1.0f;
                         float _exp_69 = expf(gate_y_286 * -1.0f);
@@ -4685,16 +4746,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_294 = _cvt_f32_70.y;
                         float up_x_295 = _cvt_f32_71.x;
                         float up_y_296 = _cvt_f32_71.y;
-                        float _min_166 = fminf(gate_x_293, swiglu_limit);
-                        gate_x_293 = _min_166;
-                        float _min_167 = fminf(gate_y_294, swiglu_limit);
-                        gate_y_294 = _min_167;
+                        float _min_167 = fminf(gate_x_293, swiglu_limit);
+                        gate_x_293 = _min_167;
+                        float _min_168 = fminf(gate_y_294, swiglu_limit);
+                        gate_y_294 = _min_168;
                         float _fmax_94 = fmaxf(up_x_295, -swiglu_limit);
-                        float _min_168 = fminf(_fmax_94, swiglu_limit);
-                        up_x_295 = _min_168;
+                        float _min_169 = fminf(_fmax_94, swiglu_limit);
+                        up_x_295 = _min_169;
                         float _fmax_95 = fmaxf(up_y_296, -swiglu_limit);
-                        float _min_169 = fminf(_fmax_95, swiglu_limit);
-                        up_y_296 = _min_169;
+                        float _min_170 = fminf(_fmax_95, swiglu_limit);
+                        up_y_296 = _min_170;
                         float _exp_70 = expf(gate_x_293 * -1.0f);
                         float denominator_x_297 = _exp_70 + 1.0f;
                         float _exp_71 = expf(gate_y_294 * -1.0f);
@@ -4709,16 +4770,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_302 = _cvt_f32_72.y;
                         float up_x_303 = _cvt_f32_73.x;
                         float up_y_304 = _cvt_f32_73.y;
-                        float _min_170 = fminf(gate_x_301, swiglu_limit);
-                        gate_x_301 = _min_170;
-                        float _min_171 = fminf(gate_y_302, swiglu_limit);
-                        gate_y_302 = _min_171;
+                        float _min_171 = fminf(gate_x_301, swiglu_limit);
+                        gate_x_301 = _min_171;
+                        float _min_172 = fminf(gate_y_302, swiglu_limit);
+                        gate_y_302 = _min_172;
                         float _fmax_96 = fmaxf(up_x_303, -swiglu_limit);
-                        float _min_172 = fminf(_fmax_96, swiglu_limit);
-                        up_x_303 = _min_172;
+                        float _min_173 = fminf(_fmax_96, swiglu_limit);
+                        up_x_303 = _min_173;
                         float _fmax_97 = fmaxf(up_y_304, -swiglu_limit);
-                        float _min_173 = fminf(_fmax_97, swiglu_limit);
-                        up_y_304 = _min_173;
+                        float _min_174 = fminf(_fmax_97, swiglu_limit);
+                        up_y_304 = _min_174;
                         float _exp_72 = expf(gate_x_301 * -1.0f);
                         float denominator_x_305 = _exp_72 + 1.0f;
                         float _exp_73 = expf(gate_y_302 * -1.0f);
@@ -4733,16 +4794,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_310 = _cvt_f32_74.y;
                         float up_x_311 = _cvt_f32_75.x;
                         float up_y_312 = _cvt_f32_75.y;
-                        float _min_174 = fminf(gate_x_309, swiglu_limit);
-                        gate_x_309 = _min_174;
-                        float _min_175 = fminf(gate_y_310, swiglu_limit);
-                        gate_y_310 = _min_175;
+                        float _min_175 = fminf(gate_x_309, swiglu_limit);
+                        gate_x_309 = _min_175;
+                        float _min_176 = fminf(gate_y_310, swiglu_limit);
+                        gate_y_310 = _min_176;
                         float _fmax_98 = fmaxf(up_x_311, -swiglu_limit);
-                        float _min_176 = fminf(_fmax_98, swiglu_limit);
-                        up_x_311 = _min_176;
+                        float _min_177 = fminf(_fmax_98, swiglu_limit);
+                        up_x_311 = _min_177;
                         float _fmax_99 = fmaxf(up_y_312, -swiglu_limit);
-                        float _min_177 = fminf(_fmax_99, swiglu_limit);
-                        up_y_312 = _min_177;
+                        float _min_178 = fminf(_fmax_99, swiglu_limit);
+                        up_y_312 = _min_178;
                         float _exp_74 = expf(gate_x_309 * -1.0f);
                         float denominator_x_313 = _exp_74 + 1.0f;
                         float _exp_75 = expf(gate_y_310 * -1.0f);
@@ -4757,16 +4818,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_318 = _cvt_f32_76.y;
                         float up_x_319 = _cvt_f32_77.x;
                         float up_y_320 = _cvt_f32_77.y;
-                        float _min_178 = fminf(gate_x_317, swiglu_limit);
-                        gate_x_317 = _min_178;
-                        float _min_179 = fminf(gate_y_318, swiglu_limit);
-                        gate_y_318 = _min_179;
+                        float _min_179 = fminf(gate_x_317, swiglu_limit);
+                        gate_x_317 = _min_179;
+                        float _min_180 = fminf(gate_y_318, swiglu_limit);
+                        gate_y_318 = _min_180;
                         float _fmax_100 = fmaxf(up_x_319, -swiglu_limit);
-                        float _min_180 = fminf(_fmax_100, swiglu_limit);
-                        up_x_319 = _min_180;
+                        float _min_181 = fminf(_fmax_100, swiglu_limit);
+                        up_x_319 = _min_181;
                         float _fmax_101 = fmaxf(up_y_320, -swiglu_limit);
-                        float _min_181 = fminf(_fmax_101, swiglu_limit);
-                        up_y_320 = _min_181;
+                        float _min_182 = fminf(_fmax_101, swiglu_limit);
+                        up_y_320 = _min_182;
                         float _exp_76 = expf(gate_x_317 * -1.0f);
                         float denominator_x_321 = _exp_76 + 1.0f;
                         float _exp_77 = expf(gate_y_318 * -1.0f);
@@ -4781,16 +4842,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_326 = _cvt_f32_78.y;
                         float up_x_327 = _cvt_f32_79.x;
                         float up_y_328 = _cvt_f32_79.y;
-                        float _min_182 = fminf(gate_x_325, swiglu_limit);
-                        gate_x_325 = _min_182;
-                        float _min_183 = fminf(gate_y_326, swiglu_limit);
-                        gate_y_326 = _min_183;
+                        float _min_183 = fminf(gate_x_325, swiglu_limit);
+                        gate_x_325 = _min_183;
+                        float _min_184 = fminf(gate_y_326, swiglu_limit);
+                        gate_y_326 = _min_184;
                         float _fmax_102 = fmaxf(up_x_327, -swiglu_limit);
-                        float _min_184 = fminf(_fmax_102, swiglu_limit);
-                        up_x_327 = _min_184;
+                        float _min_185 = fminf(_fmax_102, swiglu_limit);
+                        up_x_327 = _min_185;
                         float _fmax_103 = fmaxf(up_y_328, -swiglu_limit);
-                        float _min_185 = fminf(_fmax_103, swiglu_limit);
-                        up_y_328 = _min_185;
+                        float _min_186 = fminf(_fmax_103, swiglu_limit);
+                        up_y_328 = _min_186;
                         float _exp_78 = expf(gate_x_325 * -1.0f);
                         float denominator_x_329 = _exp_78 + 1.0f;
                         float _exp_79 = expf(gate_y_326 * -1.0f);
@@ -4805,16 +4866,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_334 = _cvt_f32_80.y;
                         float up_x_335 = _cvt_f32_81.x;
                         float up_y_336 = _cvt_f32_81.y;
-                        float _min_186 = fminf(gate_x_333, swiglu_limit);
-                        gate_x_333 = _min_186;
-                        float _min_187 = fminf(gate_y_334, swiglu_limit);
-                        gate_y_334 = _min_187;
+                        float _min_187 = fminf(gate_x_333, swiglu_limit);
+                        gate_x_333 = _min_187;
+                        float _min_188 = fminf(gate_y_334, swiglu_limit);
+                        gate_y_334 = _min_188;
                         float _fmax_104 = fmaxf(up_x_335, -swiglu_limit);
-                        float _min_188 = fminf(_fmax_104, swiglu_limit);
-                        up_x_335 = _min_188;
+                        float _min_189 = fminf(_fmax_104, swiglu_limit);
+                        up_x_335 = _min_189;
                         float _fmax_105 = fmaxf(up_y_336, -swiglu_limit);
-                        float _min_189 = fminf(_fmax_105, swiglu_limit);
-                        up_y_336 = _min_189;
+                        float _min_190 = fminf(_fmax_105, swiglu_limit);
+                        up_y_336 = _min_190;
                         float _exp_80 = expf(gate_x_333 * -1.0f);
                         float denominator_x_337 = _exp_80 + 1.0f;
                         float _exp_81 = expf(gate_y_334 * -1.0f);
@@ -4829,16 +4890,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_342 = _cvt_f32_82.y;
                         float up_x_343 = _cvt_f32_83.x;
                         float up_y_344 = _cvt_f32_83.y;
-                        float _min_190 = fminf(gate_x_341, swiglu_limit);
-                        gate_x_341 = _min_190;
-                        float _min_191 = fminf(gate_y_342, swiglu_limit);
-                        gate_y_342 = _min_191;
+                        float _min_191 = fminf(gate_x_341, swiglu_limit);
+                        gate_x_341 = _min_191;
+                        float _min_192 = fminf(gate_y_342, swiglu_limit);
+                        gate_y_342 = _min_192;
                         float _fmax_106 = fmaxf(up_x_343, -swiglu_limit);
-                        float _min_192 = fminf(_fmax_106, swiglu_limit);
-                        up_x_343 = _min_192;
+                        float _min_193 = fminf(_fmax_106, swiglu_limit);
+                        up_x_343 = _min_193;
                         float _fmax_107 = fmaxf(up_y_344, -swiglu_limit);
-                        float _min_193 = fminf(_fmax_107, swiglu_limit);
-                        up_y_344 = _min_193;
+                        float _min_194 = fminf(_fmax_107, swiglu_limit);
+                        up_y_344 = _min_194;
                         float _exp_82 = expf(gate_x_341 * -1.0f);
                         float denominator_x_345 = _exp_82 + 1.0f;
                         float _exp_83 = expf(gate_y_342 * -1.0f);
@@ -4853,16 +4914,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_350 = _cvt_f32_84.y;
                         float up_x_351 = _cvt_f32_85.x;
                         float up_y_352 = _cvt_f32_85.y;
-                        float _min_194 = fminf(gate_x_349, swiglu_limit);
-                        gate_x_349 = _min_194;
-                        float _min_195 = fminf(gate_y_350, swiglu_limit);
-                        gate_y_350 = _min_195;
+                        float _min_195 = fminf(gate_x_349, swiglu_limit);
+                        gate_x_349 = _min_195;
+                        float _min_196 = fminf(gate_y_350, swiglu_limit);
+                        gate_y_350 = _min_196;
                         float _fmax_108 = fmaxf(up_x_351, -swiglu_limit);
-                        float _min_196 = fminf(_fmax_108, swiglu_limit);
-                        up_x_351 = _min_196;
+                        float _min_197 = fminf(_fmax_108, swiglu_limit);
+                        up_x_351 = _min_197;
                         float _fmax_109 = fmaxf(up_y_352, -swiglu_limit);
-                        float _min_197 = fminf(_fmax_109, swiglu_limit);
-                        up_y_352 = _min_197;
+                        float _min_198 = fminf(_fmax_109, swiglu_limit);
+                        up_y_352 = _min_198;
                         float _exp_84 = expf(gate_x_349 * -1.0f);
                         float denominator_x_353 = _exp_84 + 1.0f;
                         float _exp_85 = expf(gate_y_350 * -1.0f);
@@ -4877,16 +4938,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_358 = _cvt_f32_86.y;
                         float up_x_359 = _cvt_f32_87.x;
                         float up_y_360 = _cvt_f32_87.y;
-                        float _min_198 = fminf(gate_x_357, swiglu_limit);
-                        gate_x_357 = _min_198;
-                        float _min_199 = fminf(gate_y_358, swiglu_limit);
-                        gate_y_358 = _min_199;
+                        float _min_199 = fminf(gate_x_357, swiglu_limit);
+                        gate_x_357 = _min_199;
+                        float _min_200 = fminf(gate_y_358, swiglu_limit);
+                        gate_y_358 = _min_200;
                         float _fmax_110 = fmaxf(up_x_359, -swiglu_limit);
-                        float _min_200 = fminf(_fmax_110, swiglu_limit);
-                        up_x_359 = _min_200;
+                        float _min_201 = fminf(_fmax_110, swiglu_limit);
+                        up_x_359 = _min_201;
                         float _fmax_111 = fmaxf(up_y_360, -swiglu_limit);
-                        float _min_201 = fminf(_fmax_111, swiglu_limit);
-                        up_y_360 = _min_201;
+                        float _min_202 = fminf(_fmax_111, swiglu_limit);
+                        up_y_360 = _min_202;
                         float _exp_86 = expf(gate_x_357 * -1.0f);
                         float denominator_x_361 = _exp_86 + 1.0f;
                         float _exp_87 = expf(gate_y_358 * -1.0f);
@@ -4901,16 +4962,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_366 = _cvt_f32_88.y;
                         float up_x_367 = _cvt_f32_89.x;
                         float up_y_368 = _cvt_f32_89.y;
-                        float _min_202 = fminf(gate_x_365, swiglu_limit);
-                        gate_x_365 = _min_202;
-                        float _min_203 = fminf(gate_y_366, swiglu_limit);
-                        gate_y_366 = _min_203;
+                        float _min_203 = fminf(gate_x_365, swiglu_limit);
+                        gate_x_365 = _min_203;
+                        float _min_204 = fminf(gate_y_366, swiglu_limit);
+                        gate_y_366 = _min_204;
                         float _fmax_112 = fmaxf(up_x_367, -swiglu_limit);
-                        float _min_204 = fminf(_fmax_112, swiglu_limit);
-                        up_x_367 = _min_204;
+                        float _min_205 = fminf(_fmax_112, swiglu_limit);
+                        up_x_367 = _min_205;
                         float _fmax_113 = fmaxf(up_y_368, -swiglu_limit);
-                        float _min_205 = fminf(_fmax_113, swiglu_limit);
-                        up_y_368 = _min_205;
+                        float _min_206 = fminf(_fmax_113, swiglu_limit);
+                        up_y_368 = _min_206;
                         float _exp_88 = expf(gate_x_365 * -1.0f);
                         float denominator_x_369 = _exp_88 + 1.0f;
                         float _exp_89 = expf(gate_y_366 * -1.0f);
@@ -4925,16 +4986,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_374 = _cvt_f32_90.y;
                         float up_x_375 = _cvt_f32_91.x;
                         float up_y_376 = _cvt_f32_91.y;
-                        float _min_206 = fminf(gate_x_373, swiglu_limit);
-                        gate_x_373 = _min_206;
-                        float _min_207 = fminf(gate_y_374, swiglu_limit);
-                        gate_y_374 = _min_207;
+                        float _min_207 = fminf(gate_x_373, swiglu_limit);
+                        gate_x_373 = _min_207;
+                        float _min_208 = fminf(gate_y_374, swiglu_limit);
+                        gate_y_374 = _min_208;
                         float _fmax_114 = fmaxf(up_x_375, -swiglu_limit);
-                        float _min_208 = fminf(_fmax_114, swiglu_limit);
-                        up_x_375 = _min_208;
+                        float _min_209 = fminf(_fmax_114, swiglu_limit);
+                        up_x_375 = _min_209;
                         float _fmax_115 = fmaxf(up_y_376, -swiglu_limit);
-                        float _min_209 = fminf(_fmax_115, swiglu_limit);
-                        up_y_376 = _min_209;
+                        float _min_210 = fminf(_fmax_115, swiglu_limit);
+                        up_y_376 = _min_210;
                         float _exp_90 = expf(gate_x_373 * -1.0f);
                         float denominator_x_377 = _exp_90 + 1.0f;
                         float _exp_91 = expf(gate_y_374 * -1.0f);
@@ -4949,16 +5010,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_382 = _cvt_f32_92.y;
                         float up_x_383 = _cvt_f32_93.x;
                         float up_y_384 = _cvt_f32_93.y;
-                        float _min_210 = fminf(gate_x_381, swiglu_limit);
-                        gate_x_381 = _min_210;
-                        float _min_211 = fminf(gate_y_382, swiglu_limit);
-                        gate_y_382 = _min_211;
+                        float _min_211 = fminf(gate_x_381, swiglu_limit);
+                        gate_x_381 = _min_211;
+                        float _min_212 = fminf(gate_y_382, swiglu_limit);
+                        gate_y_382 = _min_212;
                         float _fmax_116 = fmaxf(up_x_383, -swiglu_limit);
-                        float _min_212 = fminf(_fmax_116, swiglu_limit);
-                        up_x_383 = _min_212;
+                        float _min_213 = fminf(_fmax_116, swiglu_limit);
+                        up_x_383 = _min_213;
                         float _fmax_117 = fmaxf(up_y_384, -swiglu_limit);
-                        float _min_213 = fminf(_fmax_117, swiglu_limit);
-                        up_y_384 = _min_213;
+                        float _min_214 = fminf(_fmax_117, swiglu_limit);
+                        up_y_384 = _min_214;
                         float _exp_92 = expf(gate_x_381 * -1.0f);
                         float denominator_x_385 = _exp_92 + 1.0f;
                         float _exp_93 = expf(gate_y_382 * -1.0f);
@@ -4973,16 +5034,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_390 = _cvt_f32_94.y;
                         float up_x_391 = _cvt_f32_95.x;
                         float up_y_392 = _cvt_f32_95.y;
-                        float _min_214 = fminf(gate_x_389, swiglu_limit);
-                        gate_x_389 = _min_214;
-                        float _min_215 = fminf(gate_y_390, swiglu_limit);
-                        gate_y_390 = _min_215;
+                        float _min_215 = fminf(gate_x_389, swiglu_limit);
+                        gate_x_389 = _min_215;
+                        float _min_216 = fminf(gate_y_390, swiglu_limit);
+                        gate_y_390 = _min_216;
                         float _fmax_118 = fmaxf(up_x_391, -swiglu_limit);
-                        float _min_216 = fminf(_fmax_118, swiglu_limit);
-                        up_x_391 = _min_216;
+                        float _min_217 = fminf(_fmax_118, swiglu_limit);
+                        up_x_391 = _min_217;
                         float _fmax_119 = fmaxf(up_y_392, -swiglu_limit);
-                        float _min_217 = fminf(_fmax_119, swiglu_limit);
-                        up_y_392 = _min_217;
+                        float _min_218 = fminf(_fmax_119, swiglu_limit);
+                        up_y_392 = _min_218;
                         float _exp_94 = expf(gate_x_389 * -1.0f);
                         float denominator_x_393 = _exp_94 + 1.0f;
                         float _exp_95 = expf(gate_y_390 * -1.0f);
@@ -4997,16 +5058,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_398 = _cvt_f32_96.y;
                         float up_x_399 = _cvt_f32_97.x;
                         float up_y_400 = _cvt_f32_97.y;
-                        float _min_218 = fminf(gate_x_397, swiglu_limit);
-                        gate_x_397 = _min_218;
-                        float _min_219 = fminf(gate_y_398, swiglu_limit);
-                        gate_y_398 = _min_219;
+                        float _min_219 = fminf(gate_x_397, swiglu_limit);
+                        gate_x_397 = _min_219;
+                        float _min_220 = fminf(gate_y_398, swiglu_limit);
+                        gate_y_398 = _min_220;
                         float _fmax_120 = fmaxf(up_x_399, -swiglu_limit);
-                        float _min_220 = fminf(_fmax_120, swiglu_limit);
-                        up_x_399 = _min_220;
+                        float _min_221 = fminf(_fmax_120, swiglu_limit);
+                        up_x_399 = _min_221;
                         float _fmax_121 = fmaxf(up_y_400, -swiglu_limit);
-                        float _min_221 = fminf(_fmax_121, swiglu_limit);
-                        up_y_400 = _min_221;
+                        float _min_222 = fminf(_fmax_121, swiglu_limit);
+                        up_y_400 = _min_222;
                         float _exp_96 = expf(gate_x_397 * -1.0f);
                         float denominator_x_401 = _exp_96 + 1.0f;
                         float _exp_97 = expf(gate_y_398 * -1.0f);
@@ -5021,16 +5082,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_406 = _cvt_f32_98.y;
                         float up_x_407 = _cvt_f32_99.x;
                         float up_y_408 = _cvt_f32_99.y;
-                        float _min_222 = fminf(gate_x_405, swiglu_limit);
-                        gate_x_405 = _min_222;
-                        float _min_223 = fminf(gate_y_406, swiglu_limit);
-                        gate_y_406 = _min_223;
+                        float _min_223 = fminf(gate_x_405, swiglu_limit);
+                        gate_x_405 = _min_223;
+                        float _min_224 = fminf(gate_y_406, swiglu_limit);
+                        gate_y_406 = _min_224;
                         float _fmax_122 = fmaxf(up_x_407, -swiglu_limit);
-                        float _min_224 = fminf(_fmax_122, swiglu_limit);
-                        up_x_407 = _min_224;
+                        float _min_225 = fminf(_fmax_122, swiglu_limit);
+                        up_x_407 = _min_225;
                         float _fmax_123 = fmaxf(up_y_408, -swiglu_limit);
-                        float _min_225 = fminf(_fmax_123, swiglu_limit);
-                        up_y_408 = _min_225;
+                        float _min_226 = fminf(_fmax_123, swiglu_limit);
+                        up_y_408 = _min_226;
                         float _exp_98 = expf(gate_x_405 * -1.0f);
                         float denominator_x_409 = _exp_98 + 1.0f;
                         float _exp_99 = expf(gate_y_406 * -1.0f);
@@ -5045,16 +5106,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_414 = _cvt_f32_100.y;
                         float up_x_415 = _cvt_f32_101.x;
                         float up_y_416 = _cvt_f32_101.y;
-                        float _min_226 = fminf(gate_x_413, swiglu_limit);
-                        gate_x_413 = _min_226;
-                        float _min_227 = fminf(gate_y_414, swiglu_limit);
-                        gate_y_414 = _min_227;
+                        float _min_227 = fminf(gate_x_413, swiglu_limit);
+                        gate_x_413 = _min_227;
+                        float _min_228 = fminf(gate_y_414, swiglu_limit);
+                        gate_y_414 = _min_228;
                         float _fmax_124 = fmaxf(up_x_415, -swiglu_limit);
-                        float _min_228 = fminf(_fmax_124, swiglu_limit);
-                        up_x_415 = _min_228;
+                        float _min_229 = fminf(_fmax_124, swiglu_limit);
+                        up_x_415 = _min_229;
                         float _fmax_125 = fmaxf(up_y_416, -swiglu_limit);
-                        float _min_229 = fminf(_fmax_125, swiglu_limit);
-                        up_y_416 = _min_229;
+                        float _min_230 = fminf(_fmax_125, swiglu_limit);
+                        up_y_416 = _min_230;
                         float _exp_100 = expf(gate_x_413 * -1.0f);
                         float denominator_x_417 = _exp_100 + 1.0f;
                         float _exp_101 = expf(gate_y_414 * -1.0f);
@@ -5069,16 +5130,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_422 = _cvt_f32_102.y;
                         float up_x_423 = _cvt_f32_103.x;
                         float up_y_424 = _cvt_f32_103.y;
-                        float _min_230 = fminf(gate_x_421, swiglu_limit);
-                        gate_x_421 = _min_230;
-                        float _min_231 = fminf(gate_y_422, swiglu_limit);
-                        gate_y_422 = _min_231;
+                        float _min_231 = fminf(gate_x_421, swiglu_limit);
+                        gate_x_421 = _min_231;
+                        float _min_232 = fminf(gate_y_422, swiglu_limit);
+                        gate_y_422 = _min_232;
                         float _fmax_126 = fmaxf(up_x_423, -swiglu_limit);
-                        float _min_232 = fminf(_fmax_126, swiglu_limit);
-                        up_x_423 = _min_232;
+                        float _min_233 = fminf(_fmax_126, swiglu_limit);
+                        up_x_423 = _min_233;
                         float _fmax_127 = fmaxf(up_y_424, -swiglu_limit);
-                        float _min_233 = fminf(_fmax_127, swiglu_limit);
-                        up_y_424 = _min_233;
+                        float _min_234 = fminf(_fmax_127, swiglu_limit);
+                        up_y_424 = _min_234;
                         float _exp_102 = expf(gate_x_421 * -1.0f);
                         float denominator_x_425 = _exp_102 + 1.0f;
                         float _exp_103 = expf(gate_y_422 * -1.0f);
@@ -5093,16 +5154,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_430 = _cvt_f32_104.y;
                         float up_x_431 = _cvt_f32_105.x;
                         float up_y_432 = _cvt_f32_105.y;
-                        float _min_234 = fminf(gate_x_429, swiglu_limit);
-                        gate_x_429 = _min_234;
-                        float _min_235 = fminf(gate_y_430, swiglu_limit);
-                        gate_y_430 = _min_235;
+                        float _min_235 = fminf(gate_x_429, swiglu_limit);
+                        gate_x_429 = _min_235;
+                        float _min_236 = fminf(gate_y_430, swiglu_limit);
+                        gate_y_430 = _min_236;
                         float _fmax_128 = fmaxf(up_x_431, -swiglu_limit);
-                        float _min_236 = fminf(_fmax_128, swiglu_limit);
-                        up_x_431 = _min_236;
+                        float _min_237 = fminf(_fmax_128, swiglu_limit);
+                        up_x_431 = _min_237;
                         float _fmax_129 = fmaxf(up_y_432, -swiglu_limit);
-                        float _min_237 = fminf(_fmax_129, swiglu_limit);
-                        up_y_432 = _min_237;
+                        float _min_238 = fminf(_fmax_129, swiglu_limit);
+                        up_y_432 = _min_238;
                         float _exp_104 = expf(gate_x_429 * -1.0f);
                         float denominator_x_433 = _exp_104 + 1.0f;
                         float _exp_105 = expf(gate_y_430 * -1.0f);
@@ -5117,16 +5178,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_438 = _cvt_f32_106.y;
                         float up_x_439 = _cvt_f32_107.x;
                         float up_y_440 = _cvt_f32_107.y;
-                        float _min_238 = fminf(gate_x_437, swiglu_limit);
-                        gate_x_437 = _min_238;
-                        float _min_239 = fminf(gate_y_438, swiglu_limit);
-                        gate_y_438 = _min_239;
+                        float _min_239 = fminf(gate_x_437, swiglu_limit);
+                        gate_x_437 = _min_239;
+                        float _min_240 = fminf(gate_y_438, swiglu_limit);
+                        gate_y_438 = _min_240;
                         float _fmax_130 = fmaxf(up_x_439, -swiglu_limit);
-                        float _min_240 = fminf(_fmax_130, swiglu_limit);
-                        up_x_439 = _min_240;
+                        float _min_241 = fminf(_fmax_130, swiglu_limit);
+                        up_x_439 = _min_241;
                         float _fmax_131 = fmaxf(up_y_440, -swiglu_limit);
-                        float _min_241 = fminf(_fmax_131, swiglu_limit);
-                        up_y_440 = _min_241;
+                        float _min_242 = fminf(_fmax_131, swiglu_limit);
+                        up_y_440 = _min_242;
                         float _exp_106 = expf(gate_x_437 * -1.0f);
                         float denominator_x_441 = _exp_106 + 1.0f;
                         float _exp_107 = expf(gate_y_438 * -1.0f);
@@ -5141,16 +5202,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_446 = _cvt_f32_108.y;
                         float up_x_447 = _cvt_f32_109.x;
                         float up_y_448 = _cvt_f32_109.y;
-                        float _min_242 = fminf(gate_x_445, swiglu_limit);
-                        gate_x_445 = _min_242;
-                        float _min_243 = fminf(gate_y_446, swiglu_limit);
-                        gate_y_446 = _min_243;
+                        float _min_243 = fminf(gate_x_445, swiglu_limit);
+                        gate_x_445 = _min_243;
+                        float _min_244 = fminf(gate_y_446, swiglu_limit);
+                        gate_y_446 = _min_244;
                         float _fmax_132 = fmaxf(up_x_447, -swiglu_limit);
-                        float _min_244 = fminf(_fmax_132, swiglu_limit);
-                        up_x_447 = _min_244;
+                        float _min_245 = fminf(_fmax_132, swiglu_limit);
+                        up_x_447 = _min_245;
                         float _fmax_133 = fmaxf(up_y_448, -swiglu_limit);
-                        float _min_245 = fminf(_fmax_133, swiglu_limit);
-                        up_y_448 = _min_245;
+                        float _min_246 = fminf(_fmax_133, swiglu_limit);
+                        up_y_448 = _min_246;
                         float _exp_108 = expf(gate_x_445 * -1.0f);
                         float denominator_x_449 = _exp_108 + 1.0f;
                         float _exp_109 = expf(gate_y_446 * -1.0f);
@@ -5165,16 +5226,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_454 = _cvt_f32_110.y;
                         float up_x_455 = _cvt_f32_111.x;
                         float up_y_456 = _cvt_f32_111.y;
-                        float _min_246 = fminf(gate_x_453, swiglu_limit);
-                        gate_x_453 = _min_246;
-                        float _min_247 = fminf(gate_y_454, swiglu_limit);
-                        gate_y_454 = _min_247;
+                        float _min_247 = fminf(gate_x_453, swiglu_limit);
+                        gate_x_453 = _min_247;
+                        float _min_248 = fminf(gate_y_454, swiglu_limit);
+                        gate_y_454 = _min_248;
                         float _fmax_134 = fmaxf(up_x_455, -swiglu_limit);
-                        float _min_248 = fminf(_fmax_134, swiglu_limit);
-                        up_x_455 = _min_248;
+                        float _min_249 = fminf(_fmax_134, swiglu_limit);
+                        up_x_455 = _min_249;
                         float _fmax_135 = fmaxf(up_y_456, -swiglu_limit);
-                        float _min_249 = fminf(_fmax_135, swiglu_limit);
-                        up_y_456 = _min_249;
+                        float _min_250 = fminf(_fmax_135, swiglu_limit);
+                        up_y_456 = _min_250;
                         float _exp_110 = expf(gate_x_453 * -1.0f);
                         float denominator_x_457 = _exp_110 + 1.0f;
                         float _exp_111 = expf(gate_y_454 * -1.0f);
@@ -5189,16 +5250,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_462 = _cvt_f32_112.y;
                         float up_x_463 = _cvt_f32_113.x;
                         float up_y_464 = _cvt_f32_113.y;
-                        float _min_250 = fminf(gate_x_461, swiglu_limit);
-                        gate_x_461 = _min_250;
-                        float _min_251 = fminf(gate_y_462, swiglu_limit);
-                        gate_y_462 = _min_251;
+                        float _min_251 = fminf(gate_x_461, swiglu_limit);
+                        gate_x_461 = _min_251;
+                        float _min_252 = fminf(gate_y_462, swiglu_limit);
+                        gate_y_462 = _min_252;
                         float _fmax_136 = fmaxf(up_x_463, -swiglu_limit);
-                        float _min_252 = fminf(_fmax_136, swiglu_limit);
-                        up_x_463 = _min_252;
+                        float _min_253 = fminf(_fmax_136, swiglu_limit);
+                        up_x_463 = _min_253;
                         float _fmax_137 = fmaxf(up_y_464, -swiglu_limit);
-                        float _min_253 = fminf(_fmax_137, swiglu_limit);
-                        up_y_464 = _min_253;
+                        float _min_254 = fminf(_fmax_137, swiglu_limit);
+                        up_y_464 = _min_254;
                         float _exp_112 = expf(gate_x_461 * -1.0f);
                         float denominator_x_465 = _exp_112 + 1.0f;
                         float _exp_113 = expf(gate_y_462 * -1.0f);
@@ -5213,16 +5274,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_470 = _cvt_f32_114.y;
                         float up_x_471 = _cvt_f32_115.x;
                         float up_y_472 = _cvt_f32_115.y;
-                        float _min_254 = fminf(gate_x_469, swiglu_limit);
-                        gate_x_469 = _min_254;
-                        float _min_255 = fminf(gate_y_470, swiglu_limit);
-                        gate_y_470 = _min_255;
+                        float _min_255 = fminf(gate_x_469, swiglu_limit);
+                        gate_x_469 = _min_255;
+                        float _min_256 = fminf(gate_y_470, swiglu_limit);
+                        gate_y_470 = _min_256;
                         float _fmax_138 = fmaxf(up_x_471, -swiglu_limit);
-                        float _min_256 = fminf(_fmax_138, swiglu_limit);
-                        up_x_471 = _min_256;
+                        float _min_257 = fminf(_fmax_138, swiglu_limit);
+                        up_x_471 = _min_257;
                         float _fmax_139 = fmaxf(up_y_472, -swiglu_limit);
-                        float _min_257 = fminf(_fmax_139, swiglu_limit);
-                        up_y_472 = _min_257;
+                        float _min_258 = fminf(_fmax_139, swiglu_limit);
+                        up_y_472 = _min_258;
                         float _exp_114 = expf(gate_x_469 * -1.0f);
                         float denominator_x_473 = _exp_114 + 1.0f;
                         float _exp_115 = expf(gate_y_470 * -1.0f);
@@ -5237,16 +5298,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_478 = _cvt_f32_116.y;
                         float up_x_479 = _cvt_f32_117.x;
                         float up_y_480 = _cvt_f32_117.y;
-                        float _min_258 = fminf(gate_x_477, swiglu_limit);
-                        gate_x_477 = _min_258;
-                        float _min_259 = fminf(gate_y_478, swiglu_limit);
-                        gate_y_478 = _min_259;
+                        float _min_259 = fminf(gate_x_477, swiglu_limit);
+                        gate_x_477 = _min_259;
+                        float _min_260 = fminf(gate_y_478, swiglu_limit);
+                        gate_y_478 = _min_260;
                         float _fmax_140 = fmaxf(up_x_479, -swiglu_limit);
-                        float _min_260 = fminf(_fmax_140, swiglu_limit);
-                        up_x_479 = _min_260;
+                        float _min_261 = fminf(_fmax_140, swiglu_limit);
+                        up_x_479 = _min_261;
                         float _fmax_141 = fmaxf(up_y_480, -swiglu_limit);
-                        float _min_261 = fminf(_fmax_141, swiglu_limit);
-                        up_y_480 = _min_261;
+                        float _min_262 = fminf(_fmax_141, swiglu_limit);
+                        up_y_480 = _min_262;
                         float _exp_116 = expf(gate_x_477 * -1.0f);
                         float denominator_x_481 = _exp_116 + 1.0f;
                         float _exp_117 = expf(gate_y_478 * -1.0f);
@@ -5261,16 +5322,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_486 = _cvt_f32_118.y;
                         float up_x_487 = _cvt_f32_119.x;
                         float up_y_488 = _cvt_f32_119.y;
-                        float _min_262 = fminf(gate_x_485, swiglu_limit);
-                        gate_x_485 = _min_262;
-                        float _min_263 = fminf(gate_y_486, swiglu_limit);
-                        gate_y_486 = _min_263;
+                        float _min_263 = fminf(gate_x_485, swiglu_limit);
+                        gate_x_485 = _min_263;
+                        float _min_264 = fminf(gate_y_486, swiglu_limit);
+                        gate_y_486 = _min_264;
                         float _fmax_142 = fmaxf(up_x_487, -swiglu_limit);
-                        float _min_264 = fminf(_fmax_142, swiglu_limit);
-                        up_x_487 = _min_264;
+                        float _min_265 = fminf(_fmax_142, swiglu_limit);
+                        up_x_487 = _min_265;
                         float _fmax_143 = fmaxf(up_y_488, -swiglu_limit);
-                        float _min_265 = fminf(_fmax_143, swiglu_limit);
-                        up_y_488 = _min_265;
+                        float _min_266 = fminf(_fmax_143, swiglu_limit);
+                        up_y_488 = _min_266;
                         float _exp_118 = expf(gate_x_485 * -1.0f);
                         float denominator_x_489 = _exp_118 + 1.0f;
                         float _exp_119 = expf(gate_y_486 * -1.0f);
@@ -5285,16 +5346,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_494 = _cvt_f32_120.y;
                         float up_x_495 = _cvt_f32_121.x;
                         float up_y_496 = _cvt_f32_121.y;
-                        float _min_266 = fminf(gate_x_493, swiglu_limit);
-                        gate_x_493 = _min_266;
-                        float _min_267 = fminf(gate_y_494, swiglu_limit);
-                        gate_y_494 = _min_267;
+                        float _min_267 = fminf(gate_x_493, swiglu_limit);
+                        gate_x_493 = _min_267;
+                        float _min_268 = fminf(gate_y_494, swiglu_limit);
+                        gate_y_494 = _min_268;
                         float _fmax_144 = fmaxf(up_x_495, -swiglu_limit);
-                        float _min_268 = fminf(_fmax_144, swiglu_limit);
-                        up_x_495 = _min_268;
+                        float _min_269 = fminf(_fmax_144, swiglu_limit);
+                        up_x_495 = _min_269;
                         float _fmax_145 = fmaxf(up_y_496, -swiglu_limit);
-                        float _min_269 = fminf(_fmax_145, swiglu_limit);
-                        up_y_496 = _min_269;
+                        float _min_270 = fminf(_fmax_145, swiglu_limit);
+                        up_y_496 = _min_270;
                         float _exp_120 = expf(gate_x_493 * -1.0f);
                         float denominator_x_497 = _exp_120 + 1.0f;
                         float _exp_121 = expf(gate_y_494 * -1.0f);
@@ -5309,16 +5370,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_502 = _cvt_f32_122.y;
                         float up_x_503 = _cvt_f32_123.x;
                         float up_y_504 = _cvt_f32_123.y;
-                        float _min_270 = fminf(gate_x_501, swiglu_limit);
-                        gate_x_501 = _min_270;
-                        float _min_271 = fminf(gate_y_502, swiglu_limit);
-                        gate_y_502 = _min_271;
+                        float _min_271 = fminf(gate_x_501, swiglu_limit);
+                        gate_x_501 = _min_271;
+                        float _min_272 = fminf(gate_y_502, swiglu_limit);
+                        gate_y_502 = _min_272;
                         float _fmax_146 = fmaxf(up_x_503, -swiglu_limit);
-                        float _min_272 = fminf(_fmax_146, swiglu_limit);
-                        up_x_503 = _min_272;
+                        float _min_273 = fminf(_fmax_146, swiglu_limit);
+                        up_x_503 = _min_273;
                         float _fmax_147 = fmaxf(up_y_504, -swiglu_limit);
-                        float _min_273 = fminf(_fmax_147, swiglu_limit);
-                        up_y_504 = _min_273;
+                        float _min_274 = fminf(_fmax_147, swiglu_limit);
+                        up_y_504 = _min_274;
                         float _exp_122 = expf(gate_x_501 * -1.0f);
                         float denominator_x_505 = _exp_122 + 1.0f;
                         float _exp_123 = expf(gate_y_502 * -1.0f);
@@ -5333,16 +5394,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_510 = _cvt_f32_124.y;
                         float up_x_511 = _cvt_f32_125.x;
                         float up_y_512 = _cvt_f32_125.y;
-                        float _min_274 = fminf(gate_x_509, swiglu_limit);
-                        gate_x_509 = _min_274;
-                        float _min_275 = fminf(gate_y_510, swiglu_limit);
-                        gate_y_510 = _min_275;
+                        float _min_275 = fminf(gate_x_509, swiglu_limit);
+                        gate_x_509 = _min_275;
+                        float _min_276 = fminf(gate_y_510, swiglu_limit);
+                        gate_y_510 = _min_276;
                         float _fmax_148 = fmaxf(up_x_511, -swiglu_limit);
-                        float _min_276 = fminf(_fmax_148, swiglu_limit);
-                        up_x_511 = _min_276;
+                        float _min_277 = fminf(_fmax_148, swiglu_limit);
+                        up_x_511 = _min_277;
                         float _fmax_149 = fmaxf(up_y_512, -swiglu_limit);
-                        float _min_277 = fminf(_fmax_149, swiglu_limit);
-                        up_y_512 = _min_277;
+                        float _min_278 = fminf(_fmax_149, swiglu_limit);
+                        up_y_512 = _min_278;
                         float _exp_124 = expf(gate_x_509 * -1.0f);
                         float denominator_x_513 = _exp_124 + 1.0f;
                         float _exp_125 = expf(gate_y_510 * -1.0f);
@@ -5357,16 +5418,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_518 = _cvt_f32_126.y;
                         float up_x_519 = _cvt_f32_127.x;
                         float up_y_520 = _cvt_f32_127.y;
-                        float _min_278 = fminf(gate_x_517, swiglu_limit);
-                        gate_x_517 = _min_278;
-                        float _min_279 = fminf(gate_y_518, swiglu_limit);
-                        gate_y_518 = _min_279;
+                        float _min_279 = fminf(gate_x_517, swiglu_limit);
+                        gate_x_517 = _min_279;
+                        float _min_280 = fminf(gate_y_518, swiglu_limit);
+                        gate_y_518 = _min_280;
                         float _fmax_150 = fmaxf(up_x_519, -swiglu_limit);
-                        float _min_280 = fminf(_fmax_150, swiglu_limit);
-                        up_x_519 = _min_280;
+                        float _min_281 = fminf(_fmax_150, swiglu_limit);
+                        up_x_519 = _min_281;
                         float _fmax_151 = fmaxf(up_y_520, -swiglu_limit);
-                        float _min_281 = fminf(_fmax_151, swiglu_limit);
-                        up_y_520 = _min_281;
+                        float _min_282 = fminf(_fmax_151, swiglu_limit);
+                        up_y_520 = _min_282;
                         float _exp_126 = expf(gate_x_517 * -1.0f);
                         float denominator_x_521 = _exp_126 + 1.0f;
                         float _exp_127 = expf(gate_y_518 * -1.0f);
@@ -5389,10 +5450,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_39 = col_tile_14 * 16 + lane_526 / 16 * 8;
                                 unsigned int address_3_6 = d_smem_addr + (unsigned int)((row_11 * 32 + col_39) * 2);
                                 address_3_6 = address_3_6 ^ (address_3_6 & 511) >> 7 << 4;
-                                int offset_6 = half_14 * 8 + col_tile_14 * 4;
-                                uint32_t _stmatrix_addr_24 = static_cast<uint32_t>(address_3_6);
+                                int offset_4_6 = half_14 * 8 + col_tile_14 * 4;
+                                uint32_t _stmatrix_addr_25 = static_cast<uint32_t>(address_3_6);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_24), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_6])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_6 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_6 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_6 + 3]))
+                                    :: "r"(_stmatrix_addr_25), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_6])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_6 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_6 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_6 + 3]))
                                     : "memory");
                             }
                         }
@@ -5419,10 +5480,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_40 = col_tile_15 * 16 + lane_528 / 16 * 8;
                                 unsigned int address_3_7 = d_smem_addr + 8192 + (unsigned int)((row_12 * 32 + col_40) * 2);
                                 address_3_7 = address_3_7 ^ (address_3_7 & 511) >> 7 << 4;
-                                int offset_7 = half_15 * 8 + col_tile_15 * 4;
-                                uint32_t _stmatrix_addr_25 = static_cast<uint32_t>(address_3_7);
+                                int offset_4_7 = half_15 * 8 + col_tile_15 * 4;
+                                uint32_t _stmatrix_addr_26 = static_cast<uint32_t>(address_3_7);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_25), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_7])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_7 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_7 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_7 + 3]))
+                                    :: "r"(_stmatrix_addr_26), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_7])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_7 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_7 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_7 + 3]))
                                     : "memory");
                             }
                         }
@@ -5449,10 +5510,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_41 = col_tile_16 * 16 + lane_530 / 16 * 8;
                                 unsigned int address_3_8 = d_smem_addr + 16384 + (unsigned int)((row_13 * 32 + col_41) * 2);
                                 address_3_8 = address_3_8 ^ (address_3_8 & 511) >> 7 << 4;
-                                int offset_8 = half_16 * 8 + col_tile_16 * 4;
-                                uint32_t _stmatrix_addr_26 = static_cast<uint32_t>(address_3_8);
+                                int offset_4_8 = half_16 * 8 + col_tile_16 * 4;
+                                uint32_t _stmatrix_addr_27 = static_cast<uint32_t>(address_3_8);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_26), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_8])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_8 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_8 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_8 + 3]))
+                                    :: "r"(_stmatrix_addr_27), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_8])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_8 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_8 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_8 + 3]))
                                     : "memory");
                             }
                         }
@@ -5479,10 +5540,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_42 = col_tile_17 * 16 + lane_532 / 16 * 8;
                                 unsigned int address_3_9 = d_smem_addr + (unsigned int)((row_14 * 32 + col_42) * 2);
                                 address_3_9 = address_3_9 ^ (address_3_9 & 511) >> 7 << 4;
-                                int offset_9 = 16 + half_17 * 8 + col_tile_17 * 4;
-                                uint32_t _stmatrix_addr_27 = static_cast<uint32_t>(address_3_9);
+                                int offset_4_9 = 16 + half_17 * 8 + col_tile_17 * 4;
+                                uint32_t _stmatrix_addr_28 = static_cast<uint32_t>(address_3_9);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_27), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_9])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_9 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_9 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_9 + 3]))
+                                    :: "r"(_stmatrix_addr_28), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_9])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_9 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_9 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_262[offset_4_9 + 3]))
                                     : "memory");
                             }
                         }
@@ -5509,10 +5570,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_43 = col_tile_18 * 16 + lane_534 / 16 * 8;
                                 unsigned int address_3_10 = d_smem_addr + 8192 + (unsigned int)((row_15 * 32 + col_43) * 2);
                                 address_3_10 = address_3_10 ^ (address_3_10 & 511) >> 7 << 4;
-                                int offset_10 = 16 + half_18 * 8 + col_tile_18 * 4;
-                                uint32_t _stmatrix_addr_28 = static_cast<uint32_t>(address_3_10);
+                                int offset_4_10 = 16 + half_18 * 8 + col_tile_18 * 4;
+                                uint32_t _stmatrix_addr_29 = static_cast<uint32_t>(address_3_10);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_28), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_10])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_10 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_10 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_10 + 3]))
+                                    :: "r"(_stmatrix_addr_29), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_10])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_10 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_10 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_263[offset_4_10 + 3]))
                                     : "memory");
                             }
                         }
@@ -5539,10 +5600,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_44 = col_tile_19 * 16 + lane_536 / 16 * 8;
                                 unsigned int address_3_11 = d_smem_addr + 16384 + (unsigned int)((row_16 * 32 + col_44) * 2);
                                 address_3_11 = address_3_11 ^ (address_3_11 & 511) >> 7 << 4;
-                                int offset_11 = 16 + half_19 * 8 + col_tile_19 * 4;
-                                uint32_t _stmatrix_addr_29 = static_cast<uint32_t>(address_3_11);
+                                int offset_4_11 = 16 + half_19 * 8 + col_tile_19 * 4;
+                                uint32_t _stmatrix_addr_30 = static_cast<uint32_t>(address_3_11);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_29), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_11])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_11 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_11 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_11 + 3]))
+                                    :: "r"(_stmatrix_addr_30), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_11])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_11 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_11 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_264[offset_4_11 + 3]))
                                     : "memory");
                             }
                         }
@@ -5745,16 +5806,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_545 = _cvt_f32_128.y;
                         float up_x_546 = _cvt_f32_129.x;
                         float up_y_547 = _cvt_f32_129.y;
-                        float _min_282 = fminf(gate_x_544, swiglu_limit);
-                        gate_x_544 = _min_282;
-                        float _min_283 = fminf(gate_y_545, swiglu_limit);
-                        gate_y_545 = _min_283;
+                        float _min_283 = fminf(gate_x_544, swiglu_limit);
+                        gate_x_544 = _min_283;
+                        float _min_284 = fminf(gate_y_545, swiglu_limit);
+                        gate_y_545 = _min_284;
                         float _fmax_152 = fmaxf(up_x_546, -swiglu_limit);
-                        float _min_284 = fminf(_fmax_152, swiglu_limit);
-                        up_x_546 = _min_284;
+                        float _min_285 = fminf(_fmax_152, swiglu_limit);
+                        up_x_546 = _min_285;
                         float _fmax_153 = fmaxf(up_y_547, -swiglu_limit);
-                        float _min_285 = fminf(_fmax_153, swiglu_limit);
-                        up_y_547 = _min_285;
+                        float _min_286 = fminf(_fmax_153, swiglu_limit);
+                        up_y_547 = _min_286;
                         float _exp_128 = expf(gate_x_544 * -1.0f);
                         float denominator_x_548 = _exp_128 + 1.0f;
                         float _exp_129 = expf(gate_y_545 * -1.0f);
@@ -5769,16 +5830,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_553 = _cvt_f32_130.y;
                         float up_x_554 = _cvt_f32_131.x;
                         float up_y_555 = _cvt_f32_131.y;
-                        float _min_286 = fminf(gate_x_552, swiglu_limit);
-                        gate_x_552 = _min_286;
-                        float _min_287 = fminf(gate_y_553, swiglu_limit);
-                        gate_y_553 = _min_287;
+                        float _min_287 = fminf(gate_x_552, swiglu_limit);
+                        gate_x_552 = _min_287;
+                        float _min_288 = fminf(gate_y_553, swiglu_limit);
+                        gate_y_553 = _min_288;
                         float _fmax_154 = fmaxf(up_x_554, -swiglu_limit);
-                        float _min_288 = fminf(_fmax_154, swiglu_limit);
-                        up_x_554 = _min_288;
+                        float _min_289 = fminf(_fmax_154, swiglu_limit);
+                        up_x_554 = _min_289;
                         float _fmax_155 = fmaxf(up_y_555, -swiglu_limit);
-                        float _min_289 = fminf(_fmax_155, swiglu_limit);
-                        up_y_555 = _min_289;
+                        float _min_290 = fminf(_fmax_155, swiglu_limit);
+                        up_y_555 = _min_290;
                         float _exp_130 = expf(gate_x_552 * -1.0f);
                         float denominator_x_556 = _exp_130 + 1.0f;
                         float _exp_131 = expf(gate_y_553 * -1.0f);
@@ -5793,16 +5854,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_561 = _cvt_f32_132.y;
                         float up_x_562 = _cvt_f32_133.x;
                         float up_y_563 = _cvt_f32_133.y;
-                        float _min_290 = fminf(gate_x_560, swiglu_limit);
-                        gate_x_560 = _min_290;
-                        float _min_291 = fminf(gate_y_561, swiglu_limit);
-                        gate_y_561 = _min_291;
+                        float _min_291 = fminf(gate_x_560, swiglu_limit);
+                        gate_x_560 = _min_291;
+                        float _min_292 = fminf(gate_y_561, swiglu_limit);
+                        gate_y_561 = _min_292;
                         float _fmax_156 = fmaxf(up_x_562, -swiglu_limit);
-                        float _min_292 = fminf(_fmax_156, swiglu_limit);
-                        up_x_562 = _min_292;
+                        float _min_293 = fminf(_fmax_156, swiglu_limit);
+                        up_x_562 = _min_293;
                         float _fmax_157 = fmaxf(up_y_563, -swiglu_limit);
-                        float _min_293 = fminf(_fmax_157, swiglu_limit);
-                        up_y_563 = _min_293;
+                        float _min_294 = fminf(_fmax_157, swiglu_limit);
+                        up_y_563 = _min_294;
                         float _exp_132 = expf(gate_x_560 * -1.0f);
                         float denominator_x_564 = _exp_132 + 1.0f;
                         float _exp_133 = expf(gate_y_561 * -1.0f);
@@ -5817,16 +5878,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_569 = _cvt_f32_134.y;
                         float up_x_570 = _cvt_f32_135.x;
                         float up_y_571 = _cvt_f32_135.y;
-                        float _min_294 = fminf(gate_x_568, swiglu_limit);
-                        gate_x_568 = _min_294;
-                        float _min_295 = fminf(gate_y_569, swiglu_limit);
-                        gate_y_569 = _min_295;
+                        float _min_295 = fminf(gate_x_568, swiglu_limit);
+                        gate_x_568 = _min_295;
+                        float _min_296 = fminf(gate_y_569, swiglu_limit);
+                        gate_y_569 = _min_296;
                         float _fmax_158 = fmaxf(up_x_570, -swiglu_limit);
-                        float _min_296 = fminf(_fmax_158, swiglu_limit);
-                        up_x_570 = _min_296;
+                        float _min_297 = fminf(_fmax_158, swiglu_limit);
+                        up_x_570 = _min_297;
                         float _fmax_159 = fmaxf(up_y_571, -swiglu_limit);
-                        float _min_297 = fminf(_fmax_159, swiglu_limit);
-                        up_y_571 = _min_297;
+                        float _min_298 = fminf(_fmax_159, swiglu_limit);
+                        up_y_571 = _min_298;
                         float _exp_134 = expf(gate_x_568 * -1.0f);
                         float denominator_x_572 = _exp_134 + 1.0f;
                         float _exp_135 = expf(gate_y_569 * -1.0f);
@@ -5841,16 +5902,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_577 = _cvt_f32_136.y;
                         float up_x_578 = _cvt_f32_137.x;
                         float up_y_579 = _cvt_f32_137.y;
-                        float _min_298 = fminf(gate_x_576, swiglu_limit);
-                        gate_x_576 = _min_298;
-                        float _min_299 = fminf(gate_y_577, swiglu_limit);
-                        gate_y_577 = _min_299;
+                        float _min_299 = fminf(gate_x_576, swiglu_limit);
+                        gate_x_576 = _min_299;
+                        float _min_300 = fminf(gate_y_577, swiglu_limit);
+                        gate_y_577 = _min_300;
                         float _fmax_160 = fmaxf(up_x_578, -swiglu_limit);
-                        float _min_300 = fminf(_fmax_160, swiglu_limit);
-                        up_x_578 = _min_300;
+                        float _min_301 = fminf(_fmax_160, swiglu_limit);
+                        up_x_578 = _min_301;
                         float _fmax_161 = fmaxf(up_y_579, -swiglu_limit);
-                        float _min_301 = fminf(_fmax_161, swiglu_limit);
-                        up_y_579 = _min_301;
+                        float _min_302 = fminf(_fmax_161, swiglu_limit);
+                        up_y_579 = _min_302;
                         float _exp_136 = expf(gate_x_576 * -1.0f);
                         float denominator_x_580 = _exp_136 + 1.0f;
                         float _exp_137 = expf(gate_y_577 * -1.0f);
@@ -5865,16 +5926,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_585 = _cvt_f32_138.y;
                         float up_x_586 = _cvt_f32_139.x;
                         float up_y_587 = _cvt_f32_139.y;
-                        float _min_302 = fminf(gate_x_584, swiglu_limit);
-                        gate_x_584 = _min_302;
-                        float _min_303 = fminf(gate_y_585, swiglu_limit);
-                        gate_y_585 = _min_303;
+                        float _min_303 = fminf(gate_x_584, swiglu_limit);
+                        gate_x_584 = _min_303;
+                        float _min_304 = fminf(gate_y_585, swiglu_limit);
+                        gate_y_585 = _min_304;
                         float _fmax_162 = fmaxf(up_x_586, -swiglu_limit);
-                        float _min_304 = fminf(_fmax_162, swiglu_limit);
-                        up_x_586 = _min_304;
+                        float _min_305 = fminf(_fmax_162, swiglu_limit);
+                        up_x_586 = _min_305;
                         float _fmax_163 = fmaxf(up_y_587, -swiglu_limit);
-                        float _min_305 = fminf(_fmax_163, swiglu_limit);
-                        up_y_587 = _min_305;
+                        float _min_306 = fminf(_fmax_163, swiglu_limit);
+                        up_y_587 = _min_306;
                         float _exp_138 = expf(gate_x_584 * -1.0f);
                         float denominator_x_588 = _exp_138 + 1.0f;
                         float _exp_139 = expf(gate_y_585 * -1.0f);
@@ -5889,16 +5950,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_593 = _cvt_f32_140.y;
                         float up_x_594 = _cvt_f32_141.x;
                         float up_y_595 = _cvt_f32_141.y;
-                        float _min_306 = fminf(gate_x_592, swiglu_limit);
-                        gate_x_592 = _min_306;
-                        float _min_307 = fminf(gate_y_593, swiglu_limit);
-                        gate_y_593 = _min_307;
+                        float _min_307 = fminf(gate_x_592, swiglu_limit);
+                        gate_x_592 = _min_307;
+                        float _min_308 = fminf(gate_y_593, swiglu_limit);
+                        gate_y_593 = _min_308;
                         float _fmax_164 = fmaxf(up_x_594, -swiglu_limit);
-                        float _min_308 = fminf(_fmax_164, swiglu_limit);
-                        up_x_594 = _min_308;
+                        float _min_309 = fminf(_fmax_164, swiglu_limit);
+                        up_x_594 = _min_309;
                         float _fmax_165 = fmaxf(up_y_595, -swiglu_limit);
-                        float _min_309 = fminf(_fmax_165, swiglu_limit);
-                        up_y_595 = _min_309;
+                        float _min_310 = fminf(_fmax_165, swiglu_limit);
+                        up_y_595 = _min_310;
                         float _exp_140 = expf(gate_x_592 * -1.0f);
                         float denominator_x_596 = _exp_140 + 1.0f;
                         float _exp_141 = expf(gate_y_593 * -1.0f);
@@ -5913,16 +5974,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_601 = _cvt_f32_142.y;
                         float up_x_602 = _cvt_f32_143.x;
                         float up_y_603 = _cvt_f32_143.y;
-                        float _min_310 = fminf(gate_x_600, swiglu_limit);
-                        gate_x_600 = _min_310;
-                        float _min_311 = fminf(gate_y_601, swiglu_limit);
-                        gate_y_601 = _min_311;
+                        float _min_311 = fminf(gate_x_600, swiglu_limit);
+                        gate_x_600 = _min_311;
+                        float _min_312 = fminf(gate_y_601, swiglu_limit);
+                        gate_y_601 = _min_312;
                         float _fmax_166 = fmaxf(up_x_602, -swiglu_limit);
-                        float _min_312 = fminf(_fmax_166, swiglu_limit);
-                        up_x_602 = _min_312;
+                        float _min_313 = fminf(_fmax_166, swiglu_limit);
+                        up_x_602 = _min_313;
                         float _fmax_167 = fmaxf(up_y_603, -swiglu_limit);
-                        float _min_313 = fminf(_fmax_167, swiglu_limit);
-                        up_y_603 = _min_313;
+                        float _min_314 = fminf(_fmax_167, swiglu_limit);
+                        up_y_603 = _min_314;
                         float _exp_142 = expf(gate_x_600 * -1.0f);
                         float denominator_x_604 = _exp_142 + 1.0f;
                         float _exp_143 = expf(gate_y_601 * -1.0f);
@@ -5937,16 +5998,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_609 = _cvt_f32_144.y;
                         float up_x_610 = _cvt_f32_145.x;
                         float up_y_611 = _cvt_f32_145.y;
-                        float _min_314 = fminf(gate_x_608, swiglu_limit);
-                        gate_x_608 = _min_314;
-                        float _min_315 = fminf(gate_y_609, swiglu_limit);
-                        gate_y_609 = _min_315;
+                        float _min_315 = fminf(gate_x_608, swiglu_limit);
+                        gate_x_608 = _min_315;
+                        float _min_316 = fminf(gate_y_609, swiglu_limit);
+                        gate_y_609 = _min_316;
                         float _fmax_168 = fmaxf(up_x_610, -swiglu_limit);
-                        float _min_316 = fminf(_fmax_168, swiglu_limit);
-                        up_x_610 = _min_316;
+                        float _min_317 = fminf(_fmax_168, swiglu_limit);
+                        up_x_610 = _min_317;
                         float _fmax_169 = fmaxf(up_y_611, -swiglu_limit);
-                        float _min_317 = fminf(_fmax_169, swiglu_limit);
-                        up_y_611 = _min_317;
+                        float _min_318 = fminf(_fmax_169, swiglu_limit);
+                        up_y_611 = _min_318;
                         float _exp_144 = expf(gate_x_608 * -1.0f);
                         float denominator_x_612 = _exp_144 + 1.0f;
                         float _exp_145 = expf(gate_y_609 * -1.0f);
@@ -5961,16 +6022,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_617 = _cvt_f32_146.y;
                         float up_x_618 = _cvt_f32_147.x;
                         float up_y_619 = _cvt_f32_147.y;
-                        float _min_318 = fminf(gate_x_616, swiglu_limit);
-                        gate_x_616 = _min_318;
-                        float _min_319 = fminf(gate_y_617, swiglu_limit);
-                        gate_y_617 = _min_319;
+                        float _min_319 = fminf(gate_x_616, swiglu_limit);
+                        gate_x_616 = _min_319;
+                        float _min_320 = fminf(gate_y_617, swiglu_limit);
+                        gate_y_617 = _min_320;
                         float _fmax_170 = fmaxf(up_x_618, -swiglu_limit);
-                        float _min_320 = fminf(_fmax_170, swiglu_limit);
-                        up_x_618 = _min_320;
+                        float _min_321 = fminf(_fmax_170, swiglu_limit);
+                        up_x_618 = _min_321;
                         float _fmax_171 = fmaxf(up_y_619, -swiglu_limit);
-                        float _min_321 = fminf(_fmax_171, swiglu_limit);
-                        up_y_619 = _min_321;
+                        float _min_322 = fminf(_fmax_171, swiglu_limit);
+                        up_y_619 = _min_322;
                         float _exp_146 = expf(gate_x_616 * -1.0f);
                         float denominator_x_620 = _exp_146 + 1.0f;
                         float _exp_147 = expf(gate_y_617 * -1.0f);
@@ -5985,16 +6046,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_625 = _cvt_f32_148.y;
                         float up_x_626 = _cvt_f32_149.x;
                         float up_y_627 = _cvt_f32_149.y;
-                        float _min_322 = fminf(gate_x_624, swiglu_limit);
-                        gate_x_624 = _min_322;
-                        float _min_323 = fminf(gate_y_625, swiglu_limit);
-                        gate_y_625 = _min_323;
+                        float _min_323 = fminf(gate_x_624, swiglu_limit);
+                        gate_x_624 = _min_323;
+                        float _min_324 = fminf(gate_y_625, swiglu_limit);
+                        gate_y_625 = _min_324;
                         float _fmax_172 = fmaxf(up_x_626, -swiglu_limit);
-                        float _min_324 = fminf(_fmax_172, swiglu_limit);
-                        up_x_626 = _min_324;
+                        float _min_325 = fminf(_fmax_172, swiglu_limit);
+                        up_x_626 = _min_325;
                         float _fmax_173 = fmaxf(up_y_627, -swiglu_limit);
-                        float _min_325 = fminf(_fmax_173, swiglu_limit);
-                        up_y_627 = _min_325;
+                        float _min_326 = fminf(_fmax_173, swiglu_limit);
+                        up_y_627 = _min_326;
                         float _exp_148 = expf(gate_x_624 * -1.0f);
                         float denominator_x_628 = _exp_148 + 1.0f;
                         float _exp_149 = expf(gate_y_625 * -1.0f);
@@ -6009,16 +6070,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_633 = _cvt_f32_150.y;
                         float up_x_634 = _cvt_f32_151.x;
                         float up_y_635 = _cvt_f32_151.y;
-                        float _min_326 = fminf(gate_x_632, swiglu_limit);
-                        gate_x_632 = _min_326;
-                        float _min_327 = fminf(gate_y_633, swiglu_limit);
-                        gate_y_633 = _min_327;
+                        float _min_327 = fminf(gate_x_632, swiglu_limit);
+                        gate_x_632 = _min_327;
+                        float _min_328 = fminf(gate_y_633, swiglu_limit);
+                        gate_y_633 = _min_328;
                         float _fmax_174 = fmaxf(up_x_634, -swiglu_limit);
-                        float _min_328 = fminf(_fmax_174, swiglu_limit);
-                        up_x_634 = _min_328;
+                        float _min_329 = fminf(_fmax_174, swiglu_limit);
+                        up_x_634 = _min_329;
                         float _fmax_175 = fmaxf(up_y_635, -swiglu_limit);
-                        float _min_329 = fminf(_fmax_175, swiglu_limit);
-                        up_y_635 = _min_329;
+                        float _min_330 = fminf(_fmax_175, swiglu_limit);
+                        up_y_635 = _min_330;
                         float _exp_150 = expf(gate_x_632 * -1.0f);
                         float denominator_x_636 = _exp_150 + 1.0f;
                         float _exp_151 = expf(gate_y_633 * -1.0f);
@@ -6033,16 +6094,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_641 = _cvt_f32_152.y;
                         float up_x_642 = _cvt_f32_153.x;
                         float up_y_643 = _cvt_f32_153.y;
-                        float _min_330 = fminf(gate_x_640, swiglu_limit);
-                        gate_x_640 = _min_330;
-                        float _min_331 = fminf(gate_y_641, swiglu_limit);
-                        gate_y_641 = _min_331;
+                        float _min_331 = fminf(gate_x_640, swiglu_limit);
+                        gate_x_640 = _min_331;
+                        float _min_332 = fminf(gate_y_641, swiglu_limit);
+                        gate_y_641 = _min_332;
                         float _fmax_176 = fmaxf(up_x_642, -swiglu_limit);
-                        float _min_332 = fminf(_fmax_176, swiglu_limit);
-                        up_x_642 = _min_332;
+                        float _min_333 = fminf(_fmax_176, swiglu_limit);
+                        up_x_642 = _min_333;
                         float _fmax_177 = fmaxf(up_y_643, -swiglu_limit);
-                        float _min_333 = fminf(_fmax_177, swiglu_limit);
-                        up_y_643 = _min_333;
+                        float _min_334 = fminf(_fmax_177, swiglu_limit);
+                        up_y_643 = _min_334;
                         float _exp_152 = expf(gate_x_640 * -1.0f);
                         float denominator_x_644 = _exp_152 + 1.0f;
                         float _exp_153 = expf(gate_y_641 * -1.0f);
@@ -6057,16 +6118,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_649 = _cvt_f32_154.y;
                         float up_x_650 = _cvt_f32_155.x;
                         float up_y_651 = _cvt_f32_155.y;
-                        float _min_334 = fminf(gate_x_648, swiglu_limit);
-                        gate_x_648 = _min_334;
-                        float _min_335 = fminf(gate_y_649, swiglu_limit);
-                        gate_y_649 = _min_335;
+                        float _min_335 = fminf(gate_x_648, swiglu_limit);
+                        gate_x_648 = _min_335;
+                        float _min_336 = fminf(gate_y_649, swiglu_limit);
+                        gate_y_649 = _min_336;
                         float _fmax_178 = fmaxf(up_x_650, -swiglu_limit);
-                        float _min_336 = fminf(_fmax_178, swiglu_limit);
-                        up_x_650 = _min_336;
+                        float _min_337 = fminf(_fmax_178, swiglu_limit);
+                        up_x_650 = _min_337;
                         float _fmax_179 = fmaxf(up_y_651, -swiglu_limit);
-                        float _min_337 = fminf(_fmax_179, swiglu_limit);
-                        up_y_651 = _min_337;
+                        float _min_338 = fminf(_fmax_179, swiglu_limit);
+                        up_y_651 = _min_338;
                         float _exp_154 = expf(gate_x_648 * -1.0f);
                         float denominator_x_652 = _exp_154 + 1.0f;
                         float _exp_155 = expf(gate_y_649 * -1.0f);
@@ -6081,16 +6142,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_657 = _cvt_f32_156.y;
                         float up_x_658 = _cvt_f32_157.x;
                         float up_y_659 = _cvt_f32_157.y;
-                        float _min_338 = fminf(gate_x_656, swiglu_limit);
-                        gate_x_656 = _min_338;
-                        float _min_339 = fminf(gate_y_657, swiglu_limit);
-                        gate_y_657 = _min_339;
+                        float _min_339 = fminf(gate_x_656, swiglu_limit);
+                        gate_x_656 = _min_339;
+                        float _min_340 = fminf(gate_y_657, swiglu_limit);
+                        gate_y_657 = _min_340;
                         float _fmax_180 = fmaxf(up_x_658, -swiglu_limit);
-                        float _min_340 = fminf(_fmax_180, swiglu_limit);
-                        up_x_658 = _min_340;
+                        float _min_341 = fminf(_fmax_180, swiglu_limit);
+                        up_x_658 = _min_341;
                         float _fmax_181 = fmaxf(up_y_659, -swiglu_limit);
-                        float _min_341 = fminf(_fmax_181, swiglu_limit);
-                        up_y_659 = _min_341;
+                        float _min_342 = fminf(_fmax_181, swiglu_limit);
+                        up_y_659 = _min_342;
                         float _exp_156 = expf(gate_x_656 * -1.0f);
                         float denominator_x_660 = _exp_156 + 1.0f;
                         float _exp_157 = expf(gate_y_657 * -1.0f);
@@ -6105,16 +6166,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_665 = _cvt_f32_158.y;
                         float up_x_666 = _cvt_f32_159.x;
                         float up_y_667 = _cvt_f32_159.y;
-                        float _min_342 = fminf(gate_x_664, swiglu_limit);
-                        gate_x_664 = _min_342;
-                        float _min_343 = fminf(gate_y_665, swiglu_limit);
-                        gate_y_665 = _min_343;
+                        float _min_343 = fminf(gate_x_664, swiglu_limit);
+                        gate_x_664 = _min_343;
+                        float _min_344 = fminf(gate_y_665, swiglu_limit);
+                        gate_y_665 = _min_344;
                         float _fmax_182 = fmaxf(up_x_666, -swiglu_limit);
-                        float _min_344 = fminf(_fmax_182, swiglu_limit);
-                        up_x_666 = _min_344;
+                        float _min_345 = fminf(_fmax_182, swiglu_limit);
+                        up_x_666 = _min_345;
                         float _fmax_183 = fmaxf(up_y_667, -swiglu_limit);
-                        float _min_345 = fminf(_fmax_183, swiglu_limit);
-                        up_y_667 = _min_345;
+                        float _min_346 = fminf(_fmax_183, swiglu_limit);
+                        up_y_667 = _min_346;
                         float _exp_158 = expf(gate_x_664 * -1.0f);
                         float denominator_x_668 = _exp_158 + 1.0f;
                         float _exp_159 = expf(gate_y_665 * -1.0f);
@@ -6129,16 +6190,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_673 = _cvt_f32_160.y;
                         float up_x_674 = _cvt_f32_161.x;
                         float up_y_675 = _cvt_f32_161.y;
-                        float _min_346 = fminf(gate_x_672, swiglu_limit);
-                        gate_x_672 = _min_346;
-                        float _min_347 = fminf(gate_y_673, swiglu_limit);
-                        gate_y_673 = _min_347;
+                        float _min_347 = fminf(gate_x_672, swiglu_limit);
+                        gate_x_672 = _min_347;
+                        float _min_348 = fminf(gate_y_673, swiglu_limit);
+                        gate_y_673 = _min_348;
                         float _fmax_184 = fmaxf(up_x_674, -swiglu_limit);
-                        float _min_348 = fminf(_fmax_184, swiglu_limit);
-                        up_x_674 = _min_348;
+                        float _min_349 = fminf(_fmax_184, swiglu_limit);
+                        up_x_674 = _min_349;
                         float _fmax_185 = fmaxf(up_y_675, -swiglu_limit);
-                        float _min_349 = fminf(_fmax_185, swiglu_limit);
-                        up_y_675 = _min_349;
+                        float _min_350 = fminf(_fmax_185, swiglu_limit);
+                        up_y_675 = _min_350;
                         float _exp_160 = expf(gate_x_672 * -1.0f);
                         float denominator_x_676 = _exp_160 + 1.0f;
                         float _exp_161 = expf(gate_y_673 * -1.0f);
@@ -6153,16 +6214,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_681 = _cvt_f32_162.y;
                         float up_x_682 = _cvt_f32_163.x;
                         float up_y_683 = _cvt_f32_163.y;
-                        float _min_350 = fminf(gate_x_680, swiglu_limit);
-                        gate_x_680 = _min_350;
-                        float _min_351 = fminf(gate_y_681, swiglu_limit);
-                        gate_y_681 = _min_351;
+                        float _min_351 = fminf(gate_x_680, swiglu_limit);
+                        gate_x_680 = _min_351;
+                        float _min_352 = fminf(gate_y_681, swiglu_limit);
+                        gate_y_681 = _min_352;
                         float _fmax_186 = fmaxf(up_x_682, -swiglu_limit);
-                        float _min_352 = fminf(_fmax_186, swiglu_limit);
-                        up_x_682 = _min_352;
+                        float _min_353 = fminf(_fmax_186, swiglu_limit);
+                        up_x_682 = _min_353;
                         float _fmax_187 = fmaxf(up_y_683, -swiglu_limit);
-                        float _min_353 = fminf(_fmax_187, swiglu_limit);
-                        up_y_683 = _min_353;
+                        float _min_354 = fminf(_fmax_187, swiglu_limit);
+                        up_y_683 = _min_354;
                         float _exp_162 = expf(gate_x_680 * -1.0f);
                         float denominator_x_684 = _exp_162 + 1.0f;
                         float _exp_163 = expf(gate_y_681 * -1.0f);
@@ -6177,16 +6238,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_689 = _cvt_f32_164.y;
                         float up_x_690 = _cvt_f32_165.x;
                         float up_y_691 = _cvt_f32_165.y;
-                        float _min_354 = fminf(gate_x_688, swiglu_limit);
-                        gate_x_688 = _min_354;
-                        float _min_355 = fminf(gate_y_689, swiglu_limit);
-                        gate_y_689 = _min_355;
+                        float _min_355 = fminf(gate_x_688, swiglu_limit);
+                        gate_x_688 = _min_355;
+                        float _min_356 = fminf(gate_y_689, swiglu_limit);
+                        gate_y_689 = _min_356;
                         float _fmax_188 = fmaxf(up_x_690, -swiglu_limit);
-                        float _min_356 = fminf(_fmax_188, swiglu_limit);
-                        up_x_690 = _min_356;
+                        float _min_357 = fminf(_fmax_188, swiglu_limit);
+                        up_x_690 = _min_357;
                         float _fmax_189 = fmaxf(up_y_691, -swiglu_limit);
-                        float _min_357 = fminf(_fmax_189, swiglu_limit);
-                        up_y_691 = _min_357;
+                        float _min_358 = fminf(_fmax_189, swiglu_limit);
+                        up_y_691 = _min_358;
                         float _exp_164 = expf(gate_x_688 * -1.0f);
                         float denominator_x_692 = _exp_164 + 1.0f;
                         float _exp_165 = expf(gate_y_689 * -1.0f);
@@ -6201,16 +6262,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_697 = _cvt_f32_166.y;
                         float up_x_698 = _cvt_f32_167.x;
                         float up_y_699 = _cvt_f32_167.y;
-                        float _min_358 = fminf(gate_x_696, swiglu_limit);
-                        gate_x_696 = _min_358;
-                        float _min_359 = fminf(gate_y_697, swiglu_limit);
-                        gate_y_697 = _min_359;
+                        float _min_359 = fminf(gate_x_696, swiglu_limit);
+                        gate_x_696 = _min_359;
+                        float _min_360 = fminf(gate_y_697, swiglu_limit);
+                        gate_y_697 = _min_360;
                         float _fmax_190 = fmaxf(up_x_698, -swiglu_limit);
-                        float _min_360 = fminf(_fmax_190, swiglu_limit);
-                        up_x_698 = _min_360;
+                        float _min_361 = fminf(_fmax_190, swiglu_limit);
+                        up_x_698 = _min_361;
                         float _fmax_191 = fmaxf(up_y_699, -swiglu_limit);
-                        float _min_361 = fminf(_fmax_191, swiglu_limit);
-                        up_y_699 = _min_361;
+                        float _min_362 = fminf(_fmax_191, swiglu_limit);
+                        up_y_699 = _min_362;
                         float _exp_166 = expf(gate_x_696 * -1.0f);
                         float denominator_x_700 = _exp_166 + 1.0f;
                         float _exp_167 = expf(gate_y_697 * -1.0f);
@@ -6225,16 +6286,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_705 = _cvt_f32_168.y;
                         float up_x_706 = _cvt_f32_169.x;
                         float up_y_707 = _cvt_f32_169.y;
-                        float _min_362 = fminf(gate_x_704, swiglu_limit);
-                        gate_x_704 = _min_362;
-                        float _min_363 = fminf(gate_y_705, swiglu_limit);
-                        gate_y_705 = _min_363;
+                        float _min_363 = fminf(gate_x_704, swiglu_limit);
+                        gate_x_704 = _min_363;
+                        float _min_364 = fminf(gate_y_705, swiglu_limit);
+                        gate_y_705 = _min_364;
                         float _fmax_192 = fmaxf(up_x_706, -swiglu_limit);
-                        float _min_364 = fminf(_fmax_192, swiglu_limit);
-                        up_x_706 = _min_364;
+                        float _min_365 = fminf(_fmax_192, swiglu_limit);
+                        up_x_706 = _min_365;
                         float _fmax_193 = fmaxf(up_y_707, -swiglu_limit);
-                        float _min_365 = fminf(_fmax_193, swiglu_limit);
-                        up_y_707 = _min_365;
+                        float _min_366 = fminf(_fmax_193, swiglu_limit);
+                        up_y_707 = _min_366;
                         float _exp_168 = expf(gate_x_704 * -1.0f);
                         float denominator_x_708 = _exp_168 + 1.0f;
                         float _exp_169 = expf(gate_y_705 * -1.0f);
@@ -6249,16 +6310,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_713 = _cvt_f32_170.y;
                         float up_x_714 = _cvt_f32_171.x;
                         float up_y_715 = _cvt_f32_171.y;
-                        float _min_366 = fminf(gate_x_712, swiglu_limit);
-                        gate_x_712 = _min_366;
-                        float _min_367 = fminf(gate_y_713, swiglu_limit);
-                        gate_y_713 = _min_367;
+                        float _min_367 = fminf(gate_x_712, swiglu_limit);
+                        gate_x_712 = _min_367;
+                        float _min_368 = fminf(gate_y_713, swiglu_limit);
+                        gate_y_713 = _min_368;
                         float _fmax_194 = fmaxf(up_x_714, -swiglu_limit);
-                        float _min_368 = fminf(_fmax_194, swiglu_limit);
-                        up_x_714 = _min_368;
+                        float _min_369 = fminf(_fmax_194, swiglu_limit);
+                        up_x_714 = _min_369;
                         float _fmax_195 = fmaxf(up_y_715, -swiglu_limit);
-                        float _min_369 = fminf(_fmax_195, swiglu_limit);
-                        up_y_715 = _min_369;
+                        float _min_370 = fminf(_fmax_195, swiglu_limit);
+                        up_y_715 = _min_370;
                         float _exp_170 = expf(gate_x_712 * -1.0f);
                         float denominator_x_716 = _exp_170 + 1.0f;
                         float _exp_171 = expf(gate_y_713 * -1.0f);
@@ -6273,16 +6334,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_721 = _cvt_f32_172.y;
                         float up_x_722 = _cvt_f32_173.x;
                         float up_y_723 = _cvt_f32_173.y;
-                        float _min_370 = fminf(gate_x_720, swiglu_limit);
-                        gate_x_720 = _min_370;
-                        float _min_371 = fminf(gate_y_721, swiglu_limit);
-                        gate_y_721 = _min_371;
+                        float _min_371 = fminf(gate_x_720, swiglu_limit);
+                        gate_x_720 = _min_371;
+                        float _min_372 = fminf(gate_y_721, swiglu_limit);
+                        gate_y_721 = _min_372;
                         float _fmax_196 = fmaxf(up_x_722, -swiglu_limit);
-                        float _min_372 = fminf(_fmax_196, swiglu_limit);
-                        up_x_722 = _min_372;
+                        float _min_373 = fminf(_fmax_196, swiglu_limit);
+                        up_x_722 = _min_373;
                         float _fmax_197 = fmaxf(up_y_723, -swiglu_limit);
-                        float _min_373 = fminf(_fmax_197, swiglu_limit);
-                        up_y_723 = _min_373;
+                        float _min_374 = fminf(_fmax_197, swiglu_limit);
+                        up_y_723 = _min_374;
                         float _exp_172 = expf(gate_x_720 * -1.0f);
                         float denominator_x_724 = _exp_172 + 1.0f;
                         float _exp_173 = expf(gate_y_721 * -1.0f);
@@ -6297,16 +6358,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_729 = _cvt_f32_174.y;
                         float up_x_730 = _cvt_f32_175.x;
                         float up_y_731 = _cvt_f32_175.y;
-                        float _min_374 = fminf(gate_x_728, swiglu_limit);
-                        gate_x_728 = _min_374;
-                        float _min_375 = fminf(gate_y_729, swiglu_limit);
-                        gate_y_729 = _min_375;
+                        float _min_375 = fminf(gate_x_728, swiglu_limit);
+                        gate_x_728 = _min_375;
+                        float _min_376 = fminf(gate_y_729, swiglu_limit);
+                        gate_y_729 = _min_376;
                         float _fmax_198 = fmaxf(up_x_730, -swiglu_limit);
-                        float _min_376 = fminf(_fmax_198, swiglu_limit);
-                        up_x_730 = _min_376;
+                        float _min_377 = fminf(_fmax_198, swiglu_limit);
+                        up_x_730 = _min_377;
                         float _fmax_199 = fmaxf(up_y_731, -swiglu_limit);
-                        float _min_377 = fminf(_fmax_199, swiglu_limit);
-                        up_y_731 = _min_377;
+                        float _min_378 = fminf(_fmax_199, swiglu_limit);
+                        up_y_731 = _min_378;
                         float _exp_174 = expf(gate_x_728 * -1.0f);
                         float denominator_x_732 = _exp_174 + 1.0f;
                         float _exp_175 = expf(gate_y_729 * -1.0f);
@@ -6321,16 +6382,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_737 = _cvt_f32_176.y;
                         float up_x_738 = _cvt_f32_177.x;
                         float up_y_739 = _cvt_f32_177.y;
-                        float _min_378 = fminf(gate_x_736, swiglu_limit);
-                        gate_x_736 = _min_378;
-                        float _min_379 = fminf(gate_y_737, swiglu_limit);
-                        gate_y_737 = _min_379;
+                        float _min_379 = fminf(gate_x_736, swiglu_limit);
+                        gate_x_736 = _min_379;
+                        float _min_380 = fminf(gate_y_737, swiglu_limit);
+                        gate_y_737 = _min_380;
                         float _fmax_200 = fmaxf(up_x_738, -swiglu_limit);
-                        float _min_380 = fminf(_fmax_200, swiglu_limit);
-                        up_x_738 = _min_380;
+                        float _min_381 = fminf(_fmax_200, swiglu_limit);
+                        up_x_738 = _min_381;
                         float _fmax_201 = fmaxf(up_y_739, -swiglu_limit);
-                        float _min_381 = fminf(_fmax_201, swiglu_limit);
-                        up_y_739 = _min_381;
+                        float _min_382 = fminf(_fmax_201, swiglu_limit);
+                        up_y_739 = _min_382;
                         float _exp_176 = expf(gate_x_736 * -1.0f);
                         float denominator_x_740 = _exp_176 + 1.0f;
                         float _exp_177 = expf(gate_y_737 * -1.0f);
@@ -6345,16 +6406,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_745 = _cvt_f32_178.y;
                         float up_x_746 = _cvt_f32_179.x;
                         float up_y_747 = _cvt_f32_179.y;
-                        float _min_382 = fminf(gate_x_744, swiglu_limit);
-                        gate_x_744 = _min_382;
-                        float _min_383 = fminf(gate_y_745, swiglu_limit);
-                        gate_y_745 = _min_383;
+                        float _min_383 = fminf(gate_x_744, swiglu_limit);
+                        gate_x_744 = _min_383;
+                        float _min_384 = fminf(gate_y_745, swiglu_limit);
+                        gate_y_745 = _min_384;
                         float _fmax_202 = fmaxf(up_x_746, -swiglu_limit);
-                        float _min_384 = fminf(_fmax_202, swiglu_limit);
-                        up_x_746 = _min_384;
+                        float _min_385 = fminf(_fmax_202, swiglu_limit);
+                        up_x_746 = _min_385;
                         float _fmax_203 = fmaxf(up_y_747, -swiglu_limit);
-                        float _min_385 = fminf(_fmax_203, swiglu_limit);
-                        up_y_747 = _min_385;
+                        float _min_386 = fminf(_fmax_203, swiglu_limit);
+                        up_y_747 = _min_386;
                         float _exp_178 = expf(gate_x_744 * -1.0f);
                         float denominator_x_748 = _exp_178 + 1.0f;
                         float _exp_179 = expf(gate_y_745 * -1.0f);
@@ -6369,16 +6430,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_753 = _cvt_f32_180.y;
                         float up_x_754 = _cvt_f32_181.x;
                         float up_y_755 = _cvt_f32_181.y;
-                        float _min_386 = fminf(gate_x_752, swiglu_limit);
-                        gate_x_752 = _min_386;
-                        float _min_387 = fminf(gate_y_753, swiglu_limit);
-                        gate_y_753 = _min_387;
+                        float _min_387 = fminf(gate_x_752, swiglu_limit);
+                        gate_x_752 = _min_387;
+                        float _min_388 = fminf(gate_y_753, swiglu_limit);
+                        gate_y_753 = _min_388;
                         float _fmax_204 = fmaxf(up_x_754, -swiglu_limit);
-                        float _min_388 = fminf(_fmax_204, swiglu_limit);
-                        up_x_754 = _min_388;
+                        float _min_389 = fminf(_fmax_204, swiglu_limit);
+                        up_x_754 = _min_389;
                         float _fmax_205 = fmaxf(up_y_755, -swiglu_limit);
-                        float _min_389 = fminf(_fmax_205, swiglu_limit);
-                        up_y_755 = _min_389;
+                        float _min_390 = fminf(_fmax_205, swiglu_limit);
+                        up_y_755 = _min_390;
                         float _exp_180 = expf(gate_x_752 * -1.0f);
                         float denominator_x_756 = _exp_180 + 1.0f;
                         float _exp_181 = expf(gate_y_753 * -1.0f);
@@ -6393,16 +6454,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_761 = _cvt_f32_182.y;
                         float up_x_762 = _cvt_f32_183.x;
                         float up_y_763 = _cvt_f32_183.y;
-                        float _min_390 = fminf(gate_x_760, swiglu_limit);
-                        gate_x_760 = _min_390;
-                        float _min_391 = fminf(gate_y_761, swiglu_limit);
-                        gate_y_761 = _min_391;
+                        float _min_391 = fminf(gate_x_760, swiglu_limit);
+                        gate_x_760 = _min_391;
+                        float _min_392 = fminf(gate_y_761, swiglu_limit);
+                        gate_y_761 = _min_392;
                         float _fmax_206 = fmaxf(up_x_762, -swiglu_limit);
-                        float _min_392 = fminf(_fmax_206, swiglu_limit);
-                        up_x_762 = _min_392;
+                        float _min_393 = fminf(_fmax_206, swiglu_limit);
+                        up_x_762 = _min_393;
                         float _fmax_207 = fmaxf(up_y_763, -swiglu_limit);
-                        float _min_393 = fminf(_fmax_207, swiglu_limit);
-                        up_y_763 = _min_393;
+                        float _min_394 = fminf(_fmax_207, swiglu_limit);
+                        up_y_763 = _min_394;
                         float _exp_182 = expf(gate_x_760 * -1.0f);
                         float denominator_x_764 = _exp_182 + 1.0f;
                         float _exp_183 = expf(gate_y_761 * -1.0f);
@@ -6417,16 +6478,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_769 = _cvt_f32_184.y;
                         float up_x_770 = _cvt_f32_185.x;
                         float up_y_771 = _cvt_f32_185.y;
-                        float _min_394 = fminf(gate_x_768, swiglu_limit);
-                        gate_x_768 = _min_394;
-                        float _min_395 = fminf(gate_y_769, swiglu_limit);
-                        gate_y_769 = _min_395;
+                        float _min_395 = fminf(gate_x_768, swiglu_limit);
+                        gate_x_768 = _min_395;
+                        float _min_396 = fminf(gate_y_769, swiglu_limit);
+                        gate_y_769 = _min_396;
                         float _fmax_208 = fmaxf(up_x_770, -swiglu_limit);
-                        float _min_396 = fminf(_fmax_208, swiglu_limit);
-                        up_x_770 = _min_396;
+                        float _min_397 = fminf(_fmax_208, swiglu_limit);
+                        up_x_770 = _min_397;
                         float _fmax_209 = fmaxf(up_y_771, -swiglu_limit);
-                        float _min_397 = fminf(_fmax_209, swiglu_limit);
-                        up_y_771 = _min_397;
+                        float _min_398 = fminf(_fmax_209, swiglu_limit);
+                        up_y_771 = _min_398;
                         float _exp_184 = expf(gate_x_768 * -1.0f);
                         float denominator_x_772 = _exp_184 + 1.0f;
                         float _exp_185 = expf(gate_y_769 * -1.0f);
@@ -6441,16 +6502,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_777 = _cvt_f32_186.y;
                         float up_x_778 = _cvt_f32_187.x;
                         float up_y_779 = _cvt_f32_187.y;
-                        float _min_398 = fminf(gate_x_776, swiglu_limit);
-                        gate_x_776 = _min_398;
-                        float _min_399 = fminf(gate_y_777, swiglu_limit);
-                        gate_y_777 = _min_399;
+                        float _min_399 = fminf(gate_x_776, swiglu_limit);
+                        gate_x_776 = _min_399;
+                        float _min_400 = fminf(gate_y_777, swiglu_limit);
+                        gate_y_777 = _min_400;
                         float _fmax_210 = fmaxf(up_x_778, -swiglu_limit);
-                        float _min_400 = fminf(_fmax_210, swiglu_limit);
-                        up_x_778 = _min_400;
+                        float _min_401 = fminf(_fmax_210, swiglu_limit);
+                        up_x_778 = _min_401;
                         float _fmax_211 = fmaxf(up_y_779, -swiglu_limit);
-                        float _min_401 = fminf(_fmax_211, swiglu_limit);
-                        up_y_779 = _min_401;
+                        float _min_402 = fminf(_fmax_211, swiglu_limit);
+                        up_y_779 = _min_402;
                         float _exp_186 = expf(gate_x_776 * -1.0f);
                         float denominator_x_780 = _exp_186 + 1.0f;
                         float _exp_187 = expf(gate_y_777 * -1.0f);
@@ -6465,16 +6526,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_785 = _cvt_f32_188.y;
                         float up_x_786 = _cvt_f32_189.x;
                         float up_y_787 = _cvt_f32_189.y;
-                        float _min_402 = fminf(gate_x_784, swiglu_limit);
-                        gate_x_784 = _min_402;
-                        float _min_403 = fminf(gate_y_785, swiglu_limit);
-                        gate_y_785 = _min_403;
+                        float _min_403 = fminf(gate_x_784, swiglu_limit);
+                        gate_x_784 = _min_403;
+                        float _min_404 = fminf(gate_y_785, swiglu_limit);
+                        gate_y_785 = _min_404;
                         float _fmax_212 = fmaxf(up_x_786, -swiglu_limit);
-                        float _min_404 = fminf(_fmax_212, swiglu_limit);
-                        up_x_786 = _min_404;
+                        float _min_405 = fminf(_fmax_212, swiglu_limit);
+                        up_x_786 = _min_405;
                         float _fmax_213 = fmaxf(up_y_787, -swiglu_limit);
-                        float _min_405 = fminf(_fmax_213, swiglu_limit);
-                        up_y_787 = _min_405;
+                        float _min_406 = fminf(_fmax_213, swiglu_limit);
+                        up_y_787 = _min_406;
                         float _exp_188 = expf(gate_x_784 * -1.0f);
                         float denominator_x_788 = _exp_188 + 1.0f;
                         float _exp_189 = expf(gate_y_785 * -1.0f);
@@ -6489,16 +6550,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_793 = _cvt_f32_190.y;
                         float up_x_794 = _cvt_f32_191.x;
                         float up_y_795 = _cvt_f32_191.y;
-                        float _min_406 = fminf(gate_x_792, swiglu_limit);
-                        gate_x_792 = _min_406;
-                        float _min_407 = fminf(gate_y_793, swiglu_limit);
-                        gate_y_793 = _min_407;
+                        float _min_407 = fminf(gate_x_792, swiglu_limit);
+                        gate_x_792 = _min_407;
+                        float _min_408 = fminf(gate_y_793, swiglu_limit);
+                        gate_y_793 = _min_408;
                         float _fmax_214 = fmaxf(up_x_794, -swiglu_limit);
-                        float _min_408 = fminf(_fmax_214, swiglu_limit);
-                        up_x_794 = _min_408;
+                        float _min_409 = fminf(_fmax_214, swiglu_limit);
+                        up_x_794 = _min_409;
                         float _fmax_215 = fmaxf(up_y_795, -swiglu_limit);
-                        float _min_409 = fminf(_fmax_215, swiglu_limit);
-                        up_y_795 = _min_409;
+                        float _min_410 = fminf(_fmax_215, swiglu_limit);
+                        up_y_795 = _min_410;
                         float _exp_190 = expf(gate_x_792 * -1.0f);
                         float denominator_x_796 = _exp_190 + 1.0f;
                         float _exp_191 = expf(gate_y_793 * -1.0f);
@@ -6521,10 +6582,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_45 = col_tile_20 * 16 + lane_801 / 16 * 8;
                                 unsigned int address_3_12 = d_smem_addr + (unsigned int)((row_17 * 32 + col_45) * 2);
                                 address_3_12 = address_3_12 ^ (address_3_12 & 511) >> 7 << 4;
-                                int offset_12 = half_20 * 8 + col_tile_20 * 4;
-                                uint32_t _stmatrix_addr_30 = static_cast<uint32_t>(address_3_12);
+                                int offset_4_12 = half_20 * 8 + col_tile_20 * 4;
+                                uint32_t _stmatrix_addr_31 = static_cast<uint32_t>(address_3_12);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_30), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_12])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_12 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_12 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_12 + 3]))
+                                    :: "r"(_stmatrix_addr_31), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_12])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_12 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_12 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_12 + 3]))
                                     : "memory");
                             }
                         }
@@ -6551,10 +6612,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_46 = col_tile_21 * 16 + lane_803 / 16 * 8;
                                 unsigned int address_3_13 = d_smem_addr + 8192 + (unsigned int)((row_18 * 32 + col_46) * 2);
                                 address_3_13 = address_3_13 ^ (address_3_13 & 511) >> 7 << 4;
-                                int offset_13 = half_21 * 8 + col_tile_21 * 4;
-                                uint32_t _stmatrix_addr_31 = static_cast<uint32_t>(address_3_13);
+                                int offset_4_13 = half_21 * 8 + col_tile_21 * 4;
+                                uint32_t _stmatrix_addr_32 = static_cast<uint32_t>(address_3_13);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_31), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_13])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_13 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_13 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_13 + 3]))
+                                    :: "r"(_stmatrix_addr_32), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_13])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_13 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_13 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_13 + 3]))
                                     : "memory");
                             }
                         }
@@ -6581,10 +6642,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_47 = col_tile_22 * 16 + lane_805 / 16 * 8;
                                 unsigned int address_3_14 = d_smem_addr + 16384 + (unsigned int)((row_19 * 32 + col_47) * 2);
                                 address_3_14 = address_3_14 ^ (address_3_14 & 511) >> 7 << 4;
-                                int offset_14 = half_22 * 8 + col_tile_22 * 4;
-                                uint32_t _stmatrix_addr_32 = static_cast<uint32_t>(address_3_14);
+                                int offset_4_14 = half_22 * 8 + col_tile_22 * 4;
+                                uint32_t _stmatrix_addr_33 = static_cast<uint32_t>(address_3_14);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_32), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_14])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_14 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_14 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_14 + 3]))
+                                    :: "r"(_stmatrix_addr_33), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_14])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_14 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_14 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_14 + 3]))
                                     : "memory");
                             }
                         }
@@ -6611,10 +6672,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_48 = col_tile_23 * 16 + lane_807 / 16 * 8;
                                 unsigned int address_3_15 = d_smem_addr + (unsigned int)((row_20 * 32 + col_48) * 2);
                                 address_3_15 = address_3_15 ^ (address_3_15 & 511) >> 7 << 4;
-                                int offset_15 = 16 + half_23 * 8 + col_tile_23 * 4;
-                                uint32_t _stmatrix_addr_33 = static_cast<uint32_t>(address_3_15);
+                                int offset_4_15 = 16 + half_23 * 8 + col_tile_23 * 4;
+                                uint32_t _stmatrix_addr_34 = static_cast<uint32_t>(address_3_15);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_33), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_15])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_15 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_15 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_15 + 3]))
+                                    :: "r"(_stmatrix_addr_34), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_15])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_15 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_15 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_537[offset_4_15 + 3]))
                                     : "memory");
                             }
                         }
@@ -6641,10 +6702,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_49 = col_tile_24 * 16 + lane_809 / 16 * 8;
                                 unsigned int address_3_16 = d_smem_addr + 8192 + (unsigned int)((row_21 * 32 + col_49) * 2);
                                 address_3_16 = address_3_16 ^ (address_3_16 & 511) >> 7 << 4;
-                                int offset_16 = 16 + half_24 * 8 + col_tile_24 * 4;
-                                uint32_t _stmatrix_addr_34 = static_cast<uint32_t>(address_3_16);
+                                int offset_4_16 = 16 + half_24 * 8 + col_tile_24 * 4;
+                                uint32_t _stmatrix_addr_35 = static_cast<uint32_t>(address_3_16);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_34), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_16])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_16 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_16 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_16 + 3]))
+                                    :: "r"(_stmatrix_addr_35), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_16])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_16 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_16 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_538[offset_4_16 + 3]))
                                     : "memory");
                             }
                         }
@@ -6671,10 +6732,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_50 = col_tile_25 * 16 + lane_811 / 16 * 8;
                                 unsigned int address_3_17 = d_smem_addr + 16384 + (unsigned int)((row_22 * 32 + col_50) * 2);
                                 address_3_17 = address_3_17 ^ (address_3_17 & 511) >> 7 << 4;
-                                int offset_17 = 16 + half_25 * 8 + col_tile_25 * 4;
-                                uint32_t _stmatrix_addr_35 = static_cast<uint32_t>(address_3_17);
+                                int offset_4_17 = 16 + half_25 * 8 + col_tile_25 * 4;
+                                uint32_t _stmatrix_addr_36 = static_cast<uint32_t>(address_3_17);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_35), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_17])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_17 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_17 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_17 + 3]))
+                                    :: "r"(_stmatrix_addr_36), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_17])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_17 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_17 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_539[offset_4_17 + 3]))
                                     : "memory");
                             }
                         }
@@ -6883,16 +6944,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_820 = _cvt_f32_192.y;
                         float up_x_821 = _cvt_f32_193.x;
                         float up_y_822 = _cvt_f32_193.y;
-                        float _min_410 = fminf(gate_x_819, swiglu_limit);
-                        gate_x_819 = _min_410;
-                        float _min_411 = fminf(gate_y_820, swiglu_limit);
-                        gate_y_820 = _min_411;
+                        float _min_411 = fminf(gate_x_819, swiglu_limit);
+                        gate_x_819 = _min_411;
+                        float _min_412 = fminf(gate_y_820, swiglu_limit);
+                        gate_y_820 = _min_412;
                         float _fmax_216 = fmaxf(up_x_821, -swiglu_limit);
-                        float _min_412 = fminf(_fmax_216, swiglu_limit);
-                        up_x_821 = _min_412;
+                        float _min_413 = fminf(_fmax_216, swiglu_limit);
+                        up_x_821 = _min_413;
                         float _fmax_217 = fmaxf(up_y_822, -swiglu_limit);
-                        float _min_413 = fminf(_fmax_217, swiglu_limit);
-                        up_y_822 = _min_413;
+                        float _min_414 = fminf(_fmax_217, swiglu_limit);
+                        up_y_822 = _min_414;
                         float _exp_192 = expf(gate_x_819 * -1.0f);
                         float denominator_x_823 = _exp_192 + 1.0f;
                         float _exp_193 = expf(gate_y_820 * -1.0f);
@@ -6907,16 +6968,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_828 = _cvt_f32_194.y;
                         float up_x_829 = _cvt_f32_195.x;
                         float up_y_830 = _cvt_f32_195.y;
-                        float _min_414 = fminf(gate_x_827, swiglu_limit);
-                        gate_x_827 = _min_414;
-                        float _min_415 = fminf(gate_y_828, swiglu_limit);
-                        gate_y_828 = _min_415;
+                        float _min_415 = fminf(gate_x_827, swiglu_limit);
+                        gate_x_827 = _min_415;
+                        float _min_416 = fminf(gate_y_828, swiglu_limit);
+                        gate_y_828 = _min_416;
                         float _fmax_218 = fmaxf(up_x_829, -swiglu_limit);
-                        float _min_416 = fminf(_fmax_218, swiglu_limit);
-                        up_x_829 = _min_416;
+                        float _min_417 = fminf(_fmax_218, swiglu_limit);
+                        up_x_829 = _min_417;
                         float _fmax_219 = fmaxf(up_y_830, -swiglu_limit);
-                        float _min_417 = fminf(_fmax_219, swiglu_limit);
-                        up_y_830 = _min_417;
+                        float _min_418 = fminf(_fmax_219, swiglu_limit);
+                        up_y_830 = _min_418;
                         float _exp_194 = expf(gate_x_827 * -1.0f);
                         float denominator_x_831 = _exp_194 + 1.0f;
                         float _exp_195 = expf(gate_y_828 * -1.0f);
@@ -6931,16 +6992,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_836 = _cvt_f32_196.y;
                         float up_x_837 = _cvt_f32_197.x;
                         float up_y_838 = _cvt_f32_197.y;
-                        float _min_418 = fminf(gate_x_835, swiglu_limit);
-                        gate_x_835 = _min_418;
-                        float _min_419 = fminf(gate_y_836, swiglu_limit);
-                        gate_y_836 = _min_419;
+                        float _min_419 = fminf(gate_x_835, swiglu_limit);
+                        gate_x_835 = _min_419;
+                        float _min_420 = fminf(gate_y_836, swiglu_limit);
+                        gate_y_836 = _min_420;
                         float _fmax_220 = fmaxf(up_x_837, -swiglu_limit);
-                        float _min_420 = fminf(_fmax_220, swiglu_limit);
-                        up_x_837 = _min_420;
+                        float _min_421 = fminf(_fmax_220, swiglu_limit);
+                        up_x_837 = _min_421;
                         float _fmax_221 = fmaxf(up_y_838, -swiglu_limit);
-                        float _min_421 = fminf(_fmax_221, swiglu_limit);
-                        up_y_838 = _min_421;
+                        float _min_422 = fminf(_fmax_221, swiglu_limit);
+                        up_y_838 = _min_422;
                         float _exp_196 = expf(gate_x_835 * -1.0f);
                         float denominator_x_839 = _exp_196 + 1.0f;
                         float _exp_197 = expf(gate_y_836 * -1.0f);
@@ -6955,16 +7016,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_844 = _cvt_f32_198.y;
                         float up_x_845 = _cvt_f32_199.x;
                         float up_y_846 = _cvt_f32_199.y;
-                        float _min_422 = fminf(gate_x_843, swiglu_limit);
-                        gate_x_843 = _min_422;
-                        float _min_423 = fminf(gate_y_844, swiglu_limit);
-                        gate_y_844 = _min_423;
+                        float _min_423 = fminf(gate_x_843, swiglu_limit);
+                        gate_x_843 = _min_423;
+                        float _min_424 = fminf(gate_y_844, swiglu_limit);
+                        gate_y_844 = _min_424;
                         float _fmax_222 = fmaxf(up_x_845, -swiglu_limit);
-                        float _min_424 = fminf(_fmax_222, swiglu_limit);
-                        up_x_845 = _min_424;
+                        float _min_425 = fminf(_fmax_222, swiglu_limit);
+                        up_x_845 = _min_425;
                         float _fmax_223 = fmaxf(up_y_846, -swiglu_limit);
-                        float _min_425 = fminf(_fmax_223, swiglu_limit);
-                        up_y_846 = _min_425;
+                        float _min_426 = fminf(_fmax_223, swiglu_limit);
+                        up_y_846 = _min_426;
                         float _exp_198 = expf(gate_x_843 * -1.0f);
                         float denominator_x_847 = _exp_198 + 1.0f;
                         float _exp_199 = expf(gate_y_844 * -1.0f);
@@ -6979,16 +7040,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_852 = _cvt_f32_200.y;
                         float up_x_853 = _cvt_f32_201.x;
                         float up_y_854 = _cvt_f32_201.y;
-                        float _min_426 = fminf(gate_x_851, swiglu_limit);
-                        gate_x_851 = _min_426;
-                        float _min_427 = fminf(gate_y_852, swiglu_limit);
-                        gate_y_852 = _min_427;
+                        float _min_427 = fminf(gate_x_851, swiglu_limit);
+                        gate_x_851 = _min_427;
+                        float _min_428 = fminf(gate_y_852, swiglu_limit);
+                        gate_y_852 = _min_428;
                         float _fmax_224 = fmaxf(up_x_853, -swiglu_limit);
-                        float _min_428 = fminf(_fmax_224, swiglu_limit);
-                        up_x_853 = _min_428;
+                        float _min_429 = fminf(_fmax_224, swiglu_limit);
+                        up_x_853 = _min_429;
                         float _fmax_225 = fmaxf(up_y_854, -swiglu_limit);
-                        float _min_429 = fminf(_fmax_225, swiglu_limit);
-                        up_y_854 = _min_429;
+                        float _min_430 = fminf(_fmax_225, swiglu_limit);
+                        up_y_854 = _min_430;
                         float _exp_200 = expf(gate_x_851 * -1.0f);
                         float denominator_x_855 = _exp_200 + 1.0f;
                         float _exp_201 = expf(gate_y_852 * -1.0f);
@@ -7003,16 +7064,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_860 = _cvt_f32_202.y;
                         float up_x_861 = _cvt_f32_203.x;
                         float up_y_862 = _cvt_f32_203.y;
-                        float _min_430 = fminf(gate_x_859, swiglu_limit);
-                        gate_x_859 = _min_430;
-                        float _min_431 = fminf(gate_y_860, swiglu_limit);
-                        gate_y_860 = _min_431;
+                        float _min_431 = fminf(gate_x_859, swiglu_limit);
+                        gate_x_859 = _min_431;
+                        float _min_432 = fminf(gate_y_860, swiglu_limit);
+                        gate_y_860 = _min_432;
                         float _fmax_226 = fmaxf(up_x_861, -swiglu_limit);
-                        float _min_432 = fminf(_fmax_226, swiglu_limit);
-                        up_x_861 = _min_432;
+                        float _min_433 = fminf(_fmax_226, swiglu_limit);
+                        up_x_861 = _min_433;
                         float _fmax_227 = fmaxf(up_y_862, -swiglu_limit);
-                        float _min_433 = fminf(_fmax_227, swiglu_limit);
-                        up_y_862 = _min_433;
+                        float _min_434 = fminf(_fmax_227, swiglu_limit);
+                        up_y_862 = _min_434;
                         float _exp_202 = expf(gate_x_859 * -1.0f);
                         float denominator_x_863 = _exp_202 + 1.0f;
                         float _exp_203 = expf(gate_y_860 * -1.0f);
@@ -7027,16 +7088,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_868 = _cvt_f32_204.y;
                         float up_x_869 = _cvt_f32_205.x;
                         float up_y_870 = _cvt_f32_205.y;
-                        float _min_434 = fminf(gate_x_867, swiglu_limit);
-                        gate_x_867 = _min_434;
-                        float _min_435 = fminf(gate_y_868, swiglu_limit);
-                        gate_y_868 = _min_435;
+                        float _min_435 = fminf(gate_x_867, swiglu_limit);
+                        gate_x_867 = _min_435;
+                        float _min_436 = fminf(gate_y_868, swiglu_limit);
+                        gate_y_868 = _min_436;
                         float _fmax_228 = fmaxf(up_x_869, -swiglu_limit);
-                        float _min_436 = fminf(_fmax_228, swiglu_limit);
-                        up_x_869 = _min_436;
+                        float _min_437 = fminf(_fmax_228, swiglu_limit);
+                        up_x_869 = _min_437;
                         float _fmax_229 = fmaxf(up_y_870, -swiglu_limit);
-                        float _min_437 = fminf(_fmax_229, swiglu_limit);
-                        up_y_870 = _min_437;
+                        float _min_438 = fminf(_fmax_229, swiglu_limit);
+                        up_y_870 = _min_438;
                         float _exp_204 = expf(gate_x_867 * -1.0f);
                         float denominator_x_871 = _exp_204 + 1.0f;
                         float _exp_205 = expf(gate_y_868 * -1.0f);
@@ -7051,16 +7112,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_876 = _cvt_f32_206.y;
                         float up_x_877 = _cvt_f32_207.x;
                         float up_y_878 = _cvt_f32_207.y;
-                        float _min_438 = fminf(gate_x_875, swiglu_limit);
-                        gate_x_875 = _min_438;
-                        float _min_439 = fminf(gate_y_876, swiglu_limit);
-                        gate_y_876 = _min_439;
+                        float _min_439 = fminf(gate_x_875, swiglu_limit);
+                        gate_x_875 = _min_439;
+                        float _min_440 = fminf(gate_y_876, swiglu_limit);
+                        gate_y_876 = _min_440;
                         float _fmax_230 = fmaxf(up_x_877, -swiglu_limit);
-                        float _min_440 = fminf(_fmax_230, swiglu_limit);
-                        up_x_877 = _min_440;
+                        float _min_441 = fminf(_fmax_230, swiglu_limit);
+                        up_x_877 = _min_441;
                         float _fmax_231 = fmaxf(up_y_878, -swiglu_limit);
-                        float _min_441 = fminf(_fmax_231, swiglu_limit);
-                        up_y_878 = _min_441;
+                        float _min_442 = fminf(_fmax_231, swiglu_limit);
+                        up_y_878 = _min_442;
                         float _exp_206 = expf(gate_x_875 * -1.0f);
                         float denominator_x_879 = _exp_206 + 1.0f;
                         float _exp_207 = expf(gate_y_876 * -1.0f);
@@ -7075,16 +7136,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_884 = _cvt_f32_208.y;
                         float up_x_885 = _cvt_f32_209.x;
                         float up_y_886 = _cvt_f32_209.y;
-                        float _min_442 = fminf(gate_x_883, swiglu_limit);
-                        gate_x_883 = _min_442;
-                        float _min_443 = fminf(gate_y_884, swiglu_limit);
-                        gate_y_884 = _min_443;
+                        float _min_443 = fminf(gate_x_883, swiglu_limit);
+                        gate_x_883 = _min_443;
+                        float _min_444 = fminf(gate_y_884, swiglu_limit);
+                        gate_y_884 = _min_444;
                         float _fmax_232 = fmaxf(up_x_885, -swiglu_limit);
-                        float _min_444 = fminf(_fmax_232, swiglu_limit);
-                        up_x_885 = _min_444;
+                        float _min_445 = fminf(_fmax_232, swiglu_limit);
+                        up_x_885 = _min_445;
                         float _fmax_233 = fmaxf(up_y_886, -swiglu_limit);
-                        float _min_445 = fminf(_fmax_233, swiglu_limit);
-                        up_y_886 = _min_445;
+                        float _min_446 = fminf(_fmax_233, swiglu_limit);
+                        up_y_886 = _min_446;
                         float _exp_208 = expf(gate_x_883 * -1.0f);
                         float denominator_x_887 = _exp_208 + 1.0f;
                         float _exp_209 = expf(gate_y_884 * -1.0f);
@@ -7099,16 +7160,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_892 = _cvt_f32_210.y;
                         float up_x_893 = _cvt_f32_211.x;
                         float up_y_894 = _cvt_f32_211.y;
-                        float _min_446 = fminf(gate_x_891, swiglu_limit);
-                        gate_x_891 = _min_446;
-                        float _min_447 = fminf(gate_y_892, swiglu_limit);
-                        gate_y_892 = _min_447;
+                        float _min_447 = fminf(gate_x_891, swiglu_limit);
+                        gate_x_891 = _min_447;
+                        float _min_448 = fminf(gate_y_892, swiglu_limit);
+                        gate_y_892 = _min_448;
                         float _fmax_234 = fmaxf(up_x_893, -swiglu_limit);
-                        float _min_448 = fminf(_fmax_234, swiglu_limit);
-                        up_x_893 = _min_448;
+                        float _min_449 = fminf(_fmax_234, swiglu_limit);
+                        up_x_893 = _min_449;
                         float _fmax_235 = fmaxf(up_y_894, -swiglu_limit);
-                        float _min_449 = fminf(_fmax_235, swiglu_limit);
-                        up_y_894 = _min_449;
+                        float _min_450 = fminf(_fmax_235, swiglu_limit);
+                        up_y_894 = _min_450;
                         float _exp_210 = expf(gate_x_891 * -1.0f);
                         float denominator_x_895 = _exp_210 + 1.0f;
                         float _exp_211 = expf(gate_y_892 * -1.0f);
@@ -7123,16 +7184,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_900 = _cvt_f32_212.y;
                         float up_x_901 = _cvt_f32_213.x;
                         float up_y_902 = _cvt_f32_213.y;
-                        float _min_450 = fminf(gate_x_899, swiglu_limit);
-                        gate_x_899 = _min_450;
-                        float _min_451 = fminf(gate_y_900, swiglu_limit);
-                        gate_y_900 = _min_451;
+                        float _min_451 = fminf(gate_x_899, swiglu_limit);
+                        gate_x_899 = _min_451;
+                        float _min_452 = fminf(gate_y_900, swiglu_limit);
+                        gate_y_900 = _min_452;
                         float _fmax_236 = fmaxf(up_x_901, -swiglu_limit);
-                        float _min_452 = fminf(_fmax_236, swiglu_limit);
-                        up_x_901 = _min_452;
+                        float _min_453 = fminf(_fmax_236, swiglu_limit);
+                        up_x_901 = _min_453;
                         float _fmax_237 = fmaxf(up_y_902, -swiglu_limit);
-                        float _min_453 = fminf(_fmax_237, swiglu_limit);
-                        up_y_902 = _min_453;
+                        float _min_454 = fminf(_fmax_237, swiglu_limit);
+                        up_y_902 = _min_454;
                         float _exp_212 = expf(gate_x_899 * -1.0f);
                         float denominator_x_903 = _exp_212 + 1.0f;
                         float _exp_213 = expf(gate_y_900 * -1.0f);
@@ -7147,16 +7208,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_908 = _cvt_f32_214.y;
                         float up_x_909 = _cvt_f32_215.x;
                         float up_y_910 = _cvt_f32_215.y;
-                        float _min_454 = fminf(gate_x_907, swiglu_limit);
-                        gate_x_907 = _min_454;
-                        float _min_455 = fminf(gate_y_908, swiglu_limit);
-                        gate_y_908 = _min_455;
+                        float _min_455 = fminf(gate_x_907, swiglu_limit);
+                        gate_x_907 = _min_455;
+                        float _min_456 = fminf(gate_y_908, swiglu_limit);
+                        gate_y_908 = _min_456;
                         float _fmax_238 = fmaxf(up_x_909, -swiglu_limit);
-                        float _min_456 = fminf(_fmax_238, swiglu_limit);
-                        up_x_909 = _min_456;
+                        float _min_457 = fminf(_fmax_238, swiglu_limit);
+                        up_x_909 = _min_457;
                         float _fmax_239 = fmaxf(up_y_910, -swiglu_limit);
-                        float _min_457 = fminf(_fmax_239, swiglu_limit);
-                        up_y_910 = _min_457;
+                        float _min_458 = fminf(_fmax_239, swiglu_limit);
+                        up_y_910 = _min_458;
                         float _exp_214 = expf(gate_x_907 * -1.0f);
                         float denominator_x_911 = _exp_214 + 1.0f;
                         float _exp_215 = expf(gate_y_908 * -1.0f);
@@ -7171,16 +7232,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_916 = _cvt_f32_216.y;
                         float up_x_917 = _cvt_f32_217.x;
                         float up_y_918 = _cvt_f32_217.y;
-                        float _min_458 = fminf(gate_x_915, swiglu_limit);
-                        gate_x_915 = _min_458;
-                        float _min_459 = fminf(gate_y_916, swiglu_limit);
-                        gate_y_916 = _min_459;
+                        float _min_459 = fminf(gate_x_915, swiglu_limit);
+                        gate_x_915 = _min_459;
+                        float _min_460 = fminf(gate_y_916, swiglu_limit);
+                        gate_y_916 = _min_460;
                         float _fmax_240 = fmaxf(up_x_917, -swiglu_limit);
-                        float _min_460 = fminf(_fmax_240, swiglu_limit);
-                        up_x_917 = _min_460;
+                        float _min_461 = fminf(_fmax_240, swiglu_limit);
+                        up_x_917 = _min_461;
                         float _fmax_241 = fmaxf(up_y_918, -swiglu_limit);
-                        float _min_461 = fminf(_fmax_241, swiglu_limit);
-                        up_y_918 = _min_461;
+                        float _min_462 = fminf(_fmax_241, swiglu_limit);
+                        up_y_918 = _min_462;
                         float _exp_216 = expf(gate_x_915 * -1.0f);
                         float denominator_x_919 = _exp_216 + 1.0f;
                         float _exp_217 = expf(gate_y_916 * -1.0f);
@@ -7195,16 +7256,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_924 = _cvt_f32_218.y;
                         float up_x_925 = _cvt_f32_219.x;
                         float up_y_926 = _cvt_f32_219.y;
-                        float _min_462 = fminf(gate_x_923, swiglu_limit);
-                        gate_x_923 = _min_462;
-                        float _min_463 = fminf(gate_y_924, swiglu_limit);
-                        gate_y_924 = _min_463;
+                        float _min_463 = fminf(gate_x_923, swiglu_limit);
+                        gate_x_923 = _min_463;
+                        float _min_464 = fminf(gate_y_924, swiglu_limit);
+                        gate_y_924 = _min_464;
                         float _fmax_242 = fmaxf(up_x_925, -swiglu_limit);
-                        float _min_464 = fminf(_fmax_242, swiglu_limit);
-                        up_x_925 = _min_464;
+                        float _min_465 = fminf(_fmax_242, swiglu_limit);
+                        up_x_925 = _min_465;
                         float _fmax_243 = fmaxf(up_y_926, -swiglu_limit);
-                        float _min_465 = fminf(_fmax_243, swiglu_limit);
-                        up_y_926 = _min_465;
+                        float _min_466 = fminf(_fmax_243, swiglu_limit);
+                        up_y_926 = _min_466;
                         float _exp_218 = expf(gate_x_923 * -1.0f);
                         float denominator_x_927 = _exp_218 + 1.0f;
                         float _exp_219 = expf(gate_y_924 * -1.0f);
@@ -7219,16 +7280,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_932 = _cvt_f32_220.y;
                         float up_x_933 = _cvt_f32_221.x;
                         float up_y_934 = _cvt_f32_221.y;
-                        float _min_466 = fminf(gate_x_931, swiglu_limit);
-                        gate_x_931 = _min_466;
-                        float _min_467 = fminf(gate_y_932, swiglu_limit);
-                        gate_y_932 = _min_467;
+                        float _min_467 = fminf(gate_x_931, swiglu_limit);
+                        gate_x_931 = _min_467;
+                        float _min_468 = fminf(gate_y_932, swiglu_limit);
+                        gate_y_932 = _min_468;
                         float _fmax_244 = fmaxf(up_x_933, -swiglu_limit);
-                        float _min_468 = fminf(_fmax_244, swiglu_limit);
-                        up_x_933 = _min_468;
+                        float _min_469 = fminf(_fmax_244, swiglu_limit);
+                        up_x_933 = _min_469;
                         float _fmax_245 = fmaxf(up_y_934, -swiglu_limit);
-                        float _min_469 = fminf(_fmax_245, swiglu_limit);
-                        up_y_934 = _min_469;
+                        float _min_470 = fminf(_fmax_245, swiglu_limit);
+                        up_y_934 = _min_470;
                         float _exp_220 = expf(gate_x_931 * -1.0f);
                         float denominator_x_935 = _exp_220 + 1.0f;
                         float _exp_221 = expf(gate_y_932 * -1.0f);
@@ -7243,16 +7304,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_940 = _cvt_f32_222.y;
                         float up_x_941 = _cvt_f32_223.x;
                         float up_y_942 = _cvt_f32_223.y;
-                        float _min_470 = fminf(gate_x_939, swiglu_limit);
-                        gate_x_939 = _min_470;
-                        float _min_471 = fminf(gate_y_940, swiglu_limit);
-                        gate_y_940 = _min_471;
+                        float _min_471 = fminf(gate_x_939, swiglu_limit);
+                        gate_x_939 = _min_471;
+                        float _min_472 = fminf(gate_y_940, swiglu_limit);
+                        gate_y_940 = _min_472;
                         float _fmax_246 = fmaxf(up_x_941, -swiglu_limit);
-                        float _min_472 = fminf(_fmax_246, swiglu_limit);
-                        up_x_941 = _min_472;
+                        float _min_473 = fminf(_fmax_246, swiglu_limit);
+                        up_x_941 = _min_473;
                         float _fmax_247 = fmaxf(up_y_942, -swiglu_limit);
-                        float _min_473 = fminf(_fmax_247, swiglu_limit);
-                        up_y_942 = _min_473;
+                        float _min_474 = fminf(_fmax_247, swiglu_limit);
+                        up_y_942 = _min_474;
                         float _exp_222 = expf(gate_x_939 * -1.0f);
                         float denominator_x_943 = _exp_222 + 1.0f;
                         float _exp_223 = expf(gate_y_940 * -1.0f);
@@ -7267,16 +7328,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_948 = _cvt_f32_224.y;
                         float up_x_949 = _cvt_f32_225.x;
                         float up_y_950 = _cvt_f32_225.y;
-                        float _min_474 = fminf(gate_x_947, swiglu_limit);
-                        gate_x_947 = _min_474;
-                        float _min_475 = fminf(gate_y_948, swiglu_limit);
-                        gate_y_948 = _min_475;
+                        float _min_475 = fminf(gate_x_947, swiglu_limit);
+                        gate_x_947 = _min_475;
+                        float _min_476 = fminf(gate_y_948, swiglu_limit);
+                        gate_y_948 = _min_476;
                         float _fmax_248 = fmaxf(up_x_949, -swiglu_limit);
-                        float _min_476 = fminf(_fmax_248, swiglu_limit);
-                        up_x_949 = _min_476;
+                        float _min_477 = fminf(_fmax_248, swiglu_limit);
+                        up_x_949 = _min_477;
                         float _fmax_249 = fmaxf(up_y_950, -swiglu_limit);
-                        float _min_477 = fminf(_fmax_249, swiglu_limit);
-                        up_y_950 = _min_477;
+                        float _min_478 = fminf(_fmax_249, swiglu_limit);
+                        up_y_950 = _min_478;
                         float _exp_224 = expf(gate_x_947 * -1.0f);
                         float denominator_x_951 = _exp_224 + 1.0f;
                         float _exp_225 = expf(gate_y_948 * -1.0f);
@@ -7291,16 +7352,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_956 = _cvt_f32_226.y;
                         float up_x_957 = _cvt_f32_227.x;
                         float up_y_958 = _cvt_f32_227.y;
-                        float _min_478 = fminf(gate_x_955, swiglu_limit);
-                        gate_x_955 = _min_478;
-                        float _min_479 = fminf(gate_y_956, swiglu_limit);
-                        gate_y_956 = _min_479;
+                        float _min_479 = fminf(gate_x_955, swiglu_limit);
+                        gate_x_955 = _min_479;
+                        float _min_480 = fminf(gate_y_956, swiglu_limit);
+                        gate_y_956 = _min_480;
                         float _fmax_250 = fmaxf(up_x_957, -swiglu_limit);
-                        float _min_480 = fminf(_fmax_250, swiglu_limit);
-                        up_x_957 = _min_480;
+                        float _min_481 = fminf(_fmax_250, swiglu_limit);
+                        up_x_957 = _min_481;
                         float _fmax_251 = fmaxf(up_y_958, -swiglu_limit);
-                        float _min_481 = fminf(_fmax_251, swiglu_limit);
-                        up_y_958 = _min_481;
+                        float _min_482 = fminf(_fmax_251, swiglu_limit);
+                        up_y_958 = _min_482;
                         float _exp_226 = expf(gate_x_955 * -1.0f);
                         float denominator_x_959 = _exp_226 + 1.0f;
                         float _exp_227 = expf(gate_y_956 * -1.0f);
@@ -7315,16 +7376,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_964 = _cvt_f32_228.y;
                         float up_x_965 = _cvt_f32_229.x;
                         float up_y_966 = _cvt_f32_229.y;
-                        float _min_482 = fminf(gate_x_963, swiglu_limit);
-                        gate_x_963 = _min_482;
-                        float _min_483 = fminf(gate_y_964, swiglu_limit);
-                        gate_y_964 = _min_483;
+                        float _min_483 = fminf(gate_x_963, swiglu_limit);
+                        gate_x_963 = _min_483;
+                        float _min_484 = fminf(gate_y_964, swiglu_limit);
+                        gate_y_964 = _min_484;
                         float _fmax_252 = fmaxf(up_x_965, -swiglu_limit);
-                        float _min_484 = fminf(_fmax_252, swiglu_limit);
-                        up_x_965 = _min_484;
+                        float _min_485 = fminf(_fmax_252, swiglu_limit);
+                        up_x_965 = _min_485;
                         float _fmax_253 = fmaxf(up_y_966, -swiglu_limit);
-                        float _min_485 = fminf(_fmax_253, swiglu_limit);
-                        up_y_966 = _min_485;
+                        float _min_486 = fminf(_fmax_253, swiglu_limit);
+                        up_y_966 = _min_486;
                         float _exp_228 = expf(gate_x_963 * -1.0f);
                         float denominator_x_967 = _exp_228 + 1.0f;
                         float _exp_229 = expf(gate_y_964 * -1.0f);
@@ -7339,16 +7400,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_972 = _cvt_f32_230.y;
                         float up_x_973 = _cvt_f32_231.x;
                         float up_y_974 = _cvt_f32_231.y;
-                        float _min_486 = fminf(gate_x_971, swiglu_limit);
-                        gate_x_971 = _min_486;
-                        float _min_487 = fminf(gate_y_972, swiglu_limit);
-                        gate_y_972 = _min_487;
+                        float _min_487 = fminf(gate_x_971, swiglu_limit);
+                        gate_x_971 = _min_487;
+                        float _min_488 = fminf(gate_y_972, swiglu_limit);
+                        gate_y_972 = _min_488;
                         float _fmax_254 = fmaxf(up_x_973, -swiglu_limit);
-                        float _min_488 = fminf(_fmax_254, swiglu_limit);
-                        up_x_973 = _min_488;
+                        float _min_489 = fminf(_fmax_254, swiglu_limit);
+                        up_x_973 = _min_489;
                         float _fmax_255 = fmaxf(up_y_974, -swiglu_limit);
-                        float _min_489 = fminf(_fmax_255, swiglu_limit);
-                        up_y_974 = _min_489;
+                        float _min_490 = fminf(_fmax_255, swiglu_limit);
+                        up_y_974 = _min_490;
                         float _exp_230 = expf(gate_x_971 * -1.0f);
                         float denominator_x_975 = _exp_230 + 1.0f;
                         float _exp_231 = expf(gate_y_972 * -1.0f);
@@ -7363,16 +7424,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_980 = _cvt_f32_232.y;
                         float up_x_981 = _cvt_f32_233.x;
                         float up_y_982 = _cvt_f32_233.y;
-                        float _min_490 = fminf(gate_x_979, swiglu_limit);
-                        gate_x_979 = _min_490;
-                        float _min_491 = fminf(gate_y_980, swiglu_limit);
-                        gate_y_980 = _min_491;
+                        float _min_491 = fminf(gate_x_979, swiglu_limit);
+                        gate_x_979 = _min_491;
+                        float _min_492 = fminf(gate_y_980, swiglu_limit);
+                        gate_y_980 = _min_492;
                         float _fmax_256 = fmaxf(up_x_981, -swiglu_limit);
-                        float _min_492 = fminf(_fmax_256, swiglu_limit);
-                        up_x_981 = _min_492;
+                        float _min_493 = fminf(_fmax_256, swiglu_limit);
+                        up_x_981 = _min_493;
                         float _fmax_257 = fmaxf(up_y_982, -swiglu_limit);
-                        float _min_493 = fminf(_fmax_257, swiglu_limit);
-                        up_y_982 = _min_493;
+                        float _min_494 = fminf(_fmax_257, swiglu_limit);
+                        up_y_982 = _min_494;
                         float _exp_232 = expf(gate_x_979 * -1.0f);
                         float denominator_x_983 = _exp_232 + 1.0f;
                         float _exp_233 = expf(gate_y_980 * -1.0f);
@@ -7387,16 +7448,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_988 = _cvt_f32_234.y;
                         float up_x_989 = _cvt_f32_235.x;
                         float up_y_990 = _cvt_f32_235.y;
-                        float _min_494 = fminf(gate_x_987, swiglu_limit);
-                        gate_x_987 = _min_494;
-                        float _min_495 = fminf(gate_y_988, swiglu_limit);
-                        gate_y_988 = _min_495;
+                        float _min_495 = fminf(gate_x_987, swiglu_limit);
+                        gate_x_987 = _min_495;
+                        float _min_496 = fminf(gate_y_988, swiglu_limit);
+                        gate_y_988 = _min_496;
                         float _fmax_258 = fmaxf(up_x_989, -swiglu_limit);
-                        float _min_496 = fminf(_fmax_258, swiglu_limit);
-                        up_x_989 = _min_496;
+                        float _min_497 = fminf(_fmax_258, swiglu_limit);
+                        up_x_989 = _min_497;
                         float _fmax_259 = fmaxf(up_y_990, -swiglu_limit);
-                        float _min_497 = fminf(_fmax_259, swiglu_limit);
-                        up_y_990 = _min_497;
+                        float _min_498 = fminf(_fmax_259, swiglu_limit);
+                        up_y_990 = _min_498;
                         float _exp_234 = expf(gate_x_987 * -1.0f);
                         float denominator_x_991 = _exp_234 + 1.0f;
                         float _exp_235 = expf(gate_y_988 * -1.0f);
@@ -7411,16 +7472,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_996 = _cvt_f32_236.y;
                         float up_x_997 = _cvt_f32_237.x;
                         float up_y_998 = _cvt_f32_237.y;
-                        float _min_498 = fminf(gate_x_995, swiglu_limit);
-                        gate_x_995 = _min_498;
-                        float _min_499 = fminf(gate_y_996, swiglu_limit);
-                        gate_y_996 = _min_499;
+                        float _min_499 = fminf(gate_x_995, swiglu_limit);
+                        gate_x_995 = _min_499;
+                        float _min_500 = fminf(gate_y_996, swiglu_limit);
+                        gate_y_996 = _min_500;
                         float _fmax_260 = fmaxf(up_x_997, -swiglu_limit);
-                        float _min_500 = fminf(_fmax_260, swiglu_limit);
-                        up_x_997 = _min_500;
+                        float _min_501 = fminf(_fmax_260, swiglu_limit);
+                        up_x_997 = _min_501;
                         float _fmax_261 = fmaxf(up_y_998, -swiglu_limit);
-                        float _min_501 = fminf(_fmax_261, swiglu_limit);
-                        up_y_998 = _min_501;
+                        float _min_502 = fminf(_fmax_261, swiglu_limit);
+                        up_y_998 = _min_502;
                         float _exp_236 = expf(gate_x_995 * -1.0f);
                         float denominator_x_999 = _exp_236 + 1.0f;
                         float _exp_237 = expf(gate_y_996 * -1.0f);
@@ -7435,16 +7496,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1004 = _cvt_f32_238.y;
                         float up_x_1005 = _cvt_f32_239.x;
                         float up_y_1006 = _cvt_f32_239.y;
-                        float _min_502 = fminf(gate_x_1003, swiglu_limit);
-                        gate_x_1003 = _min_502;
-                        float _min_503 = fminf(gate_y_1004, swiglu_limit);
-                        gate_y_1004 = _min_503;
+                        float _min_503 = fminf(gate_x_1003, swiglu_limit);
+                        gate_x_1003 = _min_503;
+                        float _min_504 = fminf(gate_y_1004, swiglu_limit);
+                        gate_y_1004 = _min_504;
                         float _fmax_262 = fmaxf(up_x_1005, -swiglu_limit);
-                        float _min_504 = fminf(_fmax_262, swiglu_limit);
-                        up_x_1005 = _min_504;
+                        float _min_505 = fminf(_fmax_262, swiglu_limit);
+                        up_x_1005 = _min_505;
                         float _fmax_263 = fmaxf(up_y_1006, -swiglu_limit);
-                        float _min_505 = fminf(_fmax_263, swiglu_limit);
-                        up_y_1006 = _min_505;
+                        float _min_506 = fminf(_fmax_263, swiglu_limit);
+                        up_y_1006 = _min_506;
                         float _exp_238 = expf(gate_x_1003 * -1.0f);
                         float denominator_x_1007 = _exp_238 + 1.0f;
                         float _exp_239 = expf(gate_y_1004 * -1.0f);
@@ -7459,16 +7520,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1012 = _cvt_f32_240.y;
                         float up_x_1013 = _cvt_f32_241.x;
                         float up_y_1014 = _cvt_f32_241.y;
-                        float _min_506 = fminf(gate_x_1011, swiglu_limit);
-                        gate_x_1011 = _min_506;
-                        float _min_507 = fminf(gate_y_1012, swiglu_limit);
-                        gate_y_1012 = _min_507;
+                        float _min_507 = fminf(gate_x_1011, swiglu_limit);
+                        gate_x_1011 = _min_507;
+                        float _min_508 = fminf(gate_y_1012, swiglu_limit);
+                        gate_y_1012 = _min_508;
                         float _fmax_264 = fmaxf(up_x_1013, -swiglu_limit);
-                        float _min_508 = fminf(_fmax_264, swiglu_limit);
-                        up_x_1013 = _min_508;
+                        float _min_509 = fminf(_fmax_264, swiglu_limit);
+                        up_x_1013 = _min_509;
                         float _fmax_265 = fmaxf(up_y_1014, -swiglu_limit);
-                        float _min_509 = fminf(_fmax_265, swiglu_limit);
-                        up_y_1014 = _min_509;
+                        float _min_510 = fminf(_fmax_265, swiglu_limit);
+                        up_y_1014 = _min_510;
                         float _exp_240 = expf(gate_x_1011 * -1.0f);
                         float denominator_x_1015 = _exp_240 + 1.0f;
                         float _exp_241 = expf(gate_y_1012 * -1.0f);
@@ -7483,16 +7544,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1020 = _cvt_f32_242.y;
                         float up_x_1021 = _cvt_f32_243.x;
                         float up_y_1022 = _cvt_f32_243.y;
-                        float _min_510 = fminf(gate_x_1019, swiglu_limit);
-                        gate_x_1019 = _min_510;
-                        float _min_511 = fminf(gate_y_1020, swiglu_limit);
-                        gate_y_1020 = _min_511;
+                        float _min_511 = fminf(gate_x_1019, swiglu_limit);
+                        gate_x_1019 = _min_511;
+                        float _min_512 = fminf(gate_y_1020, swiglu_limit);
+                        gate_y_1020 = _min_512;
                         float _fmax_266 = fmaxf(up_x_1021, -swiglu_limit);
-                        float _min_512 = fminf(_fmax_266, swiglu_limit);
-                        up_x_1021 = _min_512;
+                        float _min_513 = fminf(_fmax_266, swiglu_limit);
+                        up_x_1021 = _min_513;
                         float _fmax_267 = fmaxf(up_y_1022, -swiglu_limit);
-                        float _min_513 = fminf(_fmax_267, swiglu_limit);
-                        up_y_1022 = _min_513;
+                        float _min_514 = fminf(_fmax_267, swiglu_limit);
+                        up_y_1022 = _min_514;
                         float _exp_242 = expf(gate_x_1019 * -1.0f);
                         float denominator_x_1023 = _exp_242 + 1.0f;
                         float _exp_243 = expf(gate_y_1020 * -1.0f);
@@ -7507,16 +7568,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1028 = _cvt_f32_244.y;
                         float up_x_1029 = _cvt_f32_245.x;
                         float up_y_1030 = _cvt_f32_245.y;
-                        float _min_514 = fminf(gate_x_1027, swiglu_limit);
-                        gate_x_1027 = _min_514;
-                        float _min_515 = fminf(gate_y_1028, swiglu_limit);
-                        gate_y_1028 = _min_515;
+                        float _min_515 = fminf(gate_x_1027, swiglu_limit);
+                        gate_x_1027 = _min_515;
+                        float _min_516 = fminf(gate_y_1028, swiglu_limit);
+                        gate_y_1028 = _min_516;
                         float _fmax_268 = fmaxf(up_x_1029, -swiglu_limit);
-                        float _min_516 = fminf(_fmax_268, swiglu_limit);
-                        up_x_1029 = _min_516;
+                        float _min_517 = fminf(_fmax_268, swiglu_limit);
+                        up_x_1029 = _min_517;
                         float _fmax_269 = fmaxf(up_y_1030, -swiglu_limit);
-                        float _min_517 = fminf(_fmax_269, swiglu_limit);
-                        up_y_1030 = _min_517;
+                        float _min_518 = fminf(_fmax_269, swiglu_limit);
+                        up_y_1030 = _min_518;
                         float _exp_244 = expf(gate_x_1027 * -1.0f);
                         float denominator_x_1031 = _exp_244 + 1.0f;
                         float _exp_245 = expf(gate_y_1028 * -1.0f);
@@ -7531,16 +7592,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1036 = _cvt_f32_246.y;
                         float up_x_1037 = _cvt_f32_247.x;
                         float up_y_1038 = _cvt_f32_247.y;
-                        float _min_518 = fminf(gate_x_1035, swiglu_limit);
-                        gate_x_1035 = _min_518;
-                        float _min_519 = fminf(gate_y_1036, swiglu_limit);
-                        gate_y_1036 = _min_519;
+                        float _min_519 = fminf(gate_x_1035, swiglu_limit);
+                        gate_x_1035 = _min_519;
+                        float _min_520 = fminf(gate_y_1036, swiglu_limit);
+                        gate_y_1036 = _min_520;
                         float _fmax_270 = fmaxf(up_x_1037, -swiglu_limit);
-                        float _min_520 = fminf(_fmax_270, swiglu_limit);
-                        up_x_1037 = _min_520;
+                        float _min_521 = fminf(_fmax_270, swiglu_limit);
+                        up_x_1037 = _min_521;
                         float _fmax_271 = fmaxf(up_y_1038, -swiglu_limit);
-                        float _min_521 = fminf(_fmax_271, swiglu_limit);
-                        up_y_1038 = _min_521;
+                        float _min_522 = fminf(_fmax_271, swiglu_limit);
+                        up_y_1038 = _min_522;
                         float _exp_246 = expf(gate_x_1035 * -1.0f);
                         float denominator_x_1039 = _exp_246 + 1.0f;
                         float _exp_247 = expf(gate_y_1036 * -1.0f);
@@ -7555,16 +7616,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1044 = _cvt_f32_248.y;
                         float up_x_1045 = _cvt_f32_249.x;
                         float up_y_1046 = _cvt_f32_249.y;
-                        float _min_522 = fminf(gate_x_1043, swiglu_limit);
-                        gate_x_1043 = _min_522;
-                        float _min_523 = fminf(gate_y_1044, swiglu_limit);
-                        gate_y_1044 = _min_523;
+                        float _min_523 = fminf(gate_x_1043, swiglu_limit);
+                        gate_x_1043 = _min_523;
+                        float _min_524 = fminf(gate_y_1044, swiglu_limit);
+                        gate_y_1044 = _min_524;
                         float _fmax_272 = fmaxf(up_x_1045, -swiglu_limit);
-                        float _min_524 = fminf(_fmax_272, swiglu_limit);
-                        up_x_1045 = _min_524;
+                        float _min_525 = fminf(_fmax_272, swiglu_limit);
+                        up_x_1045 = _min_525;
                         float _fmax_273 = fmaxf(up_y_1046, -swiglu_limit);
-                        float _min_525 = fminf(_fmax_273, swiglu_limit);
-                        up_y_1046 = _min_525;
+                        float _min_526 = fminf(_fmax_273, swiglu_limit);
+                        up_y_1046 = _min_526;
                         float _exp_248 = expf(gate_x_1043 * -1.0f);
                         float denominator_x_1047 = _exp_248 + 1.0f;
                         float _exp_249 = expf(gate_y_1044 * -1.0f);
@@ -7579,16 +7640,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1052 = _cvt_f32_250.y;
                         float up_x_1053 = _cvt_f32_251.x;
                         float up_y_1054 = _cvt_f32_251.y;
-                        float _min_526 = fminf(gate_x_1051, swiglu_limit);
-                        gate_x_1051 = _min_526;
-                        float _min_527 = fminf(gate_y_1052, swiglu_limit);
-                        gate_y_1052 = _min_527;
+                        float _min_527 = fminf(gate_x_1051, swiglu_limit);
+                        gate_x_1051 = _min_527;
+                        float _min_528 = fminf(gate_y_1052, swiglu_limit);
+                        gate_y_1052 = _min_528;
                         float _fmax_274 = fmaxf(up_x_1053, -swiglu_limit);
-                        float _min_528 = fminf(_fmax_274, swiglu_limit);
-                        up_x_1053 = _min_528;
+                        float _min_529 = fminf(_fmax_274, swiglu_limit);
+                        up_x_1053 = _min_529;
                         float _fmax_275 = fmaxf(up_y_1054, -swiglu_limit);
-                        float _min_529 = fminf(_fmax_275, swiglu_limit);
-                        up_y_1054 = _min_529;
+                        float _min_530 = fminf(_fmax_275, swiglu_limit);
+                        up_y_1054 = _min_530;
                         float _exp_250 = expf(gate_x_1051 * -1.0f);
                         float denominator_x_1055 = _exp_250 + 1.0f;
                         float _exp_251 = expf(gate_y_1052 * -1.0f);
@@ -7603,16 +7664,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1060 = _cvt_f32_252.y;
                         float up_x_1061 = _cvt_f32_253.x;
                         float up_y_1062 = _cvt_f32_253.y;
-                        float _min_530 = fminf(gate_x_1059, swiglu_limit);
-                        gate_x_1059 = _min_530;
-                        float _min_531 = fminf(gate_y_1060, swiglu_limit);
-                        gate_y_1060 = _min_531;
+                        float _min_531 = fminf(gate_x_1059, swiglu_limit);
+                        gate_x_1059 = _min_531;
+                        float _min_532 = fminf(gate_y_1060, swiglu_limit);
+                        gate_y_1060 = _min_532;
                         float _fmax_276 = fmaxf(up_x_1061, -swiglu_limit);
-                        float _min_532 = fminf(_fmax_276, swiglu_limit);
-                        up_x_1061 = _min_532;
+                        float _min_533 = fminf(_fmax_276, swiglu_limit);
+                        up_x_1061 = _min_533;
                         float _fmax_277 = fmaxf(up_y_1062, -swiglu_limit);
-                        float _min_533 = fminf(_fmax_277, swiglu_limit);
-                        up_y_1062 = _min_533;
+                        float _min_534 = fminf(_fmax_277, swiglu_limit);
+                        up_y_1062 = _min_534;
                         float _exp_252 = expf(gate_x_1059 * -1.0f);
                         float denominator_x_1063 = _exp_252 + 1.0f;
                         float _exp_253 = expf(gate_y_1060 * -1.0f);
@@ -7627,16 +7688,16 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         float gate_y_1068 = _cvt_f32_254.y;
                         float up_x_1069 = _cvt_f32_255.x;
                         float up_y_1070 = _cvt_f32_255.y;
-                        float _min_534 = fminf(gate_x_1067, swiglu_limit);
-                        gate_x_1067 = _min_534;
-                        float _min_535 = fminf(gate_y_1068, swiglu_limit);
-                        gate_y_1068 = _min_535;
+                        float _min_535 = fminf(gate_x_1067, swiglu_limit);
+                        gate_x_1067 = _min_535;
+                        float _min_536 = fminf(gate_y_1068, swiglu_limit);
+                        gate_y_1068 = _min_536;
                         float _fmax_278 = fmaxf(up_x_1069, -swiglu_limit);
-                        float _min_536 = fminf(_fmax_278, swiglu_limit);
-                        up_x_1069 = _min_536;
+                        float _min_537 = fminf(_fmax_278, swiglu_limit);
+                        up_x_1069 = _min_537;
                         float _fmax_279 = fmaxf(up_y_1070, -swiglu_limit);
-                        float _min_537 = fminf(_fmax_279, swiglu_limit);
-                        up_y_1070 = _min_537;
+                        float _min_538 = fminf(_fmax_279, swiglu_limit);
+                        up_y_1070 = _min_538;
                         float _exp_254 = expf(gate_x_1067 * -1.0f);
                         float denominator_x_1071 = _exp_254 + 1.0f;
                         float _exp_255 = expf(gate_y_1068 * -1.0f);
@@ -7659,10 +7720,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_51 = col_tile_26 * 16 + lane_1076 / 16 * 8;
                                 unsigned int address_3_18 = d_smem_addr + (unsigned int)((row_23 * 32 + col_51) * 2);
                                 address_3_18 = address_3_18 ^ (address_3_18 & 511) >> 7 << 4;
-                                int offset_18 = half_26 * 8 + col_tile_26 * 4;
-                                uint32_t _stmatrix_addr_36 = static_cast<uint32_t>(address_3_18);
+                                int offset_4_18 = half_26 * 8 + col_tile_26 * 4;
+                                uint32_t _stmatrix_addr_37 = static_cast<uint32_t>(address_3_18);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_36), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_18])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_18 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_18 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_18 + 3]))
+                                    :: "r"(_stmatrix_addr_37), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_18])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_18 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_18 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_18 + 3]))
                                     : "memory");
                             }
                         }
@@ -7689,10 +7750,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_52 = col_tile_27 * 16 + lane_1078 / 16 * 8;
                                 unsigned int address_3_19 = d_smem_addr + 8192 + (unsigned int)((row_24 * 32 + col_52) * 2);
                                 address_3_19 = address_3_19 ^ (address_3_19 & 511) >> 7 << 4;
-                                int offset_19 = half_27 * 8 + col_tile_27 * 4;
-                                uint32_t _stmatrix_addr_37 = static_cast<uint32_t>(address_3_19);
+                                int offset_4_19 = half_27 * 8 + col_tile_27 * 4;
+                                uint32_t _stmatrix_addr_38 = static_cast<uint32_t>(address_3_19);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_37), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_19])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_19 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_19 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_19 + 3]))
+                                    :: "r"(_stmatrix_addr_38), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_19])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_19 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_19 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_19 + 3]))
                                     : "memory");
                             }
                         }
@@ -7719,10 +7780,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_53 = col_tile_28 * 16 + lane_1080 / 16 * 8;
                                 unsigned int address_3_20 = d_smem_addr + 16384 + (unsigned int)((row_25 * 32 + col_53) * 2);
                                 address_3_20 = address_3_20 ^ (address_3_20 & 511) >> 7 << 4;
-                                int offset_20 = half_28 * 8 + col_tile_28 * 4;
-                                uint32_t _stmatrix_addr_38 = static_cast<uint32_t>(address_3_20);
+                                int offset_4_20 = half_28 * 8 + col_tile_28 * 4;
+                                uint32_t _stmatrix_addr_39 = static_cast<uint32_t>(address_3_20);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_38), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_20])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_20 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_20 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_20 + 3]))
+                                    :: "r"(_stmatrix_addr_39), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_20])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_20 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_20 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_20 + 3]))
                                     : "memory");
                             }
                         }
@@ -7749,10 +7810,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_54 = col_tile_29 * 16 + lane_1082 / 16 * 8;
                                 unsigned int address_3_21 = d_smem_addr + (unsigned int)((row_26 * 32 + col_54) * 2);
                                 address_3_21 = address_3_21 ^ (address_3_21 & 511) >> 7 << 4;
-                                int offset_21 = 16 + half_29 * 8 + col_tile_29 * 4;
-                                uint32_t _stmatrix_addr_39 = static_cast<uint32_t>(address_3_21);
+                                int offset_4_21 = 16 + half_29 * 8 + col_tile_29 * 4;
+                                uint32_t _stmatrix_addr_40 = static_cast<uint32_t>(address_3_21);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_39), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_21])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_21 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_21 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_21 + 3]))
+                                    :: "r"(_stmatrix_addr_40), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_21])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_21 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_21 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&gate_packed_812[offset_4_21 + 3]))
                                     : "memory");
                             }
                         }
@@ -7779,10 +7840,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_55 = col_tile_30 * 16 + lane_1084 / 16 * 8;
                                 unsigned int address_3_22 = d_smem_addr + 8192 + (unsigned int)((row_27 * 32 + col_55) * 2);
                                 address_3_22 = address_3_22 ^ (address_3_22 & 511) >> 7 << 4;
-                                int offset_22 = 16 + half_30 * 8 + col_tile_30 * 4;
-                                uint32_t _stmatrix_addr_40 = static_cast<uint32_t>(address_3_22);
+                                int offset_4_22 = 16 + half_30 * 8 + col_tile_30 * 4;
+                                uint32_t _stmatrix_addr_41 = static_cast<uint32_t>(address_3_22);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_40), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_22])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_22 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_22 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_22 + 3]))
+                                    :: "r"(_stmatrix_addr_41), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_22])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_22 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_22 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&up_packed_813[offset_4_22 + 3]))
                                     : "memory");
                             }
                         }
@@ -7809,10 +7870,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 int col_56 = col_tile_31 * 16 + lane_1086 / 16 * 8;
                                 unsigned int address_3_23 = d_smem_addr + 16384 + (unsigned int)((row_28 * 32 + col_56) * 2);
                                 address_3_23 = address_3_23 ^ (address_3_23 & 511) >> 7 << 4;
-                                int offset_23 = 16 + half_31 * 8 + col_tile_31 * 4;
-                                uint32_t _stmatrix_addr_41 = static_cast<uint32_t>(address_3_23);
+                                int offset_4_23 = 16 + half_31 * 8 + col_tile_31 * 4;
+                                uint32_t _stmatrix_addr_42 = static_cast<uint32_t>(address_3_23);
                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                    :: "r"(_stmatrix_addr_41), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_23])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_23 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_23 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_23 + 3]))
+                                    :: "r"(_stmatrix_addr_42), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_23])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_23 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_23 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&hidden_packed_814[offset_4_23 + 3]))
                                     : "memory");
                             }
                         }
@@ -7840,33 +7901,33 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                     }
                 }
                 gemm_bits = phase_bits_2;
-            } else if (compute < shared_tasks) {
-                int col_blocks_4 = (hidden + 512 - 1) / 512;
+            } else if (compute_1 < shared_tasks) {
+                int col_blocks_0_1 = (hidden + 512 - 1) / 512;
                 int x_1 = -1;
                 int y_1 = -1;
-                int expert_1 = -1;
+                int expert_1_1 = -1;
                 int k_start_1 = 0;
                 int k_end_1 = 0;
                 int first_1 = 0;
                 int row_blocks_1 = local_tokens / 256;
-                if (compute - shared_fused < row_blocks_1 * col_blocks_4) {
-                    int supergroup_1 = (compute - shared_fused) / (row_blocks_1 * 8);
-                    int full_cols_1 = col_blocks_4 / 8 * 8;
+                if (compute_1 - shared_fused < row_blocks_1 * col_blocks_0_1) {
+                    int supergroup_1 = (compute_1 - shared_fused) / (row_blocks_1 * 8);
+                    int full_cols_1 = col_blocks_0_1 / 8 * 8;
                     int row_29 = 0;
                     int col_57 = 0;
-                    if (compute - shared_fused < row_blocks_1 * full_cols_1) {
-                        row_29 = (compute - shared_fused) % (row_blocks_1 * 8) / 8;
-                        col_57 = supergroup_1 * 8 + (compute - shared_fused) % 8;
+                    if (compute_1 - shared_fused < row_blocks_1 * full_cols_1) {
+                        row_29 = (compute_1 - shared_fused) % (row_blocks_1 * 8) / 8;
+                        col_57 = supergroup_1 * 8 + (compute_1 - shared_fused) % 8;
                     } else {
-                        row_29 = (compute - shared_fused - row_blocks_1 * full_cols_1) / (col_blocks_4 - full_cols_1);
-                        col_57 = full_cols_1 + (compute - shared_fused - row_blocks_1 * full_cols_1) % (col_blocks_4 - full_cols_1);
+                        row_29 = (compute_1 - shared_fused - row_blocks_1 * full_cols_1) / (col_blocks_0_1 - full_cols_1);
+                        col_57 = full_cols_1 + (compute_1 - shared_fused - row_blocks_1 * full_cols_1) % (col_blocks_0_1 - full_cols_1);
                     }
                     if ((supergroup_1 & 1) != 0) {
                         row_29 = row_blocks_1 - row_29 - 1;
                     }
                     x_1 = row_29;
                     y_1 = col_57;
-                    expert_1 = 0;
+                    expert_1_1 = 0;
                 }
                 unsigned int phase_bits_3 = gemm_bits;
                 int has_hi_1 = 0;
@@ -7874,7 +7935,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                 int global_mini_1 = 0;
                 int macro_rows_2 = 0;
                 int iterations_1 = intermediate / 64;
-                if (expert_1 < 0) {
+                if (expert_1_1 < 0) {
                     if (tid == 0) {
                     }
                 } else if (tid / 32 == 7) {
@@ -7894,8 +7955,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     }
                                     asm volatile("fence.acquire.gpu;" ::: "memory");
                                 }
-                                int _min_538 = ((mini_size) < (tokens - global_mini_1 * mini_size) ? (mini_size) : (tokens - global_mini_1 * mini_size));
-                                int _max_2 = ((0) > (_min_538) ? (0) : (_min_538));
+                                int _min_539 = ((mini_size) < (tokens - global_mini_1 * mini_size) ? (mini_size) : (tokens - global_mini_1 * mini_size));
+                                int _max_2 = ((0) > (_min_539) ? (0) : (_min_539));
                                 int mini_rows_4 = _max_2;
                                 int required_4 = (mini_rows_4 + 127) / 128 * ((intermediate + 511) / 512);
                             }
@@ -7923,12 +7984,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 asm volatile(
                                     "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                     " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-                                    :: "r"(b_smem_addr + (unsigned int)(ring_2 * 16384)), "l"((&wd_shared)), "r"(0), "r"(y_1 * 2 * 256 + cta_rank_0 * 128), "r"(idx_2), "r"(expert_1), "r"(0),
+                                    :: "r"(b_smem_addr + (unsigned int)(ring_2 * 16384)), "l"((&wd_shared)), "r"(0), "r"(y_1 * 2 * 256 + cta_rank_0 * 128), "r"(idx_2), "r"(expert_1_1), "r"(0),
                                        "r"(((gemm_arrived_addr + (ring_2) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(1 << cta_rank_0)) : "memory");
                                 asm volatile(
                                     "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                     " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-                                    :: "r"(b_hi_addr + (unsigned int)(ring_2 * 16384)), "l"((&wd_shared)), "r"(0), "r"((y_1 * 2 + 1) * 256 + cta_rank_0 * 128), "r"(idx_2), "r"(expert_1), "r"(0),
+                                    :: "r"(b_hi_addr + (unsigned int)(ring_2 * 16384)), "l"((&wd_shared)), "r"(0), "r"((y_1 * 2 + 1) * 256 + cta_rank_0 * 128), "r"(idx_2), "r"(expert_1_1), "r"(0),
                                        "r"(((gemm_arrived_addr + (ring_2) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(1 << cta_rank_0)) : "memory");
                                 phase_bits_3 = phase_bits_3 ^ (unsigned int)(1 << 16 + ring_2);
                                 ring_2 = (ring_2 + 1) % 4;
@@ -8062,8 +8123,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         if (tid == 0) {
                             int previous_offset_1 = macro_size;
                             int output_row = x_1 * 256 + cta_rank_0 * 128;
-                            int _min_539 = ((macro_size) < (tokens - previous_offset_1) ? (macro_size) : (tokens - previous_offset_1));
-                            if (output_row < _min_539) {
+                            int _min_540 = ((macro_size) < (tokens - previous_offset_1) ? (macro_size) : (tokens - previous_offset_1));
+                            if (output_row < _min_540) {
                             }
                         }
                         #pragma unroll
@@ -8082,10 +8143,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     int col_58 = col_tile_32 * 16 + lane_2 / 16 * 8;
                                     unsigned int address_5 = d_smem_addr + (unsigned int)(chunk_1 % 3 * 8192) + (unsigned int)((row_30 * 32 + col_58) * 2);
                                     address_5 = address_5 ^ (address_5 & 511) >> 7 << 4;
-                                    int offset_24 = chunk_1 * 16 + half_32 * 8 + col_tile_32 * 4;
-                                    uint32_t _stmatrix_addr_42 = static_cast<uint32_t>(address_5);
+                                    int offset_0 = chunk_1 * 16 + half_32 * 8 + col_tile_32 * 4;
+                                    uint32_t _stmatrix_addr_43 = static_cast<uint32_t>(address_5);
                                     asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                        :: "r"(_stmatrix_addr_42), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_24])), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_24 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_24 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_24 + 3]))
+                                        :: "r"(_stmatrix_addr_43), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_0])), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_0 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_0 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed[offset_0 + 3]))
                                         : "memory");
                                 }
                             }
@@ -8145,10 +8206,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         int col_59 = col_tile_33 * 16 + lane_3 / 16 * 8;
                                         unsigned int address_7 = d_smem_addr + (unsigned int)((8 + chunk_3) % 3 * 8192) + (unsigned int)((row_31 * 32 + col_59) * 2);
                                         address_7 = address_7 ^ (address_7 & 511) >> 7 << 4;
-                                        int offset_25 = chunk_3 * 16 + half_33 * 8 + col_tile_33 * 4;
-                                        uint32_t _stmatrix_addr_43 = static_cast<uint32_t>(address_7);
+                                        int offset_0_1 = chunk_3 * 16 + half_33 * 8 + col_tile_33 * 4;
+                                        uint32_t _stmatrix_addr_44 = static_cast<uint32_t>(address_7);
                                         asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                            :: "r"(_stmatrix_addr_43), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_25])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_25 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_25 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_25 + 3]))
+                                            :: "r"(_stmatrix_addr_44), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_0_1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_0_1 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_0_1 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0[offset_0_1 + 3]))
                                             : "memory");
                                     }
                                 }
@@ -8179,67 +8240,77 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                 }
                 gemm_bits = phase_bits_3;
             } else {
-                int ordered_mini = (compute - shared_tasks) / mini_tasks;
-                int task_2 = (compute - shared_tasks) % mini_tasks;
-                int macro_1 = macros - 1;
-                int mini_2 = ordered_mini;
-                if (ordered_mini >= last_minis) {
-                    macro_1 = macros - 2 - (ordered_mini - last_minis) / minis_per_macro;
-                    mini_2 = (ordered_mini - last_minis) % minis_per_macro;
+                int task_3 = 0;
+                int macro_0_1 = 0;
+                int mini_1_2 = 0;
+                int ordered_mini_1 = (compute_1 - shared_tasks) / mini_tasks;
+                int task_2_1 = (compute_1 - shared_tasks) % mini_tasks;
+                int macro_3 = macros - 1;
+                int mini_4 = ordered_mini_1;
+                if (ordered_mini_1 >= last_minis) {
+                    macro_3 = macros - 2 - (ordered_mini_1 - last_minis) / minis_per_macro;
+                    mini_4 = (ordered_mini_1 - last_minis) % minis_per_macro;
                 }
-                if (task_2 < mini_gate) {
-                    if (task_2 < gate_tiles) {
-                        int col_blocks_5 = (intermediate + 256 - 1) / 256;
+                task_3 = task_2_1;
+                macro_0_1 = macro_3;
+                mini_1_2 = mini_4;
+                if (task_3 < mini_gate) {
+                    if (task_3 < gate_tiles) {
+                        int col_blocks_0_2 = (intermediate + 256 - 1) / 256;
                         int x_2 = -1;
                         int y_2 = -1;
-                        int expert_2 = -1;
+                        int expert_1_2 = -1;
                         int k_start_2 = 0;
                         int k_end_2 = 0;
                         int first_2 = 0;
-                        int first_block = (macro_1 * (macro_size / mini_size) + mini_2) * (mini_size / 256);
-                        int _min_540 = ((first_block + mini_size / 256) < (tokens / 256) ? (first_block + mini_size / 256) : (tokens / 256));
-                        int end_block = _min_540;
-                        int block = first_block + task_2 / col_blocks_5;
-                        if (block < end_block) {
-                            int index = counts[3 * experts + block];
-                            int offset_26 = counts[experts + index] / 256;
-                            int _max_3 = ((first_block) > (offset_26) ? (first_block) : (offset_26));
+                        int first_block_1 = (macro_0_1 * (macro_size / mini_size) + mini_1_2) * (mini_size / 256);
+                        int _min_541 = ((first_block_1 + mini_size / 256) < (tokens / 256) ? (first_block_1 + mini_size / 256) : (tokens / 256));
+                        int end_block_1 = _min_541;
+                        int block_1 = first_block_1 + task_3 / col_blocks_0_2;
+                        if (block_1 < end_block_1) {
+                            int index = 0;
+                            int offset_0_2 = 0;
+                            int end_1 = 0;
+                            index = layout_expert;
+                            offset_0_2 = layout_offset;
+                            end_1 = layout_end;
+                            int _max_3 = ((first_block_1) > (offset_0_2) ? (first_block_1) : (offset_0_2));
                             int first_row_2 = _max_3;
-                            int _min_541 = ((end_block) < (offset_26 + counts[index] / 256) ? (end_block) : (offset_26 + counts[index] / 256));
-                            int rows_2 = _min_541 - first_row_2;
-                            int supergroup_2 = (task_2 - (first_row_2 - first_block) * col_blocks_5) / (rows_2 * 8);
-                            int full_cols_2 = col_blocks_5 / 8 * 8;
+                            int _min_542 = ((end_block_1) < (end_1) ? (end_block_1) : (end_1));
+                            int rows_2 = _min_542 - first_row_2;
+                            int supergroup_2 = (task_3 - (first_row_2 - first_block_1) * col_blocks_0_2) / (rows_2 * 8);
+                            int full_cols_2 = col_blocks_0_2 / 8 * 8;
                             int row_32 = 0;
                             int col_60 = 0;
-                            if (task_2 - (first_row_2 - first_block) * col_blocks_5 < rows_2 * full_cols_2) {
-                                row_32 = (task_2 - (first_row_2 - first_block) * col_blocks_5) % (rows_2 * 8) / 8;
-                                col_60 = supergroup_2 * 8 + (task_2 - (first_row_2 - first_block) * col_blocks_5) % 8;
+                            if (task_3 - (first_row_2 - first_block_1) * col_blocks_0_2 < rows_2 * full_cols_2) {
+                                row_32 = (task_3 - (first_row_2 - first_block_1) * col_blocks_0_2) % (rows_2 * 8) / 8;
+                                col_60 = supergroup_2 * 8 + (task_3 - (first_row_2 - first_block_1) * col_blocks_0_2) % 8;
                             } else {
-                                row_32 = (task_2 - (first_row_2 - first_block) * col_blocks_5 - rows_2 * full_cols_2) / (col_blocks_5 - full_cols_2);
-                                col_60 = full_cols_2 + (task_2 - (first_row_2 - first_block) * col_blocks_5 - rows_2 * full_cols_2) % (col_blocks_5 - full_cols_2);
+                                row_32 = (task_3 - (first_row_2 - first_block_1) * col_blocks_0_2 - rows_2 * full_cols_2) / (col_blocks_0_2 - full_cols_2);
+                                col_60 = full_cols_2 + (task_3 - (first_row_2 - first_block_1) * col_blocks_0_2 - rows_2 * full_cols_2) % (col_blocks_0_2 - full_cols_2);
                             }
                             if ((supergroup_2 & 1) != 0) {
                                 row_32 = rows_2 - row_32 - 1;
                             }
-                            x_2 = first_row_2 + row_32 - macro_1 * (macro_size / 256);
+                            x_2 = first_row_2 + row_32 - macro_0_1 * (macro_size / 256);
                             y_2 = col_60;
-                            expert_2 = index;
+                            expert_1_2 = index;
                         }
                         unsigned int phase_bits_4 = gemm_bits;
                         int has_hi_2 = 0;
-                        int global_mini_2 = macro_1 * (macro_size / mini_size) + mini_2;
-                        int macro_rows_3 = macro_1 * (macro_size / 256);
+                        int global_mini_2 = macro_0_1 * (macro_size / mini_size) + mini_1_2;
+                        int macro_rows_3 = macro_0_1 * (macro_size / 256);
                         int iterations_2 = hidden / 128;
-                        int macro_k = macro_1 * (macro_size / 128);
-                        if (expert_2 < 0) {
+                        int macro_k = macro_0_1 * (macro_size / 128);
+                        if (expert_1_2 < 0) {
                             if (tid == 0) {
                             }
                         } else if (tid / 32 == 7) {
                             if (warp == 7) {
                                 if (elect_sync()) {
                                     {
-                                        int _min_542 = ((mini_size) < (tokens - global_mini_2 * mini_size) ? (mini_size) : (tokens - global_mini_2 * mini_size));
-                                        int _max_4 = ((0) > (_min_542) ? (0) : (_min_542));
+                                        int _min_543 = ((mini_size) < (tokens - global_mini_2 * mini_size) ? (mini_size) : (tokens - global_mini_2 * mini_size));
+                                        int _max_4 = ((0) > (_min_543) ? (0) : (_min_543));
                                         int mini_rows_5 = _max_4;
                                         int required_5 = (mini_rows_5 + 127) / 128 * ((hidden + 511) / 512);
                                         bool enabled_value_3 = 1;
@@ -8280,7 +8351,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         asm volatile(
                                             "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                             " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-                                            :: "r"(smem_v39_addr + (unsigned int)(ring_4 * 16384)), "l"((&wg_q)), "r"(0), "r"(y_2 * 256 + cta_rank_0 * 128), "r"(idx_4), "r"(expert_2), "r"(0),
+                                            :: "r"(smem_v39_addr + (unsigned int)(ring_4 * 16384)), "l"((&wg_q)), "r"(0), "r"(y_2 * 256 + cta_rank_0 * 128), "r"(idx_4), "r"(expert_1_2), "r"(0),
                                                "r"(((gemm_arrived_addr + (ring_4) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(1 << cta_rank_0)) : "memory");
                                         phase_bits_4 = phase_bits_4 ^ (unsigned int)(1 << 16 + ring_4);
                                         ring_4 = (ring_4 + 1) % 6;
@@ -8292,8 +8363,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 if (warp == 6) {
                                     if (elect_sync()) {
                                         {
-                                            int _min_543 = ((mini_size) < (tokens - global_mini_2 * mini_size) ? (mini_size) : (tokens - global_mini_2 * mini_size));
-                                            int _max_5 = ((0) > (_min_543) ? (0) : (_min_543));
+                                            int _min_544 = ((mini_size) < (tokens - global_mini_2 * mini_size) ? (mini_size) : (tokens - global_mini_2 * mini_size));
+                                            int _max_5 = ((0) > (_min_544) ? (0) : (_min_544));
                                             int mini_rows_6 = _max_5;
                                             int required_6 = (mini_rows_6 + 127) / 128 * ((hidden + 511) / 512);
                                             bool enabled_value_4 = 1;
@@ -8334,7 +8405,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             asm volatile(
                                                 "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                                 " [%0], [%1, {%2, %3, %4}], [%5], %6;"
-                                                :: "r"(smem_v41_addr + (unsigned int)(ring_5 * 1024) + (unsigned int)(cta_rank_0 * 512)), "l"((&wg_sc)), "r"(0), "r"(0), "r"((expert_2 * (intermediate / 128) + y_2 * 2 + cta_rank_0) * (hidden / 128) + idx_5),
+                                                :: "r"(smem_v41_addr + (unsigned int)(ring_5 * 1024) + (unsigned int)(cta_rank_0 * 512)), "l"((&wg_sc)), "r"(0), "r"(0), "r"((expert_1_2 * (intermediate / 128) + y_2 * 2 + cta_rank_0) * (hidden / 128) + idx_5),
                                                    "r"(((scales_arrived_addr + (ring_5) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(3)) : "memory");
                                             phase_bits_4 = phase_bits_4 ^ (unsigned int)(1 << 16 + ring_5);
                                             ring_5 = (ring_5 + 1) % 6;
@@ -8493,10 +8564,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             :: "l"((&gate_q_store)), "r"(y_2 * 256), "r"(x_2 * 256 + cta_rank_0 * 128), "r"(smem_v43_addr), "l"(0x12F0000000000000ULL) : "memory");
                                         asm volatile("cp.async.bulk.commit_group;");
                                     }
-                                    unsigned int block_1[16];
+                                    unsigned int block_1_1[16];
                                     #pragma unroll
                                     for (int j_19 = 0; j_19 < 16; j_19++) {
-                                        block_1[j_19] = packed_1[16 + j_19];
+                                        block_1_1[j_19] = packed_1[16 + j_19];
                                     }
                                     #pragma unroll
                                     for (int j_20 = 0; j_20 < 4; j_20++) {
@@ -8513,12 +8584,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     }
                                     asm volatile("barrier.sync 1, 128;" ::: "memory");
                                     uint32_t _bf16x2_abs_50;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_50) : "r"(block_1[0]));
+                                    asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_50) : "r"(block_1_1[0]));
                                     unsigned int amax_pair_2_1 = _bf16x2_abs_50;
                                     #pragma unroll
                                     for (int i_51 = 1; i_51 < 16; i_51++) {
                                         uint32_t _bf16x2_abs_51;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_51) : "r"(block_1[i_51]));
+                                        asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_51) : "r"(block_1_1[i_51]));
                                         uint32_t _bf16x2_max_25;
                                         asm("max.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_max_25) : "r"(amax_pair_2_1), "r"(_bf16x2_abs_51));
                                         amax_pair_2_1 = _bf16x2_max_25;
@@ -8539,7 +8610,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     #pragma unroll
                                     for (int i_52 = 0; i_52 < 8; i_52++) {
                                         uint32_t _bf16x2_mul_50;
-                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_50) : "r"(block_1[i_52 * 2]), "r"(inverse_7_1));
+                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_50) : "r"(block_1_1[i_52 * 2]), "r"(inverse_7_1));
                                         uint16_t _e4m3x2_bf16x2_50;
                                         #if !defined(CAKE_CVT_SATFINITE_E4M3X2_BF16X2_FALLBACK) && defined(__CUDACC_VER_MAJOR__) && (__CUDACC_VER_MAJOR__ > 13 || (__CUDACC_VER_MAJOR__ == 13 && __CUDACC_VER_MINOR__ >= 1)) && defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
                                         asm("cvt.rn.satfinite.e4m3x2.bf16x2 %0, %1;" : "=h"(_e4m3x2_bf16x2_50) : "r"(_bf16x2_mul_50));
@@ -8552,7 +8623,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         }
                                         #endif
                                         uint32_t _bf16x2_mul_51;
-                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_51) : "r"(block_1[i_52 * 2 + 1]), "r"(inverse_7_1));
+                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_51) : "r"(block_1_1[i_52 * 2 + 1]), "r"(inverse_7_1));
                                         uint16_t _e4m3x2_bf16x2_51;
                                         #if !defined(CAKE_CVT_SATFINITE_E4M3X2_BF16X2_FALLBACK) && defined(__CUDACC_VER_MAJOR__) && (__CUDACC_VER_MAJOR__ > 13 || (__CUDACC_VER_MAJOR__ == 13 && __CUDACC_VER_MINOR__ >= 1)) && defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
                                         asm("cvt.rn.satfinite.e4m3x2.bf16x2 %0, %1;" : "=h"(_e4m3x2_bf16x2_51) : "r"(_bf16x2_mul_51));
@@ -9116,57 +9187,61 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         }
                         gemm_bits = phase_bits_4;
                     } else {
-                        int col_blocks_6 = (intermediate + 256 - 1) / 256;
+                        int col_blocks_0_3 = (intermediate + 256 - 1) / 256;
                         int x_3 = -1;
                         int y_3 = -1;
-                        int expert_3 = -1;
+                        int expert_1_3 = -1;
                         int k_start_3 = 0;
                         int k_end_3 = 0;
                         int first_3 = 0;
-                        int first_block_1 = (macro_1 * (macro_size / mini_size) + mini_2) * (mini_size / 256);
-                        int _min_544 = ((first_block_1 + mini_size / 256) < (tokens / 256) ? (first_block_1 + mini_size / 256) : (tokens / 256));
-                        int end_block_1 = _min_544;
-                        int block_2 = first_block_1 + (task_2 - gate_tiles) / col_blocks_6;
-                        if (block_2 < end_block_1) {
-                            int index_1 = counts[3 * experts + block_2];
-                            int offset_27 = counts[experts + index_1] / 256;
-                            int _max_6 = ((first_block_1) > (offset_27) ? (first_block_1) : (offset_27));
+                        int first_block_2 = (macro_0_1 * (macro_size / mini_size) + mini_1_2) * (mini_size / 256);
+                        int _min_545 = ((first_block_2 + mini_size / 256) < (tokens / 256) ? (first_block_2 + mini_size / 256) : (tokens / 256));
+                        int end_block_2 = _min_545;
+                        int block_2 = first_block_2 + (task_3 - gate_tiles) / col_blocks_0_3;
+                        if (block_2 < end_block_2) {
+                            int index_1 = 0;
+                            int offset_0_3 = 0;
+                            int end_1_1 = 0;
+                            index_1 = layout_expert;
+                            offset_0_3 = layout_offset;
+                            end_1_1 = layout_end;
+                            int _max_6 = ((first_block_2) > (offset_0_3) ? (first_block_2) : (offset_0_3));
                             int first_row_3 = _max_6;
-                            int _min_545 = ((end_block_1) < (offset_27 + counts[index_1] / 256) ? (end_block_1) : (offset_27 + counts[index_1] / 256));
-                            int rows_3 = _min_545 - first_row_3;
-                            int supergroup_3 = (task_2 - gate_tiles - (first_row_3 - first_block_1) * col_blocks_6) / (rows_3 * 8);
-                            int full_cols_3 = col_blocks_6 / 8 * 8;
+                            int _min_546 = ((end_block_2) < (end_1_1) ? (end_block_2) : (end_1_1));
+                            int rows_3 = _min_546 - first_row_3;
+                            int supergroup_3 = (task_3 - gate_tiles - (first_row_3 - first_block_2) * col_blocks_0_3) / (rows_3 * 8);
+                            int full_cols_3 = col_blocks_0_3 / 8 * 8;
                             int row_33 = 0;
                             int col_61 = 0;
-                            if (task_2 - gate_tiles - (first_row_3 - first_block_1) * col_blocks_6 < rows_3 * full_cols_3) {
-                                row_33 = (task_2 - gate_tiles - (first_row_3 - first_block_1) * col_blocks_6) % (rows_3 * 8) / 8;
-                                col_61 = supergroup_3 * 8 + (task_2 - gate_tiles - (first_row_3 - first_block_1) * col_blocks_6) % 8;
+                            if (task_3 - gate_tiles - (first_row_3 - first_block_2) * col_blocks_0_3 < rows_3 * full_cols_3) {
+                                row_33 = (task_3 - gate_tiles - (first_row_3 - first_block_2) * col_blocks_0_3) % (rows_3 * 8) / 8;
+                                col_61 = supergroup_3 * 8 + (task_3 - gate_tiles - (first_row_3 - first_block_2) * col_blocks_0_3) % 8;
                             } else {
-                                row_33 = (task_2 - gate_tiles - (first_row_3 - first_block_1) * col_blocks_6 - rows_3 * full_cols_3) / (col_blocks_6 - full_cols_3);
-                                col_61 = full_cols_3 + (task_2 - gate_tiles - (first_row_3 - first_block_1) * col_blocks_6 - rows_3 * full_cols_3) % (col_blocks_6 - full_cols_3);
+                                row_33 = (task_3 - gate_tiles - (first_row_3 - first_block_2) * col_blocks_0_3 - rows_3 * full_cols_3) / (col_blocks_0_3 - full_cols_3);
+                                col_61 = full_cols_3 + (task_3 - gate_tiles - (first_row_3 - first_block_2) * col_blocks_0_3 - rows_3 * full_cols_3) % (col_blocks_0_3 - full_cols_3);
                             }
                             if ((supergroup_3 & 1) != 0) {
                                 row_33 = rows_3 - row_33 - 1;
                             }
-                            x_3 = first_row_3 + row_33 - macro_1 * (macro_size / 256);
+                            x_3 = first_row_3 + row_33 - macro_0_1 * (macro_size / 256);
                             y_3 = col_61;
-                            expert_3 = index_1;
+                            expert_1_3 = index_1;
                         }
                         unsigned int phase_bits_5 = gemm_bits;
                         int has_hi_3 = 0;
-                        int global_mini_3 = macro_1 * (macro_size / mini_size) + mini_2;
-                        int macro_rows_4 = macro_1 * (macro_size / 256);
+                        int global_mini_3 = macro_0_1 * (macro_size / mini_size) + mini_1_2;
+                        int macro_rows_4 = macro_0_1 * (macro_size / 256);
                         int iterations_3 = hidden / 128;
-                        int macro_k_1 = macro_1 * (macro_size / 128);
-                        if (expert_3 < 0) {
+                        int macro_k_1 = macro_0_1 * (macro_size / 128);
+                        if (expert_1_3 < 0) {
                             if (tid == 0) {
                             }
                         } else if (tid / 32 == 7) {
                             if (warp == 7) {
                                 if (elect_sync()) {
                                     {
-                                        int _min_546 = ((mini_size) < (tokens - global_mini_3 * mini_size) ? (mini_size) : (tokens - global_mini_3 * mini_size));
-                                        int _max_7 = ((0) > (_min_546) ? (0) : (_min_546));
+                                        int _min_547 = ((mini_size) < (tokens - global_mini_3 * mini_size) ? (mini_size) : (tokens - global_mini_3 * mini_size));
+                                        int _max_7 = ((0) > (_min_547) ? (0) : (_min_547));
                                         int mini_rows_7 = _max_7;
                                         int required_7 = (mini_rows_7 + 127) / 128 * ((hidden + 511) / 512);
                                         bool enabled_value_6 = 1;
@@ -9207,7 +9282,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         asm volatile(
                                             "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                             " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-                                            :: "r"(smem_v39_addr + (unsigned int)(ring_7 * 16384)), "l"((&wu_q)), "r"(0), "r"(y_3 * 256 + cta_rank_0 * 128), "r"(idx_7), "r"(expert_3), "r"(0),
+                                            :: "r"(smem_v39_addr + (unsigned int)(ring_7 * 16384)), "l"((&wu_q)), "r"(0), "r"(y_3 * 256 + cta_rank_0 * 128), "r"(idx_7), "r"(expert_1_3), "r"(0),
                                                "r"(((gemm_arrived_addr + (ring_7) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(1 << cta_rank_0)) : "memory");
                                         phase_bits_5 = phase_bits_5 ^ (unsigned int)(1 << 16 + ring_7);
                                         ring_7 = (ring_7 + 1) % 6;
@@ -9219,8 +9294,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 if (warp == 6) {
                                     if (elect_sync()) {
                                         {
-                                            int _min_547 = ((mini_size) < (tokens - global_mini_3 * mini_size) ? (mini_size) : (tokens - global_mini_3 * mini_size));
-                                            int _max_8 = ((0) > (_min_547) ? (0) : (_min_547));
+                                            int _min_548 = ((mini_size) < (tokens - global_mini_3 * mini_size) ? (mini_size) : (tokens - global_mini_3 * mini_size));
+                                            int _max_8 = ((0) > (_min_548) ? (0) : (_min_548));
                                             int mini_rows_8 = _max_8;
                                             int required_8 = (mini_rows_8 + 127) / 128 * ((hidden + 511) / 512);
                                             bool enabled_value_7 = 1;
@@ -9261,7 +9336,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             asm volatile(
                                                 "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                                 " [%0], [%1, {%2, %3, %4}], [%5], %6;"
-                                                :: "r"(smem_v41_addr + (unsigned int)(ring_8 * 1024) + (unsigned int)(cta_rank_0 * 512)), "l"((&wu_sc)), "r"(0), "r"(0), "r"((expert_3 * (intermediate / 128) + y_3 * 2 + cta_rank_0) * (hidden / 128) + idx_8),
+                                                :: "r"(smem_v41_addr + (unsigned int)(ring_8 * 1024) + (unsigned int)(cta_rank_0 * 512)), "l"((&wu_sc)), "r"(0), "r"(0), "r"((expert_1_3 * (intermediate / 128) + y_3 * 2 + cta_rank_0) * (hidden / 128) + idx_8),
                                                    "r"(((scales_arrived_addr + (ring_8) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(3)) : "memory");
                                             phase_bits_5 = phase_bits_5 ^ (unsigned int)(1 << 16 + ring_8);
                                             ring_8 = (ring_8 + 1) % 6;
@@ -9420,10 +9495,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             :: "l"((&up_q_store)), "r"(y_3 * 256), "r"(x_3 * 256 + cta_rank_0 * 128), "r"(smem_v43_addr), "l"(0x12F0000000000000ULL) : "memory");
                                         asm volatile("cp.async.bulk.commit_group;");
                                     }
-                                    unsigned int block_1_1[16];
+                                    unsigned int block_1_2[16];
                                     #pragma unroll
                                     for (int j_36 = 0; j_36 < 16; j_36++) {
-                                        block_1_1[j_36] = packed_2[16 + j_36];
+                                        block_1_2[j_36] = packed_2[16 + j_36];
                                     }
                                     #pragma unroll
                                     for (int j_37 = 0; j_37 < 4; j_37++) {
@@ -9440,12 +9515,12 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     }
                                     asm volatile("barrier.sync 1, 128;" ::: "memory");
                                     uint32_t _bf16x2_abs_66;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_66) : "r"(block_1_1[0]));
+                                    asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_66) : "r"(block_1_2[0]));
                                     unsigned int amax_pair_2_2 = _bf16x2_abs_66;
                                     #pragma unroll
                                     for (int i_68 = 1; i_68 < 16; i_68++) {
                                         uint32_t _bf16x2_abs_67;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_67) : "r"(block_1_1[i_68]));
+                                        asm("abs.bf16x2 %0, %1;" : "=r"(_bf16x2_abs_67) : "r"(block_1_2[i_68]));
                                         uint32_t _bf16x2_max_33;
                                         asm("max.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_max_33) : "r"(amax_pair_2_2), "r"(_bf16x2_abs_67));
                                         amax_pair_2_2 = _bf16x2_max_33;
@@ -9466,7 +9541,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     #pragma unroll
                                     for (int i_69 = 0; i_69 < 8; i_69++) {
                                         uint32_t _bf16x2_mul_66;
-                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_66) : "r"(block_1_1[i_69 * 2]), "r"(inverse_7_2));
+                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_66) : "r"(block_1_2[i_69 * 2]), "r"(inverse_7_2));
                                         uint16_t _e4m3x2_bf16x2_66;
                                         #if !defined(CAKE_CVT_SATFINITE_E4M3X2_BF16X2_FALLBACK) && defined(__CUDACC_VER_MAJOR__) && (__CUDACC_VER_MAJOR__ > 13 || (__CUDACC_VER_MAJOR__ == 13 && __CUDACC_VER_MINOR__ >= 1)) && defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
                                         asm("cvt.rn.satfinite.e4m3x2.bf16x2 %0, %1;" : "=h"(_e4m3x2_bf16x2_66) : "r"(_bf16x2_mul_66));
@@ -9479,7 +9554,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         }
                                         #endif
                                         uint32_t _bf16x2_mul_67;
-                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_67) : "r"(block_1_1[i_69 * 2 + 1]), "r"(inverse_7_2));
+                                        asm volatile("mul.rn.bf16x2 %0, %1, %2;" : "=r"(_bf16x2_mul_67) : "r"(block_1_2[i_69 * 2 + 1]), "r"(inverse_7_2));
                                         uint16_t _e4m3x2_bf16x2_67;
                                         #if !defined(CAKE_CVT_SATFINITE_E4M3X2_BF16X2_FALLBACK) && defined(__CUDACC_VER_MAJOR__) && (__CUDACC_VER_MAJOR__ > 13 || (__CUDACC_VER_MAJOR__ == 13 && __CUDACC_VER_MINOR__ >= 1)) && defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
                                         asm("cvt.rn.satfinite.e4m3x2.bf16x2 %0, %1;" : "=h"(_e4m3x2_bf16x2_67) : "r"(_bf16x2_mul_67));
@@ -10043,28 +10118,28 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         }
                         gemm_bits = phase_bits_5;
                     }
-                } else if (task_2 < mini_gate + mini_swiglu) {
+                } else if (task_3 < mini_gate + mini_swiglu) {
                     unsigned int phase_bits_6 = swiglu_bits;
-                    int col_blocks_7 = intermediate / 128;
-                    int num_tiles = tokens / 128 * col_blocks_7;
-                    int macro_row_offset = macro_1 * (macro_size / 128);
-                    int first_tile_2 = (task_2 - mini_gate) * 6 + cta_rank_0 * 3;
-                    int global_mini_4 = macro_1 * (macro_size / mini_size) + mini_2;
-                    int mini_tiles = mini_size / 128 * col_blocks_7;
+                    int col_blocks_0_4 = intermediate / 128;
+                    int num_tiles = tokens / 128 * col_blocks_0_4;
+                    int macro_row_offset = macro_0_1 * (macro_size / 128);
+                    int first_tile_2 = (task_3 - mini_gate) * 6 + cta_rank_0 * 3;
+                    int global_mini_4 = macro_0_1 * (macro_size / mini_size) + mini_1_2;
+                    int mini_tiles = mini_size / 128 * col_blocks_0_4;
                     first_tile_2 = first_tile_2 + global_mini_4 * mini_tiles;
-                    int _min_548 = ((num_tiles) < ((global_mini_4 + 1) * mini_tiles) ? (num_tiles) : ((global_mini_4 + 1) * mini_tiles));
-                    int tile_end = _min_548;
+                    int _min_549 = ((num_tiles) < ((global_mini_4 + 1) * mini_tiles) ? (num_tiles) : ((global_mini_4 + 1) * mini_tiles));
+                    int tile_end = _min_549;
                     int macro_tiles_2 = macro_size / 128;
                     if (first_tile_2 < tile_end) {
-                        int first_row_4 = first_tile_2 / col_blocks_7;
-                        int first_col_2 = first_tile_2 % col_blocks_7;
+                        int first_row_4 = first_tile_2 / col_blocks_0_4;
+                        int first_col_2 = first_tile_2 % col_blocks_0_4;
                         if (tid == 0) {
                             if (tile_end > first_tile_2) {
                                 int row_34 = first_row_4;
                                 int col_62 = first_col_2;
-                                if (col_62 >= col_blocks_7) {
+                                if (col_62 >= col_blocks_0_4) {
                                     row_34 = row_34 + 1;
-                                    col_62 = col_62 - col_blocks_7;
+                                    col_62 = col_62 - col_blocks_0_4;
                                 }
                                 mbarrier_arrive_expect_tx(swiglu_arrived_addr, 65536);
                                 int parent = row_34 / 2 * (intermediate / 256) + col_62 / 2;
@@ -10090,9 +10165,9 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                             if (tile_end > first_tile_2 + 1) {
                                 int row_35 = first_row_4;
                                 int col_63 = first_col_2 + 1;
-                                if (col_63 >= col_blocks_7) {
+                                if (col_63 >= col_blocks_0_4) {
                                     row_35 = row_35 + 1;
-                                    col_63 = col_63 - col_blocks_7;
+                                    col_63 = col_63 - col_blocks_0_4;
                                 }
                                 mbarrier_arrive_expect_tx(swiglu_arrived_addr + 8, 65536);
                                 int parent_1 = row_35 / 2 * (intermediate / 256) + col_63 / 2;
@@ -10118,9 +10193,9 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                             if (tile_end > first_tile_2 + 2) {
                                 int row_36 = first_row_4;
                                 int col_64 = first_col_2 + 2;
-                                if (col_64 >= col_blocks_7) {
+                                if (col_64 >= col_blocks_0_4) {
                                     row_36 = row_36 + 1;
-                                    col_64 = col_64 - col_blocks_7;
+                                    col_64 = col_64 - col_blocks_0_4;
                                 }
                                 mbarrier_arrive_expect_tx(swiglu_arrived_addr + 16, 65536);
                                 int parent_2 = row_36 / 2 * (intermediate / 256) + col_64 / 2;
@@ -10151,9 +10226,9 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 phase_bits_6 = phase_bits_6 ^ (unsigned int)(1 << stage_8);
                                 int row_37 = first_row_4;
                                 int col_65 = first_col_2 + stage_8;
-                                if (col_65 >= col_blocks_7) {
+                                if (col_65 >= col_blocks_0_4) {
                                     row_37 = row_37 + 1;
-                                    col_65 = col_65 - col_blocks_7;
+                                    col_65 = col_65 - col_blocks_0_4;
                                 }
                                 float gate[64];
                                 float up[64];
@@ -10196,14 +10271,14 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 }
                                 #pragma unroll
                                 for (int elem = 0; elem < 64; elem++) {
-                                    float _min_549 = fminf(gate[elem], swiglu_limit);
-                                    gate[elem] = _min_549;
+                                    float _min_550 = fminf(gate[elem], swiglu_limit);
+                                    gate[elem] = _min_550;
                                 }
                                 #pragma unroll
                                 for (int elem_1 = 0; elem_1 < 64; elem_1++) {
                                     float _fmax_296 = fmaxf(up[elem_1], -swiglu_limit);
-                                    float _min_550 = fminf(_fmax_296, swiglu_limit);
-                                    up[elem_1] = _min_550;
+                                    float _min_551 = fminf(_fmax_296, swiglu_limit);
+                                    up[elem_1] = _min_551;
                                 }
                                 #pragma unroll
                                 for (int elem_2 = 0; elem_2 < 64; elem_2++) {
@@ -10240,9 +10315,9 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     }
                                     int row_0_8 = local_warp_5 * 16 + lane_6 % 16;
                                     int col_1_1 = tile_col_2 * 16 + lane_6 / 16 * 8;
-                                    uint32_t _stmatrix_addr_44 = static_cast<uint32_t>(hidden_staging_addr + (unsigned int)((row_0_8 * 136 + col_1_1) * 2));
+                                    uint32_t _stmatrix_addr_45 = static_cast<uint32_t>(hidden_staging_addr + (unsigned int)((row_0_8 * 136 + col_1_1) * 2));
                                     asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                        :: "r"(_stmatrix_addr_44), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[0])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[3]))
+                                        :: "r"(_stmatrix_addr_45), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[0])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_5[3]))
                                         : "memory");
                                 }
                                 __syncthreads();
@@ -10389,14 +10464,14 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             smem_v10[out_base + (row1_8 * 128 + col_0_1) / 4] = words_6_8[k_33];
                                         }
                                         {
-                                            uint32_t _byte_45 = static_cast<uint32_t>(scale_byte_19) & 0xFFu;
-                                            uint32_t _addr_45 = static_cast<uint32_t>(smem_v11_addr + (unsigned int)(out_base * 4 + scale_base0_8 + k_block_16));
-                                            asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_45), "r"(_byte_45) : "memory");
+                                            uint32_t _byte_46 = static_cast<uint32_t>(scale_byte_19) & 0xFFu;
+                                            uint32_t _addr_46 = static_cast<uint32_t>(smem_v11_addr + (unsigned int)(out_base * 4 + scale_base0_8 + k_block_16));
+                                            asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_46), "r"(_byte_46) : "memory");
                                         }
                                         {
-                                            uint32_t _byte_46 = static_cast<uint32_t>(scale_byte_3_8) & 0xFFu;
-                                            uint32_t _addr_46 = static_cast<uint32_t>(smem_v11_addr + (unsigned int)(out_base * 4 + scale_base1_8 + k_block_16));
-                                            asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_46), "r"(_byte_46) : "memory");
+                                            uint32_t _byte_47 = static_cast<uint32_t>(scale_byte_3_8) & 0xFFu;
+                                            uint32_t _addr_47 = static_cast<uint32_t>(smem_v11_addr + (unsigned int)(out_base * 4 + scale_base1_8 + k_block_16));
+                                            asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_47), "r"(_byte_47) : "memory");
                                         }
                                     }
                                 } else {
@@ -10481,7 +10556,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     int local_row = row_37 - macro_row_offset;
                                     asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                                     tma_store_2d((&hidden_q_store), col_65 * 128, local_row * 128, smem_v8_addr + (unsigned int)(stage_8 * 32768));
-                                    tma_store_3d((&hidden_sc_store), 0, 0, local_row * col_blocks_7 + col_65, smem_v9_addr + (unsigned int)(stage_8 * 32768));
+                                    tma_store_3d((&hidden_sc_store), 0, 0, local_row * col_blocks_0_4 + col_65, smem_v9_addr + (unsigned int)(stage_8 * 32768));
                                     tma_store_2d((&hidden_t_store), local_row * 128, col_65 * 128, smem_v10_addr + (unsigned int)(stage_8 * 32768));
                                     tma_store_3d((&hidden_sc_t_store), 0, 0, col_65 * macro_tiles_2 + local_row, smem_v11_addr + (unsigned int)(stage_8 * 32768));
                                     asm volatile("cp.async.bulk.commit_group;");
@@ -10492,21 +10567,21 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                             asm volatile("cp.async.bulk.wait_group 0;");
                             if (tile_end > first_tile_2) {
                                 int row_38 = first_row_4;
-                                if (col_blocks_7 <= first_col_2) {
+                                if (col_blocks_0_4 <= first_col_2) {
                                     row_38 = row_38 + 1;
                                 }
                                 asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(reinterpret_cast<unsigned int*>(hidden_ready)) + (shared_rows + row_38 / 2))), "r"(static_cast<unsigned int>(1)) : "memory");
                             }
                             if (tile_end > first_tile_2 + 1) {
                                 int row_39 = first_row_4;
-                                if (col_blocks_7 <= first_col_2 + 1) {
+                                if (col_blocks_0_4 <= first_col_2 + 1) {
                                     row_39 = row_39 + 1;
                                 }
                                 asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(reinterpret_cast<unsigned int*>(hidden_ready)) + (shared_rows + row_39 / 2))), "r"(static_cast<unsigned int>(1)) : "memory");
                             }
                             if (tile_end > first_tile_2 + 2) {
                                 int row_40 = first_row_4;
-                                if (col_blocks_7 <= first_col_2 + 2) {
+                                if (col_blocks_0_4 <= first_col_2 + 2) {
                                     row_40 = row_40 + 1;
                                 }
                                 asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(reinterpret_cast<unsigned int*>(hidden_ready)) + (shared_rows + row_40 / 2))), "r"(static_cast<unsigned int>(1)) : "memory");
@@ -10515,49 +10590,53 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                     }
                     swiglu_bits = phase_bits_6;
                 } else {
-                    int col_blocks_8 = (hidden + 256 - 1) / 256;
+                    int col_blocks_0_5 = (hidden + 256 - 1) / 256;
                     int x_4 = -1;
                     int y_4 = -1;
-                    int expert_4 = -1;
+                    int expert_1_4 = -1;
                     int k_start_4 = 0;
                     int k_end_4 = 0;
                     int first_4 = 0;
-                    int first_block_2 = (macro_1 * (macro_size / mini_size) + mini_2) * (mini_size / 256);
-                    int _min_551 = ((first_block_2 + mini_size / 256) < (tokens / 256) ? (first_block_2 + mini_size / 256) : (tokens / 256));
-                    int end_block_2 = _min_551;
-                    int block_3 = first_block_2 + (task_2 - mini_gate - mini_swiglu) / col_blocks_8;
-                    if (block_3 < end_block_2) {
-                        int index_2 = counts[3 * experts + block_3];
-                        int offset_28 = counts[experts + index_2] / 256;
-                        int _max_9 = ((first_block_2) > (offset_28) ? (first_block_2) : (offset_28));
+                    int first_block_3 = (macro_0_1 * (macro_size / mini_size) + mini_1_2) * (mini_size / 256);
+                    int _min_552 = ((first_block_3 + mini_size / 256) < (tokens / 256) ? (first_block_3 + mini_size / 256) : (tokens / 256));
+                    int end_block_3 = _min_552;
+                    int block_3 = first_block_3 + (task_3 - mini_gate - mini_swiglu) / col_blocks_0_5;
+                    if (block_3 < end_block_3) {
+                        int index_2 = 0;
+                        int offset_0_4 = 0;
+                        int end_1_2 = 0;
+                        index_2 = layout_expert;
+                        offset_0_4 = layout_offset;
+                        end_1_2 = layout_end;
+                        int _max_9 = ((first_block_3) > (offset_0_4) ? (first_block_3) : (offset_0_4));
                         int first_row_5 = _max_9;
-                        int _min_552 = ((end_block_2) < (offset_28 + counts[index_2] / 256) ? (end_block_2) : (offset_28 + counts[index_2] / 256));
-                        int rows_4 = _min_552 - first_row_5;
-                        int supergroup_4 = (task_2 - mini_gate - mini_swiglu - (first_row_5 - first_block_2) * col_blocks_8) / (rows_4 * 8);
-                        int full_cols_4 = col_blocks_8 / 8 * 8;
+                        int _min_553 = ((end_block_3) < (end_1_2) ? (end_block_3) : (end_1_2));
+                        int rows_4 = _min_553 - first_row_5;
+                        int supergroup_4 = (task_3 - mini_gate - mini_swiglu - (first_row_5 - first_block_3) * col_blocks_0_5) / (rows_4 * 8);
+                        int full_cols_4 = col_blocks_0_5 / 8 * 8;
                         int row_41 = 0;
                         int col_66 = 0;
-                        if (task_2 - mini_gate - mini_swiglu - (first_row_5 - first_block_2) * col_blocks_8 < rows_4 * full_cols_4) {
-                            row_41 = (task_2 - mini_gate - mini_swiglu - (first_row_5 - first_block_2) * col_blocks_8) % (rows_4 * 8) / 8;
-                            col_66 = supergroup_4 * 8 + (task_2 - mini_gate - mini_swiglu - (first_row_5 - first_block_2) * col_blocks_8) % 8;
+                        if (task_3 - mini_gate - mini_swiglu - (first_row_5 - first_block_3) * col_blocks_0_5 < rows_4 * full_cols_4) {
+                            row_41 = (task_3 - mini_gate - mini_swiglu - (first_row_5 - first_block_3) * col_blocks_0_5) % (rows_4 * 8) / 8;
+                            col_66 = supergroup_4 * 8 + (task_3 - mini_gate - mini_swiglu - (first_row_5 - first_block_3) * col_blocks_0_5) % 8;
                         } else {
-                            row_41 = (task_2 - mini_gate - mini_swiglu - (first_row_5 - first_block_2) * col_blocks_8 - rows_4 * full_cols_4) / (col_blocks_8 - full_cols_4);
-                            col_66 = full_cols_4 + (task_2 - mini_gate - mini_swiglu - (first_row_5 - first_block_2) * col_blocks_8 - rows_4 * full_cols_4) % (col_blocks_8 - full_cols_4);
+                            row_41 = (task_3 - mini_gate - mini_swiglu - (first_row_5 - first_block_3) * col_blocks_0_5 - rows_4 * full_cols_4) / (col_blocks_0_5 - full_cols_4);
+                            col_66 = full_cols_4 + (task_3 - mini_gate - mini_swiglu - (first_row_5 - first_block_3) * col_blocks_0_5 - rows_4 * full_cols_4) % (col_blocks_0_5 - full_cols_4);
                         }
                         if ((supergroup_4 & 1) != 0) {
                             row_41 = rows_4 - row_41 - 1;
                         }
-                        x_4 = first_row_5 + row_41 - macro_1 * (macro_size / 256);
+                        x_4 = first_row_5 + row_41 - macro_0_1 * (macro_size / 256);
                         y_4 = col_66;
-                        expert_4 = index_2;
+                        expert_1_4 = index_2;
                     }
                     unsigned int phase_bits_7 = gemm_bits;
                     int has_hi_4 = 0;
-                    int global_mini_5 = macro_1 * (macro_size / mini_size) + mini_2;
-                    int macro_rows_5 = macro_1 * (macro_size / 256);
+                    int global_mini_5 = macro_0_1 * (macro_size / mini_size) + mini_1_2;
+                    int macro_rows_5 = macro_0_1 * (macro_size / 256);
                     int iterations_4 = intermediate / 128;
-                    int macro_k_2 = macro_1 * (macro_size / 128);
-                    if (expert_4 < 0) {
+                    int macro_k_2 = macro_0_1 * (macro_size / 128);
+                    if (expert_1_4 < 0) {
                         if (tid == 0) {
                         }
                     } else if (tid / 32 == 7) {
@@ -10577,8 +10656,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         }
                                         asm volatile("fence.acquire.gpu;" ::: "memory");
                                     }
-                                    int _min_553 = ((mini_size) < (tokens - global_mini_5 * mini_size) ? (mini_size) : (tokens - global_mini_5 * mini_size));
-                                    int _max_10 = ((0) > (_min_553) ? (0) : (_min_553));
+                                    int _min_554 = ((mini_size) < (tokens - global_mini_5 * mini_size) ? (mini_size) : (tokens - global_mini_5 * mini_size));
+                                    int _max_10 = ((0) > (_min_554) ? (0) : (_min_554));
                                     int mini_rows_9 = _max_10;
                                     int required_9 = (mini_rows_9 + 127) / 128 * ((intermediate + 511) / 512);
                                 }
@@ -10606,7 +10685,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     asm volatile(
                                         "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                         " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-                                        :: "r"(smem_v39_addr + (unsigned int)(ring_10 * 16384)), "l"((&wd_q)), "r"(0), "r"(y_4 * 256 + cta_rank_0 * 128), "r"(idx_10), "r"(expert_4), "r"(0),
+                                        :: "r"(smem_v39_addr + (unsigned int)(ring_10 * 16384)), "l"((&wd_q)), "r"(0), "r"(y_4 * 256 + cta_rank_0 * 128), "r"(idx_10), "r"(expert_1_4), "r"(0),
                                            "r"(((gemm_arrived_addr + (ring_10) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(1 << cta_rank_0)) : "memory");
                                     phase_bits_7 = phase_bits_7 ^ (unsigned int)(1 << 16 + ring_10);
                                     ring_10 = (ring_10 + 1) % 6;
@@ -10631,8 +10710,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             }
                                             asm volatile("fence.acquire.gpu;" ::: "memory");
                                         }
-                                        int _min_554 = ((mini_size) < (tokens - global_mini_5 * mini_size) ? (mini_size) : (tokens - global_mini_5 * mini_size));
-                                        int _max_11 = ((0) > (_min_554) ? (0) : (_min_554));
+                                        int _min_555 = ((mini_size) < (tokens - global_mini_5 * mini_size) ? (mini_size) : (tokens - global_mini_5 * mini_size));
+                                        int _max_11 = ((0) > (_min_555) ? (0) : (_min_555));
                                         int mini_rows_10 = _max_11;
                                         int required_10 = (mini_rows_10 + 127) / 128 * ((intermediate + 511) / 512);
                                     }
@@ -10660,7 +10739,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         asm volatile(
                                             "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster.cta_group::2"
                                             " [%0], [%1, {%2, %3, %4}], [%5], %6;"
-                                            :: "r"(smem_v41_addr + (unsigned int)(ring_11 * 1024) + (unsigned int)(cta_rank_0 * 512)), "l"((&wd_sc)), "r"(0), "r"(0), "r"((expert_4 * (hidden / 128) + y_4 * 2 + cta_rank_0) * (intermediate / 128) + idx_11),
+                                            :: "r"(smem_v41_addr + (unsigned int)(ring_11 * 1024) + (unsigned int)(cta_rank_0 * 512)), "l"((&wd_sc)), "r"(0), "r"(0), "r"((expert_1_4 * (hidden / 128) + y_4 * 2 + cta_rank_0) * (intermediate / 128) + idx_11),
                                                "r"(((scales_arrived_addr + (ring_11) * 8) & 0xFEFFFFFF)), "h"((uint16_t)(3)) : "memory");
                                         phase_bits_7 = phase_bits_7 ^ (unsigned int)(1 << 16 + ring_11);
                                         ring_11 = (ring_11 + 1) % 6;
@@ -10740,10 +10819,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     }
                                 }
                                 if (tid == 0) {
-                                    int previous_offset_2 = (macro_1 + 1) * macro_size;
+                                    int previous_offset_2 = (macro_0_1 + 1) * macro_size;
                                     int output_row_1 = x_4 * 256 + cta_rank_0 * 128;
-                                    int _min_555 = ((macro_size) < (tokens - previous_offset_2) ? (macro_size) : (tokens - previous_offset_2));
-                                    if (output_row_1 < _min_555) {
+                                    int _min_556 = ((macro_size) < (tokens - previous_offset_2) ? (macro_size) : (tokens - previous_offset_2));
+                                    if (output_row_1 < _min_556) {
                                         bool enabled_value_11 = 1;
                                         if (enabled_value_11 != 0) {
                                             int32_t _relaxed_ld_26;
@@ -10775,10 +10854,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             int col_67 = col_tile_34 * 16 + lane_5 / 16 * 8;
                                             unsigned int address_27 = d_smem_addr + (unsigned int)(chunk_5 % 3 * 8192) + (unsigned int)((row_42 * 32 + col_67) * 2);
                                             address_27 = address_27 ^ (address_27 & 511) >> 7 << 4;
-                                            int offset_29 = chunk_5 * 16 + half_35 * 8 + col_tile_34 * 4;
-                                            uint32_t _stmatrix_addr_47 = static_cast<uint32_t>(address_27);
+                                            int offset_0_5 = chunk_5 * 16 + half_35 * 8 + col_tile_34 * 4;
+                                            uint32_t _stmatrix_addr_48 = static_cast<uint32_t>(address_27);
                                             asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                                :: "r"(_stmatrix_addr_47), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_29])), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_29 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_29 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_29 + 3]))
+                                                :: "r"(_stmatrix_addr_48), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_0_5])), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_0_5 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_0_5 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_6[offset_0_5 + 3]))
                                                 : "memory");
                                         }
                                     }
@@ -10835,10 +10914,10 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                                 int col_68 = col_tile_35 * 16 + lane_7 / 16 * 8;
                                                 unsigned int address_29 = d_smem_addr + (unsigned int)((8 + chunk_7) % 3 * 8192) + (unsigned int)((row_43 * 32 + col_68) * 2);
                                                 address_29 = address_29 ^ (address_29 & 511) >> 7 << 4;
-                                                int offset_30 = chunk_7 * 16 + half_36 * 8 + col_tile_35 * 4;
-                                                uint32_t _stmatrix_addr_48 = static_cast<uint32_t>(address_29);
+                                                int offset_0_6 = chunk_7 * 16 + half_36 * 8 + col_tile_35 * 4;
+                                                uint32_t _stmatrix_addr_49 = static_cast<uint32_t>(address_29);
                                                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                                                    :: "r"(_stmatrix_addr_48), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_30])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_30 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_30 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_30 + 3]))
+                                                    :: "r"(_stmatrix_addr_49), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_0_6])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_0_6 + 1])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_0_6 + 2])), "r"(*reinterpret_cast<const uint32_t*>(&packed_0_1[offset_0_6 + 3]))
                                                     : "memory");
                                             }
                                         }
@@ -10901,24 +10980,85 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                     "mbarrier.arrive.release.cta.shared::cluster.b64 _, [%0];"
                     :: "r"((schedule_finished_addr) & 0xFEFFFFFF) : "memory");
             }
-            int result_0 = 0;
+            int enabled_0 = 0;
+            int local_task_1 = 0;
+            int macro_2 = 0;
+            int mini_3 = 0;
+            int col_blocks_4 = (intermediate + 256 - 1) / 256;
+            if (cluster >= 0 && cluster < true_clusters) {
+                int compute_0 = cluster - comm_clusters;
+                if (compute_0 >= shared_tasks) {
+                    int ordered_mini_2 = (compute_0 - shared_tasks) / mini_tasks;
+                    int task_5 = (compute_0 - shared_tasks) % mini_tasks;
+                    int macro_0_2 = macros - 1;
+                    int mini_1_3 = ordered_mini_2;
+                    if (ordered_mini_2 >= last_minis) {
+                        macro_0_2 = macros - 2 - (ordered_mini_2 - last_minis) / minis_per_macro;
+                        mini_1_3 = (ordered_mini_2 - last_minis) % minis_per_macro;
+                    }
+                    macro_2 = macro_0_2;
+                    mini_3 = mini_1_3;
+                    if (task_5 < mini_gate) {
+                        enabled_0 = 1;
+                        local_task_1 = task_5;
+                        if (task_5 >= gate_tiles) {
+                            local_task_1 = task_5 - gate_tiles;
+                        }
+                    } else if (task_5 >= mini_gate + mini_swiglu) {
+                        enabled_0 = 1;
+                        local_task_1 = task_5 - mini_gate - mini_swiglu;
+                        col_blocks_4 = (hidden + 256 - 1) / 256;
+                    }
+                }
+            }
+            int expert_5 = 0;
+            int offset_6 = 0;
+            int end_7 = 0;
+            if (enabled_0 != 0) {
+                int first_block_4 = (macro_2 * (macro_size / mini_size) + mini_3) * (mini_size / 256);
+                int _min_557 = ((first_block_4 + mini_size / 256) < (tokens / 256) ? (first_block_4 + mini_size / 256) : (tokens / 256));
+                int end_block_4 = _min_557;
+                int block_4 = first_block_4 + local_task_1 / col_blocks_4;
+                if (block_4 < end_block_4) {
+                    int _vec_load_1[4];
+                    {
+                        const int4* _ivptr_50 = reinterpret_cast<const int4*>(counts + (3 * experts + 3) / 4 * 4 + 4 * block_4);
+                        int4 _ivld_50;
+                        _ivld_50 = *_ivptr_50;
+                        _vec_load_1[0 + 0] = _ivld_50.x;
+                        _vec_load_1[0 + 1] = _ivld_50.y;
+                        _vec_load_1[0 + 2] = _ivld_50.z;
+                        _vec_load_1[0 + 3] = _ivld_50.w;
+                    }
+                    int expert_0_1 = _vec_load_1[0];
+                    int offset_1_1 = _vec_load_1[1];
+                    int end_2_1 = _vec_load_1[2];
+                    expert_5 = expert_0_1;
+                    offset_6 = offset_1_1;
+                    end_7 = end_2_1;
+                }
+            }
+            int result_8 = 0;
             if (cluster - comm_clusters >= 0) {
                 if (shared_tasks > cluster - comm_clusters) {
                     if (shared_tasks <= cluster - comm_clusters && cluster - comm_clusters < shared_tasks) {
-                        result_0 = 1;
+                        result_8 = 1;
                     }
                 } else {
                     int mini_task_1 = (cluster - comm_clusters - shared_tasks) % mini_tasks;
                     if (mini_task_1 >= mini_gate && mini_task_1 < mini_gate + mini_swiglu) {
-                        result_0 = 1;
+                        result_8 = 1;
                     }
                 }
             }
-            if (current_local != 0 && cluster >= 0 && result_0 == 0) {
+            if (current_local != 0 && cluster >= 0 && result_8 == 0) {
                 asm volatile("barrier.cluster.arrive.release.aligned;" ::: "memory");
                 asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
             }
-            current_local = result_0;
+            current_local = result_8;
+            layout_expert = expert_5;
+            layout_offset = offset_6;
+            layout_end = end_7;
             iteration = iteration + 1;
         }
         asm volatile("barrier.cluster.arrive.release.aligned;" ::: "memory");
@@ -11349,27 +11489,27 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
         }
         if (macros > 0) {
             unsigned int phase_bits_8 = combine_bits;
-            int col_blocks_9 = (hidden + 1023) / 1024;
+            int col_blocks_0_6 = (hidden + 1023) / 1024;
             int macro_offset_1 = 0;
-            int _min_556 = ((macro_size) < (tokens - macro_offset_1) ? (macro_size) : (tokens - macro_offset_1));
-            int macro_tokens_1 = _min_556;
-            int num_tasks_1 = (macro_tokens_1 / 16 * col_blocks_9 + 6) / 7;
+            int _min_558 = ((macro_size) < (tokens - macro_offset_1) ? (macro_size) : (tokens - macro_offset_1));
+            int macro_tokens_1 = _min_558;
+            int num_tasks_1 = (macro_tokens_1 / 16 * col_blocks_0_6 + 6) / 7;
             if (tid == 0) {
                 unsigned int _atomic_old_2 = atomicAdd(&combine_next[0], 1);
                 combine_slot[0] = (int)_atomic_old_2;
             }
             __syncthreads();
-            int task_3 = combine_slot[0];
+            int task_6 = combine_slot[0];
             __syncthreads();
-            while (task_3 < num_tasks_1) {
+            while (task_6 < num_tasks_1) {
                 unsigned int phase_bits_0_3 = phase_bits_8;
                 int col_blocks_1_3 = (hidden + 1023) / 1024;
-                int first_tile_3 = task_3 * 7;
+                int first_tile_3 = task_6 * 7;
                 int macro_offset_2_3 = 0;
-                int _min_557 = ((macro_size) < (tokens - macro_offset_2_3) ? (macro_size) : (tokens - macro_offset_2_3));
-                int macro_tokens_3_3 = _min_557;
-                int _min_558 = ((7) < (macro_tokens_3_3 / 16 * col_blocks_1_3 - first_tile_3) ? (7) : (macro_tokens_3_3 / 16 * col_blocks_1_3 - first_tile_3));
-                int valid_tiles_2 = _min_558;
+                int _min_559 = ((macro_size) < (tokens - macro_offset_2_3) ? (macro_size) : (tokens - macro_offset_2_3));
+                int macro_tokens_3_3 = _min_559;
+                int _min_560 = ((7) < (macro_tokens_3_3 / 16 * col_blocks_1_3 - first_tile_3) ? (7) : (macro_tokens_3_3 / 16 * col_blocks_1_3 - first_tile_3));
+                int valid_tiles_2 = _min_560;
                 if (valid_tiles_2 > 0) {
                     int first_row_6 = first_tile_3 / col_blocks_1_3 * 16 + tid;
                     int first_col_3 = first_tile_3 % col_blocks_1_3;
@@ -11409,17 +11549,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         int first_mini_2 = (macro_offset_2_3 + first_row_6) / mini_size;
                         int last_mini_2 = (macro_offset_2_3 + (first_tile_3 + valid_tiles_2 - 1) / col_blocks_1_3 * 16) / mini_size;
                         #pragma unroll 1
-                        for (int mini_3 = first_mini_2; mini_3 < last_mini_2 + 1; mini_3++) {
-                            int _min_559 = ((mini_size) < (tokens - mini_3 * mini_size) ? (mini_size) : (tokens - mini_3 * mini_size));
-                            int mini_rows_11 = _min_559;
+                        for (int mini_5 = first_mini_2; mini_5 < last_mini_2 + 1; mini_5++) {
+                            int _min_561 = ((mini_size) < (tokens - mini_5 * mini_size) ? (mini_size) : (tokens - mini_5 * mini_size));
+                            int mini_rows_11 = _min_561;
                             int required_11 = (mini_rows_11 + 255) / 256 * (hidden / 256) * 2;
                             int32_t _relaxed_ld_28;
-                            asm volatile("ld.relaxed.gpu.s32 %0, [%1];" : "=r"(_relaxed_ld_28) : "l"(y_ready + mini_3) : "memory");
+                            asm volatile("ld.relaxed.gpu.s32 %0, [%1];" : "=r"(_relaxed_ld_28) : "l"(y_ready + mini_5) : "memory");
                             int value_14 = _relaxed_ld_28;
                             while (value_14 < required_11) {
                                 asm volatile("nanosleep.u32 %0;" :: "r"(16));
                                 int32_t _relaxed_ld_29;
-                                asm volatile("ld.relaxed.gpu.s32 %0, [%1];" : "=r"(_relaxed_ld_29) : "l"(y_ready + mini_3) : "memory");
+                                asm volatile("ld.relaxed.gpu.s32 %0, [%1];" : "=r"(_relaxed_ld_29) : "l"(y_ready + mini_5) : "memory");
                                 value_14 = _relaxed_ld_29;
                             }
                             asm volatile("fence.acquire.gpu;" ::: "memory");
@@ -11427,8 +11567,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                         #pragma unroll
                         for (int stage_10 = 0; stage_10 < 7; stage_10++) {
                             if (valid_tiles_2 > stage_10) {
-                                int _min_560 = ((1024) < (hidden - columns_2[stage_10] * 1024) ? (1024) : (hidden - columns_2[stage_10] * 1024));
-                                unsigned int chunk_bytes_5 = (unsigned int)(_min_560 * 2);
+                                int _min_562 = ((1024) < (hidden - columns_2[stage_10] * 1024) ? (1024) : (hidden - columns_2[stage_10] * 1024));
+                                unsigned int chunk_bytes_5 = (unsigned int)(_min_562 * 2);
                                 mbarrier_arrive_expect_tx(combine_arrived_addr + (stage_10) * 8, counts_1_2[stage_10] * chunk_bytes_5);
                             }
                         }
@@ -11437,8 +11577,8 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                     #pragma unroll
                     for (int stage_11 = 0; stage_11 < 7; stage_11++) {
                         if (peers_2[stage_11] >= 0) {
-                            int _min_561 = ((1024) < (hidden - columns_2[stage_11] * 1024) ? (1024) : (hidden - columns_2[stage_11] * 1024));
-                            int chunk_cols_4 = _min_561;
+                            int _min_563 = ((1024) < (hidden - columns_2[stage_11] * 1024) ? (1024) : (hidden - columns_2[stage_11] * 1024));
+                            int chunk_cols_4 = _min_563;
                             cp_async_bulk_gmem2smem(combine_smem_addr + (unsigned int)((stage_11 * 16 + tid) * 1024 * 2), reinterpret_cast<const void*>(reinterpret_cast<const uint8_t*>(y_routed_ptr) + ((unsigned long long)((unsigned long long)rows_5[stage_11] * (unsigned long long)hidden + (unsigned long long)(columns_2[stage_11] * 1024)) * (unsigned long long)2)), chunk_cols_4 * 2, combine_arrived_addr + (stage_11) * 8);
                         }
                     }
@@ -11448,14 +11588,14 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                             mbarrier_wait(combine_arrived_addr + (stage_12) * 8, phase_bits_0_3 >> (unsigned int)stage_12 & 1);
                             phase_bits_0_3 = phase_bits_0_3 ^ (unsigned int)(1 << stage_12);
                             if (peers_2[stage_12] >= 0) {
-                                int _min_562 = ((1024) < (hidden - columns_2[stage_12] * 1024) ? (1024) : (hidden - columns_2[stage_12] * 1024));
-                                unsigned int chunk_bytes_6 = (unsigned int)(_min_562 * 2);
+                                int _min_564 = ((1024) < (hidden - columns_2[stage_12] * 1024) ? (1024) : (hidden - columns_2[stage_12] * 1024));
+                                unsigned int chunk_bytes_6 = (unsigned int)(_min_564 * 2);
                                 asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                                 {
-                                    void* _cpbulk_dst_49 = reinterpret_cast<void*>(reinterpret_cast<__nv_bfloat16*>(y_peers[peers_2[stage_12]]) + ((unsigned long long)tokens_0_2[stage_12] * (unsigned long long)hidden + (unsigned long long)(columns_2[stage_12] * 1024)));
+                                    void* _cpbulk_dst_51 = reinterpret_cast<void*>(reinterpret_cast<__nv_bfloat16*>(y_peers[peers_2[stage_12]]) + ((unsigned long long)tokens_0_2[stage_12] * (unsigned long long)hidden + (unsigned long long)(columns_2[stage_12] * 1024)));
                                     asm volatile(
                                         "cp.async.bulk.global.shared::cta.bulk_group [%0], [%1], %2;"
-                                        :: "l"(_cpbulk_dst_49), "r"(combine_smem_addr + (unsigned int)((stage_12 * 16 + tid) * 2048)), "r"((uint32_t)(chunk_bytes_6))
+                                        :: "l"(_cpbulk_dst_51), "r"(combine_smem_addr + (unsigned int)((stage_12 * 16 + tid) * 2048)), "r"((uint32_t)(chunk_bytes_6))
                                         : "memory");
                                 }
                                 asm volatile("cp.async.bulk.commit_group;");
@@ -11472,7 +11612,7 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                     combine_slot[0] = (int)_atomic_old_3;
                 }
                 __syncthreads();
-                task_3 = combine_slot[0];
+                task_6 = combine_slot[0];
                 __syncthreads();
             }
             combine_bits = phase_bits_8;

@@ -21,7 +21,7 @@
 extern "C" __global__ void kernel_cake_mok_expert_layout(int* __restrict__ counts, int* __restrict__ schedule_rank, int* __restrict__ layout, int experts);
 
 
-namespace cake_host_shim_7de573b5d89381d0 {
+namespace cake_host_shim_4e3ae7c48b242375 {
 
 using tvm::ffi::TensorView;
 
@@ -69,6 +69,6 @@ void Run(TensorView arg_counts, TensorView arg_schedule_rank, TensorView arg_lay
       << cudaGetErrorString(launch_status);
 }
 
-}  // namespace cake_host_shim_7de573b5d89381d0
+}  // namespace cake_host_shim_4e3ae7c48b242375
 
-TVM_FFI_DLL_EXPORT_TYPED_FUNC(run, cake_host_shim_7de573b5d89381d0::Run);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(run, cake_host_shim_4e3ae7c48b242375::Run);
