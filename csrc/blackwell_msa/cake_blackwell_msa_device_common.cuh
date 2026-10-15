@@ -47,7 +47,6 @@ static_assert(sizeof(CUtensorMap) == 128, "CUtensorMap CUDA ABI must be 128 byte
 #include <cuda_fp8.h>
 
 #include <math_constants.h>
-#include "cake_device_helpers/cake_cvt_bf16x2_e4m3x2_v_02ca9f019dca9783.cuh"
 #include "cake_device_helpers/cake_elect_sync_1ee8cd91025d8932.cuh"
 #include "cake_device_helpers/cake_mbarrier_init_15e581aef85ee586.cuh"
 #include "cake_device_helpers/cake_mbarrier_wait_c93bf7e39b218733.cuh"
@@ -75,12 +74,12 @@ union MmaSmemDesc {
 #include "cake_device_helpers/cake_mul_f32x2_inplace_0f243a1e0030d755.cuh"
 // ex2_emulation_f32x2 defined in softmax_frag_exp2_cast helper (or standalone)
 #include "cake_device_helpers/cake_elect_commit2_a7bb30f940121974.cuh"
-#include "cake_device_helpers/cake_tma_3d_gmem2smem_7df1e07811f83fc6.cuh"
 #include "cake_device_helpers/cake_tma_4d_gmem2smem_5a3b7d28a4d0b342.cuh"
 #include "cake_device_helpers/cake_make_warp_uniform_26e432f3ff129648.cuh"
+#include "cake_device_helpers/cake_cvt_bf16x2_e4m3x2_v_02ca9f019dca9783.cuh"
+#include "cake_device_helpers/cake_tma_3d_gmem2smem_7df1e07811f83fc6.cuh"
 #include "cake_device_helpers/cake_tma_gather4_gmem2smem_3b819e678c50bc52.cuh"
 #include "cake_device_helpers/cake_fma_f32x2_35fce702230b2007.cuh"
 #include "cake_device_helpers/cake_add_f32x2_74578aa6314ab32b.cuh"
 #include "cake_device_helpers/cake_fma_f32x2_rn_ftz_abada39162909eda.cuh"
 #include "cake_device_helpers/cake_tcgen05_mma_f8f6f4_7dc3dbed82e9a479.cuh"
-#include "cake_device_helpers/cake_mma_ts_step_6161a952880ed45d.cuh"
