@@ -4345,6 +4345,17 @@ class _RoutingModule:
                                                       clear=bool(cfg.clear)))
 
 
+# The plain chain's late-item L2 prefetch geometry (``gm.pack_g1_geom`` in ``CakeSwapAbPlan``): the producer's
+# swap-AB GEMM module helper, host-side integer packing only, bound on ``_GemmModule`` below.
+def pack_g1_geom(*, items_per_group: int, grid: int, split_form: bool) -> int:
+    """Pack the plain chain's GEMM1 launch geometry for the finalize's ``g1_geom`` parameter (``SWAP_TAIL_PF_STAGES``):
+    launched CTAs (bits 0-11), work items per valid group (bits 12-23; the narrow swap-AB SiTU GEMM1 has 2 I / 128),
+    ``_cs`` cluster split-K form (bit 24). ``grid`` 0 = unknown geometry (the kernel prefetches nothing)."""
+    if not (0 <= int(grid) < 4096 and 0 <= int(items_per_group) < 4096):
+        raise ValueError(f"g1_geom packs a GEMM1 grid and items-per-group below 4096; got grid={grid} ipg={items_per_group}")
+    return int(grid) | (int(items_per_group) << 12) | (int(bool(split_form)) << 24)
+
+
 class _GemmModule:
     """The swap-AB GEMM helpers the plan reads through ``_gemm_module()`` (extracted above; the cluster split-K
     grid helper is rendered as ``swapab_cluster_split_grid``: the whole-pair persistent grid of a ``_cs`` GEMM1
@@ -4355,6 +4366,7 @@ class _GemmModule:
     m_chunks_of = staticmethod(m_chunks_of)
     _unused_situ_operands = staticmethod(_unused_situ_operands)
     cluster_split_grid = staticmethod(swapab_cluster_split_grid)
+    pack_g1_geom = staticmethod(pack_g1_geom)
 
     @staticmethod
     def form_config(n_tile: int, kbps: int = 4, *, situ: bool = False, m_group: int | None = None,
