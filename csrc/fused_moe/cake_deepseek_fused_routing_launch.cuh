@@ -13,6 +13,10 @@ namespace flashinfer::cake_deepseek_fused_routing {
 //                               grouped<ScoreT, BiasT, 1, 1> otherwise (256 threads);
 //   n_group == 1, E <= 128   -> single<ScoreT, BiasT, 128>;
 //   n_group == 1, E <= 384   -> single<ScoreT, BiasT, 384>.
+// On compute capability 10.7 the two single-group launches use the same-ABI kernels of
+// cake_deepseek_fused_routing/cake_deepseek_fused_routing_kernels_sm107a_single.cu instead
+// (namespace cake_deepseek_routing_sm107a_single: the two shfl_xor max trees are redux.sync.max.u32
+// on the monotone-encoded key; bitwise with the single<> template).
 // On compute capability 10.7 the E=256 G=8 topk_group=4 topk=8 route above kMultiTokenMaxCtas
 // tokens uses the multi-token CTA members of
 // cake_deepseek_fused_routing/cake_deepseek_fused_routing_kernels_sm107a_mt.cu instead: one
@@ -62,6 +66,10 @@ inline bool device_has_multi_token_members() {
   }
   return state == 2;
 }
+
+// The sm_107a single-group members (cake_deepseek_fused_routing_kernels_sm107a_single.cu) are compiled
+// for the same device passes as the multi-token members and dispatched on the same compute capability.
+inline bool device_has_sm107a_single_members() { return device_has_multi_token_members(); }
 
 // Tokens one CTA routes for this launch: 1 (the one-token kernels) unless the device has the
 // multi-token members, the route is the specialized one and num_tokens > kMultiTokenMaxCtas; then
@@ -176,6 +184,20 @@ cudaError_t launch(ScoreT* scores, BiasT* bias, ScoreT* topk_values, int32_t* to
     return cudaLaunchKernelEx(&config, kernel_cake_deepseek_routing_grouped<ScoreT, BiasT, 1, 1>,
                               scores, bias, topk_values, topk_indices, replay_bytes, tokens32,
                               experts32, topk32, groups32, top_groups32, scaling32, has_replay);
+  }
+  if (device_has_sm107a_single_members()) {
+    if (num_experts <= 128) {
+      return cudaLaunchKernelEx(
+          &config,
+          cake_deepseek_routing_sm107a_single::kernel_cake_deepseek_routing_single<ScoreT, BiasT, 128>,
+          scores, bias, topk_values, topk_indices, replay_bytes, tokens32, experts32, topk32,
+          groups32, top_groups32, scaling32, has_replay);
+    }
+    return cudaLaunchKernelEx(
+        &config,
+        cake_deepseek_routing_sm107a_single::kernel_cake_deepseek_routing_single<ScoreT, BiasT, 384>,
+        scores, bias, topk_values, topk_indices, replay_bytes, tokens32, experts32, topk32,
+        groups32, top_groups32, scaling32, has_replay);
   }
   if (num_experts <= 128) {
     return cudaLaunchKernelEx(&config, kernel_cake_deepseek_routing_single<ScoreT, BiasT, 128>,
