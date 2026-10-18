@@ -93,14 +93,14 @@
     {
       "bytes": 4394,
       "kind": "tvm_ffi_binding",
-      "path": "csrc/concat_mla/cake_concat_mla_k_6ce5ee9f24cb4b9950d4_binding.cu",
-      "sha256": "bb2111765be27508f121ab42102167df3ecb918c77cc69a629196695f85ea9d5"
+      "path": "csrc/concat_mla/cake_concat_mla_k_c09755c8919631109cfb_binding.cu",
+      "sha256": "641920f1390b9074cc59ab4c759da2a2cf380a732ca13ac96956a5b9fafbc7ae"
     },
     {
-      "bytes": 18761,
+      "bytes": 19387,
       "kind": "device_source",
-      "path": "csrc/concat_mla/cake_concat_mla_k_6ce5ee9f24cb4b9950d4_kernel.cu",
-      "sha256": "ae080b316f692dff07dc59c83c71b52ce3b9e396172c978dd5bec60585977758"
+      "path": "csrc/concat_mla/cake_concat_mla_k_c09755c8919631109cfb_kernel.cu",
+      "sha256": "8d9456447d85d90749ca020b3b53bc4ac3d0f89e4f041c3bcbd4a21984c8d2e5"
     },
     {
       "bytes": 4394,
@@ -320,20 +320,20 @@
       },
       "closure": [
         {
-          "bytes": 18761,
-          "path": "csrc/concat_mla/cake_concat_mla_k_6ce5ee9f24cb4b9950d4_kernel.cu",
-          "sha256": "ae080b316f692dff07dc59c83c71b52ce3b9e396172c978dd5bec60585977758"
+          "bytes": 19387,
+          "path": "csrc/concat_mla/cake_concat_mla_k_c09755c8919631109cfb_kernel.cu",
+          "sha256": "8d9456447d85d90749ca020b3b53bc4ac3d0f89e4f041c3bcbd4a21984c8d2e5"
         },
         {
           "bytes": 4394,
-          "path": "csrc/concat_mla/cake_concat_mla_k_6ce5ee9f24cb4b9950d4_binding.cu",
-          "sha256": "bb2111765be27508f121ab42102167df3ecb918c77cc69a629196695f85ea9d5"
+          "path": "csrc/concat_mla/cake_concat_mla_k_c09755c8919631109cfb_binding.cu",
+          "sha256": "641920f1390b9074cc59ab4c759da2a2cf380a732ca13ac96956a5b9fafbc7ae"
         }
       ],
-      "closure_sha256": "02b1cd4c5113ce60f0c9cecbfd03bde0679c9e035c49b6a19c285ef5ae33f8e8",
+      "closure_sha256": "d351846e302d0fc883a951e3718b342169f57c8521bd536f367d1ce77ed4bcf6",
       "compile_flags": [],
       "ffi_entry": "run",
-      "kernel_symbol": "kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4",
+      "kernel_symbol": "kernel_cake_concat_mla_k_c09755c8919631109cfb",
       "launch": {
         "block": [
           512,
@@ -352,8 +352,8 @@
         "persistent_ctas_per_sm": 1,
         "use_pdl": false
       },
-      "module_ident": "cake_concat_mla_k_6ce5ee9f24cb4b9950d4_sm_107a",
-      "name": "cake_concat_mla_k_6ce5ee9f24cb4b9950d4",
+      "module_ident": "cake_concat_mla_k_c09755c8919631109cfb_sm_107a",
+      "name": "cake_concat_mla_k_c09755c8919631109cfb",
       "noncontiguous_tensors": [
         "k",
         "k_nope",
@@ -361,12 +361,13 @@
       ],
       "role": "kernel",
       "route": {
-        "source_identity": "00503c36853a80129f9f4112111734f864f4c1a98f17ef79a9a8bc65cb20e1b4",
+        "source_identity": "6619059ee3bf1ea414e4cedc7e4f4cee2a3b77ff6358ce76ac101fdd878898cc",
         "specialization": {},
         "stage": "vector_copy",
         "template": "flashinfer_blackwell_concat_mla_k_vector_copy",
         "trace_globals": {
-          "SPLIT_CTAS": true
+          "SPLIT_CTAS": true,
+          "SPLIT_HOIST": true
         }
       },
       "source_build": {
@@ -377,7 +378,7 @@
         "kind": "production_kernel_factory",
         "persistent_ctas_per_sm": 1,
         "physical_schedule": "resolved_final_ir",
-        "schedule_identity": "81b2fc1e55c1bf32dd6e80107337c2fb2ee8e74148444589d149bbcf0de68555",
+        "schedule_identity": "d52a04934c53d8cb948c3738c0ae077391842c48ea9ba81084cf16f1aa11ae79",
         "source_arch": null,
         "source_cluster_scheduling_policy": "spread",
         "source_tma_abi": "grid_constant",
@@ -388,9 +389,9 @@
       "specializations": {},
       "tma_abi": "grid_constant",
       "translation_units": {
-        "binding": "csrc/concat_mla/cake_concat_mla_k_6ce5ee9f24cb4b9950d4_binding.cu",
+        "binding": "csrc/concat_mla/cake_concat_mla_k_c09755c8919631109cfb_binding.cu",
         "compile_separately": true,
-        "device": "csrc/concat_mla/cake_concat_mla_k_6ce5ee9f24cb4b9950d4_kernel.cu"
+        "device": "csrc/concat_mla/cake_concat_mla_k_c09755c8919631109cfb_kernel.cu"
       }
     }
   ],

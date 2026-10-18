@@ -38,7 +38,9 @@ _TARGET_RENDER_ARCH: dict[str, str] = {
     "sm107a": _SPLIT_ARCH,
 }
 _RENDER_ARCHES = (_SHARED_ARCH, _SPLIT_ARCH)
-_SPLIT_TRACE_GLOBALS = {"SPLIT_CTAS": True}
+# CAKE-1096 R27 (P4-C-SLOTPIPE adoption): the sm_107a record is the slot-split body in its hoist issue order
+# (source / destination offsets resolved before the first load); the manifest route carries both trace globals.
+_SPLIT_TRACE_GLOBALS = {"SPLIT_CTAS": True, "SPLIT_HOIST": True}
 
 _MANIFEST_NAME = "cake_concat_mla_k_import_manifest.json"
 _SCHEMA = "cake.library_export.v5"

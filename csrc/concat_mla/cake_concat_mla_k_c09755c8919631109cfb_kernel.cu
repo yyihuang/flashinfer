@@ -56,7 +56,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 extern "C" {
 
 __global__ __launch_bounds__(THREADS, LAUNCH_MIN_BLOCKS) void
-kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* __restrict__ k_nope, uint8_t* __restrict__ k_rope, int element_bytes, long long k_stride_0_bytes, long long k_stride_1_bytes, long long k_nope_stride_0_bytes, long long k_nope_stride_1_bytes, long long k_rope_stride_0_bytes, int tokens)
+kernel_cake_concat_mla_k_c09755c8919631109cfb(uint8_t* __restrict__ k, uint8_t* __restrict__ k_nope, uint8_t* __restrict__ k_rope, int element_bytes, long long k_stride_0_bytes, long long k_stride_1_bytes, long long k_nope_stride_0_bytes, long long k_nope_stride_1_bytes, long long k_rope_stride_0_bytes, int tokens)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -72,10 +72,22 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
     if (element_bytes == 1) {
         int staged_1b[24] = {0};
         long long dst_offsets_1b[6] = {0};
+        long long src_offsets_1b[6] = {0};
+        src_offsets_1b[0] = (long long)(bid * 2) * k_nope_stride_0_bytes + (long long)(tid / 8) * k_nope_stride_1_bytes + (long long)(tid - tid / 8 * 8) * 16;
         dst_offsets_1b[0] = (long long)(bid * 2) * k_stride_0_bytes + (long long)(tid / 8) * k_stride_1_bytes + (long long)(tid - tid / 8 * 8) * 16;
+        src_offsets_1b[1] = (long long)(bid * 2) * k_nope_stride_0_bytes + (long long)((tid + 512) / 8) * k_nope_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
+        dst_offsets_1b[1] = (long long)(bid * 2) * k_stride_0_bytes + (long long)((tid + 512) / 8) * k_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
+        src_offsets_1b[2] = (long long)(bid * 2) * k_rope_stride_0_bytes + (long long)(tid - tid / 4 * 4) * 16;
+        dst_offsets_1b[2] = (long long)(bid * 2) * k_stride_0_bytes + (long long)(tid / 4) * k_stride_1_bytes + 128 + (long long)(tid - tid / 4 * 4) * 16;
+        src_offsets_1b[3] = (long long)(bid * 2 + 1) * k_nope_stride_0_bytes + (long long)(tid / 8) * k_nope_stride_1_bytes + (long long)(tid - tid / 8 * 8) * 16;
+        dst_offsets_1b[3] = (long long)(bid * 2 + 1) * k_stride_0_bytes + (long long)(tid / 8) * k_stride_1_bytes + (long long)(tid - tid / 8 * 8) * 16;
+        src_offsets_1b[4] = (long long)(bid * 2 + 1) * k_nope_stride_0_bytes + (long long)((tid + 512) / 8) * k_nope_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
+        dst_offsets_1b[4] = (long long)(bid * 2 + 1) * k_stride_0_bytes + (long long)((tid + 512) / 8) * k_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
+        src_offsets_1b[5] = (long long)(bid * 2 + 1) * k_rope_stride_0_bytes + (long long)(tid - tid / 4 * 4) * 16;
+        dst_offsets_1b[5] = (long long)(bid * 2 + 1) * k_stride_0_bytes + (long long)(tid / 4) * k_stride_1_bytes + 128 + (long long)(tid - tid / 4 * 4) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 31 >> 31 != 0 && bid * 2 < tokens) {
             {
-                const int4* _ivptr_0 = reinterpret_cast<const int4*>(k_nope + ((long long)(bid * 2) * k_nope_stride_0_bytes + (long long)(tid / 8) * k_nope_stride_1_bytes + (long long)(tid - tid / 8 * 8) * 16) + 0);
+                const int4* _ivptr_0 = reinterpret_cast<const int4*>(k_nope + src_offsets_1b[0] + 0);
                 int4 _ivld_0;
                 _ivld_0 = *_ivptr_0;
                 staged_1b[0 + 0] = _ivld_0.x;
@@ -84,10 +96,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_1b[0 + 3] = _ivld_0.w;
             }
         }
-        dst_offsets_1b[1] = (long long)(bid * 2) * k_stride_0_bytes + (long long)((tid + 512) / 8) * k_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 30 >> 31 != 0 && bid * 2 < tokens) {
             {
-                const int4* _ivptr_1 = reinterpret_cast<const int4*>(k_nope + ((long long)(bid * 2) * k_nope_stride_0_bytes + (long long)((tid + 512) / 8) * k_nope_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16) + 0);
+                const int4* _ivptr_1 = reinterpret_cast<const int4*>(k_nope + src_offsets_1b[1] + 0);
                 int4 _ivld_1;
                 _ivld_1 = *_ivptr_1;
                 staged_1b[4 + 0] = _ivld_1.x;
@@ -96,10 +107,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_1b[4 + 3] = _ivld_1.w;
             }
         }
-        dst_offsets_1b[2] = (long long)(bid * 2) * k_stride_0_bytes + (long long)(tid / 4) * k_stride_1_bytes + 128 + (long long)(tid - tid / 4 * 4) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 29 >> 31 != 0 && bid * 2 < tokens) {
             {
-                const int4* _ivptr_2 = reinterpret_cast<const int4*>(k_rope + ((long long)(bid * 2) * k_rope_stride_0_bytes + (long long)(tid - tid / 4 * 4) * 16) + 0);
+                const int4* _ivptr_2 = reinterpret_cast<const int4*>(k_rope + src_offsets_1b[2] + 0);
                 int4 _ivld_2;
                 _ivld_2 = *_ivptr_2;
                 staged_1b[8 + 0] = _ivld_2.x;
@@ -108,10 +118,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_1b[8 + 3] = _ivld_2.w;
             }
         }
-        dst_offsets_1b[3] = (long long)(bid * 2 + 1) * k_stride_0_bytes + (long long)(tid / 8) * k_stride_1_bytes + (long long)(tid - tid / 8 * 8) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 28 >> 31 != 0 && bid * 2 + 1 < tokens) {
             {
-                const int4* _ivptr_3 = reinterpret_cast<const int4*>(k_nope + ((long long)(bid * 2 + 1) * k_nope_stride_0_bytes + (long long)(tid / 8) * k_nope_stride_1_bytes + (long long)(tid - tid / 8 * 8) * 16) + 0);
+                const int4* _ivptr_3 = reinterpret_cast<const int4*>(k_nope + src_offsets_1b[3] + 0);
                 int4 _ivld_3;
                 _ivld_3 = *_ivptr_3;
                 staged_1b[12 + 0] = _ivld_3.x;
@@ -120,10 +129,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_1b[12 + 3] = _ivld_3.w;
             }
         }
-        dst_offsets_1b[4] = (long long)(bid * 2 + 1) * k_stride_0_bytes + (long long)((tid + 512) / 8) * k_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 27 >> 31 != 0 && bid * 2 + 1 < tokens) {
             {
-                const int4* _ivptr_4 = reinterpret_cast<const int4*>(k_nope + ((long long)(bid * 2 + 1) * k_nope_stride_0_bytes + (long long)((tid + 512) / 8) * k_nope_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16) + 0);
+                const int4* _ivptr_4 = reinterpret_cast<const int4*>(k_nope + src_offsets_1b[4] + 0);
                 int4 _ivld_4;
                 _ivld_4 = *_ivptr_4;
                 staged_1b[16 + 0] = _ivld_4.x;
@@ -132,10 +140,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_1b[16 + 3] = _ivld_4.w;
             }
         }
-        dst_offsets_1b[5] = (long long)(bid * 2 + 1) * k_stride_0_bytes + (long long)(tid / 4) * k_stride_1_bytes + 128 + (long long)(tid - tid / 4 * 4) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 26 >> 31 != 0 && bid * 2 + 1 < tokens) {
             {
-                const int4* _ivptr_5 = reinterpret_cast<const int4*>(k_rope + ((long long)(bid * 2 + 1) * k_rope_stride_0_bytes + (long long)(tid - tid / 4 * 4) * 16) + 0);
+                const int4* _ivptr_5 = reinterpret_cast<const int4*>(k_rope + src_offsets_1b[5] + 0);
                 int4 _ivld_5;
                 _ivld_5 = *_ivptr_5;
                 staged_1b[20 + 0] = _ivld_5.x;
@@ -183,10 +190,22 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
     } else {
         int staged_2b[24] = {0};
         long long dst_offsets_2b[6] = {0};
+        long long src_offsets_2b[6] = {0};
+        src_offsets_2b[0] = (long long)bid * k_nope_stride_0_bytes + (long long)(tid / 16) * k_nope_stride_1_bytes + (long long)(tid - tid / 16 * 16) * 16;
         dst_offsets_2b[0] = (long long)bid * k_stride_0_bytes + (long long)(tid / 16) * k_stride_1_bytes + (long long)(tid - tid / 16 * 16) * 16;
+        src_offsets_2b[1] = (long long)bid * k_nope_stride_0_bytes + (long long)((tid + 512) / 16) * k_nope_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 16 * 16) * 16;
+        dst_offsets_2b[1] = (long long)bid * k_stride_0_bytes + (long long)((tid + 512) / 16) * k_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 16 * 16) * 16;
+        src_offsets_2b[2] = (long long)bid * k_nope_stride_0_bytes + (long long)((tid + 1024) / 16) * k_nope_stride_1_bytes + (long long)(tid + 1024 - (tid + 1024) / 16 * 16) * 16;
+        dst_offsets_2b[2] = (long long)bid * k_stride_0_bytes + (long long)((tid + 1024) / 16) * k_stride_1_bytes + (long long)(tid + 1024 - (tid + 1024) / 16 * 16) * 16;
+        src_offsets_2b[3] = (long long)bid * k_nope_stride_0_bytes + (long long)((tid + 1536) / 16) * k_nope_stride_1_bytes + (long long)(tid + 1536 - (tid + 1536) / 16 * 16) * 16;
+        dst_offsets_2b[3] = (long long)bid * k_stride_0_bytes + (long long)((tid + 1536) / 16) * k_stride_1_bytes + (long long)(tid + 1536 - (tid + 1536) / 16 * 16) * 16;
+        src_offsets_2b[4] = (long long)bid * k_rope_stride_0_bytes + (long long)(tid - tid / 8 * 8) * 16;
+        dst_offsets_2b[4] = (long long)bid * k_stride_0_bytes + (long long)(tid / 8) * k_stride_1_bytes + 256 + (long long)(tid - tid / 8 * 8) * 16;
+        src_offsets_2b[5] = (long long)bid * k_rope_stride_0_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
+        dst_offsets_2b[5] = (long long)bid * k_stride_0_bytes + (long long)((tid + 512) / 8) * k_stride_1_bytes + 256 + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 31 >> 31 != 0 && bid < tokens) {
             {
-                const int4* _ivptr_6 = reinterpret_cast<const int4*>(k_nope + ((long long)bid * k_nope_stride_0_bytes + (long long)(tid / 16) * k_nope_stride_1_bytes + (long long)(tid - tid / 16 * 16) * 16) + 0);
+                const int4* _ivptr_6 = reinterpret_cast<const int4*>(k_nope + src_offsets_2b[0] + 0);
                 int4 _ivld_6;
                 _ivld_6 = *_ivptr_6;
                 staged_2b[0 + 0] = _ivld_6.x;
@@ -195,10 +214,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_2b[0 + 3] = _ivld_6.w;
             }
         }
-        dst_offsets_2b[1] = (long long)bid * k_stride_0_bytes + (long long)((tid + 512) / 16) * k_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 16 * 16) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 30 >> 31 != 0 && bid < tokens) {
             {
-                const int4* _ivptr_7 = reinterpret_cast<const int4*>(k_nope + ((long long)bid * k_nope_stride_0_bytes + (long long)((tid + 512) / 16) * k_nope_stride_1_bytes + (long long)(tid + 512 - (tid + 512) / 16 * 16) * 16) + 0);
+                const int4* _ivptr_7 = reinterpret_cast<const int4*>(k_nope + src_offsets_2b[1] + 0);
                 int4 _ivld_7;
                 _ivld_7 = *_ivptr_7;
                 staged_2b[4 + 0] = _ivld_7.x;
@@ -207,10 +225,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_2b[4 + 3] = _ivld_7.w;
             }
         }
-        dst_offsets_2b[2] = (long long)bid * k_stride_0_bytes + (long long)((tid + 1024) / 16) * k_stride_1_bytes + (long long)(tid + 1024 - (tid + 1024) / 16 * 16) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 29 >> 31 != 0 && bid < tokens) {
             {
-                const int4* _ivptr_8 = reinterpret_cast<const int4*>(k_nope + ((long long)bid * k_nope_stride_0_bytes + (long long)((tid + 1024) / 16) * k_nope_stride_1_bytes + (long long)(tid + 1024 - (tid + 1024) / 16 * 16) * 16) + 0);
+                const int4* _ivptr_8 = reinterpret_cast<const int4*>(k_nope + src_offsets_2b[2] + 0);
                 int4 _ivld_8;
                 _ivld_8 = *_ivptr_8;
                 staged_2b[8 + 0] = _ivld_8.x;
@@ -219,10 +236,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_2b[8 + 3] = _ivld_8.w;
             }
         }
-        dst_offsets_2b[3] = (long long)bid * k_stride_0_bytes + (long long)((tid + 1536) / 16) * k_stride_1_bytes + (long long)(tid + 1536 - (tid + 1536) / 16 * 16) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 28 >> 31 != 0 && bid < tokens) {
             {
-                const int4* _ivptr_9 = reinterpret_cast<const int4*>(k_nope + ((long long)bid * k_nope_stride_0_bytes + (long long)((tid + 1536) / 16) * k_nope_stride_1_bytes + (long long)(tid + 1536 - (tid + 1536) / 16 * 16) * 16) + 0);
+                const int4* _ivptr_9 = reinterpret_cast<const int4*>(k_nope + src_offsets_2b[3] + 0);
                 int4 _ivld_9;
                 _ivld_9 = *_ivptr_9;
                 staged_2b[12 + 0] = _ivld_9.x;
@@ -231,10 +247,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_2b[12 + 3] = _ivld_9.w;
             }
         }
-        dst_offsets_2b[4] = (long long)bid * k_stride_0_bytes + (long long)(tid / 8) * k_stride_1_bytes + 256 + (long long)(tid - tid / 8 * 8) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 27 >> 31 != 0 && bid < tokens) {
             {
-                const int4* _ivptr_10 = reinterpret_cast<const int4*>(k_rope + ((long long)bid * k_rope_stride_0_bytes + (long long)(tid - tid / 8 * 8) * 16) + 0);
+                const int4* _ivptr_10 = reinterpret_cast<const int4*>(k_rope + src_offsets_2b[4] + 0);
                 int4 _ivld_10;
                 _ivld_10 = *_ivptr_10;
                 staged_2b[16 + 0] = _ivld_10.x;
@@ -243,10 +258,9 @@ kernel_cake_concat_mla_k_6ce5ee9f24cb4b9950d4(uint8_t* __restrict__ k, uint8_t* 
                 staged_2b[16 + 3] = _ivld_10.w;
             }
         }
-        dst_offsets_2b[5] = (long long)bid * k_stride_0_bytes + (long long)((tid + 512) / 8) * k_stride_1_bytes + 256 + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16;
         if ((unsigned int)(gridDim.y == 1) * 63 + (unsigned int)(gridDim.y == 2) * 21 + (unsigned int)(gridDim.y == 3) * 9 + (unsigned int)(gridDim.y == 6) << (unsigned int)blockIdx.y << 26 >> 31 != 0 && bid < tokens) {
             {
-                const int4* _ivptr_11 = reinterpret_cast<const int4*>(k_rope + ((long long)bid * k_rope_stride_0_bytes + (long long)(tid + 512 - (tid + 512) / 8 * 8) * 16) + 0);
+                const int4* _ivptr_11 = reinterpret_cast<const int4*>(k_rope + src_offsets_2b[5] + 0);
                 int4 _ivld_11;
                 _ivld_11 = *_ivptr_11;
                 staged_2b[20 + 0] = _ivld_11.x;
