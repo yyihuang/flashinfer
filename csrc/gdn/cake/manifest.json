@@ -17736,6 +17736,135 @@
       },
       "threads": 384,
       "tma_abi": "grid_constant"
+    },
+    {
+      "architectures": [
+        "sm_107a"
+      ],
+      "compile_options": [
+        "--use_fast_math"
+      ],
+      "cuda_symbol": "kernel_cake_gdn_81649f746c136e3ee3d3",
+      "defines": {
+        "H": "16",
+        "HV": "32",
+        "SCALE": "0.08838834764831845"
+      },
+      "domain": "decode",
+      "dynamic_smem_bytes": 38016,
+      "host_binding": {
+        "entry": "run_decode_gdn_decode_nontranspose_fp32_t1_hqsplit_2f5b2615dc27",
+        "module_ident": "cake_gdn_81649f746c136e3ee3d3_c8acdb5feb",
+        "path": "host/cake_gdn_81649f746c136e3ee3d3_2f5b2615dc27.cc"
+      },
+      "name": "decode_gdn_decode_nontranspose_fp32_t1_hqsplit_2f5b2615dc27",
+      "outputs": [
+        {
+          "architectures": [
+            "sm_107a"
+          ],
+          "path": "cuda/cake_gdn_81649f746c136e3ee3d3_4037a6d71cd9.cu"
+        }
+      ],
+      "source_schedule": "flashinfer.cake_gdn.generated.decode:gdn_decode_nontranspose_fp32_t1_hqsplit",
+      "source_symbol": "cake_gdn_81649f746c136e3ee3d3",
+      "specializations": {
+        "H": 16,
+        "HV": 32,
+        "SCALE": 0.08838834764831845
+      },
+      "threads": 256,
+      "tma_abi": "pointer"
+    },
+    {
+      "architectures": [
+        "sm_107a"
+      ],
+      "compile_options": [
+        "--use_fast_math"
+      ],
+      "cuda_symbol": "kernel_cake_gdn_81649f746c136e3ee3d3",
+      "defines": {
+        "H": "16",
+        "HV": "32",
+        "SCALE": "1.0"
+      },
+      "domain": "decode",
+      "dynamic_smem_bytes": 38016,
+      "host_binding": {
+        "entry": "run_decode_gdn_decode_nontranspose_fp32_t1_hqsplit_41f955324042",
+        "module_ident": "cake_gdn_81649f746c136e3ee3d3_849bbcc5aa",
+        "path": "host/cake_gdn_81649f746c136e3ee3d3_41f955324042.cc"
+      },
+      "name": "decode_gdn_decode_nontranspose_fp32_t1_hqsplit_41f955324042",
+      "outputs": [
+        {
+          "architectures": [
+            "sm_107a"
+          ],
+          "path": "cuda/cake_gdn_81649f746c136e3ee3d3_4037a6d71cd9.cu"
+        }
+      ],
+      "source_schedule": "flashinfer.cake_gdn.generated.decode:gdn_decode_nontranspose_fp32_t1_hqsplit",
+      "source_symbol": "cake_gdn_81649f746c136e3ee3d3",
+      "specializations": {
+        "H": 16,
+        "HV": 32,
+        "SCALE": 1.0
+      },
+      "threads": 256,
+      "tma_abi": "pointer"
+    },
+    {
+      "architectures": [
+        "sm_107a"
+      ],
+      "compile_options": [
+        "--use_fast_math"
+      ],
+      "cuda_symbol": "kernel_cake_gdn_2dae478755e5edfe70c5",
+      "defines": {
+        "CACHE_INTERMEDIATE_STATES": "1",
+        "H": "16",
+        "HV": "32",
+        "INTERMEDIATE_BATCH_STRIDE": "2097152",
+        "INTERMEDIATE_TOKEN_STRIDE": "524288",
+        "SCALE": "0.08838834764831845",
+        "STRIDED_INPUTS": "1",
+        "T_STEPS": "4",
+        "UPDATE_STATE": "1"
+      },
+      "domain": "decode",
+      "dynamic_smem_bytes": 39040,
+      "host_binding": {
+        "entry": "run_decode_gdn_decode_pretranspose_mtp_t4_splitv2_tile64_sl2_ef2cc4723c04",
+        "module_ident": "cake_gdn_2dae478755e5edfe70c5_ce687e9239",
+        "path": "host/cake_gdn_2dae478755e5edfe70c5_ef2cc4723c04.cc"
+      },
+      "name": "decode_gdn_decode_pretranspose_mtp_t4_splitv2_tile64_sl2_ef2cc4723c04",
+      "outputs": [
+        {
+          "architectures": [
+            "sm_107a"
+          ],
+          "path": "cuda/cake_gdn_2dae478755e5edfe70c5_fd4acae5a6c1.cu"
+        }
+      ],
+      "source_schedule": "flashinfer.cake_gdn.generated.decode:gdn_decode_pretranspose_mtp_t4_splitv2_tile64_sl2",
+      "source_symbol": "cake_gdn_2dae478755e5edfe70c5",
+      "specializations": {
+        "CACHE_INTERMEDIATE_STATES": 1,
+        "H": 16,
+        "HV": 32,
+        "INTERMEDIATE_BATCH_STRIDE": 2097152,
+        "INTERMEDIATE_TOKEN_STRIDE": 524288,
+        "SCALE": 0.08838834764831845,
+        "STRIDED_INPUTS": 1,
+        "T_STEPS": 4,
+        "UPDATE_STATE": 1
+      },
+      "threads": 128,
+      "tma_abi": "pointer"
     }
   ]
 }
