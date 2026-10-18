@@ -34,7 +34,8 @@ def test_sm107a_default_body_is_the_int64_metadata_twin():
 @pytest.mark.parametrize("schedule", ROUTED)
 def test_sm107a_routes_the_vec2_state_io_twins_per_shipped_schedule(schedule):
     body = TABLE[("sm_107a", schedule)]
-    assert body in ("l7_vec2", "l7b_vec2lp", "st2s_vec2lp")
+    # the DV-split state-I/O twins and, since CAKE-1096 R27, the fp8-state packed final-state store twin
+    assert body in ("l7_vec2", "l7b_vec2lp", "st2s_vec2lp", "st8s_pack")
     twin = cake_gdn.cake_gdn_prefill_seq_schedule(
         "sm_107a", schedule, use_state_indices=False
     )
@@ -61,7 +62,6 @@ def test_sm107a_routes_the_vec2_state_io_twins_per_shipped_schedule(schedule):
         "flashinfer_blackwell_gdn_prefill_initial_bf16state",
         "flashinfer_blackwell_gdn_prefill_initial_gatestream_full",
         "flashinfer_blackwell_gdn_prefill_dvsplit_single_chunk",
-        "flashinfer_blackwell_gdn_prefill_dvsplit_initial_e4m3state",
     ),
 )
 def test_sm107a_routes_every_other_schedule_to_its_int64_metadata_twin(schedule):

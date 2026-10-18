@@ -767,13 +767,19 @@ def test_decode_resolver_routes_the_fp32_mtp_bodies_per_architecture(arch) -> No
     # `mtp_t4_splitv8` on Rubin (sm_107a): same kernel contract, bitwise-identical
     # output, only the schedule of the producer phase differs.  The verify row
     # (B1 T2, `mtp_t2_inline_tile8`) runs its `_bb` twin on Rubin (branch-light token
-    # body, bitwise-identical output); every other architecture keeps the shipped
+    # body, bitwise-identical output); the tile64 update rows (B16 / B64 T4) run the
+    # `_sl2` state-load twin on Rubin (CAKE-1096 R27; split cp.async commit groups,
+    # bitwise-identical output); every other architecture keeps the shipped
     # bodies.  Route ids never change.
     assert cake_gdn.CAKE_GDN_FP32_MTP_ARCH_BODIES == {
         (
             "sm_107a",
             "gdn_decode_pretranspose_mtp_t4_splitv8",
         ): "gdn_decode_pretranspose_mtp_t4_splitv8_pro",
+        (
+            "sm_107a",
+            "gdn_decode_pretranspose_mtp_t4_splitv2_tile64",
+        ): "gdn_decode_pretranspose_mtp_t4_splitv2_tile64_sl2",
         (
             "sm_107a",
             "gdn_decode_pretranspose_mtp_t2_inline_tile8",
@@ -906,8 +912,9 @@ def test_decode_resolver_routes_the_fp32_t1_pretranspose_body_per_state_head_ban
 
 def test_nontranspose_fp32_t1_body_rule_follows_the_batch_band() -> None:
     # One table (sm_107a only): the `mid4` twin in the small band (B < 32), the
-    # `tilev32_x2` twin in the large band's wave-fit range (32 <= B < 37), the shipped
-    # small / large bodies everywhere else; B200 / B300 keep the shipped bodies.
+    # `tilev32_x2` twin in the large band's wave-fit range (32 <= B < 37), the `hqsplit`
+    # twin from B >= 37 (CAKE-1096 R27), the shipped small / large bodies everywhere
+    # else; B200 / B300 keep the shipped bodies.
     assert cake_gdn.CAKE_GDN_NONTRANSPOSE_FP32_T1_SMALL_BATCH_THRESHOLD == 32
     assert cake_gdn.CAKE_GDN_NONTRANSPOSE_FP32_T1_LARGE_WAVEFIT_BATCH_LIMIT == 37
     assert cake_gdn.CAKE_GDN_NONTRANSPOSE_FP32_T1_BASE_SCHEDULES == {
@@ -922,12 +929,14 @@ def test_nontranspose_fp32_t1_body_rule_follows_the_batch_band() -> None:
     assert cake_gdn.CAKE_GDN_NONTRANSPOSE_FP32_T1_ARCH_BODIES == {
         ("sm_107a", "small"): "gdn_decode_nontranspose_fp32_t1_mid4",
         ("sm_107a", "large_wavefit"): "gdn_decode_nontranspose_fp32_t1_tilev32_x2",
+        ("sm_107a", "large"): "gdn_decode_nontranspose_fp32_t1_hqsplit",
     }
     assert cake_gdn.CAKE_GDN_NONTRANSPOSE_FP32_T1_CTAS_PER_STATE == {
         "gdn_decode_nontranspose_fp32_t1_small": 8,
         "gdn_decode_nontranspose_fp32_t1": 1,
         "gdn_decode_nontranspose_fp32_t1_mid4": 4,
         "gdn_decode_nontranspose_fp32_t1_tilev32_x2": 2,
+        "gdn_decode_nontranspose_fp32_t1_hqsplit": 1,
     }
     rule_band = cake_gdn.cake_gdn_nontranspose_fp32_t1_rule_band
     for batch_size, expected in (
@@ -957,19 +966,23 @@ def test_nontranspose_fp32_t1_body_rule_follows_the_batch_band() -> None:
         "gdn_decode_nontranspose_fp32_t1_tilev32_x2",
         "flashinfer.gdn_decode.direct_fp32_t1_nontranspose_large_tilev32_x2",
     )
+    hqsplit = (
+        "gdn_decode_nontranspose_fp32_t1_hqsplit",
+        "flashinfer.gdn_decode.direct_fp32_t1_nontranspose_large_hqsplit",
+    )
     for arch in ("sm_100a", "sm_103a"):
         for batch_size in (1, 4, 8, 16, 31):
             assert rule(batch_size, arch) == small
         for batch_size in (32, 33, 34, 35, 36, 37, 64, 128, 512):
             assert rule(batch_size, arch) == large
     # the public nontranspose rows (HV=32) on sm_107a: b1 .. b31 take mid4, the wave-fit
-    # range b32 .. b36 takes tilev32_x2, b37 .. b512 keep the shipped large body
+    # range b32 .. b36 takes tilev32_x2, b37 .. b512 take hqsplit (CAKE-1096 R27)
     for batch_size in (1, 4, 8, 16, 31):
         assert rule(batch_size, "sm_107a") == mid4
     for batch_size in (32, 33, 34, 35, 36):
         assert rule(batch_size, "sm_107a") == x2
     for batch_size in (37, 38, 64, 128, 512):
-        assert rule(batch_size, "sm_107a") == large
+        assert rule(batch_size, "sm_107a") == hqsplit
 
 
 @pytest.mark.parametrize("arch", ["sm_100a", "sm_103a", "sm_107a"])
@@ -978,7 +991,8 @@ def test_decode_resolver_routes_the_fp32_nontranspose_t1_body_per_batch_band(
 ) -> None:
     # The K-major fp32-state T=1 rows run the `mid4` twin on Rubin (sm_107a) below 32
     # batch rows (four CTAs per state head instead of eight) and the `tilev32_x2` twin
-    # in the wave-fit range 32 <= B < 37 (two CTAs per state head instead of one): same
+    # in the wave-fit range 32 <= B < 37 (two CTAs per state head instead of one) and the
+    # `hqsplit` twin from B >= 37 (CAKE-1096 R27; one CTA per state head): same
     # kernel contract, bitwise-identical output and state.  The route id names the twin
     # and the host takes the grid from the resolved record, not from a fixed eight / one.
     for batch_size in (1, 4, 8, 16, 31, 32, 33, 34, 35, 36, 37, 38, 64, 128):
@@ -986,7 +1000,10 @@ def test_decode_resolver_routes_the_fp32_nontranspose_t1_body_per_batch_band(
         band = "small" if batch_size < 32 else "large"
         mid4 = arch == "sm_107a" and batch_size < 32
         x2 = arch == "sm_107a" and 32 <= batch_size < 37
-        suffix = "_mid4" if mid4 else "_tilev32_x2" if x2 else ""
+        hqsplit = arch == "sm_107a" and batch_size >= 37
+        suffix = (
+            "_mid4" if mid4 else "_tilev32_x2" if x2 else "_hqsplit" if hqsplit else ""
+        )
         assert (
             route.route_id
             == f"flashinfer.gdn_decode.direct_fp32_t1_nontranspose_{band}{suffix}"
@@ -996,6 +1013,8 @@ def test_decode_resolver_routes_the_fp32_nontranspose_t1_body_per_batch_band(
             if mid4
             else "nontranspose_fp32_t1_tilev32_x2"
             if x2
+            else "nontranspose_fp32_t1_hqsplit"
+            if hqsplit
             else "nontranspose_fp32_t1_small"
             if band == "small"
             else "nontranspose_fp32_t1"

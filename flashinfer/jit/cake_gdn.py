@@ -455,6 +455,10 @@ _SM107A_SEQ_TWINS: dict[str, tuple[str, ...]] = {
     # (`vec2_state_io_lp` + `st2_stage`) on CC 10.7; a per-plan record whose outputs
     # are bitwise identical to the shipped body.
     "st2s_vec2lp": ("dvsplit_initial_f16state",),
+    # The fp8-state (e4m3 / e5m2) schedules run the smem-staged packed final-state store
+    # twin (`st8_stage`) on CC 10.7 (CAKE-1096 R27 P1-FP8ST); per-plan records whose
+    # outputs are bitwise identical to the `i64meta` body they supersede.
+    "st8s_pack": ("dvsplit_initial_e4m3state", "dvsplit_initial_e5m2state"),
 }
 CAKE_GDN_PREFILL_SEQ_ARCH_BODIES: dict[tuple[str, str], str] = {
     ("sm_107a", f"flashinfer_blackwell_gdn_prefill_{suffix}"): body
@@ -1024,6 +1028,11 @@ CAKE_GDN_FP32_MTP_ARCH_BODIES: dict[tuple[str, str], str] = {
         "sm_107a",
         "gdn_decode_pretranspose_mtp_t4_splitv8",
     ): "gdn_decode_pretranspose_mtp_t4_splitv8_pro",
+    # CAKE-1096 R27 (lane P2, P2-B16-SL; adopted 2026-10-18, per record): the fp32 MTP tile64 record runs its ``_sl2`` state-load twin on sm_107a.
+    (
+        "sm_107a",
+        "gdn_decode_pretranspose_mtp_t4_splitv2_tile64",
+    ): "gdn_decode_pretranspose_mtp_t4_splitv2_tile64_sl2",
     (
         "sm_107a",
         "gdn_decode_pretranspose_mtp_t2_inline_tile8",
@@ -1126,6 +1135,8 @@ CAKE_GDN_NONTRANSPOSE_FP32_T1_RULE_BANDS: dict[str, str] = {
 CAKE_GDN_NONTRANSPOSE_FP32_T1_ARCH_BODIES: dict[tuple[str, str], str] = {
     ("sm_107a", "small"): "gdn_decode_nontranspose_fp32_t1_mid4",
     ("sm_107a", "large_wavefit"): "gdn_decode_nontranspose_fp32_t1_tilev32_x2",
+    # CAKE-1096 R27 (lane P2, P2-LARGE-REC2; adopted 2026-10-18): the large band (B >= 37) runs the ``hqsplit`` recurrence twin on sm_107a.
+    ("sm_107a", "large"): "gdn_decode_nontranspose_fp32_t1_hqsplit",
 }
 # CTAs per state head each nontranspose fp32 T=1 body launches (the host grid is B * HV
 # times this), keyed by the record's schedule.
@@ -1134,6 +1145,7 @@ CAKE_GDN_NONTRANSPOSE_FP32_T1_CTAS_PER_STATE: dict[str, int] = {
     "gdn_decode_nontranspose_fp32_t1": 1,
     "gdn_decode_nontranspose_fp32_t1_mid4": 4,
     "gdn_decode_nontranspose_fp32_t1_tilev32_x2": 2,
+    "gdn_decode_nontranspose_fp32_t1_hqsplit": 1,
 }
 
 
