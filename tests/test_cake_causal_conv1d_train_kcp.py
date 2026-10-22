@@ -478,7 +478,11 @@ def test_kcp_keeps_fp32_taps_and_no_bias():
         cake_causal_conv1d_kcp_forward(p.x_local, p.w.to(torch.bfloat16), p.ctx)
     with pytest.raises(ValueError, match="weight must be torch.float32"):
         cake_causal_conv1d_kcp_backward(
-            p.x_local, p.w.to(torch.bfloat16), p.ctx, p.dy_local, torch.empty(0, p.C, dtype=torch.bfloat16, device=device)
+            p.x_local,
+            p.w.to(torch.bfloat16),
+            p.ctx,
+            p.dy_local,
+            torch.empty(0, p.C, dtype=torch.bfloat16, device=device),
         )
     bias = torch.zeros(p.C, device=device)
     with pytest.raises(TypeError):

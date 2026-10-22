@@ -466,9 +466,7 @@ def cake_causal_conv1d_train_forward(
     if S == 0:
         return y
     kind = forward_route(bias=b is not None, bf16_taps=w.dtype == torch.bfloat16)
-    names = _route(
-        arch, kind, needs="this forward (bias / BF16 taps)", C=C, S=S
-    )
+    names = _route(arch, kind, needs="this forward (bias / BF16 taps)", C=C, S=S)
     device_index = _device_index(device)
     scalars, _ = _launch(
         _loader.MODULES[names[0]], S, C, num_docs, device_index=device_index

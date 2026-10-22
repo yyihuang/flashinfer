@@ -455,9 +455,7 @@ def _kcp_forward(
     (name,) = route_modules(arch, KCP_FWD)
     device_index = _device_index(device)
     record = _loader.MODULES[name]
-    scalars = plan(
-        S, C, n_frag, geometry=record["grid_rule"]["geometry"], legacy=True
-    )
+    scalars = plan(S, C, n_frag, geometry=record["grid_rule"]["geometry"], legacy=True)
     if scalars["n_ch_tiles"] > launch_grid(record, device_index=device_index)[0]:
         raise ValueError(
             f"C={C} spans more channel tiles than the forward's grid on this device holds"
@@ -611,9 +609,7 @@ def _kcp_backward(
     )
     names = selected_modules(arch, KCP_BWD, C=C, S=S)
     record = _loader.MODULES[names[0]]
-    scalars = plan(
-        S, C, n_frag, geometry=record["grid_rule"]["geometry"], legacy=True
-    )
+    scalars = plan(S, C, n_frag, geometry=record["grid_rule"]["geometry"], legacy=True)
     grid_x = launch_grid(record, device_index=device_index)[0]
     if scalars["n_ch_tiles"] > grid_x:
         raise ValueError(

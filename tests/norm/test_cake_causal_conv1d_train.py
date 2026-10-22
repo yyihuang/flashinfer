@@ -468,7 +468,9 @@ def _grad_tolerance(policy: str, dtype: torch.dtype) -> tuple[float, float]:
     """``(atol, rtol)`` of a gradient out tensor: the policy's FP32 bound, widened for a BF16 out by its own
     rounding (``|bf16(a) - b| <= 2^-8 |b| + (1 + 2^-8) |a - b|``)."""
 
-    atol, rtol = (DW_ATOL, DW_RTOL) if policy == "bf16" else (DW_FP32G_ATOL, DW_FP32G_RTOL)
+    atol, rtol = (
+        (DW_ATOL, DW_RTOL) if policy == "bf16" else (DW_FP32G_ATOL, DW_FP32G_RTOL)
+    )
     if dtype == torch.bfloat16:
         return atol * (1 + 2**-8), 2**-7
     return atol, rtol
@@ -526,7 +528,10 @@ def _check(
 
     if x is None:
         x, w, cu, dy = _inputs(S, C, docs)
-    label = label or f"S={S} C={C} docs={docs} w={w.dtype} b={None if b is None else b.dtype} {policy}"
+    label = (
+        label
+        or f"S={S} C={C} docs={docs} w={w.dtype} b={None if b is None else b.dtype} {policy}"
+    )
     y = cake_causal_conv1d_train_forward(x, w, cu, bias=b)
     assert (
         y.dtype == torch.bfloat16
@@ -873,7 +878,9 @@ def test_preallocated_bias_outputs_are_written_in_place() -> None:
         x, w, cu, dy, bias=b, dx=dx, dweight=dw, dbias=db
     )
     assert len(got) == 3 and got[0] is dx and got[1] is dw and got[2] is db
-    assert torch.equal(dx, dx_ref) and torch.equal(dw, dw_ref) and torch.equal(db, db_ref)
+    assert (
+        torch.equal(dx, dx_ref) and torch.equal(dw, dw_ref) and torch.equal(db, db_ref)
+    )
 
 
 def _capture_and_replay(cases, kind: str, *, key: int) -> int:
@@ -893,7 +900,17 @@ def _capture_and_replay(cases, kind: str, *, key: int) -> int:
         workspace = cake_causal_conv1d_train_backward_workspace(S, C, device)
 
         def step(
-            x=x, w=w, cu=cu, dy=dy, b=b, policy=policy, y=y, dx=dx, dw=dw, db=db, ws=workspace
+            x=x,
+            w=w,
+            cu=cu,
+            dy=dy,
+            b=b,
+            policy=policy,
+            y=y,
+            dx=dx,
+            dw=dw,
+            db=db,
+            ws=workspace,
         ):
             cake_causal_conv1d_train_forward(x, w, cu, bias=b, out=y)
             cake_causal_conv1d_train_backward(
@@ -921,22 +938,25 @@ def _capture_and_replay(cases, kind: str, *, key: int) -> int:
         torch.cuda.synchronize(device)
         # The graph holds raw pointers to x, w, b, cu and dy: keep them alive until the replays, or the
         # allocator hands their memory to the next shape's tensors and the replay reads those instead.
-        captured.append(
-            (graph, (x, w, cu, dy, b), (y, dx, dw, db), eager, workspace)
-        )
+        captured.append((graph, (x, w, cu, dy, b), (y, dx, dw, db), eager, workspace))
     replays = 0
     for graph, _inputs_alive, outputs, eager, workspace in captured:
-        outputs = tuple(tensor for tensor in outputs if tensor is not None)
+        # (output, eager value, name) per produced tensor; the dbias slot is None without a bias.
+        compared = [
+            (got, expected, name)
+            for got, expected, name in zip(
+                outputs, eager, ("y", "dx", "dweight", "dbias"), strict=True
+            )
+            if got is not None
+        ]
         for _replay in range(GRAPH_REPLAYS):
-            for tensor in outputs:
-                tensor.fill_(float("nan"))
+            for got, _expected, _name in compared:
+                got.fill_(float("nan"))
             workspace.view(torch.float32).fill_(float("nan"))
             graph.replay()
             torch.cuda.synchronize(device)
             replays += 1
-            for got, expected, name in zip(
-                outputs, eager, ("y", "dx", "dweight", "dbias"), strict=True
-            ):
+            for got, expected, name in compared:
                 assert torch.equal(got, expected), (
                     f"{name} of replay {replays} differs from eager ({kind})"
                 )
@@ -978,7 +998,9 @@ def test_zero_tokens_return_empty_outputs() -> None:
     )
     assert tuple(dx.shape) == (0, C) and dw.dtype == torch.float32
     assert db.dtype == torch.bfloat16 and tuple(db.shape) == (C,)
-    assert torch.equal(dw, torch.zeros_like(dw)) and torch.equal(db, torch.zeros_like(db))
+    assert torch.equal(dw, torch.zeros_like(dw)) and torch.equal(
+        db, torch.zeros_like(db)
+    )
 
 
 @pytest.mark.parametrize("kind", tuple(ROUTE_SETTINGS))
@@ -1125,7 +1147,9 @@ def test_fp32_grad_perf_size_precision(case, record_property) -> None:
     assert rel_l2 <= FP32G_REL_L2_GATE, (
         f"S={S} C={C}: fp32-policy dweight rel-L2 {rel_l2:.3e} exceeds the gate {FP32G_REL_L2_GATE:.1e}"
     )
-    assert rel_l2 < rel_l2_default, "the fp32 policy is not more accurate than the default"
+    assert rel_l2 < rel_l2_default, (
+        "the fp32 policy is not more accurate than the default"
+    )
     torch.cuda.empty_cache()
 
 
@@ -1140,11 +1164,15 @@ def test_nan_poisoned_workspace_per_route(kind) -> None:
         x, w, cu, dy, b, policy = _route_inputs(S, C, docs, kind)
         workspace = cake_causal_conv1d_train_backward_workspace(S, C, _device())
         workspace.view(torch.float32).fill_(float("nan"))
-        _check(S, C, docs, x=x, w=w, cu=cu, dy=dy, b=b, policy=policy, workspace=workspace)
+        _check(
+            S, C, docs, x=x, w=w, cu=cu, dy=dy, b=b, policy=policy, workspace=workspace
+        )
         fresh = _backward(x, w, cu, dy, b, policy)
         workspace.view(torch.float32).fill_(float("nan"))
         poisoned = _backward(x, w, cu, dy, b, policy, workspace=workspace)
-        for got, expected, name in zip(poisoned, fresh, ("dx", "dweight", "dbias"), strict=True):
+        for got, expected, name in zip(
+            poisoned, fresh, ("dx", "dweight", "dbias"), strict=True
+        ):
             if expected is None:
                 continue
             assert torch.isfinite(got.float()).all(), (kind, name)
@@ -1185,7 +1213,11 @@ def test_dt_route_with_f32_taps_matches_default_route_bitwise(case) -> None:
     assert torch.equal(dx_dt, dx), f"bwd_dt dx differs from bwd dx at S={S} C={C}"
     atol, rtol = _grad_tolerance("bf16", BF16)
     _assert_within(
-        dw_dt.float(), dw, atol=atol, rtol=rtol, label=f"bf16 dweight vs the f32 one S={S} C={C}"
+        dw_dt.float(),
+        dw,
+        atol=atol,
+        rtol=rtol,
+        label=f"bf16 dweight vs the f32 one S={S} C={C}",
     )
     # The dt fallback with flags 0 and an FP32 dw against the default fallback.
     results = {}
@@ -1219,7 +1251,9 @@ def test_dt_route_with_f32_taps_matches_default_route_bitwise(case) -> None:
         loader.run_module(name, values, device_index=device.index)
         torch.cuda.synchronize(device)
         results[kind] = (dx_f, dw_f, grid_x)
-    assert torch.equal(results["bwd_dt"][0], results["bwd"][0]), "fallback dx differs across routes"
+    assert torch.equal(results["bwd_dt"][0], results["bwd"][0]), (
+        "fallback dx differs across routes"
+    )
     if results["bwd_dt"][2] == results["bwd"][2]:
         assert torch.equal(results["bwd_dt"][1], results["bwd"][1]), (
             f"dw of the bwd_dt fallback differs from the bwd fallback at an equal grid, S={S} C={C}"
@@ -1293,12 +1327,16 @@ def test_workspace_bytes_and_layout() -> None:
                     C, geometry=selected["grid_rule"]["geometry"]
                 )
                 rows = loader.partial_rows(
-                    loader.launch_grid(selected, device_index=device.index)[0], n_ch_tiles
+                    loader.launch_grid(selected, device_index=device.index)[0],
+                    n_ch_tiles,
                 )
-                assert (
-                    loader.partial_bytes(selected, C, rows)
-                    <= cake_causal_conv1d_train_backward_workspace_bytes(1, C, device)
-                ), (kind, C, selected["library"])
+                assert loader.partial_bytes(
+                    selected, C, rows
+                ) <= cake_causal_conv1d_train_backward_workspace_bytes(1, C, device), (
+                    kind,
+                    C,
+                    selected["library"],
+                )
     # One channel tile holds up to threads x vec channels (a partial row per CTA): 1024 for the backward's eight
     # channels per thread; 8192 channels are eight tiles; C = 136 is 17 channel vectors (seven sub-tiles of 17).
     vec, threads = geometry["vec"], geometry["threads"]
@@ -1353,17 +1391,31 @@ def test_argument_validation() -> None:
         cake_causal_conv1d_train_forward(x.float(), w, cu)
     # Per buffer: the taps are FP32 or BF16 (the binding no longer checks the untyped tap / bias pointers,
     # so the host is the only guard), as are the bias and the gradient outs; the bias is one value per channel.
-    with pytest.raises(ValueError, match="weight must be torch.float32 or torch.bfloat16"):
+    with pytest.raises(
+        ValueError, match="weight must be torch.float32 or torch.bfloat16"
+    ):
         cake_causal_conv1d_train_forward(x, w.half(), cu)
-    with pytest.raises(ValueError, match="weight must be torch.float32 or torch.bfloat16"):
+    with pytest.raises(
+        ValueError, match="weight must be torch.float32 or torch.bfloat16"
+    ):
         cake_causal_conv1d_train_backward(x, w.half(), cu, dy)
-    with pytest.raises(ValueError, match="dweight must be torch.float32 or torch.bfloat16"):
+    with pytest.raises(
+        ValueError, match="dweight must be torch.float32 or torch.bfloat16"
+    ):
         cake_causal_conv1d_train_backward(
-            x, w, cu, dy, dweight=torch.empty(C, WIDTH, dtype=torch.float16, device=_device())
+            x,
+            w,
+            cu,
+            dy,
+            dweight=torch.empty(C, WIDTH, dtype=torch.float16, device=_device()),
         )
-    with pytest.raises(ValueError, match="bias must be torch.float32 or torch.bfloat16"):
+    with pytest.raises(
+        ValueError, match="bias must be torch.float32 or torch.bfloat16"
+    ):
         cake_causal_conv1d_train_forward(x, w, cu, bias=b.half())
-    with pytest.raises(ValueError, match="bias must be torch.float32 or torch.bfloat16"):
+    with pytest.raises(
+        ValueError, match="bias must be torch.float32 or torch.bfloat16"
+    ):
         cake_causal_conv1d_train_backward(x, w, cu, dy, bias=b.half())
     with pytest.raises(ValueError, match=r"bias must be a \[C\]"):
         cake_causal_conv1d_train_forward(x, w, cu, bias=b[: C // 2].contiguous())
@@ -1371,9 +1423,16 @@ def test_argument_validation() -> None:
         cake_causal_conv1d_train_forward(x, w, cu, bias=w[:, :1].contiguous())
     with pytest.raises(ValueError, match="contiguous"):
         cake_causal_conv1d_train_forward(x, w, cu, bias=w[:, 0])
-    with pytest.raises(ValueError, match="dbias must be torch.float32 or torch.bfloat16"):
+    with pytest.raises(
+        ValueError, match="dbias must be torch.float32 or torch.bfloat16"
+    ):
         cake_causal_conv1d_train_backward(
-            x, w, cu, dy, bias=b, dbias=torch.empty(C, dtype=torch.float16, device=_device())
+            x,
+            w,
+            cu,
+            dy,
+            bias=b,
+            dbias=torch.empty(C, dtype=torch.float16, device=_device()),
         )
     with pytest.raises(ValueError, match="dbias must have shape"):
         cake_causal_conv1d_train_backward(
@@ -1413,7 +1472,10 @@ def test_every_route_ships_on_every_architecture() -> None:
 
     libraries = cake_build.libraries_by_name()
     for arch in loader.ARCHES:
-        assert set(loader.ROUTES[arch]) == set(loader.KINDS), (arch, sorted(loader.ROUTES[arch]))
+        assert set(loader.ROUTES[arch]) == set(loader.KINDS), (
+            arch,
+            sorted(loader.ROUTES[arch]),
+        )
         for kind in loader.KINDS:
             for name in loader.route_modules(arch, kind):
                 library = loader.library_name(name, arch)
@@ -1447,7 +1509,11 @@ def test_registry_records_reference_the_build_manifest() -> None:
         for kind, names in by_kind.items():
             assert kind in loader.KINDS, (arch, kind)
             for name in names:
-                assert loader.MODULES[name]["role"] == loader.route_role(kind), (arch, kind, name)
+                assert loader.MODULES[name]["role"] == loader.route_role(kind), (
+                    arch,
+                    kind,
+                    name,
+                )
                 assert arch in loader.MODULES[name]["arches"], (arch, kind, name)
     for name, record in loader.MODULES.items():
         assert record["library"] == record["kernel"] == name
@@ -1553,7 +1619,9 @@ def test_registry_records_reference_the_build_manifest() -> None:
                 if rule is not None
             )
             assert all(
-                arch in rules[name]["channels"] for name in names if rules[name] is not None
+                arch in rules[name]["channels"]
+                for name in names
+                if rules[name] is not None
             ), (arch, kind, names)
             thresholds = [threshold for threshold, _ in positives]
             assert thresholds == sorted(set(thresholds)), (arch, kind, positives)
@@ -1561,15 +1629,24 @@ def test_registry_records_reference_the_build_manifest() -> None:
             previous = fallbacks[0]
             for threshold, name in positives:
                 assert loader.selected_modules(arch, kind, C=threshold) == (name,)
-                assert loader.selected_modules(arch, kind, C=threshold - 8) == (previous,)
+                assert loader.selected_modules(arch, kind, C=threshold - 8) == (
+                    previous,
+                )
                 previous = name
             assert loader.selected_modules(arch, kind, C=8192) == (previous,)
             for C in (8, 128, 512, 1024, 1280, 8192):
                 selected = loader.selected_modules(arch, kind, C=C, S=1)
-                assert len(selected) == 1 and selected[0] in names, (arch, kind, C, selected)
+                assert len(selected) == 1 and selected[0] in names, (
+                    arch,
+                    kind,
+                    C,
+                    selected,
+                )
         owners = loader.workspace_owners(arch)
         assert [owner["library"] for owner in owners] == [
-            name for kind in loader.backward_kinds(arch) for name in loader.route_modules(arch, kind)
+            name
+            for kind in loader.backward_kinds(arch)
+            for name in loader.route_modules(arch, kind)
         ]
         for owner in owners:
             assert owner["role"] == "bwd"

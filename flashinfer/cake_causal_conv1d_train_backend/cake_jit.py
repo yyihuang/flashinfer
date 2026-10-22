@@ -1312,7 +1312,6 @@ MODULES: dict[str, dict[str, Any]] = {
             "taps": 5,
         },
     },
-
 }
 
 # Architecture -> route -> the records the route launches, in launch order.  The
@@ -1699,8 +1698,10 @@ def workspace_record(arch: str) -> dict[str, Any]:
         )
     return max(
         owners,
-        key=lambda owner: int(owner["grid_rule"]["ctas_per_sm"])
-        * int(owner["workspace_rule"]["taps"]),
+        key=lambda owner: (
+            int(owner["grid_rule"]["ctas_per_sm"])
+            * int(owner["workspace_rule"]["taps"])
+        ),
     )
 
 

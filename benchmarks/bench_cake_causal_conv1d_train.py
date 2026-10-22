@@ -193,7 +193,9 @@ class Cake(Comparator):
         y = torch.empty_like(x)
         dx = torch.empty_like(x)
         dw = torch.empty(channels, WIDTH, dtype=w.dtype, device=x.device)
-        db = None if b is None else torch.empty(channels, dtype=b.dtype, device=x.device)
+        db = (
+            None if b is None else torch.empty(channels, dtype=b.dtype, device=x.device)
+        )
         workspace = cake_causal_conv1d_train_backward_workspace(
             tokens, channels, x.device
         )
@@ -294,7 +296,11 @@ def _bytes(
     # dweight taps are one pass), dx written, w (and b) read, dw (and db) written, and the FP32 [rows, C, 4]
     # partials (and the [rows, C] dbias slab) written then read.
     tap = torch.tensor([], dtype=mode.weight_dtype).element_size()
-    bias = 0 if mode.bias_dtype is None else torch.tensor([], dtype=mode.bias_dtype).element_size()
+    bias = (
+        0
+        if mode.bias_dtype is None
+        else torch.tensor([], dtype=mode.bias_dtype).element_size()
+    )
     fwd = 4 * tokens * channels + (WIDTH * tap + bias) * channels
     bwd = (
         6 * tokens * channels
