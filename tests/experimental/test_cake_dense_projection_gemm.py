@@ -543,10 +543,11 @@ MLA_TEMPLATES = {
 # fmt: on
 # The K1 templates the export registers: the union over the architectures of
 # ``cake_jit.KERNELS`` (the per-architecture filter of ``_registered`` below).
-# The count pins the number of templates in the export this suite was written
-# against: an export with another count fails here, at import, before any test
-# runs; a same-count substitution passes this pin and is left to the tests that
-# name templates (the planner tables above, the symbol and record pins below).
+# The registry and the build manifest are checked against each other here, at
+# import, before any test runs: every program a registry table names ships a
+# build for that architecture, and every build entry belongs to a registered
+# program.  Which templates the export holds is left to the tests that name
+# them (the planner tables above, the symbol and record pins below).
 
 EXPORTED_TEMPLATES = frozenset(
     template
@@ -554,7 +555,13 @@ EXPORTED_TEMPLATES = frozenset(
     for template in cake_jit.KERNELS[arch]
     if template.startswith("dense_proj_gemm_")
 )
-assert len(EXPORTED_TEMPLATES) == 84
+_REGISTRY_BUILDS = frozenset(
+    f"{cake_jit.MODULES[name]['library']}_{arch}"
+    for arch, table in cake_jit.KERNELS.items()
+    for name in set(table.values())
+)
+_MANIFEST_BUILDS = frozenset(entry["name"] for entry in cake_build.manifest()["libraries"])
+assert _REGISTRY_BUILDS == _MANIFEST_BUILDS, sorted(_REGISTRY_BUILDS ^ _MANIFEST_BUILDS)
 
 
 def _expected(table, key, T, sm_count):
