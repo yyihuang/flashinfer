@@ -5750,7 +5750,11 @@ def test_template_knobs_invert_instance_symbol():
         for template in table:
             tokens = cake_backend._template_tokens(template)
             if tokens is None:
-                assert template.startswith("router_fp32_gemm_"), (arch, template)
+                # the router programs and the fused split program carry no knob tokens
+                assert template.startswith("router_fp32_gemm_") or template == cake_backend.SPLIT_TEMPLATE, (
+                    arch,
+                    template,
+                )
                 continue
             knobs = cake_backend._template_knobs(template)
             assert knobs is not None, (arch, template)
@@ -5908,75 +5912,60 @@ def test_registry_fallback_serves_every_registered_class(arch):
 def test_registry_fallback_reaches_the_shapes_tranche_programs(monkeypatch):
     """The rows whose launcher plan the sm_100a export does not carry (forward N <= 128 and N = 256 at K 4096 / 5120,
     the swapped weight gradient at N <= 128 with M 4096 / 5120 / 8192): with the measured rules set aside, the
-    fallback lands on the neighbour its hand-ordered variants name first - the plain-hint twin when it is generated,
-    else the single-CTA form, else the 64-row pair family - and marks the plan ``knob_fallback``."""
+    fallback lands on the first registered program its hand-ordered variants name (``_FALLBACK_KNOB_VARIANTS``: the
+    other ``pro`` forms of the launcher's own tile walk, then the plain-hint twin, the single-CTA form and the 64-row
+    pair family) and marks the plan ``knob_fallback``.  The expected neighbour is read from the registry: the first
+    candidate of the row's hand-ordered list that is registered."""
     monkeypatch.setattr(cake_backend, "ROW_RULES", {})
+    P = "dense_proj_gemm_"
+    kk_n128 = (
+        P + "kk_n128_hen_pro15",
+        P + "kk_n128_hen",
+        P + "kk_n128_pro7",
+        P + "kk_n128_pro15",
+        P + "kk_n128",
+        P + "kk_n128_hen_c1",
+        P + "kk_n128_c1",
+        P + "kk_n128_m64_hen_pro7",
+        P + "kk_n128_m64_hen_pro15",
+        P + "kk_n128_m64_hen",
+    )
+    kk_n256 = (
+        P + "kk_n256_hen_pro15",
+        P + "kk_n256_hen",
+        P + "kk_n256_pro7",
+        P + "kk_n256_pro15",
+        P + "kk_n256",
+        P + "kk_n256_hen_c1",
+        P + "kk_n256_c1",
+    )
+    nn_n128_t = (
+        P + "nn_n128_hen_t_pro15",
+        P + "nn_n128_hen_t",
+        P + "nn_n128_t_pro7",
+        P + "nn_n128_t_pro15",
+        P + "nn_n128_t",
+        P + "nn_n128_hen_t_c1",
+        P + "nn_n128_t_c1",
+        P + "nn_n128_m64_hen_t_pro7",
+        P + "nn_n128_m64_hen_t_pro15",
+        P + "nn_n128_m64_hen_t",
+    )
+    nn_n128_f32_t = tuple(c.replace("_t", "_f32_t") for c in nn_n128_t)
     cases = (
-        # layout, fp32 out, transposed, M, N, K, launcher template -> registered neighbour
-        (
-            "kk",
-            False,
-            False,
-            16384,
-            128,
-            4096,
-            "dense_proj_gemm_kk_n128_hen_pro7",
-            "dense_proj_gemm_kk_n128_hen_c1",
-        ),
-        (
-            "kk",
-            False,
-            False,
-            16384,
-            64,
-            5120,
-            "dense_proj_gemm_kk_n128_hen_pro7",
-            "dense_proj_gemm_kk_n128_hen_c1",
-        ),
-        (
-            "kk",
-            False,
-            False,
-            16384,
-            256,
-            4096,
-            "dense_proj_gemm_kk_n256_hen_pro7",
-            "dense_proj_gemm_kk_n256_pro7",
-        ),
-        (
-            "nn",
-            False,
-            True,
-            4096,
-            128,
-            16384,
-            "dense_proj_gemm_nn_n128_hen_t_pro7",
-            "dense_proj_gemm_nn_n128_m64_hen_t_pro7",
-        ),
-        (
-            "nn",
-            True,
-            True,
-            4096,
-            128,
-            16384,
-            "dense_proj_gemm_nn_n128_hen_f32_t_pro7",
-            "dense_proj_gemm_nn_n128_m64_hen_f32_t_pro7",
-        ),
-        (
-            "nn",
-            False,
-            True,
-            8192,
-            32,
-            16231,
-            "dense_proj_gemm_nn_n128_hen_t_pro7",
-            "dense_proj_gemm_nn_n128_m64_hen_t_pro7",
-        ),
+        # layout, fp32 out, transposed, M, N, K, launcher template, hand-ordered candidates
+        ("kk", False, False, 16384, 128, 4096, P + "kk_n128_hen_pro7", kk_n128),
+        ("kk", False, False, 16384, 64, 5120, P + "kk_n128_hen_pro7", kk_n128),
+        ("kk", False, False, 16384, 256, 4096, P + "kk_n256_hen_pro7", kk_n256),
+        ("nn", False, True, 4096, 128, 16384, P + "nn_n128_hen_t_pro7", nn_n128_t),
+        ("nn", True, True, 4096, 128, 16384, P + "nn_n128_hen_f32_t_pro7", nn_n128_f32_t),
+        ("nn", False, True, 8192, 32, 16231, P + "nn_n128_hen_t_pro7", nn_n128_t),
     )
     kw = dict(sm_count=148, l2_bytes=L2_BYTES, arch="sm_100a")
     registered = _registered("sm_100a")
-    for layout, out_f32, out_t, M, N, K, launcher, neighbour in cases:
+    for layout, out_f32, out_t, M, N, K, launcher, candidates in cases:
+        neighbour = next((c for c in candidates if c in registered), None)
+        assert neighbour is not None, (M, N, K, launcher)
         v = _class_views(layout, out_f32, out_t, M, N, K)
         mirror, *_ = plan_dense_projection_gemm(
             v["A"], v["B"], v["out"], transposed_out=out_t, _fallback=False, **kw
@@ -5990,22 +5979,20 @@ def test_registry_fallback_reaches_the_shapes_tranche_programs(monkeypatch):
         plan, *_ = plan_dense_projection_gemm(
             v["A"], v["B"], v["out"], transposed_out=out_t, **kw
         )
-        assert plan.template == neighbour and neighbour in registered, (
-            M,
-            N,
-            K,
-            plan.template,
-        )
+        assert plan.template == neighbour, (M, N, K, plan.template, neighbour)
         assert plan.knob_fallback and not plan.rule_fallback and not plan.swap_fallback
         # the single-CTA neighbour carries no tail policy and no pro; the 64-row neighbour keeps the hints
         if neighbour.endswith("_c1"):
             assert plan.cta1 and plan.sk_units == 0 and not plan.sk_sync
         if "_m64_" in neighbour:
             assert plan.cta_rows == 64 and plan.hints == ("evict_first", "none")
-    # a caller-forced tail policy does not keep the row off the single-CTA form: the cta1 variant clears it
+    # a caller-forced tail policy keeps the row on a registered program: a pair form admits it, the single-CTA
+    # form (``cta1`` clears the tail knobs) stays reachable when no pair form is registered
     v = _class_views("kk", False, False, 16384, 128, 4096)
     plan, *_ = plan_dense_projection_gemm(v["A"], v["B"], v["out"], sk=True, **kw)
-    assert plan.template == "dense_proj_gemm_kk_n128_hen_c1" and plan.knob_fallback
+    assert plan.template in registered and plan.knob_fallback, plan.template
+    if plan.template.endswith("_c1"):
+        assert plan.cta1 and plan.sk_units == 0 and not plan.sk_sync
     # on sm_107a the same weight-gradient rows reach the plain-hint twin (generated there) in the first variant
     kw107 = dict(sm_count=212, l2_bytes=L2_BYTES, arch="sm_107a")
     v = _class_views("nn", False, True, 4096, 128, 16384)
