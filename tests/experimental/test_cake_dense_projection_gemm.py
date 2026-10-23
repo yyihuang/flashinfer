@@ -560,7 +560,9 @@ _REGISTRY_BUILDS = frozenset(
     for arch, table in cake_jit.KERNELS.items()
     for name in set(table.values())
 )
-_MANIFEST_BUILDS = frozenset(entry["name"] for entry in cake_build.manifest()["libraries"])
+_MANIFEST_BUILDS = frozenset(
+    entry["name"] for entry in cake_build.manifest()["libraries"]
+)
 assert _REGISTRY_BUILDS == _MANIFEST_BUILDS, sorted(_REGISTRY_BUILDS ^ _MANIFEST_BUILDS)
 
 
@@ -779,7 +781,11 @@ def test_registry_records_are_well_formed():
         assert plan and all(len(item) == 2 for item in plan)
         if not isinstance(record["arg_plan"], str):
             assert plan == [list(item) for item in record["arg_plan"]]
-            assert {name for kind, name in plan if kind == "grid"} == {"grid_x", "grid_y", "grid_z"}
+            assert {name for kind, name in plan if kind == "grid"} == {
+                "grid_x",
+                "grid_y",
+                "grid_z",
+            }
     # build.json (``cake_build``) is the only record of what to compile; the registry names its
     # entries ``<library>_<arch>``
     manifest = cake_build.manifest()
@@ -812,11 +818,15 @@ def test_registry_records_are_well_formed():
         assert (
             "tma_workspace_bytes" not in record
         )  # by-value TMA ABI: no descriptor workspace
-        assert isinstance(record["arg_plan"], str)
         plan_items = [list(item) for item in cake_jit.arg_plan_of(record)]
-        assert plan_items == [
-            list(item) for item in cake_jit.ARG_PLANS[record["arg_plan"]]
-        ]
+        if isinstance(record["arg_plan"], str):
+            assert plan_items == [
+                list(item) for item in cake_jit.ARG_PLANS[record["arg_plan"]]
+            ]
+        else:
+            # the fused split program is the only record with an inline plan
+            assert record["template"] == cake_backend.SPLIT_TEMPLATE, record["template"]
+            assert plan_items == [list(item) for item in record["arg_plan"]]
         if record["template"].startswith("dense_proj_gemm_"):
             # the raster group width is a launch parameter since round 11; the stream-K slabs and the
             # slice counters are host-owned buffers
@@ -825,6 +835,10 @@ def test_registry_records_are_well_formed():
                 "buffer",
                 "counters",
             ] in plan_items
+        elif record["template"] == cake_backend.SPLIT_TEMPLATE:
+            # the fp32 source, the [3, ...] BF16 stack and the element count
+            assert ["buffer", "src"] in plan_items and ["buffer", "parts"] in plan_items
+            assert ["parameter", "n"] in plan_items
         else:
             assert ["parameter", "k_iters_split"] in plan_items
         launch = record["launch"]
@@ -5760,7 +5774,10 @@ def test_template_knobs_invert_instance_symbol():
             tokens = cake_backend._template_tokens(template)
             if tokens is None:
                 # the router programs and the fused split program carry no knob tokens
-                assert template.startswith("router_fp32_gemm_") or template == cake_backend.SPLIT_TEMPLATE, (
+                assert (
+                    template.startswith("router_fp32_gemm_")
+                    or template == cake_backend.SPLIT_TEMPLATE
+                ), (
                     arch,
                     template,
                 )
@@ -5967,7 +5984,16 @@ def test_registry_fallback_reaches_the_shapes_tranche_programs(monkeypatch):
         ("kk", False, False, 16384, 64, 5120, P + "kk_n128_hen_pro7", kk_n128),
         ("kk", False, False, 16384, 256, 4096, P + "kk_n256_hen_pro7", kk_n256),
         ("nn", False, True, 4096, 128, 16384, P + "nn_n128_hen_t_pro7", nn_n128_t),
-        ("nn", True, True, 4096, 128, 16384, P + "nn_n128_hen_f32_t_pro7", nn_n128_f32_t),
+        (
+            "nn",
+            True,
+            True,
+            4096,
+            128,
+            16384,
+            P + "nn_n128_hen_f32_t_pro7",
+            nn_n128_f32_t,
+        ),
         ("nn", False, True, 8192, 32, 16231, P + "nn_n128_hen_t_pro7", nn_n128_t),
     )
     kw = dict(sm_count=148, l2_bytes=L2_BYTES, arch="sm_100a")
@@ -6013,8 +6039,14 @@ def test_registry_fallback_reaches_the_shapes_tranche_programs(monkeypatch):
     plan, *_ = plan_dense_projection_gemm(
         v["A"], v["B"], v["out"], transposed_out=True, **kw107
     )
-    assert mirror.template == P + "nn_n128_hen_t_pro7" and mirror.template not in registered107
-    assert plan.template == neighbour107 and plan.knob_fallback, (plan.template, neighbour107)
+    assert (
+        mirror.template == P + "nn_n128_hen_t_pro7"
+        and mirror.template not in registered107
+    )
+    assert plan.template == neighbour107 and plan.knob_fallback, (
+        plan.template,
+        neighbour107,
+    )
 
 
 def test_registry_fallback_decodes_the_nearest_generated_program(monkeypatch):
