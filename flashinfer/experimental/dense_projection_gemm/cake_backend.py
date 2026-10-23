@@ -1074,8 +1074,8 @@ ROW_RULES: dict[tuple, dict] = {
     ('sm_100a', True, True, False, False, False, 2048, None, 6144): {"group_m": 4, "sk_sync": True, "sk_sync_m": 26, "sk_slab": 2},
     ('sm_100a', True, True, False, False, False, 2048, None, 16384): {"cta_rows": 256, "ovl": True, "htail": True},
     ('sm_100a', True, True, False, False, False, 6144, None, 2048): {"sk_sync": True, "sk_sync_m": 26, "sk_slab": 2},
-    ('sm_100a', True, True, False, False, False, 6144, None, 12288): {"cta_rows": 256, "group_m": 8},
-    ('sm_100a', True, True, False, False, False, 12288, None, 6144): {"cta_rows": 256, "group_m": 8},
+    ('sm_100a', True, True, False, False, False, 6144, None, 12288): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 2},
+    ('sm_100a', True, True, False, False, False, 12288, None, 6144): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 2},
     ('sm_100a', True, True, False, False, False, 16384, None, 6144): {"cta_rows": 256, "group_m": 8, "htail": True},
     ('sm_100a', True, True, False, True, False, 32, None, 6144): {"block_n": 128, "cta_rows": 64},
     ('sm_100a', True, True, False, True, False, 128, None, 6144): {"block_n": 128, "cta_rows": 64},
@@ -1086,8 +1086,8 @@ ROW_RULES: dict[tuple, dict] = {
     ('sm_100a', True, True, True, False, False, 2048, None, 6144): {"group_m": 8, "epi": 'reg', "f32_v8": True, "store_ef": True, "sk_sync": True, "sk_sync_m": 26, "sk_slab": 2},
     ('sm_100a', True, True, True, False, False, 2048, None, 16384): {"group_m": 8, "epi": 'reg', "f32_v8": True},
     ('sm_100a', True, True, True, False, False, 6144, None, 2048): {"group_m": 32, "epi": 'reg', "f32_v8": True, "store_ef": True, "sk_sync": True, "sk_sync_m": 26, "sk_slab": 2},
-    ('sm_100a', True, True, True, False, False, 6144, None, 12288): {"cta_rows": 256},
-    ('sm_100a', True, True, True, False, False, 12288, None, 6144): {"cta_rows": 256},
+    ('sm_100a', True, True, True, False, False, 6144, None, 12288): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3},
+    ('sm_100a', True, True, True, False, False, 12288, None, 6144): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3},
     ('sm_100a', True, True, True, False, False, 16384, None, 6144): {"cta_rows": 256, "htail": True},
     ('sm_100a', True, True, True, True, False, 32, None, 6144): {"block_n": 128, "cta_rows": 64},
     ('sm_100a', True, True, True, True, False, 128, None, 6144): {"block_n": 128, "cta_rows": 64},
@@ -1216,6 +1216,22 @@ ROW_RULES: dict[tuple, dict] = {
     ('sm_100a', True, True, True, True, False, 128, None, 4096): {"cta_rows": 64, "pro": 15},
     ('sm_100a', True, True, True, True, False, 128, None, 5120): {"cta_rows": 64, "pro": 15},
     ('sm_100a', True, True, True, True, False, 128, None, 8192): {"cta_rows": 64, "pro": 15},
+    ('sm_100a', True, True, False, False, False, 4096, None, 4096): {"cta_rows": 256, "pro": 7, "block_n": 224},
+    ('sm_100a', True, True, False, False, False, 4096, None, 12288): {"cta_rows": 256, "pro": 7, "block_n": 224},
+    ('sm_100a', True, True, False, False, False, 5120, None, 512): {"block_n": 192, "b_swz": 64, "sk_sync": True, "sk_slab": 2, "sk_sync_m": 39, "pro": 15, "hints": ('none', 'evict_first')},
+    ('sm_100a', True, True, False, False, False, 5120, None, 1024): {"block_n": 160, "b_swz": 64, "cta_rows": 256, "pro": 15, "hints": ('none', 'evict_first'), "cgrp": True, "group_m": 8},
+    ('sm_100a', True, True, False, False, False, 5120, None, 5120): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 2, "sk_sync_m": 32},
+    ('sm_100a', True, True, False, False, False, 12288, None, 4096): {"cta_rows": 256, "pro": 7, "block_n": 224},
+    ('sm_100a', True, True, False, True, False, 512, None, 4096): {"cta_rows": 64, "pro": 15, "hints": ('evict_first', 'none')},
+    ('sm_100a', True, True, False, True, False, 1024, None, 4096): {"pro": 15, "hints": ('evict_first', 'none')},
+    ('sm_100a', True, True, True, False, False, 4096, None, 1024): {"slots": 1, "epi": 'tma', "pro": 15, "cgrp": True},
+    ('sm_100a', True, True, True, False, False, 4096, None, 4096): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3, "sk_sync_m": 32},
+    ('sm_100a', True, True, True, False, False, 4096, None, 12288): {"cta_rows": 256, "pro": 7, "sk_parts": 4},
+    ('sm_100a', True, True, True, False, False, 5120, None, 512): {"block_n": 192, "b_swz": 64, "epi": 'reg', "f32_v8": True, "store_ef": True, "sk_sync": True, "sk_slab": 2, "sk_sync_m": 26, "pro": 15, "hints": ('none', 'evict_first')},
+    ('sm_100a', True, True, True, False, False, 5120, None, 1024): {"block_n": 160, "b_swz": 64, "cta_rows": 256, "epi": 'reg', "f32_v8": True, "store_ef": True, "pro": 15, "hints": ('none', 'evict_first'), "cgrp": True, "group_m": 8},
+    ('sm_100a', True, True, True, False, False, 5120, None, 5120): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3, "sk_sync_m": 32},
+    ('sm_100a', True, True, True, False, False, 12288, None, 4096): {"cta_rows": 256, "pro": 7, "sk_parts": 4},
+    ('sm_100a', True, True, True, True, False, 512, None, 4096): {"cta_rows": 64, "pro": 15, "hints": ('evict_first', 'none')},
     # ---- sm_103a: the shapes tranche - forward / input gradient / weight gradient rows at K 4096 - 17408 and N 32 - 17408,
     #      measured with this package's planner against cuBLAS on GB300 at T 16172 - 16384 (see the test table
     #      MEASURED_SHAPE_ROWS); a row whose measured choice equals the planner's default carries no rule ----
@@ -1285,6 +1301,26 @@ ROW_RULES: dict[tuple, dict] = {
     ('sm_103a', True, True, True, True, False, 128, None, 4096): {"cta_rows": 64, "pro": 15},
     ('sm_103a', True, True, True, True, False, 128, None, 5120): {"pro": 7, "sk_sync": True, "sk_sync_m": 16},
     ('sm_103a', True, True, True, True, False, 128, None, 8192): {"cta_rows": 64, "pro": 15},
+    ('sm_103a', True, True, False, False, False, 4096, None, 1024): {"block_n": 224, "pro": 15, "hints": ('none', 'evict_first'), "cgrp": True},
+    ('sm_103a', True, True, False, False, False, 4096, None, 4096): {"cta_rows": 256, "pro": 7, "block_n": 224},
+    ('sm_103a', True, True, False, False, False, 4096, None, 12288): {"cta_rows": 256, "pro": 7, "block_n": 224},
+    ('sm_103a', True, True, False, False, False, 5120, None, 512): {"block_n": 192, "b_swz": 64, "sk_sync": True, "sk_slab": 2, "sk_sync_m": 39, "pro": 15, "hints": ('none', 'evict_first')},
+    ('sm_103a', True, True, False, False, False, 5120, None, 1024): {"block_n": 160, "b_swz": 64, "cta_rows": 256, "pro": 15, "hints": ('none', 'evict_first')},
+    ('sm_103a', True, True, False, False, False, 5120, None, 5120): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 2, "sk_sync_m": 32},
+    ('sm_103a', True, True, False, False, False, 6144, None, 12288): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 2},
+    ('sm_103a', True, True, False, False, False, 12288, None, 4096): {"cta_rows": 256, "pro": 7, "block_n": 224},
+    ('sm_103a', True, True, False, False, False, 12288, None, 6144): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 2},
+    ('sm_103a', True, True, False, True, False, 512, None, 4096): {"cta_rows": 64, "pro": 15, "hints": ('evict_first', 'none')},
+    ('sm_103a', True, True, True, False, False, 4096, None, 1024): {"block_n": 224, "epi": 'reg', "f32_v8": True, "store_ef": True, "pro": 15},
+    ('sm_103a', True, True, True, False, False, 4096, None, 4096): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3, "sk_sync_m": 32},
+    ('sm_103a', True, True, True, False, False, 4096, None, 12288): {"cta_rows": 256, "pro": 7, "sk_parts": 4},
+    ('sm_103a', True, True, True, False, False, 5120, None, 512): {"block_n": 192, "b_swz": 64, "epi": 'reg', "f32_v8": True, "store_ef": True, "sk_sync": True, "sk_slab": 2, "sk_sync_m": 26, "pro": 15, "hints": ('none', 'evict_first')},
+    ('sm_103a', True, True, True, False, False, 5120, None, 1024): {"block_n": 160, "b_swz": 64, "cta_rows": 256, "epi": 'reg', "f32_v8": True, "store_ef": True, "pro": 15, "hints": ('none', 'evict_first')},
+    ('sm_103a', True, True, True, False, False, 5120, None, 5120): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3, "sk_sync_m": 32},
+    ('sm_103a', True, True, True, False, False, 6144, None, 12288): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3},
+    ('sm_103a', True, True, True, False, False, 12288, None, 4096): {"cta_rows": 256, "pro": 7, "sk_parts": 4},
+    ('sm_103a', True, True, True, False, False, 12288, None, 6144): {"cta_rows": 256, "pro": 7, "sk_sync": True, "sk_slab": 3},
+    ('sm_103a', True, True, True, True, False, 512, None, 4096): {"cta_rows": 64, "pro": 15, "hints": ('evict_first', 'none')},
 }
 # fmt: on
 
@@ -3654,23 +3690,61 @@ def projection_dgrad(
 
 
 def wgrad_views(
-    G: torch.Tensor, X: torch.Tensor
+    G: torch.Tensor,
+    X: torch.Tensor,
+    *,
+    arch: Optional[str] = None,
+    out_f32: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, bool]:
     """``(A, B, transposed_out)`` of the weight gradient ``G[T, N].T @ X[T, K] -> dW[N, K]``:
     when ``wgrad_swapped`` the swapped GEMM ``X.T @ G`` runs with the transposed store (the
-    result lands directly in ``[N, K]``), otherwise ``G.T @ X``.
+    result lands directly in ``[N, K]``), otherwise ``G.T @ X``.  ``arch`` / ``out_f32`` let a
+    measured rule of that architecture and output dtype decide the orientation (see ``wgrad_swapped``).
     [Cake ``projection_wgrad`` L1507-L1518 / ``wgrad_swapped`` L1496-L1504]"""
     N, K = int(G.shape[1]), int(X.shape[1])
-    if wgrad_swapped(N, K):
+    if wgrad_swapped(N, K, arch=arch, out_f32=out_f32):
         return X.t(), G, True
     return G.t(), X, False
 
 
-def wgrad_swapped(N: int, K: int) -> bool:
-    """Orientation of the weight gradient: swapped when its padded tile work is smaller than the
-    direct route's (256-row tiles padded from N rows and ``default_block_n`` column tiles over K,
-    against 256-row tiles over K and column tiles padded from N): N < 256 and N = 576 swap.
-    [Cake ``wgrad_swapped`` L1496-L1504]"""
+def wgrad_swapped(
+    N: int, K: int, *, arch: Optional[str] = None, out_f32: bool = False
+) -> bool:
+    """Orientation of the weight gradient.  A measured rule decides first: the row's ``ROW_RULES`` key
+    names the orientation it was measured in - the swapped key ``(arch, nn, out_f32, True, False, N, None, K)``
+    (the swapped GEMM ``X.T @ G`` has M = K and N = N with the transposed store) or the direct key
+    ``(arch, nn, out_f32, False, False, K, None, N)`` (``G.T @ X``: M = N, N = K) - and a row keyed in exactly one
+    orientation takes it (the 4096 -> 512 rows swap on sm_100a / sm_103a, the 4096 -> 1024 bf16 row swaps on
+    sm_100a; the launcher's rule for the small-N rows below agrees).  Without a rule, or without ``arch``, the
+    padded-tile-work heuristic of the Cake launcher: swapped when 256-row tiles over K and column tiles padded
+    from N move less than 256-row tiles padded from N rows and ``default_block_n`` column tiles over K
+    (N < 256 and N = 576 swap; a tie keeps the direct route).  [Cake ``wgrad_swapped`` L1496-L1504]"""
+    if arch is not None:
+        # the weight-gradient rules are keyed ragged in K (= T): the exact orientation keys, not ``_measured_row_rule``
+        swapped_rule = (
+            arch,
+            True,
+            True,
+            bool(out_f32),
+            True,
+            False,
+            N,
+            None,
+            K,
+        ) in ROW_RULES
+        direct_rule = (
+            arch,
+            True,
+            True,
+            bool(out_f32),
+            False,
+            False,
+            K,
+            None,
+            N,
+        ) in ROW_RULES
+        if swapped_rule != direct_rule:
+            return swapped_rule
     bk, bn = default_block_n(K, True), default_block_n(N, True)
     direct = _ceil_div(N, 256) * 256 * _ceil_div(K, bk) * bk
     swapped = _ceil_div(K, 256) * 256 * _ceil_div(N, bn) * bn
@@ -3685,8 +3759,11 @@ def prepare_projection_wgrad(
     sk: bool | str = "auto",
     cta_rows: Optional[int] = None,
 ) -> PreparedGemm:
-    """Prepared ``out[N, K] = G[T, N].T @ X[T, K]`` with the small-``N`` swap rule of the Cake launcher."""
-    A, B, transposed = wgrad_views(G, X)
+    """Prepared ``out[N, K] = G[T, N].T @ X[T, K]``; the orientation follows the row's measured rule, else the
+    small-``N`` swap rule of the Cake launcher (``wgrad_swapped``)."""
+    A, B, transposed = wgrad_views(
+        G, X, arch=arch_for(out.device), out_f32=out.dtype == torch.float32
+    )
     return prepare_dense_projection_gemm(
         A, B, out, transposed_out=transposed, sk=sk, cta_rows=cta_rows
     )
@@ -3705,7 +3782,9 @@ def projection_wgrad(
     N, K = int(G.shape[1]), int(X.shape[1])
     if out is None:
         out = torch.empty(N, K, device=G.device, dtype=out_dtype or torch.bfloat16)
-    A, B, transposed = wgrad_views(G, X)
+    A, B, transposed = wgrad_views(
+        G, X, arch=arch_for(out.device), out_f32=out.dtype == torch.float32
+    )
     return _launch_cached_gemm(
         A, B, out, transposed_out=transposed, sk=sk, cta_rows=cta_rows
     )
