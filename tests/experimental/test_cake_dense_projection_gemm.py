@@ -767,10 +767,19 @@ def test_registry_records_are_well_formed():
             "grid_y",
             "grid_z",
         }
-    # every plan is referenced and every module references exactly one plan by key
-    assert {record["arg_plan"] for record in cake_jit.MODULES.values()} == set(
-        cake_jit.ARG_PLANS
-    )
+    # every stored plan is referenced by key; a record may instead carry its plan inline (the fused split
+    # program: no stored plan spells its signature), and ``arg_plan_of`` resolves both forms to a plan list
+    assert {
+        record["arg_plan"]
+        for record in cake_jit.MODULES.values()
+        if isinstance(record["arg_plan"], str)
+    } == set(cake_jit.ARG_PLANS)
+    for record in cake_jit.MODULES.values():
+        plan = cake_jit.arg_plan_of(record)
+        assert plan and all(len(item) == 2 for item in plan)
+        if not isinstance(record["arg_plan"], str):
+            assert plan == [list(item) for item in record["arg_plan"]]
+            assert {name for kind, name in plan if kind == "grid"} == {"grid_x", "grid_y", "grid_z"}
     # build.json (``cake_build``) is the only record of what to compile; the registry names its
     # entries ``<library>_<arch>``
     manifest = cake_build.manifest()
@@ -5993,8 +6002,10 @@ def test_registry_fallback_reaches_the_shapes_tranche_programs(monkeypatch):
     assert plan.template in registered and plan.knob_fallback, plan.template
     if plan.template.endswith("_c1"):
         assert plan.cta1 and plan.sk_units == 0 and not plan.sk_sync
-    # on sm_107a the same weight-gradient rows reach the plain-hint twin (generated there) in the first variant
+    # on sm_107a the same weight-gradient row lands on the first registered candidate of its hand order as well
     kw107 = dict(sm_count=212, l2_bytes=L2_BYTES, arch="sm_107a")
+    registered107 = _registered("sm_107a")
+    neighbour107 = next(c for c in nn_n128_t if c in registered107)
     v = _class_views("nn", False, True, 4096, 128, 16384)
     mirror, *_ = plan_dense_projection_gemm(
         v["A"], v["B"], v["out"], transposed_out=True, _fallback=False, **kw107
@@ -6002,8 +6013,8 @@ def test_registry_fallback_reaches_the_shapes_tranche_programs(monkeypatch):
     plan, *_ = plan_dense_projection_gemm(
         v["A"], v["B"], v["out"], transposed_out=True, **kw107
     )
-    assert mirror.template == "dense_proj_gemm_nn_n128_hen_t_pro7"
-    assert plan.template == "dense_proj_gemm_nn_n128_t_pro7" and plan.knob_fallback
+    assert mirror.template == P + "nn_n128_hen_t_pro7" and mirror.template not in registered107
+    assert plan.template == neighbour107 and plan.knob_fallback, (plan.template, neighbour107)
 
 
 def test_registry_fallback_decodes_the_nearest_generated_program(monkeypatch):
