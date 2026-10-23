@@ -842,10 +842,13 @@ def test_registry_records_are_well_formed():
         else:
             assert ["parameter", "k_iters_split"] in plan_items
         launch = record["launch"]
-        # round 19 (Cake W3): the single-CTA form (``_c1`` templates) has no cluster; every other program is a
-        # two-CTA cluster (the exporter's registry check)
+        # round 19 (Cake W3): the single-CTA form (``_c1`` templates) has no cluster, nor has the fused split
+        # program (an elementwise kernel); every other program is a two-CTA cluster (the exporter's registry check)
         want_cluster = (
-            [1, 1, 1] if record["template"].endswith("_c1") else [CTA_GROUP, 1, 1]
+            [1, 1, 1]
+            if record["template"].endswith("_c1")
+            or record["template"] == cake_backend.SPLIT_TEMPLATE
+            else [CTA_GROUP, 1, 1]
         )
         assert list(launch["cluster"]) == want_cluster, (name, launch)
         assert len(launch["block"]) == 3 and all(int(b) >= 1 for b in launch["block"])
