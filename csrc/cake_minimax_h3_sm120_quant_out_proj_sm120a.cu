@@ -675,6 +675,7 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                 sw[14] = w_scale[col_base + 56];
                 sw[15] = w_scale[col_base + 56 + 1];
                 float sa[8];
+                int wepi_gidx[16];
                 #pragma unroll 1
                 for (int kp_1 = 0; kp_1 < 56; kp_1++) {
                     mbarrier_wait_hint(ab_full_addr + (mma_stage) * 8, _phase_ab_full, 10000000);
@@ -695,6 +696,22 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                         sa[6] = ((arow_5 < M) ? act_scale[arow_5] : 0.0f);
                         int arow_6 = tile_m_1 * 256 + warp_m * 64 + 48 + 8 + (lane >> 2);
                         sa[7] = ((arow_6 < M) ? act_scale[arow_6] : 0.0f);
+                        wepi_gidx[0] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) : 0)];
+                        wepi_gidx[1] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 4 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 4 : 0)];
+                        wepi_gidx[2] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 8 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 8 : 0)];
+                        wepi_gidx[3] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 12 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 12 : 0)];
+                        wepi_gidx[4] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 16 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 16 : 0)];
+                        wepi_gidx[5] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 20 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 20 : 0)];
+                        wepi_gidx[6] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 24 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 24 : 0)];
+                        wepi_gidx[7] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 28 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 28 : 0)];
+                        wepi_gidx[8] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 32 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 32 : 0)];
+                        wepi_gidx[9] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 36 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 36 : 0)];
+                        wepi_gidx[10] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 40 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 40 : 0)];
+                        wepi_gidx[11] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 44 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 44 : 0)];
+                        wepi_gidx[12] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 48 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 48 : 0)];
+                        wepi_gidx[13] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 52 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 52 : 0)];
+                        wepi_gidx[14] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 56 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 56 : 0)];
+                        wepi_gidx[15] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 60 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 60 : 0)];
                     }
                     asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
                         : "=r"(a_frag[0]), "=r"(a_frag[1]), "=r"(a_frag[2]), "=r"(a_frag[3])
@@ -952,6 +969,7 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                     asm volatile("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};\n"
                         : "+f"(accum[124]), "+f"(accum[(124) + 1]), "+f"(accum[(124) + 2]), "+f"(accum[(124) + 3])
                         : "r"(a_frag[12]), "r"(a_frag[(12) + 1]), "r"(a_frag[(12) + 2]), "r"(a_frag[(12) + 3]), "r"(b_frag[14]), "r"(b_frag[(14) + 1]));
+                    asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     __syncwarp();
                     if (elect_sync()) {
                         mbarrier_arrive(ab_empty_addr + (mma_stage) * 8);
@@ -1215,6 +1233,7 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                     asm volatile("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};\n"
                         : "+f"(accum[124]), "+f"(accum[(124) + 1]), "+f"(accum[(124) + 2]), "+f"(accum[(124) + 3])
                         : "r"(a_frag[12]), "r"(a_frag[(12) + 1]), "r"(a_frag[(12) + 2]), "r"(a_frag[(12) + 3]), "r"(b_frag[14]), "r"(b_frag[(14) + 1]));
+                    asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     __syncwarp();
                     if (elect_sync()) {
                         mbarrier_arrive(ab_empty_addr + (mma_stage) * 8);
@@ -1356,1182 +1375,1471 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                         out[tile_1] = __as_u32(chk);
                     }
                 }
-                int srow_st = warp_m * 8 + (lane & 7);
-                int smat = lane >> 3;
-                int srow = role_tid >> 3;
-                int c = role_tid & 7;
-                int col = tile_n_1 * 128 + c * 16;
-                int grow_base = tile_m_1 * 256 + (srow >> 3) * 64 + (srow & 7);
-                float ops[32];
-                int meta[2];
-                meta[0] = gate_index[((grow_base < M) ? grow_base : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                int wsmat = lane >> 3;
+                int wrow_base = tile_m_1 * 256 + warp_m * 64 + (lane >> 3);
+                int wsrow_st = warp_m * 8 + (lane & 7);
+                int wcol = warp_n * 64 + (lane & 7) * 8;
+                int wgcol = tile_n_1 * 128 + wcol;
+                int wsrow0 = warp_m * 8 + wsmat;
+                int wsrow1 = warp_m * 8 + 4 + wsmat;
+                unsigned int wrw[64];
+                unsigned int wgw[64];
                 {
-                    const uint4* _vptr_0 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_0[1];
+                    const uint4* _vptr_0 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? wepi_gidx[0] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_0 = reinterpret_cast<uint4*>(&wgw[0]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_0[_blk] = _vptr_0[_blk];
-                        uint32_t* _vpairs_0 = reinterpret_cast<uint32_t*>(&_vld_0[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_0[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_0[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_0[_blk] = _vptr_0[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_1 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_1[1];
+                    const uint4* _vptr_1 = reinterpret_cast<const uint4*>(residual + (((wrow_base < M) ? wrow_base : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_1 = reinterpret_cast<uint4*>(&wrw[0]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_1[_blk] = _vptr_1[_blk];
-                        uint32_t* _vpairs_1 = reinterpret_cast<uint32_t*>(&_vld_1[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_1[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_1[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_1[_blk] = _vptr_1[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_2 = reinterpret_cast<const uint4*>(residual + (((grow_base < M) ? grow_base : 0) * 5376 + col) + 0);
-                    uint4 _vld_2[1];
+                    const uint4* _vptr_2 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? wepi_gidx[1] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_2 = reinterpret_cast<uint4*>(&wgw[4]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_2[_blk] = _vptr_2[_blk];
-                        uint32_t* _vpairs_2 = reinterpret_cast<uint32_t*>(&_vld_2[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_2[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_2[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_2[_blk] = _vptr_2[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_3 = reinterpret_cast<const uint4*>(residual + (((grow_base < M) ? grow_base : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_3[1];
+                    const uint4* _vptr_3 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 4 < M) ? wrow_base + 4 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_3 = reinterpret_cast<uint4*>(&wrw[4]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_3[_blk] = _vptr_3[_blk];
-                        uint32_t* _vpairs_3 = reinterpret_cast<uint32_t*>(&_vld_3[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_3[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_3[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_3[_blk] = _vptr_3[_blk];
                     }
                 }
-                float scaled[16];
-                scaled[0] = accum[0] * sa[0] * sw[0];
-                scaled[1] = accum[1] * sa[0] * sw[1];
-                scaled[2] = accum[4] * sa[0] * sw[2];
-                scaled[3] = accum[5] * sa[0] * sw[3];
-                scaled[4] = accum[8] * sa[0] * sw[4];
-                scaled[5] = accum[9] * sa[0] * sw[5];
-                scaled[6] = accum[12] * sa[0] * sw[6];
-                scaled[7] = accum[13] * sa[0] * sw[7];
-                scaled[8] = accum[16] * sa[0] * sw[8];
-                scaled[9] = accum[17] * sa[0] * sw[9];
-                scaled[10] = accum[20] * sa[0] * sw[10];
-                scaled[11] = accum[21] * sa[0] * sw[11];
-                scaled[12] = accum[24] * sa[0] * sw[12];
-                scaled[13] = accum[25] * sa[0] * sw[13];
-                scaled[14] = accum[28] * sa[0] * sw[14];
-                scaled[15] = accum[29] * sa[0] * sw[15];
-                unsigned int scaled_bf16[8];
+                float wscaled[16];
+                wscaled[0] = accum[0] * sa[0] * sw[0];
+                wscaled[1] = accum[1] * sa[0] * sw[1];
+                wscaled[2] = accum[4] * sa[0] * sw[2];
+                wscaled[3] = accum[5] * sa[0] * sw[3];
+                wscaled[4] = accum[8] * sa[0] * sw[4];
+                wscaled[5] = accum[9] * sa[0] * sw[5];
+                wscaled[6] = accum[12] * sa[0] * sw[6];
+                wscaled[7] = accum[13] * sa[0] * sw[7];
+                wscaled[8] = accum[16] * sa[0] * sw[8];
+                wscaled[9] = accum[17] * sa[0] * sw[9];
+                wscaled[10] = accum[20] * sa[0] * sw[10];
+                wscaled[11] = accum[21] * sa[0] * sw[11];
+                wscaled[12] = accum[24] * sa[0] * sw[12];
+                wscaled[13] = accum[25] * sa[0] * sw[13];
+                wscaled[14] = accum[28] * sa[0] * sw[14];
+                wscaled[15] = accum[29] * sa[0] * sw[15];
+                unsigned int wscaled_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled[_lp*2 + 0], scaled[_lp*2+1 + 0]));
-                    scaled_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled[_lp*2 + 0], wscaled[_lp*2+1 + 0]));
+                    wscaled_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_4 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_4 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_4), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[3]))
+                    :: "r"(_stmatrix_addr_4), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_5 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_5 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_5), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[7]))
+                    :: "r"(_stmatrix_addr_5), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow = grow_base;
-                if (grow < M) {
-                    unsigned int o_words[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_4[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_4[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words[_pair]) << 16);
-                        (&_unpack_bf16_4[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words[_pair]) & 0xffff0000u);
-                    }
-                    int valid = meta[1];
-                    float p_raw[16];
-                    for (int e = 0; e < 8; e++) {
-                        float gv0 = ops[e];
-                        float gv1 = ops[8 + e];
-                        float gs0 = ((valid == 1) ? gv0 : 0.0f);
-                        float gs1 = ((valid == 1) ? gv1 : 0.0f);
-                        p_raw[e] = gs0 * _unpack_bf16_4[e];
-                        p_raw[8 + e] = gs1 * _unpack_bf16_4[8 + e];
-                    }
-                    unsigned int p_raw_bf16[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw[_lp*2 + 0], p_raw[_lp*2+1 + 0]));
-                        p_raw_bf16[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_5[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_5[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16[_pair]) << 16);
-                        (&_unpack_bf16_5[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw[16];
-                    for (int e_1 = 0; e_1 < 8; e_1++) {
-                        float rv0 = ops[16 + e_1];
-                        float rv1 = ops[24 + e_1];
-                        out_raw[e_1] = rv0 + _unpack_bf16_5[e_1];
-                        out_raw[8 + e_1] = rv1 + _unpack_bf16_5[8 + e_1];
-                    }
-                    unsigned int out_raw_bf16[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw[_lp*2 + 0], out_raw[_lp*2+1 + 0]));
-                        out_raw_bf16[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow < M) {
-                        reinterpret_cast<int4*>(out + ((grow * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 8 < M) ? grow_base + 8 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_6 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_6[1];
+                    const uint4* _vptr_6 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? wepi_gidx[2] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_6 = reinterpret_cast<uint4*>(&wgw[8]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_6[_blk] = _vptr_6[_blk];
-                        uint32_t* _vpairs_6 = reinterpret_cast<uint32_t*>(&_vld_6[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_6[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_6[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_6[_blk] = _vptr_6[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_7 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_7[1];
+                    const uint4* _vptr_7 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 8 < M) ? wrow_base + 8 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_7 = reinterpret_cast<uint4*>(&wrw[8]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_7[_blk] = _vptr_7[_blk];
-                        uint32_t* _vpairs_7 = reinterpret_cast<uint32_t*>(&_vld_7[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_7[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_7[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_7[_blk] = _vptr_7[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_8 = reinterpret_cast<const uint4*>(residual + (((grow_base + 8 < M) ? grow_base + 8 : 0) * 5376 + col) + 0);
-                    uint4 _vld_8[1];
+                    const uint4* _vptr_8 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? wepi_gidx[3] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_8 = reinterpret_cast<uint4*>(&wgw[12]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_8[_blk] = _vptr_8[_blk];
-                        uint32_t* _vpairs_8 = reinterpret_cast<uint32_t*>(&_vld_8[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_8[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_8[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_8[_blk] = _vptr_8[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_9 = reinterpret_cast<const uint4*>(residual + (((grow_base + 8 < M) ? grow_base + 8 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_9[1];
+                    const uint4* _vptr_9 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 12 < M) ? wrow_base + 12 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_9 = reinterpret_cast<uint4*>(&wrw[12]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_9[_blk] = _vptr_9[_blk];
-                        uint32_t* _vpairs_9 = reinterpret_cast<uint32_t*>(&_vld_9[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_9[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_9[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_9[_blk] = _vptr_9[_blk];
                     }
                 }
-                float scaled_0[16];
-                scaled_0[0] = accum[2] * sa[1] * sw[0];
-                scaled_0[1] = accum[3] * sa[1] * sw[1];
-                scaled_0[2] = accum[6] * sa[1] * sw[2];
-                scaled_0[3] = accum[7] * sa[1] * sw[3];
-                scaled_0[4] = accum[10] * sa[1] * sw[4];
-                scaled_0[5] = accum[11] * sa[1] * sw[5];
-                scaled_0[6] = accum[14] * sa[1] * sw[6];
-                scaled_0[7] = accum[15] * sa[1] * sw[7];
-                scaled_0[8] = accum[18] * sa[1] * sw[8];
-                scaled_0[9] = accum[19] * sa[1] * sw[9];
-                scaled_0[10] = accum[22] * sa[1] * sw[10];
-                scaled_0[11] = accum[23] * sa[1] * sw[11];
-                scaled_0[12] = accum[26] * sa[1] * sw[12];
-                scaled_0[13] = accum[27] * sa[1] * sw[13];
-                scaled_0[14] = accum[30] * sa[1] * sw[14];
-                scaled_0[15] = accum[31] * sa[1] * sw[15];
-                unsigned int scaled_0_bf16[8];
+                float _unpack_bf16_4[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_4[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words[_pair]) << 16);
+                    (&_unpack_bf16_4[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_5[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_5[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[_pair]) << 16);
+                    (&_unpack_bf16_5[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[_pair]) & 0xffff0000u);
+                }
+                float wepi_p0_0[8];
+                wepi_p0_0[0] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[0] : 0.0f) * _unpack_bf16_4[0];
+                wepi_p0_0[1] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[1] : 0.0f) * _unpack_bf16_4[1];
+                wepi_p0_0[2] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[2] : 0.0f) * _unpack_bf16_4[2];
+                wepi_p0_0[3] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[3] : 0.0f) * _unpack_bf16_4[3];
+                wepi_p0_0[4] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[4] : 0.0f) * _unpack_bf16_4[4];
+                wepi_p0_0[5] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[5] : 0.0f) * _unpack_bf16_4[5];
+                wepi_p0_0[6] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[6] : 0.0f) * _unpack_bf16_4[6];
+                wepi_p0_0[7] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_5[7] : 0.0f) * _unpack_bf16_4[7];
+                unsigned int wepi_p0_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p0_0[_lp*2 + 0], wepi_p0_0[_lp*2+1 + 0]));
+                    wepi_p0_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_6[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_6[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p0_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_6[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p0_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_7[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_7[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[_pair]) << 16);
+                    (&_unpack_bf16_7[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[_pair]) & 0xffff0000u);
+                }
+                float wepi_out0_0[8];
+                wepi_out0_0[0] = _unpack_bf16_7[0] + _unpack_bf16_6[0];
+                wepi_out0_0[1] = _unpack_bf16_7[1] + _unpack_bf16_6[1];
+                wepi_out0_0[2] = _unpack_bf16_7[2] + _unpack_bf16_6[2];
+                wepi_out0_0[3] = _unpack_bf16_7[3] + _unpack_bf16_6[3];
+                wepi_out0_0[4] = _unpack_bf16_7[4] + _unpack_bf16_6[4];
+                wepi_out0_0[5] = _unpack_bf16_7[5] + _unpack_bf16_6[5];
+                wepi_out0_0[6] = _unpack_bf16_7[6] + _unpack_bf16_6[6];
+                wepi_out0_0[7] = _unpack_bf16_7[7] + _unpack_bf16_6[7];
+                unsigned int wepi_out0_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out0_0[_lp*2 + 0], wepi_out0_0[_lp*2+1 + 0]));
+                    wepi_out0_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + ((wrow_base * 5376 + wgcol) / 2)), "r"((wepi_out0_0_bf16 + 0)[(0) + 0]), "r"((wepi_out0_0_bf16 + 0)[(0) + 1]), "r"((wepi_out0_0_bf16 + 0)[(0) + 2]), "r"((wepi_out0_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base < M)) : "memory");
+                float _unpack_bf16_8[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_8[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words[4 + _pair]) << 16);
+                    (&_unpack_bf16_8[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_9[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_9[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[4 + _pair]) << 16);
+                    (&_unpack_bf16_9[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[4 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p0_1[8];
+                wepi_p0_1[0] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[0] : 0.0f) * _unpack_bf16_8[0];
+                wepi_p0_1[1] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[1] : 0.0f) * _unpack_bf16_8[1];
+                wepi_p0_1[2] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[2] : 0.0f) * _unpack_bf16_8[2];
+                wepi_p0_1[3] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[3] : 0.0f) * _unpack_bf16_8[3];
+                wepi_p0_1[4] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[4] : 0.0f) * _unpack_bf16_8[4];
+                wepi_p0_1[5] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[5] : 0.0f) * _unpack_bf16_8[5];
+                wepi_p0_1[6] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[6] : 0.0f) * _unpack_bf16_8[6];
+                wepi_p0_1[7] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_9[7] : 0.0f) * _unpack_bf16_8[7];
+                unsigned int wepi_p0_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p0_1[_lp*2 + 0], wepi_p0_1[_lp*2+1 + 0]));
+                    wepi_p0_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_10[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_10[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p0_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_10[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p0_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_11[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_11[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[4 + _pair]) << 16);
+                    (&_unpack_bf16_11[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[4 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out0_1[8];
+                wepi_out0_1[0] = _unpack_bf16_11[0] + _unpack_bf16_10[0];
+                wepi_out0_1[1] = _unpack_bf16_11[1] + _unpack_bf16_10[1];
+                wepi_out0_1[2] = _unpack_bf16_11[2] + _unpack_bf16_10[2];
+                wepi_out0_1[3] = _unpack_bf16_11[3] + _unpack_bf16_10[3];
+                wepi_out0_1[4] = _unpack_bf16_11[4] + _unpack_bf16_10[4];
+                wepi_out0_1[5] = _unpack_bf16_11[5] + _unpack_bf16_10[5];
+                wepi_out0_1[6] = _unpack_bf16_11[6] + _unpack_bf16_10[6];
+                wepi_out0_1[7] = _unpack_bf16_11[7] + _unpack_bf16_10[7];
+                unsigned int wepi_out0_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out0_1[_lp*2 + 0], wepi_out0_1[_lp*2+1 + 0]));
+                    wepi_out0_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 4) * 5376 + wgcol) / 2)), "r"((wepi_out0_1_bf16 + 0)[(0) + 0]), "r"((wepi_out0_1_bf16 + 0)[(0) + 1]), "r"((wepi_out0_1_bf16 + 0)[(0) + 2]), "r"((wepi_out0_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 4 < M)) : "memory");
+                float wscaled_0[16];
+                wscaled_0[0] = accum[2] * sa[1] * sw[0];
+                wscaled_0[1] = accum[3] * sa[1] * sw[1];
+                wscaled_0[2] = accum[6] * sa[1] * sw[2];
+                wscaled_0[3] = accum[7] * sa[1] * sw[3];
+                wscaled_0[4] = accum[10] * sa[1] * sw[4];
+                wscaled_0[5] = accum[11] * sa[1] * sw[5];
+                wscaled_0[6] = accum[14] * sa[1] * sw[6];
+                wscaled_0[7] = accum[15] * sa[1] * sw[7];
+                wscaled_0[8] = accum[18] * sa[1] * sw[8];
+                wscaled_0[9] = accum[19] * sa[1] * sw[9];
+                wscaled_0[10] = accum[22] * sa[1] * sw[10];
+                wscaled_0[11] = accum[23] * sa[1] * sw[11];
+                wscaled_0[12] = accum[26] * sa[1] * sw[12];
+                wscaled_0[13] = accum[27] * sa[1] * sw[13];
+                wscaled_0[14] = accum[30] * sa[1] * sw[14];
+                wscaled_0[15] = accum[31] * sa[1] * sw[15];
+                unsigned int wscaled_0_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_0[_lp*2 + 0], scaled_0[_lp*2+1 + 0]));
-                    scaled_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_0[_lp*2 + 0], wscaled_0[_lp*2+1 + 0]));
+                    wscaled_0_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_10 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_10 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_10), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[3]))
+                    :: "r"(_stmatrix_addr_10), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_11 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_11 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_11), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[7]))
+                    :: "r"(_stmatrix_addr_11), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_1 = grow_base + 8;
-                if (grow_1 < M) {
-                    unsigned int o_words_1[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_6[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_6[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_1[_pair]) << 16);
-                        (&_unpack_bf16_6[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_1[_pair]) & 0xffff0000u);
-                    }
-                    int valid_1 = meta[1];
-                    float p_raw_1[16];
-                    for (int e_2 = 0; e_2 < 8; e_2++) {
-                        float gv0_1 = ops[e_2];
-                        float gv1_1 = ops[8 + e_2];
-                        float gs0_1 = ((valid_1 == 1) ? gv0_1 : 0.0f);
-                        float gs1_1 = ((valid_1 == 1) ? gv1_1 : 0.0f);
-                        p_raw_1[e_2] = gs0_1 * _unpack_bf16_6[e_2];
-                        p_raw_1[8 + e_2] = gs1_1 * _unpack_bf16_6[8 + e_2];
-                    }
-                    unsigned int p_raw_bf16_1[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_1[_lp*2 + 0], p_raw_1[_lp*2+1 + 0]));
-                        p_raw_bf16_1[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_7[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_7[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_1[_pair]) << 16);
-                        (&_unpack_bf16_7[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_1[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_1[16];
-                    for (int e_3 = 0; e_3 < 8; e_3++) {
-                        float rv0_1 = ops[16 + e_3];
-                        float rv1_1 = ops[24 + e_3];
-                        out_raw_1[e_3] = rv0_1 + _unpack_bf16_7[e_3];
-                        out_raw_1[8 + e_3] = rv1_1 + _unpack_bf16_7[8 + e_3];
-                    }
-                    unsigned int out_raw_bf16_1[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_1[_lp*2 + 0], out_raw_1[_lp*2+1 + 0]));
-                        out_raw_bf16_1[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_1 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_1 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_1 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_1 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_1 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 16 < M) ? grow_base + 16 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_1[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_12 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_12[1];
+                    const uint4* _vptr_12 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? wepi_gidx[4] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_12 = reinterpret_cast<uint4*>(&wgw[16]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_12[_blk] = _vptr_12[_blk];
-                        uint32_t* _vpairs_12 = reinterpret_cast<uint32_t*>(&_vld_12[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_12[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_12[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_12[_blk] = _vptr_12[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_13 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_13[1];
+                    const uint4* _vptr_13 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 16 < M) ? wrow_base + 16 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_13 = reinterpret_cast<uint4*>(&wrw[16]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_13[_blk] = _vptr_13[_blk];
-                        uint32_t* _vpairs_13 = reinterpret_cast<uint32_t*>(&_vld_13[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_13[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_13[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_13[_blk] = _vptr_13[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_14 = reinterpret_cast<const uint4*>(residual + (((grow_base + 16 < M) ? grow_base + 16 : 0) * 5376 + col) + 0);
-                    uint4 _vld_14[1];
+                    const uint4* _vptr_14 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? wepi_gidx[5] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_14 = reinterpret_cast<uint4*>(&wgw[20]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_14[_blk] = _vptr_14[_blk];
-                        uint32_t* _vpairs_14 = reinterpret_cast<uint32_t*>(&_vld_14[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_14[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_14[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_14[_blk] = _vptr_14[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_15 = reinterpret_cast<const uint4*>(residual + (((grow_base + 16 < M) ? grow_base + 16 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_15[1];
+                    const uint4* _vptr_15 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 20 < M) ? wrow_base + 20 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_15 = reinterpret_cast<uint4*>(&wrw[20]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_15[_blk] = _vptr_15[_blk];
-                        uint32_t* _vpairs_15 = reinterpret_cast<uint32_t*>(&_vld_15[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_15[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_15[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_15[_blk] = _vptr_15[_blk];
                     }
                 }
-                float scaled_2[16];
-                scaled_2[0] = accum[32] * sa[2] * sw[0];
-                scaled_2[1] = accum[33] * sa[2] * sw[1];
-                scaled_2[2] = accum[36] * sa[2] * sw[2];
-                scaled_2[3] = accum[37] * sa[2] * sw[3];
-                scaled_2[4] = accum[40] * sa[2] * sw[4];
-                scaled_2[5] = accum[41] * sa[2] * sw[5];
-                scaled_2[6] = accum[44] * sa[2] * sw[6];
-                scaled_2[7] = accum[45] * sa[2] * sw[7];
-                scaled_2[8] = accum[48] * sa[2] * sw[8];
-                scaled_2[9] = accum[49] * sa[2] * sw[9];
-                scaled_2[10] = accum[52] * sa[2] * sw[10];
-                scaled_2[11] = accum[53] * sa[2] * sw[11];
-                scaled_2[12] = accum[56] * sa[2] * sw[12];
-                scaled_2[13] = accum[57] * sa[2] * sw[13];
-                scaled_2[14] = accum[60] * sa[2] * sw[14];
-                scaled_2[15] = accum[61] * sa[2] * sw[15];
-                unsigned int scaled_2_bf16[8];
+                float _unpack_bf16_12[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_12[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_1[_pair]) << 16);
+                    (&_unpack_bf16_12[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_1[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_13[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_13[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[8 + _pair]) << 16);
+                    (&_unpack_bf16_13[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[8 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p1_0[8];
+                wepi_p1_0[0] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[0] : 0.0f) * _unpack_bf16_12[0];
+                wepi_p1_0[1] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[1] : 0.0f) * _unpack_bf16_12[1];
+                wepi_p1_0[2] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[2] : 0.0f) * _unpack_bf16_12[2];
+                wepi_p1_0[3] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[3] : 0.0f) * _unpack_bf16_12[3];
+                wepi_p1_0[4] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[4] : 0.0f) * _unpack_bf16_12[4];
+                wepi_p1_0[5] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[5] : 0.0f) * _unpack_bf16_12[5];
+                wepi_p1_0[6] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[6] : 0.0f) * _unpack_bf16_12[6];
+                wepi_p1_0[7] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_13[7] : 0.0f) * _unpack_bf16_12[7];
+                unsigned int wepi_p1_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p1_0[_lp*2 + 0], wepi_p1_0[_lp*2+1 + 0]));
+                    wepi_p1_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_14[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_14[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p1_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_14[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p1_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_15[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_15[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[8 + _pair]) << 16);
+                    (&_unpack_bf16_15[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[8 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out1_0[8];
+                wepi_out1_0[0] = _unpack_bf16_15[0] + _unpack_bf16_14[0];
+                wepi_out1_0[1] = _unpack_bf16_15[1] + _unpack_bf16_14[1];
+                wepi_out1_0[2] = _unpack_bf16_15[2] + _unpack_bf16_14[2];
+                wepi_out1_0[3] = _unpack_bf16_15[3] + _unpack_bf16_14[3];
+                wepi_out1_0[4] = _unpack_bf16_15[4] + _unpack_bf16_14[4];
+                wepi_out1_0[5] = _unpack_bf16_15[5] + _unpack_bf16_14[5];
+                wepi_out1_0[6] = _unpack_bf16_15[6] + _unpack_bf16_14[6];
+                wepi_out1_0[7] = _unpack_bf16_15[7] + _unpack_bf16_14[7];
+                unsigned int wepi_out1_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out1_0[_lp*2 + 0], wepi_out1_0[_lp*2+1 + 0]));
+                    wepi_out1_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 8) * 5376 + wgcol) / 2)), "r"((wepi_out1_0_bf16 + 0)[(0) + 0]), "r"((wepi_out1_0_bf16 + 0)[(0) + 1]), "r"((wepi_out1_0_bf16 + 0)[(0) + 2]), "r"((wepi_out1_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 8 < M)) : "memory");
+                float _unpack_bf16_16[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_16[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_1[4 + _pair]) << 16);
+                    (&_unpack_bf16_16[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_1[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_17[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_17[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[12 + _pair]) << 16);
+                    (&_unpack_bf16_17[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[12 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p1_1[8];
+                wepi_p1_1[0] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[0] : 0.0f) * _unpack_bf16_16[0];
+                wepi_p1_1[1] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[1] : 0.0f) * _unpack_bf16_16[1];
+                wepi_p1_1[2] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[2] : 0.0f) * _unpack_bf16_16[2];
+                wepi_p1_1[3] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[3] : 0.0f) * _unpack_bf16_16[3];
+                wepi_p1_1[4] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[4] : 0.0f) * _unpack_bf16_16[4];
+                wepi_p1_1[5] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[5] : 0.0f) * _unpack_bf16_16[5];
+                wepi_p1_1[6] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[6] : 0.0f) * _unpack_bf16_16[6];
+                wepi_p1_1[7] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_17[7] : 0.0f) * _unpack_bf16_16[7];
+                unsigned int wepi_p1_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p1_1[_lp*2 + 0], wepi_p1_1[_lp*2+1 + 0]));
+                    wepi_p1_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_18[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_18[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p1_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_18[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p1_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_19[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_19[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[12 + _pair]) << 16);
+                    (&_unpack_bf16_19[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[12 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out1_1[8];
+                wepi_out1_1[0] = _unpack_bf16_19[0] + _unpack_bf16_18[0];
+                wepi_out1_1[1] = _unpack_bf16_19[1] + _unpack_bf16_18[1];
+                wepi_out1_1[2] = _unpack_bf16_19[2] + _unpack_bf16_18[2];
+                wepi_out1_1[3] = _unpack_bf16_19[3] + _unpack_bf16_18[3];
+                wepi_out1_1[4] = _unpack_bf16_19[4] + _unpack_bf16_18[4];
+                wepi_out1_1[5] = _unpack_bf16_19[5] + _unpack_bf16_18[5];
+                wepi_out1_1[6] = _unpack_bf16_19[6] + _unpack_bf16_18[6];
+                wepi_out1_1[7] = _unpack_bf16_19[7] + _unpack_bf16_18[7];
+                unsigned int wepi_out1_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out1_1[_lp*2 + 0], wepi_out1_1[_lp*2+1 + 0]));
+                    wepi_out1_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 12) * 5376 + wgcol) / 2)), "r"((wepi_out1_1_bf16 + 0)[(0) + 0]), "r"((wepi_out1_1_bf16 + 0)[(0) + 1]), "r"((wepi_out1_1_bf16 + 0)[(0) + 2]), "r"((wepi_out1_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 12 < M)) : "memory");
+                float wscaled_2[16];
+                wscaled_2[0] = accum[32] * sa[2] * sw[0];
+                wscaled_2[1] = accum[33] * sa[2] * sw[1];
+                wscaled_2[2] = accum[36] * sa[2] * sw[2];
+                wscaled_2[3] = accum[37] * sa[2] * sw[3];
+                wscaled_2[4] = accum[40] * sa[2] * sw[4];
+                wscaled_2[5] = accum[41] * sa[2] * sw[5];
+                wscaled_2[6] = accum[44] * sa[2] * sw[6];
+                wscaled_2[7] = accum[45] * sa[2] * sw[7];
+                wscaled_2[8] = accum[48] * sa[2] * sw[8];
+                wscaled_2[9] = accum[49] * sa[2] * sw[9];
+                wscaled_2[10] = accum[52] * sa[2] * sw[10];
+                wscaled_2[11] = accum[53] * sa[2] * sw[11];
+                wscaled_2[12] = accum[56] * sa[2] * sw[12];
+                wscaled_2[13] = accum[57] * sa[2] * sw[13];
+                wscaled_2[14] = accum[60] * sa[2] * sw[14];
+                wscaled_2[15] = accum[61] * sa[2] * sw[15];
+                unsigned int wscaled_2_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_2[_lp*2 + 0], scaled_2[_lp*2+1 + 0]));
-                    scaled_2_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_2[_lp*2 + 0], wscaled_2[_lp*2+1 + 0]));
+                    wscaled_2_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_16 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_16 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_16), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[3]))
+                    :: "r"(_stmatrix_addr_16), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_17 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_17 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_17), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[7]))
+                    :: "r"(_stmatrix_addr_17), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_3 = grow_base + 16;
-                if (grow_3 < M) {
-                    unsigned int o_words_2[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_8[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_8[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_2[_pair]) << 16);
-                        (&_unpack_bf16_8[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_2[_pair]) & 0xffff0000u);
-                    }
-                    int valid_2 = meta[1];
-                    float p_raw_2[16];
-                    for (int e_4 = 0; e_4 < 8; e_4++) {
-                        float gv0_2 = ops[e_4];
-                        float gv1_2 = ops[8 + e_4];
-                        float gs0_2 = ((valid_2 == 1) ? gv0_2 : 0.0f);
-                        float gs1_2 = ((valid_2 == 1) ? gv1_2 : 0.0f);
-                        p_raw_2[e_4] = gs0_2 * _unpack_bf16_8[e_4];
-                        p_raw_2[8 + e_4] = gs1_2 * _unpack_bf16_8[8 + e_4];
-                    }
-                    unsigned int p_raw_bf16_2[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_2[_lp*2 + 0], p_raw_2[_lp*2+1 + 0]));
-                        p_raw_bf16_2[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_9[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_9[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_2[_pair]) << 16);
-                        (&_unpack_bf16_9[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_2[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_2[16];
-                    for (int e_5 = 0; e_5 < 8; e_5++) {
-                        float rv0_2 = ops[16 + e_5];
-                        float rv1_2 = ops[24 + e_5];
-                        out_raw_2[e_5] = rv0_2 + _unpack_bf16_9[e_5];
-                        out_raw_2[8 + e_5] = rv1_2 + _unpack_bf16_9[8 + e_5];
-                    }
-                    unsigned int out_raw_bf16_2[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_2[_lp*2 + 0], out_raw_2[_lp*2+1 + 0]));
-                        out_raw_bf16_2[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_3 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_3 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_2 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_3 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_2 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 24 < M) ? grow_base + 24 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_3[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_18 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_18[1];
+                    const uint4* _vptr_18 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? wepi_gidx[6] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_18 = reinterpret_cast<uint4*>(&wgw[24]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_18[_blk] = _vptr_18[_blk];
-                        uint32_t* _vpairs_18 = reinterpret_cast<uint32_t*>(&_vld_18[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_18[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_18[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_18[_blk] = _vptr_18[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_19 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_19[1];
+                    const uint4* _vptr_19 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 24 < M) ? wrow_base + 24 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_19 = reinterpret_cast<uint4*>(&wrw[24]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_19[_blk] = _vptr_19[_blk];
-                        uint32_t* _vpairs_19 = reinterpret_cast<uint32_t*>(&_vld_19[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_19[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_19[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_19[_blk] = _vptr_19[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_20 = reinterpret_cast<const uint4*>(residual + (((grow_base + 24 < M) ? grow_base + 24 : 0) * 5376 + col) + 0);
-                    uint4 _vld_20[1];
+                    const uint4* _vptr_20 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? wepi_gidx[7] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_20 = reinterpret_cast<uint4*>(&wgw[28]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_20[_blk] = _vptr_20[_blk];
-                        uint32_t* _vpairs_20 = reinterpret_cast<uint32_t*>(&_vld_20[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_20[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_20[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_20[_blk] = _vptr_20[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_21 = reinterpret_cast<const uint4*>(residual + (((grow_base + 24 < M) ? grow_base + 24 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_21[1];
+                    const uint4* _vptr_21 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 28 < M) ? wrow_base + 28 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_21 = reinterpret_cast<uint4*>(&wrw[28]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_21[_blk] = _vptr_21[_blk];
-                        uint32_t* _vpairs_21 = reinterpret_cast<uint32_t*>(&_vld_21[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_21[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_21[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_21[_blk] = _vptr_21[_blk];
                     }
                 }
-                float scaled_4[16];
-                scaled_4[0] = accum[34] * sa[3] * sw[0];
-                scaled_4[1] = accum[35] * sa[3] * sw[1];
-                scaled_4[2] = accum[38] * sa[3] * sw[2];
-                scaled_4[3] = accum[39] * sa[3] * sw[3];
-                scaled_4[4] = accum[42] * sa[3] * sw[4];
-                scaled_4[5] = accum[43] * sa[3] * sw[5];
-                scaled_4[6] = accum[46] * sa[3] * sw[6];
-                scaled_4[7] = accum[47] * sa[3] * sw[7];
-                scaled_4[8] = accum[50] * sa[3] * sw[8];
-                scaled_4[9] = accum[51] * sa[3] * sw[9];
-                scaled_4[10] = accum[54] * sa[3] * sw[10];
-                scaled_4[11] = accum[55] * sa[3] * sw[11];
-                scaled_4[12] = accum[58] * sa[3] * sw[12];
-                scaled_4[13] = accum[59] * sa[3] * sw[13];
-                scaled_4[14] = accum[62] * sa[3] * sw[14];
-                scaled_4[15] = accum[63] * sa[3] * sw[15];
-                unsigned int scaled_4_bf16[8];
+                float _unpack_bf16_20[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_20[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_3[_pair]) << 16);
+                    (&_unpack_bf16_20[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_3[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_21[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_21[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[16 + _pair]) << 16);
+                    (&_unpack_bf16_21[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[16 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p2_0[8];
+                wepi_p2_0[0] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[0] : 0.0f) * _unpack_bf16_20[0];
+                wepi_p2_0[1] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[1] : 0.0f) * _unpack_bf16_20[1];
+                wepi_p2_0[2] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[2] : 0.0f) * _unpack_bf16_20[2];
+                wepi_p2_0[3] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[3] : 0.0f) * _unpack_bf16_20[3];
+                wepi_p2_0[4] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[4] : 0.0f) * _unpack_bf16_20[4];
+                wepi_p2_0[5] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[5] : 0.0f) * _unpack_bf16_20[5];
+                wepi_p2_0[6] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[6] : 0.0f) * _unpack_bf16_20[6];
+                wepi_p2_0[7] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_21[7] : 0.0f) * _unpack_bf16_20[7];
+                unsigned int wepi_p2_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p2_0[_lp*2 + 0], wepi_p2_0[_lp*2+1 + 0]));
+                    wepi_p2_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_22[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_22[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p2_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_22[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p2_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_23[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_23[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[16 + _pair]) << 16);
+                    (&_unpack_bf16_23[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[16 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out2_0[8];
+                wepi_out2_0[0] = _unpack_bf16_23[0] + _unpack_bf16_22[0];
+                wepi_out2_0[1] = _unpack_bf16_23[1] + _unpack_bf16_22[1];
+                wepi_out2_0[2] = _unpack_bf16_23[2] + _unpack_bf16_22[2];
+                wepi_out2_0[3] = _unpack_bf16_23[3] + _unpack_bf16_22[3];
+                wepi_out2_0[4] = _unpack_bf16_23[4] + _unpack_bf16_22[4];
+                wepi_out2_0[5] = _unpack_bf16_23[5] + _unpack_bf16_22[5];
+                wepi_out2_0[6] = _unpack_bf16_23[6] + _unpack_bf16_22[6];
+                wepi_out2_0[7] = _unpack_bf16_23[7] + _unpack_bf16_22[7];
+                unsigned int wepi_out2_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out2_0[_lp*2 + 0], wepi_out2_0[_lp*2+1 + 0]));
+                    wepi_out2_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 16) * 5376 + wgcol) / 2)), "r"((wepi_out2_0_bf16 + 0)[(0) + 0]), "r"((wepi_out2_0_bf16 + 0)[(0) + 1]), "r"((wepi_out2_0_bf16 + 0)[(0) + 2]), "r"((wepi_out2_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 16 < M)) : "memory");
+                float _unpack_bf16_24[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_24[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_3[4 + _pair]) << 16);
+                    (&_unpack_bf16_24[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_3[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_25[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_25[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[20 + _pair]) << 16);
+                    (&_unpack_bf16_25[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[20 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p2_1[8];
+                wepi_p2_1[0] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[0] : 0.0f) * _unpack_bf16_24[0];
+                wepi_p2_1[1] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[1] : 0.0f) * _unpack_bf16_24[1];
+                wepi_p2_1[2] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[2] : 0.0f) * _unpack_bf16_24[2];
+                wepi_p2_1[3] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[3] : 0.0f) * _unpack_bf16_24[3];
+                wepi_p2_1[4] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[4] : 0.0f) * _unpack_bf16_24[4];
+                wepi_p2_1[5] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[5] : 0.0f) * _unpack_bf16_24[5];
+                wepi_p2_1[6] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[6] : 0.0f) * _unpack_bf16_24[6];
+                wepi_p2_1[7] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_25[7] : 0.0f) * _unpack_bf16_24[7];
+                unsigned int wepi_p2_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p2_1[_lp*2 + 0], wepi_p2_1[_lp*2+1 + 0]));
+                    wepi_p2_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_26[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_26[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p2_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_26[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p2_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_27[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_27[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[20 + _pair]) << 16);
+                    (&_unpack_bf16_27[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[20 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out2_1[8];
+                wepi_out2_1[0] = _unpack_bf16_27[0] + _unpack_bf16_26[0];
+                wepi_out2_1[1] = _unpack_bf16_27[1] + _unpack_bf16_26[1];
+                wepi_out2_1[2] = _unpack_bf16_27[2] + _unpack_bf16_26[2];
+                wepi_out2_1[3] = _unpack_bf16_27[3] + _unpack_bf16_26[3];
+                wepi_out2_1[4] = _unpack_bf16_27[4] + _unpack_bf16_26[4];
+                wepi_out2_1[5] = _unpack_bf16_27[5] + _unpack_bf16_26[5];
+                wepi_out2_1[6] = _unpack_bf16_27[6] + _unpack_bf16_26[6];
+                wepi_out2_1[7] = _unpack_bf16_27[7] + _unpack_bf16_26[7];
+                unsigned int wepi_out2_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out2_1[_lp*2 + 0], wepi_out2_1[_lp*2+1 + 0]));
+                    wepi_out2_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 20) * 5376 + wgcol) / 2)), "r"((wepi_out2_1_bf16 + 0)[(0) + 0]), "r"((wepi_out2_1_bf16 + 0)[(0) + 1]), "r"((wepi_out2_1_bf16 + 0)[(0) + 2]), "r"((wepi_out2_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 20 < M)) : "memory");
+                float wscaled_4[16];
+                wscaled_4[0] = accum[34] * sa[3] * sw[0];
+                wscaled_4[1] = accum[35] * sa[3] * sw[1];
+                wscaled_4[2] = accum[38] * sa[3] * sw[2];
+                wscaled_4[3] = accum[39] * sa[3] * sw[3];
+                wscaled_4[4] = accum[42] * sa[3] * sw[4];
+                wscaled_4[5] = accum[43] * sa[3] * sw[5];
+                wscaled_4[6] = accum[46] * sa[3] * sw[6];
+                wscaled_4[7] = accum[47] * sa[3] * sw[7];
+                wscaled_4[8] = accum[50] * sa[3] * sw[8];
+                wscaled_4[9] = accum[51] * sa[3] * sw[9];
+                wscaled_4[10] = accum[54] * sa[3] * sw[10];
+                wscaled_4[11] = accum[55] * sa[3] * sw[11];
+                wscaled_4[12] = accum[58] * sa[3] * sw[12];
+                wscaled_4[13] = accum[59] * sa[3] * sw[13];
+                wscaled_4[14] = accum[62] * sa[3] * sw[14];
+                wscaled_4[15] = accum[63] * sa[3] * sw[15];
+                unsigned int wscaled_4_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_4[_lp*2 + 0], scaled_4[_lp*2+1 + 0]));
-                    scaled_4_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_4[_lp*2 + 0], wscaled_4[_lp*2+1 + 0]));
+                    wscaled_4_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_22 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_22 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_22), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[3]))
+                    :: "r"(_stmatrix_addr_22), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_23 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_23 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_23), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[7]))
+                    :: "r"(_stmatrix_addr_23), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_5 = grow_base + 24;
-                if (grow_5 < M) {
-                    unsigned int o_words_3[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_10[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_10[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_3[_pair]) << 16);
-                        (&_unpack_bf16_10[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_3[_pair]) & 0xffff0000u);
-                    }
-                    int valid_3 = meta[1];
-                    float p_raw_3[16];
-                    for (int e_6 = 0; e_6 < 8; e_6++) {
-                        float gv0_3 = ops[e_6];
-                        float gv1_3 = ops[8 + e_6];
-                        float gs0_3 = ((valid_3 == 1) ? gv0_3 : 0.0f);
-                        float gs1_3 = ((valid_3 == 1) ? gv1_3 : 0.0f);
-                        p_raw_3[e_6] = gs0_3 * _unpack_bf16_10[e_6];
-                        p_raw_3[8 + e_6] = gs1_3 * _unpack_bf16_10[8 + e_6];
-                    }
-                    unsigned int p_raw_bf16_3[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_3[_lp*2 + 0], p_raw_3[_lp*2+1 + 0]));
-                        p_raw_bf16_3[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_11[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_11[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_3[_pair]) << 16);
-                        (&_unpack_bf16_11[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_3[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_3[16];
-                    for (int e_7 = 0; e_7 < 8; e_7++) {
-                        float rv0_3 = ops[16 + e_7];
-                        float rv1_3 = ops[24 + e_7];
-                        out_raw_3[e_7] = rv0_3 + _unpack_bf16_11[e_7];
-                        out_raw_3[8 + e_7] = rv1_3 + _unpack_bf16_11[8 + e_7];
-                    }
-                    unsigned int out_raw_bf16_3[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_3[_lp*2 + 0], out_raw_3[_lp*2+1 + 0]));
-                        out_raw_bf16_3[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_5 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_5 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_3 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_5 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_3 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 32 < M) ? grow_base + 32 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_5[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_24 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_24[1];
+                    const uint4* _vptr_24 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? wepi_gidx[8] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_24 = reinterpret_cast<uint4*>(&wgw[32]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_24[_blk] = _vptr_24[_blk];
-                        uint32_t* _vpairs_24 = reinterpret_cast<uint32_t*>(&_vld_24[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_24[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_24[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_24[_blk] = _vptr_24[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_25 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_25[1];
+                    const uint4* _vptr_25 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 32 < M) ? wrow_base + 32 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_25 = reinterpret_cast<uint4*>(&wrw[32]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_25[_blk] = _vptr_25[_blk];
-                        uint32_t* _vpairs_25 = reinterpret_cast<uint32_t*>(&_vld_25[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_25[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_25[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_25[_blk] = _vptr_25[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_26 = reinterpret_cast<const uint4*>(residual + (((grow_base + 32 < M) ? grow_base + 32 : 0) * 5376 + col) + 0);
-                    uint4 _vld_26[1];
+                    const uint4* _vptr_26 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? wepi_gidx[9] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_26 = reinterpret_cast<uint4*>(&wgw[36]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_26[_blk] = _vptr_26[_blk];
-                        uint32_t* _vpairs_26 = reinterpret_cast<uint32_t*>(&_vld_26[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_26[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_26[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_26[_blk] = _vptr_26[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_27 = reinterpret_cast<const uint4*>(residual + (((grow_base + 32 < M) ? grow_base + 32 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_27[1];
+                    const uint4* _vptr_27 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 36 < M) ? wrow_base + 36 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_27 = reinterpret_cast<uint4*>(&wrw[36]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_27[_blk] = _vptr_27[_blk];
-                        uint32_t* _vpairs_27 = reinterpret_cast<uint32_t*>(&_vld_27[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_27[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_27[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_27[_blk] = _vptr_27[_blk];
                     }
                 }
-                float scaled_6[16];
-                scaled_6[0] = accum[64] * sa[4] * sw[0];
-                scaled_6[1] = accum[65] * sa[4] * sw[1];
-                scaled_6[2] = accum[68] * sa[4] * sw[2];
-                scaled_6[3] = accum[69] * sa[4] * sw[3];
-                scaled_6[4] = accum[72] * sa[4] * sw[4];
-                scaled_6[5] = accum[73] * sa[4] * sw[5];
-                scaled_6[6] = accum[76] * sa[4] * sw[6];
-                scaled_6[7] = accum[77] * sa[4] * sw[7];
-                scaled_6[8] = accum[80] * sa[4] * sw[8];
-                scaled_6[9] = accum[81] * sa[4] * sw[9];
-                scaled_6[10] = accum[84] * sa[4] * sw[10];
-                scaled_6[11] = accum[85] * sa[4] * sw[11];
-                scaled_6[12] = accum[88] * sa[4] * sw[12];
-                scaled_6[13] = accum[89] * sa[4] * sw[13];
-                scaled_6[14] = accum[92] * sa[4] * sw[14];
-                scaled_6[15] = accum[93] * sa[4] * sw[15];
-                unsigned int scaled_6_bf16[8];
+                float _unpack_bf16_28[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_28[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_5[_pair]) << 16);
+                    (&_unpack_bf16_28[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_5[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_29[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_29[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[24 + _pair]) << 16);
+                    (&_unpack_bf16_29[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[24 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p3_0[8];
+                wepi_p3_0[0] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[0] : 0.0f) * _unpack_bf16_28[0];
+                wepi_p3_0[1] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[1] : 0.0f) * _unpack_bf16_28[1];
+                wepi_p3_0[2] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[2] : 0.0f) * _unpack_bf16_28[2];
+                wepi_p3_0[3] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[3] : 0.0f) * _unpack_bf16_28[3];
+                wepi_p3_0[4] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[4] : 0.0f) * _unpack_bf16_28[4];
+                wepi_p3_0[5] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[5] : 0.0f) * _unpack_bf16_28[5];
+                wepi_p3_0[6] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[6] : 0.0f) * _unpack_bf16_28[6];
+                wepi_p3_0[7] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_29[7] : 0.0f) * _unpack_bf16_28[7];
+                unsigned int wepi_p3_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p3_0[_lp*2 + 0], wepi_p3_0[_lp*2+1 + 0]));
+                    wepi_p3_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_30[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_30[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p3_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_30[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p3_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_31[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_31[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[24 + _pair]) << 16);
+                    (&_unpack_bf16_31[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[24 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out3_0[8];
+                wepi_out3_0[0] = _unpack_bf16_31[0] + _unpack_bf16_30[0];
+                wepi_out3_0[1] = _unpack_bf16_31[1] + _unpack_bf16_30[1];
+                wepi_out3_0[2] = _unpack_bf16_31[2] + _unpack_bf16_30[2];
+                wepi_out3_0[3] = _unpack_bf16_31[3] + _unpack_bf16_30[3];
+                wepi_out3_0[4] = _unpack_bf16_31[4] + _unpack_bf16_30[4];
+                wepi_out3_0[5] = _unpack_bf16_31[5] + _unpack_bf16_30[5];
+                wepi_out3_0[6] = _unpack_bf16_31[6] + _unpack_bf16_30[6];
+                wepi_out3_0[7] = _unpack_bf16_31[7] + _unpack_bf16_30[7];
+                unsigned int wepi_out3_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out3_0[_lp*2 + 0], wepi_out3_0[_lp*2+1 + 0]));
+                    wepi_out3_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 24) * 5376 + wgcol) / 2)), "r"((wepi_out3_0_bf16 + 0)[(0) + 0]), "r"((wepi_out3_0_bf16 + 0)[(0) + 1]), "r"((wepi_out3_0_bf16 + 0)[(0) + 2]), "r"((wepi_out3_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 24 < M)) : "memory");
+                float _unpack_bf16_32[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_32[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_5[4 + _pair]) << 16);
+                    (&_unpack_bf16_32[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_5[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_33[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_33[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[28 + _pair]) << 16);
+                    (&_unpack_bf16_33[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[28 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p3_1[8];
+                wepi_p3_1[0] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[0] : 0.0f) * _unpack_bf16_32[0];
+                wepi_p3_1[1] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[1] : 0.0f) * _unpack_bf16_32[1];
+                wepi_p3_1[2] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[2] : 0.0f) * _unpack_bf16_32[2];
+                wepi_p3_1[3] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[3] : 0.0f) * _unpack_bf16_32[3];
+                wepi_p3_1[4] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[4] : 0.0f) * _unpack_bf16_32[4];
+                wepi_p3_1[5] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[5] : 0.0f) * _unpack_bf16_32[5];
+                wepi_p3_1[6] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[6] : 0.0f) * _unpack_bf16_32[6];
+                wepi_p3_1[7] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_33[7] : 0.0f) * _unpack_bf16_32[7];
+                unsigned int wepi_p3_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p3_1[_lp*2 + 0], wepi_p3_1[_lp*2+1 + 0]));
+                    wepi_p3_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_34[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_34[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p3_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_34[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p3_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_35[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_35[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[28 + _pair]) << 16);
+                    (&_unpack_bf16_35[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[28 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out3_1[8];
+                wepi_out3_1[0] = _unpack_bf16_35[0] + _unpack_bf16_34[0];
+                wepi_out3_1[1] = _unpack_bf16_35[1] + _unpack_bf16_34[1];
+                wepi_out3_1[2] = _unpack_bf16_35[2] + _unpack_bf16_34[2];
+                wepi_out3_1[3] = _unpack_bf16_35[3] + _unpack_bf16_34[3];
+                wepi_out3_1[4] = _unpack_bf16_35[4] + _unpack_bf16_34[4];
+                wepi_out3_1[5] = _unpack_bf16_35[5] + _unpack_bf16_34[5];
+                wepi_out3_1[6] = _unpack_bf16_35[6] + _unpack_bf16_34[6];
+                wepi_out3_1[7] = _unpack_bf16_35[7] + _unpack_bf16_34[7];
+                unsigned int wepi_out3_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out3_1[_lp*2 + 0], wepi_out3_1[_lp*2+1 + 0]));
+                    wepi_out3_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 28) * 5376 + wgcol) / 2)), "r"((wepi_out3_1_bf16 + 0)[(0) + 0]), "r"((wepi_out3_1_bf16 + 0)[(0) + 1]), "r"((wepi_out3_1_bf16 + 0)[(0) + 2]), "r"((wepi_out3_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 28 < M)) : "memory");
+                float wscaled_6[16];
+                wscaled_6[0] = accum[64] * sa[4] * sw[0];
+                wscaled_6[1] = accum[65] * sa[4] * sw[1];
+                wscaled_6[2] = accum[68] * sa[4] * sw[2];
+                wscaled_6[3] = accum[69] * sa[4] * sw[3];
+                wscaled_6[4] = accum[72] * sa[4] * sw[4];
+                wscaled_6[5] = accum[73] * sa[4] * sw[5];
+                wscaled_6[6] = accum[76] * sa[4] * sw[6];
+                wscaled_6[7] = accum[77] * sa[4] * sw[7];
+                wscaled_6[8] = accum[80] * sa[4] * sw[8];
+                wscaled_6[9] = accum[81] * sa[4] * sw[9];
+                wscaled_6[10] = accum[84] * sa[4] * sw[10];
+                wscaled_6[11] = accum[85] * sa[4] * sw[11];
+                wscaled_6[12] = accum[88] * sa[4] * sw[12];
+                wscaled_6[13] = accum[89] * sa[4] * sw[13];
+                wscaled_6[14] = accum[92] * sa[4] * sw[14];
+                wscaled_6[15] = accum[93] * sa[4] * sw[15];
+                unsigned int wscaled_6_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_6[_lp*2 + 0], scaled_6[_lp*2+1 + 0]));
-                    scaled_6_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_6[_lp*2 + 0], wscaled_6[_lp*2+1 + 0]));
+                    wscaled_6_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_28 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_28 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_28), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[3]))
+                    :: "r"(_stmatrix_addr_28), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_29 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_29 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_29), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[7]))
+                    :: "r"(_stmatrix_addr_29), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_7 = grow_base + 32;
-                if (grow_7 < M) {
-                    unsigned int o_words_4[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_12[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_12[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_4[_pair]) << 16);
-                        (&_unpack_bf16_12[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_4[_pair]) & 0xffff0000u);
-                    }
-                    int valid_4 = meta[1];
-                    float p_raw_4[16];
-                    for (int e_8 = 0; e_8 < 8; e_8++) {
-                        float gv0_4 = ops[e_8];
-                        float gv1_4 = ops[8 + e_8];
-                        float gs0_4 = ((valid_4 == 1) ? gv0_4 : 0.0f);
-                        float gs1_4 = ((valid_4 == 1) ? gv1_4 : 0.0f);
-                        p_raw_4[e_8] = gs0_4 * _unpack_bf16_12[e_8];
-                        p_raw_4[8 + e_8] = gs1_4 * _unpack_bf16_12[8 + e_8];
-                    }
-                    unsigned int p_raw_bf16_4[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_4[_lp*2 + 0], p_raw_4[_lp*2+1 + 0]));
-                        p_raw_bf16_4[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_13[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_13[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_4[_pair]) << 16);
-                        (&_unpack_bf16_13[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_4[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_4[16];
-                    for (int e_9 = 0; e_9 < 8; e_9++) {
-                        float rv0_4 = ops[16 + e_9];
-                        float rv1_4 = ops[24 + e_9];
-                        out_raw_4[e_9] = rv0_4 + _unpack_bf16_13[e_9];
-                        out_raw_4[8 + e_9] = rv1_4 + _unpack_bf16_13[8 + e_9];
-                    }
-                    unsigned int out_raw_bf16_4[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_4[_lp*2 + 0], out_raw_4[_lp*2+1 + 0]));
-                        out_raw_bf16_4[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_7 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_7 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_4 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_7 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_4 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 40 < M) ? grow_base + 40 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_7[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_30 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_30[1];
+                    const uint4* _vptr_30 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? wepi_gidx[10] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_30 = reinterpret_cast<uint4*>(&wgw[40]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_30[_blk] = _vptr_30[_blk];
-                        uint32_t* _vpairs_30 = reinterpret_cast<uint32_t*>(&_vld_30[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_30[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_30[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_30[_blk] = _vptr_30[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_31 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_31[1];
+                    const uint4* _vptr_31 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 40 < M) ? wrow_base + 40 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_31 = reinterpret_cast<uint4*>(&wrw[40]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_31[_blk] = _vptr_31[_blk];
-                        uint32_t* _vpairs_31 = reinterpret_cast<uint32_t*>(&_vld_31[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_31[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_31[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_31[_blk] = _vptr_31[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_32 = reinterpret_cast<const uint4*>(residual + (((grow_base + 40 < M) ? grow_base + 40 : 0) * 5376 + col) + 0);
-                    uint4 _vld_32[1];
+                    const uint4* _vptr_32 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? wepi_gidx[11] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_32 = reinterpret_cast<uint4*>(&wgw[44]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_32[_blk] = _vptr_32[_blk];
-                        uint32_t* _vpairs_32 = reinterpret_cast<uint32_t*>(&_vld_32[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_32[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_32[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_32[_blk] = _vptr_32[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_33 = reinterpret_cast<const uint4*>(residual + (((grow_base + 40 < M) ? grow_base + 40 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_33[1];
+                    const uint4* _vptr_33 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 44 < M) ? wrow_base + 44 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_33 = reinterpret_cast<uint4*>(&wrw[44]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_33[_blk] = _vptr_33[_blk];
-                        uint32_t* _vpairs_33 = reinterpret_cast<uint32_t*>(&_vld_33[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_33[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_33[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_33[_blk] = _vptr_33[_blk];
                     }
                 }
-                float scaled_8[16];
-                scaled_8[0] = accum[66] * sa[5] * sw[0];
-                scaled_8[1] = accum[67] * sa[5] * sw[1];
-                scaled_8[2] = accum[70] * sa[5] * sw[2];
-                scaled_8[3] = accum[71] * sa[5] * sw[3];
-                scaled_8[4] = accum[74] * sa[5] * sw[4];
-                scaled_8[5] = accum[75] * sa[5] * sw[5];
-                scaled_8[6] = accum[78] * sa[5] * sw[6];
-                scaled_8[7] = accum[79] * sa[5] * sw[7];
-                scaled_8[8] = accum[82] * sa[5] * sw[8];
-                scaled_8[9] = accum[83] * sa[5] * sw[9];
-                scaled_8[10] = accum[86] * sa[5] * sw[10];
-                scaled_8[11] = accum[87] * sa[5] * sw[11];
-                scaled_8[12] = accum[90] * sa[5] * sw[12];
-                scaled_8[13] = accum[91] * sa[5] * sw[13];
-                scaled_8[14] = accum[94] * sa[5] * sw[14];
-                scaled_8[15] = accum[95] * sa[5] * sw[15];
-                unsigned int scaled_8_bf16[8];
+                float _unpack_bf16_36[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_36[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_7[_pair]) << 16);
+                    (&_unpack_bf16_36[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_7[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_37[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_37[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[32 + _pair]) << 16);
+                    (&_unpack_bf16_37[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[32 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p4_0[8];
+                wepi_p4_0[0] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[0] : 0.0f) * _unpack_bf16_36[0];
+                wepi_p4_0[1] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[1] : 0.0f) * _unpack_bf16_36[1];
+                wepi_p4_0[2] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[2] : 0.0f) * _unpack_bf16_36[2];
+                wepi_p4_0[3] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[3] : 0.0f) * _unpack_bf16_36[3];
+                wepi_p4_0[4] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[4] : 0.0f) * _unpack_bf16_36[4];
+                wepi_p4_0[5] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[5] : 0.0f) * _unpack_bf16_36[5];
+                wepi_p4_0[6] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[6] : 0.0f) * _unpack_bf16_36[6];
+                wepi_p4_0[7] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_37[7] : 0.0f) * _unpack_bf16_36[7];
+                unsigned int wepi_p4_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p4_0[_lp*2 + 0], wepi_p4_0[_lp*2+1 + 0]));
+                    wepi_p4_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_38[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_38[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p4_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_38[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p4_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_39[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_39[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[32 + _pair]) << 16);
+                    (&_unpack_bf16_39[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[32 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out4_0[8];
+                wepi_out4_0[0] = _unpack_bf16_39[0] + _unpack_bf16_38[0];
+                wepi_out4_0[1] = _unpack_bf16_39[1] + _unpack_bf16_38[1];
+                wepi_out4_0[2] = _unpack_bf16_39[2] + _unpack_bf16_38[2];
+                wepi_out4_0[3] = _unpack_bf16_39[3] + _unpack_bf16_38[3];
+                wepi_out4_0[4] = _unpack_bf16_39[4] + _unpack_bf16_38[4];
+                wepi_out4_0[5] = _unpack_bf16_39[5] + _unpack_bf16_38[5];
+                wepi_out4_0[6] = _unpack_bf16_39[6] + _unpack_bf16_38[6];
+                wepi_out4_0[7] = _unpack_bf16_39[7] + _unpack_bf16_38[7];
+                unsigned int wepi_out4_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out4_0[_lp*2 + 0], wepi_out4_0[_lp*2+1 + 0]));
+                    wepi_out4_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 32) * 5376 + wgcol) / 2)), "r"((wepi_out4_0_bf16 + 0)[(0) + 0]), "r"((wepi_out4_0_bf16 + 0)[(0) + 1]), "r"((wepi_out4_0_bf16 + 0)[(0) + 2]), "r"((wepi_out4_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 32 < M)) : "memory");
+                float _unpack_bf16_40[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_40[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_7[4 + _pair]) << 16);
+                    (&_unpack_bf16_40[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_7[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_41[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_41[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[36 + _pair]) << 16);
+                    (&_unpack_bf16_41[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[36 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p4_1[8];
+                wepi_p4_1[0] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[0] : 0.0f) * _unpack_bf16_40[0];
+                wepi_p4_1[1] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[1] : 0.0f) * _unpack_bf16_40[1];
+                wepi_p4_1[2] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[2] : 0.0f) * _unpack_bf16_40[2];
+                wepi_p4_1[3] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[3] : 0.0f) * _unpack_bf16_40[3];
+                wepi_p4_1[4] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[4] : 0.0f) * _unpack_bf16_40[4];
+                wepi_p4_1[5] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[5] : 0.0f) * _unpack_bf16_40[5];
+                wepi_p4_1[6] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[6] : 0.0f) * _unpack_bf16_40[6];
+                wepi_p4_1[7] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_41[7] : 0.0f) * _unpack_bf16_40[7];
+                unsigned int wepi_p4_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p4_1[_lp*2 + 0], wepi_p4_1[_lp*2+1 + 0]));
+                    wepi_p4_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_42[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_42[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p4_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_42[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p4_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_43[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_43[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[36 + _pair]) << 16);
+                    (&_unpack_bf16_43[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[36 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out4_1[8];
+                wepi_out4_1[0] = _unpack_bf16_43[0] + _unpack_bf16_42[0];
+                wepi_out4_1[1] = _unpack_bf16_43[1] + _unpack_bf16_42[1];
+                wepi_out4_1[2] = _unpack_bf16_43[2] + _unpack_bf16_42[2];
+                wepi_out4_1[3] = _unpack_bf16_43[3] + _unpack_bf16_42[3];
+                wepi_out4_1[4] = _unpack_bf16_43[4] + _unpack_bf16_42[4];
+                wepi_out4_1[5] = _unpack_bf16_43[5] + _unpack_bf16_42[5];
+                wepi_out4_1[6] = _unpack_bf16_43[6] + _unpack_bf16_42[6];
+                wepi_out4_1[7] = _unpack_bf16_43[7] + _unpack_bf16_42[7];
+                unsigned int wepi_out4_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out4_1[_lp*2 + 0], wepi_out4_1[_lp*2+1 + 0]));
+                    wepi_out4_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 36) * 5376 + wgcol) / 2)), "r"((wepi_out4_1_bf16 + 0)[(0) + 0]), "r"((wepi_out4_1_bf16 + 0)[(0) + 1]), "r"((wepi_out4_1_bf16 + 0)[(0) + 2]), "r"((wepi_out4_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 36 < M)) : "memory");
+                float wscaled_8[16];
+                wscaled_8[0] = accum[66] * sa[5] * sw[0];
+                wscaled_8[1] = accum[67] * sa[5] * sw[1];
+                wscaled_8[2] = accum[70] * sa[5] * sw[2];
+                wscaled_8[3] = accum[71] * sa[5] * sw[3];
+                wscaled_8[4] = accum[74] * sa[5] * sw[4];
+                wscaled_8[5] = accum[75] * sa[5] * sw[5];
+                wscaled_8[6] = accum[78] * sa[5] * sw[6];
+                wscaled_8[7] = accum[79] * sa[5] * sw[7];
+                wscaled_8[8] = accum[82] * sa[5] * sw[8];
+                wscaled_8[9] = accum[83] * sa[5] * sw[9];
+                wscaled_8[10] = accum[86] * sa[5] * sw[10];
+                wscaled_8[11] = accum[87] * sa[5] * sw[11];
+                wscaled_8[12] = accum[90] * sa[5] * sw[12];
+                wscaled_8[13] = accum[91] * sa[5] * sw[13];
+                wscaled_8[14] = accum[94] * sa[5] * sw[14];
+                wscaled_8[15] = accum[95] * sa[5] * sw[15];
+                unsigned int wscaled_8_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_8[_lp*2 + 0], scaled_8[_lp*2+1 + 0]));
-                    scaled_8_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_8[_lp*2 + 0], wscaled_8[_lp*2+1 + 0]));
+                    wscaled_8_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_34 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_34 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_34), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[3]))
+                    :: "r"(_stmatrix_addr_34), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_35 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_35 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_35), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[7]))
+                    :: "r"(_stmatrix_addr_35), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_9 = grow_base + 40;
-                if (grow_9 < M) {
-                    unsigned int o_words_5[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_14[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_14[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_5[_pair]) << 16);
-                        (&_unpack_bf16_14[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_5[_pair]) & 0xffff0000u);
-                    }
-                    int valid_5 = meta[1];
-                    float p_raw_5[16];
-                    for (int e_10 = 0; e_10 < 8; e_10++) {
-                        float gv0_5 = ops[e_10];
-                        float gv1_5 = ops[8 + e_10];
-                        float gs0_5 = ((valid_5 == 1) ? gv0_5 : 0.0f);
-                        float gs1_5 = ((valid_5 == 1) ? gv1_5 : 0.0f);
-                        p_raw_5[e_10] = gs0_5 * _unpack_bf16_14[e_10];
-                        p_raw_5[8 + e_10] = gs1_5 * _unpack_bf16_14[8 + e_10];
-                    }
-                    unsigned int p_raw_bf16_5[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_5[_lp*2 + 0], p_raw_5[_lp*2+1 + 0]));
-                        p_raw_bf16_5[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_15[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_15[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_5[_pair]) << 16);
-                        (&_unpack_bf16_15[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_5[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_5[16];
-                    for (int e_11 = 0; e_11 < 8; e_11++) {
-                        float rv0_5 = ops[16 + e_11];
-                        float rv1_5 = ops[24 + e_11];
-                        out_raw_5[e_11] = rv0_5 + _unpack_bf16_15[e_11];
-                        out_raw_5[8 + e_11] = rv1_5 + _unpack_bf16_15[8 + e_11];
-                    }
-                    unsigned int out_raw_bf16_5[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_5[_lp*2 + 0], out_raw_5[_lp*2+1 + 0]));
-                        out_raw_bf16_5[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_9 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_9 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_5 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_9 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_5 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 48 < M) ? grow_base + 48 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_9[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_36 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_36[1];
+                    const uint4* _vptr_36 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? wepi_gidx[12] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_36 = reinterpret_cast<uint4*>(&wgw[48]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_36[_blk] = _vptr_36[_blk];
-                        uint32_t* _vpairs_36 = reinterpret_cast<uint32_t*>(&_vld_36[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_36[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_36[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_36[_blk] = _vptr_36[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_37 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_37[1];
+                    const uint4* _vptr_37 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 48 < M) ? wrow_base + 48 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_37 = reinterpret_cast<uint4*>(&wrw[48]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_37[_blk] = _vptr_37[_blk];
-                        uint32_t* _vpairs_37 = reinterpret_cast<uint32_t*>(&_vld_37[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_37[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_37[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_37[_blk] = _vptr_37[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_38 = reinterpret_cast<const uint4*>(residual + (((grow_base + 48 < M) ? grow_base + 48 : 0) * 5376 + col) + 0);
-                    uint4 _vld_38[1];
+                    const uint4* _vptr_38 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? wepi_gidx[13] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_38 = reinterpret_cast<uint4*>(&wgw[52]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_38[_blk] = _vptr_38[_blk];
-                        uint32_t* _vpairs_38 = reinterpret_cast<uint32_t*>(&_vld_38[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_38[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_38[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_38[_blk] = _vptr_38[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_39 = reinterpret_cast<const uint4*>(residual + (((grow_base + 48 < M) ? grow_base + 48 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_39[1];
+                    const uint4* _vptr_39 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 52 < M) ? wrow_base + 52 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_39 = reinterpret_cast<uint4*>(&wrw[52]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_39[_blk] = _vptr_39[_blk];
-                        uint32_t* _vpairs_39 = reinterpret_cast<uint32_t*>(&_vld_39[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_39[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_39[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_39[_blk] = _vptr_39[_blk];
                     }
                 }
-                float scaled_10[16];
-                scaled_10[0] = accum[96] * sa[6] * sw[0];
-                scaled_10[1] = accum[97] * sa[6] * sw[1];
-                scaled_10[2] = accum[100] * sa[6] * sw[2];
-                scaled_10[3] = accum[101] * sa[6] * sw[3];
-                scaled_10[4] = accum[104] * sa[6] * sw[4];
-                scaled_10[5] = accum[105] * sa[6] * sw[5];
-                scaled_10[6] = accum[108] * sa[6] * sw[6];
-                scaled_10[7] = accum[109] * sa[6] * sw[7];
-                scaled_10[8] = accum[112] * sa[6] * sw[8];
-                scaled_10[9] = accum[113] * sa[6] * sw[9];
-                scaled_10[10] = accum[116] * sa[6] * sw[10];
-                scaled_10[11] = accum[117] * sa[6] * sw[11];
-                scaled_10[12] = accum[120] * sa[6] * sw[12];
-                scaled_10[13] = accum[121] * sa[6] * sw[13];
-                scaled_10[14] = accum[124] * sa[6] * sw[14];
-                scaled_10[15] = accum[125] * sa[6] * sw[15];
-                unsigned int scaled_10_bf16[8];
+                float _unpack_bf16_44[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_44[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_9[_pair]) << 16);
+                    (&_unpack_bf16_44[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_9[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_45[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_45[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[40 + _pair]) << 16);
+                    (&_unpack_bf16_45[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[40 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p5_0[8];
+                wepi_p5_0[0] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[0] : 0.0f) * _unpack_bf16_44[0];
+                wepi_p5_0[1] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[1] : 0.0f) * _unpack_bf16_44[1];
+                wepi_p5_0[2] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[2] : 0.0f) * _unpack_bf16_44[2];
+                wepi_p5_0[3] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[3] : 0.0f) * _unpack_bf16_44[3];
+                wepi_p5_0[4] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[4] : 0.0f) * _unpack_bf16_44[4];
+                wepi_p5_0[5] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[5] : 0.0f) * _unpack_bf16_44[5];
+                wepi_p5_0[6] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[6] : 0.0f) * _unpack_bf16_44[6];
+                wepi_p5_0[7] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_45[7] : 0.0f) * _unpack_bf16_44[7];
+                unsigned int wepi_p5_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p5_0[_lp*2 + 0], wepi_p5_0[_lp*2+1 + 0]));
+                    wepi_p5_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_46[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_46[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p5_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_46[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p5_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_47[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_47[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[40 + _pair]) << 16);
+                    (&_unpack_bf16_47[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[40 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out5_0[8];
+                wepi_out5_0[0] = _unpack_bf16_47[0] + _unpack_bf16_46[0];
+                wepi_out5_0[1] = _unpack_bf16_47[1] + _unpack_bf16_46[1];
+                wepi_out5_0[2] = _unpack_bf16_47[2] + _unpack_bf16_46[2];
+                wepi_out5_0[3] = _unpack_bf16_47[3] + _unpack_bf16_46[3];
+                wepi_out5_0[4] = _unpack_bf16_47[4] + _unpack_bf16_46[4];
+                wepi_out5_0[5] = _unpack_bf16_47[5] + _unpack_bf16_46[5];
+                wepi_out5_0[6] = _unpack_bf16_47[6] + _unpack_bf16_46[6];
+                wepi_out5_0[7] = _unpack_bf16_47[7] + _unpack_bf16_46[7];
+                unsigned int wepi_out5_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out5_0[_lp*2 + 0], wepi_out5_0[_lp*2+1 + 0]));
+                    wepi_out5_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 40) * 5376 + wgcol) / 2)), "r"((wepi_out5_0_bf16 + 0)[(0) + 0]), "r"((wepi_out5_0_bf16 + 0)[(0) + 1]), "r"((wepi_out5_0_bf16 + 0)[(0) + 2]), "r"((wepi_out5_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 40 < M)) : "memory");
+                float _unpack_bf16_48[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_48[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_9[4 + _pair]) << 16);
+                    (&_unpack_bf16_48[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_9[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_49[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_49[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[44 + _pair]) << 16);
+                    (&_unpack_bf16_49[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[44 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p5_1[8];
+                wepi_p5_1[0] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[0] : 0.0f) * _unpack_bf16_48[0];
+                wepi_p5_1[1] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[1] : 0.0f) * _unpack_bf16_48[1];
+                wepi_p5_1[2] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[2] : 0.0f) * _unpack_bf16_48[2];
+                wepi_p5_1[3] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[3] : 0.0f) * _unpack_bf16_48[3];
+                wepi_p5_1[4] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[4] : 0.0f) * _unpack_bf16_48[4];
+                wepi_p5_1[5] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[5] : 0.0f) * _unpack_bf16_48[5];
+                wepi_p5_1[6] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[6] : 0.0f) * _unpack_bf16_48[6];
+                wepi_p5_1[7] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_49[7] : 0.0f) * _unpack_bf16_48[7];
+                unsigned int wepi_p5_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p5_1[_lp*2 + 0], wepi_p5_1[_lp*2+1 + 0]));
+                    wepi_p5_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_50[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_50[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p5_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_50[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p5_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_51[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_51[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[44 + _pair]) << 16);
+                    (&_unpack_bf16_51[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[44 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out5_1[8];
+                wepi_out5_1[0] = _unpack_bf16_51[0] + _unpack_bf16_50[0];
+                wepi_out5_1[1] = _unpack_bf16_51[1] + _unpack_bf16_50[1];
+                wepi_out5_1[2] = _unpack_bf16_51[2] + _unpack_bf16_50[2];
+                wepi_out5_1[3] = _unpack_bf16_51[3] + _unpack_bf16_50[3];
+                wepi_out5_1[4] = _unpack_bf16_51[4] + _unpack_bf16_50[4];
+                wepi_out5_1[5] = _unpack_bf16_51[5] + _unpack_bf16_50[5];
+                wepi_out5_1[6] = _unpack_bf16_51[6] + _unpack_bf16_50[6];
+                wepi_out5_1[7] = _unpack_bf16_51[7] + _unpack_bf16_50[7];
+                unsigned int wepi_out5_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out5_1[_lp*2 + 0], wepi_out5_1[_lp*2+1 + 0]));
+                    wepi_out5_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 44) * 5376 + wgcol) / 2)), "r"((wepi_out5_1_bf16 + 0)[(0) + 0]), "r"((wepi_out5_1_bf16 + 0)[(0) + 1]), "r"((wepi_out5_1_bf16 + 0)[(0) + 2]), "r"((wepi_out5_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 44 < M)) : "memory");
+                float wscaled_10[16];
+                wscaled_10[0] = accum[96] * sa[6] * sw[0];
+                wscaled_10[1] = accum[97] * sa[6] * sw[1];
+                wscaled_10[2] = accum[100] * sa[6] * sw[2];
+                wscaled_10[3] = accum[101] * sa[6] * sw[3];
+                wscaled_10[4] = accum[104] * sa[6] * sw[4];
+                wscaled_10[5] = accum[105] * sa[6] * sw[5];
+                wscaled_10[6] = accum[108] * sa[6] * sw[6];
+                wscaled_10[7] = accum[109] * sa[6] * sw[7];
+                wscaled_10[8] = accum[112] * sa[6] * sw[8];
+                wscaled_10[9] = accum[113] * sa[6] * sw[9];
+                wscaled_10[10] = accum[116] * sa[6] * sw[10];
+                wscaled_10[11] = accum[117] * sa[6] * sw[11];
+                wscaled_10[12] = accum[120] * sa[6] * sw[12];
+                wscaled_10[13] = accum[121] * sa[6] * sw[13];
+                wscaled_10[14] = accum[124] * sa[6] * sw[14];
+                wscaled_10[15] = accum[125] * sa[6] * sw[15];
+                unsigned int wscaled_10_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_10[_lp*2 + 0], scaled_10[_lp*2+1 + 0]));
-                    scaled_10_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_10[_lp*2 + 0], wscaled_10[_lp*2+1 + 0]));
+                    wscaled_10_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_40 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_40 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_40), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[3]))
+                    :: "r"(_stmatrix_addr_40), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_41 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_41 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_41), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[7]))
+                    :: "r"(_stmatrix_addr_41), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_11 = grow_base + 48;
-                if (grow_11 < M) {
-                    unsigned int o_words_6[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_16[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_16[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_6[_pair]) << 16);
-                        (&_unpack_bf16_16[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_6[_pair]) & 0xffff0000u);
-                    }
-                    int valid_6 = meta[1];
-                    float p_raw_6[16];
-                    for (int e_12 = 0; e_12 < 8; e_12++) {
-                        float gv0_6 = ops[e_12];
-                        float gv1_6 = ops[8 + e_12];
-                        float gs0_6 = ((valid_6 == 1) ? gv0_6 : 0.0f);
-                        float gs1_6 = ((valid_6 == 1) ? gv1_6 : 0.0f);
-                        p_raw_6[e_12] = gs0_6 * _unpack_bf16_16[e_12];
-                        p_raw_6[8 + e_12] = gs1_6 * _unpack_bf16_16[8 + e_12];
-                    }
-                    unsigned int p_raw_bf16_6[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_6[_lp*2 + 0], p_raw_6[_lp*2+1 + 0]));
-                        p_raw_bf16_6[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_17[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_17[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_6[_pair]) << 16);
-                        (&_unpack_bf16_17[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_6[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_6[16];
-                    for (int e_13 = 0; e_13 < 8; e_13++) {
-                        float rv0_6 = ops[16 + e_13];
-                        float rv1_6 = ops[24 + e_13];
-                        out_raw_6[e_13] = rv0_6 + _unpack_bf16_17[e_13];
-                        out_raw_6[8 + e_13] = rv1_6 + _unpack_bf16_17[8 + e_13];
-                    }
-                    unsigned int out_raw_bf16_6[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_6[_lp*2 + 0], out_raw_6[_lp*2+1 + 0]));
-                        out_raw_bf16_6[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_11 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_11 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_6 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_11 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_6 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 56 < M) ? grow_base + 56 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_11[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_42 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_42[1];
+                    const uint4* _vptr_42 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? wepi_gidx[14] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_42 = reinterpret_cast<uint4*>(&wgw[56]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_42[_blk] = _vptr_42[_blk];
-                        uint32_t* _vpairs_42 = reinterpret_cast<uint32_t*>(&_vld_42[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_42[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_42[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_42[_blk] = _vptr_42[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_43 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_43[1];
+                    const uint4* _vptr_43 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 56 < M) ? wrow_base + 56 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_43 = reinterpret_cast<uint4*>(&wrw[56]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_43[_blk] = _vptr_43[_blk];
-                        uint32_t* _vpairs_43 = reinterpret_cast<uint32_t*>(&_vld_43[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_43[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_43[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_43[_blk] = _vptr_43[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_44 = reinterpret_cast<const uint4*>(residual + (((grow_base + 56 < M) ? grow_base + 56 : 0) * 5376 + col) + 0);
-                    uint4 _vld_44[1];
+                    const uint4* _vptr_44 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? wepi_gidx[15] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_44 = reinterpret_cast<uint4*>(&wgw[60]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_44[_blk] = _vptr_44[_blk];
-                        uint32_t* _vpairs_44 = reinterpret_cast<uint32_t*>(&_vld_44[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_44[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_44[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_44[_blk] = _vptr_44[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_45 = reinterpret_cast<const uint4*>(residual + (((grow_base + 56 < M) ? grow_base + 56 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_45[1];
+                    const uint4* _vptr_45 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 60 < M) ? wrow_base + 60 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_45 = reinterpret_cast<uint4*>(&wrw[60]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_45[_blk] = _vptr_45[_blk];
-                        uint32_t* _vpairs_45 = reinterpret_cast<uint32_t*>(&_vld_45[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_45[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_45[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_45[_blk] = _vptr_45[_blk];
                     }
                 }
-                float scaled_12[16];
-                scaled_12[0] = accum[98] * sa[7] * sw[0];
-                scaled_12[1] = accum[99] * sa[7] * sw[1];
-                scaled_12[2] = accum[102] * sa[7] * sw[2];
-                scaled_12[3] = accum[103] * sa[7] * sw[3];
-                scaled_12[4] = accum[106] * sa[7] * sw[4];
-                scaled_12[5] = accum[107] * sa[7] * sw[5];
-                scaled_12[6] = accum[110] * sa[7] * sw[6];
-                scaled_12[7] = accum[111] * sa[7] * sw[7];
-                scaled_12[8] = accum[114] * sa[7] * sw[8];
-                scaled_12[9] = accum[115] * sa[7] * sw[9];
-                scaled_12[10] = accum[118] * sa[7] * sw[10];
-                scaled_12[11] = accum[119] * sa[7] * sw[11];
-                scaled_12[12] = accum[122] * sa[7] * sw[12];
-                scaled_12[13] = accum[123] * sa[7] * sw[13];
-                scaled_12[14] = accum[126] * sa[7] * sw[14];
-                scaled_12[15] = accum[127] * sa[7] * sw[15];
-                unsigned int scaled_12_bf16[8];
+                float _unpack_bf16_52[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_52[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_11[_pair]) << 16);
+                    (&_unpack_bf16_52[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_11[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_53[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_53[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[48 + _pair]) << 16);
+                    (&_unpack_bf16_53[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[48 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p6_0[8];
+                wepi_p6_0[0] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[0] : 0.0f) * _unpack_bf16_52[0];
+                wepi_p6_0[1] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[1] : 0.0f) * _unpack_bf16_52[1];
+                wepi_p6_0[2] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[2] : 0.0f) * _unpack_bf16_52[2];
+                wepi_p6_0[3] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[3] : 0.0f) * _unpack_bf16_52[3];
+                wepi_p6_0[4] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[4] : 0.0f) * _unpack_bf16_52[4];
+                wepi_p6_0[5] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[5] : 0.0f) * _unpack_bf16_52[5];
+                wepi_p6_0[6] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[6] : 0.0f) * _unpack_bf16_52[6];
+                wepi_p6_0[7] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_53[7] : 0.0f) * _unpack_bf16_52[7];
+                unsigned int wepi_p6_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p6_0[_lp*2 + 0], wepi_p6_0[_lp*2+1 + 0]));
+                    wepi_p6_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_54[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_54[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p6_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_54[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p6_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_55[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_55[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[48 + _pair]) << 16);
+                    (&_unpack_bf16_55[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[48 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out6_0[8];
+                wepi_out6_0[0] = _unpack_bf16_55[0] + _unpack_bf16_54[0];
+                wepi_out6_0[1] = _unpack_bf16_55[1] + _unpack_bf16_54[1];
+                wepi_out6_0[2] = _unpack_bf16_55[2] + _unpack_bf16_54[2];
+                wepi_out6_0[3] = _unpack_bf16_55[3] + _unpack_bf16_54[3];
+                wepi_out6_0[4] = _unpack_bf16_55[4] + _unpack_bf16_54[4];
+                wepi_out6_0[5] = _unpack_bf16_55[5] + _unpack_bf16_54[5];
+                wepi_out6_0[6] = _unpack_bf16_55[6] + _unpack_bf16_54[6];
+                wepi_out6_0[7] = _unpack_bf16_55[7] + _unpack_bf16_54[7];
+                unsigned int wepi_out6_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out6_0[_lp*2 + 0], wepi_out6_0[_lp*2+1 + 0]));
+                    wepi_out6_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 48) * 5376 + wgcol) / 2)), "r"((wepi_out6_0_bf16 + 0)[(0) + 0]), "r"((wepi_out6_0_bf16 + 0)[(0) + 1]), "r"((wepi_out6_0_bf16 + 0)[(0) + 2]), "r"((wepi_out6_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 48 < M)) : "memory");
+                float _unpack_bf16_56[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_56[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_11[4 + _pair]) << 16);
+                    (&_unpack_bf16_56[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_11[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_57[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_57[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[52 + _pair]) << 16);
+                    (&_unpack_bf16_57[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[52 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p6_1[8];
+                wepi_p6_1[0] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[0] : 0.0f) * _unpack_bf16_56[0];
+                wepi_p6_1[1] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[1] : 0.0f) * _unpack_bf16_56[1];
+                wepi_p6_1[2] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[2] : 0.0f) * _unpack_bf16_56[2];
+                wepi_p6_1[3] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[3] : 0.0f) * _unpack_bf16_56[3];
+                wepi_p6_1[4] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[4] : 0.0f) * _unpack_bf16_56[4];
+                wepi_p6_1[5] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[5] : 0.0f) * _unpack_bf16_56[5];
+                wepi_p6_1[6] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[6] : 0.0f) * _unpack_bf16_56[6];
+                wepi_p6_1[7] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_57[7] : 0.0f) * _unpack_bf16_56[7];
+                unsigned int wepi_p6_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p6_1[_lp*2 + 0], wepi_p6_1[_lp*2+1 + 0]));
+                    wepi_p6_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_58[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_58[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p6_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_58[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p6_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_59[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_59[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[52 + _pair]) << 16);
+                    (&_unpack_bf16_59[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[52 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out6_1[8];
+                wepi_out6_1[0] = _unpack_bf16_59[0] + _unpack_bf16_58[0];
+                wepi_out6_1[1] = _unpack_bf16_59[1] + _unpack_bf16_58[1];
+                wepi_out6_1[2] = _unpack_bf16_59[2] + _unpack_bf16_58[2];
+                wepi_out6_1[3] = _unpack_bf16_59[3] + _unpack_bf16_58[3];
+                wepi_out6_1[4] = _unpack_bf16_59[4] + _unpack_bf16_58[4];
+                wepi_out6_1[5] = _unpack_bf16_59[5] + _unpack_bf16_58[5];
+                wepi_out6_1[6] = _unpack_bf16_59[6] + _unpack_bf16_58[6];
+                wepi_out6_1[7] = _unpack_bf16_59[7] + _unpack_bf16_58[7];
+                unsigned int wepi_out6_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out6_1[_lp*2 + 0], wepi_out6_1[_lp*2+1 + 0]));
+                    wepi_out6_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 52) * 5376 + wgcol) / 2)), "r"((wepi_out6_1_bf16 + 0)[(0) + 0]), "r"((wepi_out6_1_bf16 + 0)[(0) + 1]), "r"((wepi_out6_1_bf16 + 0)[(0) + 2]), "r"((wepi_out6_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 52 < M)) : "memory");
+                float wscaled_12[16];
+                wscaled_12[0] = accum[98] * sa[7] * sw[0];
+                wscaled_12[1] = accum[99] * sa[7] * sw[1];
+                wscaled_12[2] = accum[102] * sa[7] * sw[2];
+                wscaled_12[3] = accum[103] * sa[7] * sw[3];
+                wscaled_12[4] = accum[106] * sa[7] * sw[4];
+                wscaled_12[5] = accum[107] * sa[7] * sw[5];
+                wscaled_12[6] = accum[110] * sa[7] * sw[6];
+                wscaled_12[7] = accum[111] * sa[7] * sw[7];
+                wscaled_12[8] = accum[114] * sa[7] * sw[8];
+                wscaled_12[9] = accum[115] * sa[7] * sw[9];
+                wscaled_12[10] = accum[118] * sa[7] * sw[10];
+                wscaled_12[11] = accum[119] * sa[7] * sw[11];
+                wscaled_12[12] = accum[122] * sa[7] * sw[12];
+                wscaled_12[13] = accum[123] * sa[7] * sw[13];
+                wscaled_12[14] = accum[126] * sa[7] * sw[14];
+                wscaled_12[15] = accum[127] * sa[7] * sw[15];
+                unsigned int wscaled_12_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_12[_lp*2 + 0], scaled_12[_lp*2+1 + 0]));
-                    scaled_12_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_12[_lp*2 + 0], wscaled_12[_lp*2+1 + 0]));
+                    wscaled_12_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_46 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_46 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_46), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[3]))
+                    :: "r"(_stmatrix_addr_46), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_47 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_47 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_47), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[7]))
+                    :: "r"(_stmatrix_addr_47), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_13 = grow_base + 56;
-                if (grow_13 < M) {
-                    unsigned int o_words_7[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_18[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_18[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_7[_pair]) << 16);
-                        (&_unpack_bf16_18[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_7[_pair]) & 0xffff0000u);
-                    }
-                    int valid_7 = meta[1];
-                    float p_raw_7[16];
-                    for (int e_14 = 0; e_14 < 8; e_14++) {
-                        float gv0_7 = ops[e_14];
-                        float gv1_7 = ops[8 + e_14];
-                        float gs0_7 = ((valid_7 == 1) ? gv0_7 : 0.0f);
-                        float gs1_7 = ((valid_7 == 1) ? gv1_7 : 0.0f);
-                        p_raw_7[e_14] = gs0_7 * _unpack_bf16_18[e_14];
-                        p_raw_7[8 + e_14] = gs1_7 * _unpack_bf16_18[8 + e_14];
-                    }
-                    unsigned int p_raw_bf16_7[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_7[_lp*2 + 0], p_raw_7[_lp*2+1 + 0]));
-                        p_raw_bf16_7[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_19[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_19[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_7[_pair]) << 16);
-                        (&_unpack_bf16_19[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_7[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_7[16];
-                    for (int e_15 = 0; e_15 < 8; e_15++) {
-                        float rv0_7 = ops[16 + e_15];
-                        float rv1_7 = ops[24 + e_15];
-                        out_raw_7[e_15] = rv0_7 + _unpack_bf16_19[e_15];
-                        out_raw_7[8 + e_15] = rv1_7 + _unpack_bf16_19[8 + e_15];
-                    }
-                    unsigned int out_raw_bf16_7[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_7[_lp*2 + 0], out_raw_7[_lp*2+1 + 0]));
-                        out_raw_bf16_7[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_13 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_13 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_7 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_13 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_7 + 4)[0];
-                    }
+                __syncwarp();
+                unsigned int wo_words_13[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
+                float _unpack_bf16_60[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_60[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_13[_pair]) << 16);
+                    (&_unpack_bf16_60[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_13[_pair]) & 0xffff0000u);
                 }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
+                float _unpack_bf16_61[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_61[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[56 + _pair]) << 16);
+                    (&_unpack_bf16_61[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[56 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p7_0[8];
+                wepi_p7_0[0] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[0] : 0.0f) * _unpack_bf16_60[0];
+                wepi_p7_0[1] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[1] : 0.0f) * _unpack_bf16_60[1];
+                wepi_p7_0[2] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[2] : 0.0f) * _unpack_bf16_60[2];
+                wepi_p7_0[3] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[3] : 0.0f) * _unpack_bf16_60[3];
+                wepi_p7_0[4] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[4] : 0.0f) * _unpack_bf16_60[4];
+                wepi_p7_0[5] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[5] : 0.0f) * _unpack_bf16_60[5];
+                wepi_p7_0[6] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[6] : 0.0f) * _unpack_bf16_60[6];
+                wepi_p7_0[7] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_61[7] : 0.0f) * _unpack_bf16_60[7];
+                unsigned int wepi_p7_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p7_0[_lp*2 + 0], wepi_p7_0[_lp*2+1 + 0]));
+                    wepi_p7_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_62[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_62[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p7_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_62[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p7_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_63[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_63[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[56 + _pair]) << 16);
+                    (&_unpack_bf16_63[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[56 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out7_0[8];
+                wepi_out7_0[0] = _unpack_bf16_63[0] + _unpack_bf16_62[0];
+                wepi_out7_0[1] = _unpack_bf16_63[1] + _unpack_bf16_62[1];
+                wepi_out7_0[2] = _unpack_bf16_63[2] + _unpack_bf16_62[2];
+                wepi_out7_0[3] = _unpack_bf16_63[3] + _unpack_bf16_62[3];
+                wepi_out7_0[4] = _unpack_bf16_63[4] + _unpack_bf16_62[4];
+                wepi_out7_0[5] = _unpack_bf16_63[5] + _unpack_bf16_62[5];
+                wepi_out7_0[6] = _unpack_bf16_63[6] + _unpack_bf16_62[6];
+                wepi_out7_0[7] = _unpack_bf16_63[7] + _unpack_bf16_62[7];
+                unsigned int wepi_out7_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out7_0[_lp*2 + 0], wepi_out7_0[_lp*2+1 + 0]));
+                    wepi_out7_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 56) * 5376 + wgcol) / 2)), "r"((wepi_out7_0_bf16 + 0)[(0) + 0]), "r"((wepi_out7_0_bf16 + 0)[(0) + 1]), "r"((wepi_out7_0_bf16 + 0)[(0) + 2]), "r"((wepi_out7_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 56 < M)) : "memory");
+                float _unpack_bf16_64[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_64[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_13[4 + _pair]) << 16);
+                    (&_unpack_bf16_64[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_13[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_65[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_65[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[60 + _pair]) << 16);
+                    (&_unpack_bf16_65[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[60 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p7_1[8];
+                wepi_p7_1[0] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[0] : 0.0f) * _unpack_bf16_64[0];
+                wepi_p7_1[1] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[1] : 0.0f) * _unpack_bf16_64[1];
+                wepi_p7_1[2] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[2] : 0.0f) * _unpack_bf16_64[2];
+                wepi_p7_1[3] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[3] : 0.0f) * _unpack_bf16_64[3];
+                wepi_p7_1[4] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[4] : 0.0f) * _unpack_bf16_64[4];
+                wepi_p7_1[5] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[5] : 0.0f) * _unpack_bf16_64[5];
+                wepi_p7_1[6] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[6] : 0.0f) * _unpack_bf16_64[6];
+                wepi_p7_1[7] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_65[7] : 0.0f) * _unpack_bf16_64[7];
+                unsigned int wepi_p7_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p7_1[_lp*2 + 0], wepi_p7_1[_lp*2+1 + 0]));
+                    wepi_p7_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_66[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_66[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p7_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_66[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p7_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_67[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_67[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[60 + _pair]) << 16);
+                    (&_unpack_bf16_67[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[60 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out7_1[8];
+                wepi_out7_1[0] = _unpack_bf16_67[0] + _unpack_bf16_66[0];
+                wepi_out7_1[1] = _unpack_bf16_67[1] + _unpack_bf16_66[1];
+                wepi_out7_1[2] = _unpack_bf16_67[2] + _unpack_bf16_66[2];
+                wepi_out7_1[3] = _unpack_bf16_67[3] + _unpack_bf16_66[3];
+                wepi_out7_1[4] = _unpack_bf16_67[4] + _unpack_bf16_66[4];
+                wepi_out7_1[5] = _unpack_bf16_67[5] + _unpack_bf16_66[5];
+                wepi_out7_1[6] = _unpack_bf16_67[6] + _unpack_bf16_66[6];
+                wepi_out7_1[7] = _unpack_bf16_67[7] + _unpack_bf16_66[7];
+                unsigned int wepi_out7_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out7_1[_lp*2 + 0], wepi_out7_1[_lp*2+1 + 0]));
+                    wepi_out7_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 60) * 5376 + wgcol) / 2)), "r"((wepi_out7_1_bf16 + 0)[(0) + 0]), "r"((wepi_out7_1_bf16 + 0)[(0) + 1]), "r"((wepi_out7_1_bf16 + 0)[(0) + 2]), "r"((wepi_out7_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 60 < M)) : "memory");
             }
         }
     }
@@ -3161,6 +3469,7 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                 sw[14] = alpha_dev;
                 sw[15] = alpha_dev;
                 float sa[8];
+                int wepi_gidx[16];
                 #pragma unroll 1
                 for (int kp_1 = 0; kp_1 < 28; kp_1++) {
                     mbarrier_wait_hint(ab_full_addr + (mma_stage) * 8, _phase_ab_full, 10000000);
@@ -3181,6 +3490,22 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                         sa[6] = 1.0f;
                         int arow_6 = tile_m_1 * 256 + warp_m * 64 + 48 + 8 + (lane >> 2);
                         sa[7] = 1.0f;
+                        wepi_gidx[0] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) : 0)];
+                        wepi_gidx[1] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 4 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 4 : 0)];
+                        wepi_gidx[2] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 8 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 8 : 0)];
+                        wepi_gidx[3] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 12 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 12 : 0)];
+                        wepi_gidx[4] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 16 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 16 : 0)];
+                        wepi_gidx[5] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 20 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 20 : 0)];
+                        wepi_gidx[6] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 24 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 24 : 0)];
+                        wepi_gidx[7] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 28 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 28 : 0)];
+                        wepi_gidx[8] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 32 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 32 : 0)];
+                        wepi_gidx[9] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 36 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 36 : 0)];
+                        wepi_gidx[10] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 40 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 40 : 0)];
+                        wepi_gidx[11] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 44 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 44 : 0)];
+                        wepi_gidx[12] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 48 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 48 : 0)];
+                        wepi_gidx[13] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 52 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 52 : 0)];
+                        wepi_gidx[14] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 56 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 56 : 0)];
+                        wepi_gidx[15] = gate_index[((tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 60 < M) ? tile_m_1 * 256 + warp_m * 64 + (lane >> 3) + 60 : 0)];
                     }
                     asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
                         : "=r"(a_frag[0]), "=r"(a_frag[1]), "=r"(a_frag[2]), "=r"(a_frag[3])
@@ -3558,6 +3883,7 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                     asm volatile("mma.sync.aligned.kind::mxf4nvf4.block_scale.scale_vec::4X.m16n8k64.row.col.f32.e2m1.e2m1.f32.ue4m3 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3}, {%10}, {%11, %12}, {%13}, {%14, %15};\n"
                         : "+f"(accum[124]), "+f"(accum[(124) + 1]), "+f"(accum[(124) + 2]), "+f"(accum[(124) + 3])
                         : "r"(a_frag[12]), "r"(a_frag[(12) + 1]), "r"(a_frag[(12) + 2]), "r"(a_frag[(12) + 3]), "r"(b_frag[14]), "r"(b_frag[(14) + 1]), "r"((uint32_t)(smem_regs_14[0])), "h"((uint16_t)0), "h"((uint16_t)0), "r"((uint32_t)(smem_regs_22[0])), "h"((uint16_t)0), "h"((uint16_t)0));
+                    asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     __syncwarp();
                     if (elect_sync()) {
                         mbarrier_arrive(ab_empty_addr + (mma_stage) * 8);
@@ -3941,6 +4267,7 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                     asm volatile("mma.sync.aligned.kind::mxf4nvf4.block_scale.scale_vec::4X.m16n8k64.row.col.f32.e2m1.e2m1.f32.ue4m3 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3}, {%10}, {%11, %12}, {%13}, {%14, %15};\n"
                         : "+f"(accum[124]), "+f"(accum[(124) + 1]), "+f"(accum[(124) + 2]), "+f"(accum[(124) + 3])
                         : "r"(a_frag[12]), "r"(a_frag[(12) + 1]), "r"(a_frag[(12) + 2]), "r"(a_frag[(12) + 3]), "r"(b_frag[14]), "r"(b_frag[(14) + 1]), "r"((uint32_t)(smem_regs_38[0])), "h"((uint16_t)0), "h"((uint16_t)0), "r"((uint32_t)(smem_regs_46[0])), "h"((uint16_t)0), "h"((uint16_t)0));
+                    asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     __syncwarp();
                     if (elect_sync()) {
                         mbarrier_arrive(ab_empty_addr + (mma_stage) * 8);
@@ -4082,1182 +4409,1471 @@ kernel_h3_out_proj_gemm_fused(const __grid_constant__ CUtensorMap A, const __gri
                         out[tile_1] = __as_u32(chk);
                     }
                 }
-                int srow_st = warp_m * 8 + (lane & 7);
-                int smat = lane >> 3;
-                int srow = role_tid >> 3;
-                int c = role_tid & 7;
-                int col = tile_n_1 * 128 + c * 16;
-                int grow_base = tile_m_1 * 256 + (srow >> 3) * 64 + (srow & 7);
-                float ops[32];
-                int meta[2];
-                meta[0] = gate_index[((grow_base < M) ? grow_base : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                int wsmat = lane >> 3;
+                int wrow_base = tile_m_1 * 256 + warp_m * 64 + (lane >> 3);
+                int wsrow_st = warp_m * 8 + (lane & 7);
+                int wcol = warp_n * 64 + (lane & 7) * 8;
+                int wgcol = tile_n_1 * 128 + wcol;
+                int wsrow0 = warp_m * 8 + wsmat;
+                int wsrow1 = warp_m * 8 + 4 + wsmat;
+                unsigned int wrw[64];
+                unsigned int wgw[64];
                 {
-                    const uint4* _vptr_0 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_0[1];
+                    const uint4* _vptr_0 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? wepi_gidx[0] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_0 = reinterpret_cast<uint4*>(&wgw[0]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_0[_blk] = _vptr_0[_blk];
-                        uint32_t* _vpairs_0 = reinterpret_cast<uint32_t*>(&_vld_0[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_0[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_0[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_0[_blk] = _vptr_0[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_1 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_1[1];
+                    const uint4* _vptr_1 = reinterpret_cast<const uint4*>(residual + (((wrow_base < M) ? wrow_base : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_1 = reinterpret_cast<uint4*>(&wrw[0]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_1[_blk] = _vptr_1[_blk];
-                        uint32_t* _vpairs_1 = reinterpret_cast<uint32_t*>(&_vld_1[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_1[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_1[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_1[_blk] = _vptr_1[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_2 = reinterpret_cast<const uint4*>(residual + (((grow_base < M) ? grow_base : 0) * 5376 + col) + 0);
-                    uint4 _vld_2[1];
+                    const uint4* _vptr_2 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? wepi_gidx[1] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_2 = reinterpret_cast<uint4*>(&wgw[4]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_2[_blk] = _vptr_2[_blk];
-                        uint32_t* _vpairs_2 = reinterpret_cast<uint32_t*>(&_vld_2[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_2[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_2[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_2[_blk] = _vptr_2[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_3 = reinterpret_cast<const uint4*>(residual + (((grow_base < M) ? grow_base : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_3[1];
+                    const uint4* _vptr_3 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 4 < M) ? wrow_base + 4 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_3 = reinterpret_cast<uint4*>(&wrw[4]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_3[_blk] = _vptr_3[_blk];
-                        uint32_t* _vpairs_3 = reinterpret_cast<uint32_t*>(&_vld_3[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_3[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_3[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_3[_blk] = _vptr_3[_blk];
                     }
                 }
-                float scaled[16];
-                scaled[0] = accum[0] * sa[0] * sw[0];
-                scaled[1] = accum[1] * sa[0] * sw[1];
-                scaled[2] = accum[4] * sa[0] * sw[2];
-                scaled[3] = accum[5] * sa[0] * sw[3];
-                scaled[4] = accum[8] * sa[0] * sw[4];
-                scaled[5] = accum[9] * sa[0] * sw[5];
-                scaled[6] = accum[12] * sa[0] * sw[6];
-                scaled[7] = accum[13] * sa[0] * sw[7];
-                scaled[8] = accum[16] * sa[0] * sw[8];
-                scaled[9] = accum[17] * sa[0] * sw[9];
-                scaled[10] = accum[20] * sa[0] * sw[10];
-                scaled[11] = accum[21] * sa[0] * sw[11];
-                scaled[12] = accum[24] * sa[0] * sw[12];
-                scaled[13] = accum[25] * sa[0] * sw[13];
-                scaled[14] = accum[28] * sa[0] * sw[14];
-                scaled[15] = accum[29] * sa[0] * sw[15];
-                unsigned int scaled_bf16[8];
+                {
+                    const uint4* _vptr_4 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? wepi_gidx[2] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_4 = reinterpret_cast<uint4*>(&wgw[8]);
+                    #pragma unroll
+                    for (int _blk = 0; _blk < 1; _blk++) {
+                        _vdst_4[_blk] = _vptr_4[_blk];
+                    }
+                }
+                {
+                    const uint4* _vptr_5 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 8 < M) ? wrow_base + 8 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_5 = reinterpret_cast<uint4*>(&wrw[8]);
+                    #pragma unroll
+                    for (int _blk = 0; _blk < 1; _blk++) {
+                        _vdst_5[_blk] = _vptr_5[_blk];
+                    }
+                }
+                {
+                    const uint4* _vptr_6 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? wepi_gidx[3] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_6 = reinterpret_cast<uint4*>(&wgw[12]);
+                    #pragma unroll
+                    for (int _blk = 0; _blk < 1; _blk++) {
+                        _vdst_6[_blk] = _vptr_6[_blk];
+                    }
+                }
+                {
+                    const uint4* _vptr_7 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 12 < M) ? wrow_base + 12 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_7 = reinterpret_cast<uint4*>(&wrw[12]);
+                    #pragma unroll
+                    for (int _blk = 0; _blk < 1; _blk++) {
+                        _vdst_7[_blk] = _vptr_7[_blk];
+                    }
+                }
+                float wscaled[16];
+                wscaled[0] = accum[0] * sa[0] * sw[0];
+                wscaled[1] = accum[1] * sa[0] * sw[1];
+                wscaled[2] = accum[4] * sa[0] * sw[2];
+                wscaled[3] = accum[5] * sa[0] * sw[3];
+                wscaled[4] = accum[8] * sa[0] * sw[4];
+                wscaled[5] = accum[9] * sa[0] * sw[5];
+                wscaled[6] = accum[12] * sa[0] * sw[6];
+                wscaled[7] = accum[13] * sa[0] * sw[7];
+                wscaled[8] = accum[16] * sa[0] * sw[8];
+                wscaled[9] = accum[17] * sa[0] * sw[9];
+                wscaled[10] = accum[20] * sa[0] * sw[10];
+                wscaled[11] = accum[21] * sa[0] * sw[11];
+                wscaled[12] = accum[24] * sa[0] * sw[12];
+                wscaled[13] = accum[25] * sa[0] * sw[13];
+                wscaled[14] = accum[28] * sa[0] * sw[14];
+                wscaled[15] = accum[29] * sa[0] * sw[15];
+                unsigned int wscaled_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled[_lp*2 + 0], scaled[_lp*2+1 + 0]));
-                    scaled_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled[_lp*2 + 0], wscaled[_lp*2+1 + 0]));
+                    wscaled_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_4 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_8 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_4), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[3]))
+                    :: "r"(_stmatrix_addr_8), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_5 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_9 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_5), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_bf16[7]))
+                    :: "r"(_stmatrix_addr_9), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow = grow_base;
-                if (grow < M) {
-                    unsigned int o_words[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_2[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_2[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words[_pair]) << 16);
-                        (&_unpack_bf16_2[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words[_pair]) & 0xffff0000u);
-                    }
-                    int valid = meta[1];
-                    float p_raw[16];
-                    for (int e = 0; e < 8; e++) {
-                        float gv0 = ops[e];
-                        float gv1 = ops[8 + e];
-                        float gs0 = ((valid == 1) ? gv0 : 0.0f);
-                        float gs1 = ((valid == 1) ? gv1 : 0.0f);
-                        p_raw[e] = gs0 * _unpack_bf16_2[e];
-                        p_raw[8 + e] = gs1 * _unpack_bf16_2[8 + e];
-                    }
-                    unsigned int p_raw_bf16[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw[_lp*2 + 0], p_raw[_lp*2+1 + 0]));
-                        p_raw_bf16[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_3[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_3[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16[_pair]) << 16);
-                        (&_unpack_bf16_3[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw[16];
-                    for (int e_1 = 0; e_1 < 8; e_1++) {
-                        float rv0 = ops[16 + e_1];
-                        float rv1 = ops[24 + e_1];
-                        out_raw[e_1] = rv0 + _unpack_bf16_3[e_1];
-                        out_raw[8 + e_1] = rv1 + _unpack_bf16_3[8 + e_1];
-                    }
-                    unsigned int out_raw_bf16[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw[_lp*2 + 0], out_raw[_lp*2+1 + 0]));
-                        out_raw_bf16[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow < M) {
-                        reinterpret_cast<int4*>(out + ((grow * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 8 < M) ? grow_base + 8 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_6 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_6[1];
+                    const uint4* _vptr_10 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? wepi_gidx[4] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_10 = reinterpret_cast<uint4*>(&wgw[16]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_6[_blk] = _vptr_6[_blk];
-                        uint32_t* _vpairs_6 = reinterpret_cast<uint32_t*>(&_vld_6[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_6[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_6[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_10[_blk] = _vptr_10[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_7 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_7[1];
+                    const uint4* _vptr_11 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 16 < M) ? wrow_base + 16 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_11 = reinterpret_cast<uint4*>(&wrw[16]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_7[_blk] = _vptr_7[_blk];
-                        uint32_t* _vpairs_7 = reinterpret_cast<uint32_t*>(&_vld_7[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_7[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_7[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_11[_blk] = _vptr_11[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_8 = reinterpret_cast<const uint4*>(residual + (((grow_base + 8 < M) ? grow_base + 8 : 0) * 5376 + col) + 0);
-                    uint4 _vld_8[1];
+                    const uint4* _vptr_12 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? wepi_gidx[5] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_12 = reinterpret_cast<uint4*>(&wgw[20]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_8[_blk] = _vptr_8[_blk];
-                        uint32_t* _vpairs_8 = reinterpret_cast<uint32_t*>(&_vld_8[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_8[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_8[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_12[_blk] = _vptr_12[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_9 = reinterpret_cast<const uint4*>(residual + (((grow_base + 8 < M) ? grow_base + 8 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_9[1];
+                    const uint4* _vptr_13 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 20 < M) ? wrow_base + 20 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_13 = reinterpret_cast<uint4*>(&wrw[20]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_9[_blk] = _vptr_9[_blk];
-                        uint32_t* _vpairs_9 = reinterpret_cast<uint32_t*>(&_vld_9[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_9[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_9[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_13[_blk] = _vptr_13[_blk];
                     }
                 }
-                float scaled_0[16];
-                scaled_0[0] = accum[2] * sa[1] * sw[0];
-                scaled_0[1] = accum[3] * sa[1] * sw[1];
-                scaled_0[2] = accum[6] * sa[1] * sw[2];
-                scaled_0[3] = accum[7] * sa[1] * sw[3];
-                scaled_0[4] = accum[10] * sa[1] * sw[4];
-                scaled_0[5] = accum[11] * sa[1] * sw[5];
-                scaled_0[6] = accum[14] * sa[1] * sw[6];
-                scaled_0[7] = accum[15] * sa[1] * sw[7];
-                scaled_0[8] = accum[18] * sa[1] * sw[8];
-                scaled_0[9] = accum[19] * sa[1] * sw[9];
-                scaled_0[10] = accum[22] * sa[1] * sw[10];
-                scaled_0[11] = accum[23] * sa[1] * sw[11];
-                scaled_0[12] = accum[26] * sa[1] * sw[12];
-                scaled_0[13] = accum[27] * sa[1] * sw[13];
-                scaled_0[14] = accum[30] * sa[1] * sw[14];
-                scaled_0[15] = accum[31] * sa[1] * sw[15];
-                unsigned int scaled_0_bf16[8];
+                float _unpack_bf16_2[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_2[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words[_pair]) << 16);
+                    (&_unpack_bf16_2[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_3[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_3[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[_pair]) << 16);
+                    (&_unpack_bf16_3[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[_pair]) & 0xffff0000u);
+                }
+                float wepi_p0_0[8];
+                wepi_p0_0[0] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[0] : 0.0f) * _unpack_bf16_2[0];
+                wepi_p0_0[1] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[1] : 0.0f) * _unpack_bf16_2[1];
+                wepi_p0_0[2] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[2] : 0.0f) * _unpack_bf16_2[2];
+                wepi_p0_0[3] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[3] : 0.0f) * _unpack_bf16_2[3];
+                wepi_p0_0[4] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[4] : 0.0f) * _unpack_bf16_2[4];
+                wepi_p0_0[5] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[5] : 0.0f) * _unpack_bf16_2[5];
+                wepi_p0_0[6] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[6] : 0.0f) * _unpack_bf16_2[6];
+                wepi_p0_0[7] = ((wepi_gidx[0] >= 0 && wepi_gidx[0] < 9) ? _unpack_bf16_3[7] : 0.0f) * _unpack_bf16_2[7];
+                unsigned int wepi_p0_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p0_0[_lp*2 + 0], wepi_p0_0[_lp*2+1 + 0]));
+                    wepi_p0_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_4[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_4[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p0_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_4[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p0_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_5[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_5[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[_pair]) << 16);
+                    (&_unpack_bf16_5[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[_pair]) & 0xffff0000u);
+                }
+                float wepi_out0_0[8];
+                wepi_out0_0[0] = _unpack_bf16_5[0] + _unpack_bf16_4[0];
+                wepi_out0_0[1] = _unpack_bf16_5[1] + _unpack_bf16_4[1];
+                wepi_out0_0[2] = _unpack_bf16_5[2] + _unpack_bf16_4[2];
+                wepi_out0_0[3] = _unpack_bf16_5[3] + _unpack_bf16_4[3];
+                wepi_out0_0[4] = _unpack_bf16_5[4] + _unpack_bf16_4[4];
+                wepi_out0_0[5] = _unpack_bf16_5[5] + _unpack_bf16_4[5];
+                wepi_out0_0[6] = _unpack_bf16_5[6] + _unpack_bf16_4[6];
+                wepi_out0_0[7] = _unpack_bf16_5[7] + _unpack_bf16_4[7];
+                unsigned int wepi_out0_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out0_0[_lp*2 + 0], wepi_out0_0[_lp*2+1 + 0]));
+                    wepi_out0_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + ((wrow_base * 5376 + wgcol) / 2)), "r"((wepi_out0_0_bf16 + 0)[(0) + 0]), "r"((wepi_out0_0_bf16 + 0)[(0) + 1]), "r"((wepi_out0_0_bf16 + 0)[(0) + 2]), "r"((wepi_out0_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base < M)) : "memory");
+                float _unpack_bf16_6[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_6[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words[4 + _pair]) << 16);
+                    (&_unpack_bf16_6[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_7[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_7[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[4 + _pair]) << 16);
+                    (&_unpack_bf16_7[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[4 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p0_1[8];
+                wepi_p0_1[0] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[0] : 0.0f) * _unpack_bf16_6[0];
+                wepi_p0_1[1] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[1] : 0.0f) * _unpack_bf16_6[1];
+                wepi_p0_1[2] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[2] : 0.0f) * _unpack_bf16_6[2];
+                wepi_p0_1[3] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[3] : 0.0f) * _unpack_bf16_6[3];
+                wepi_p0_1[4] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[4] : 0.0f) * _unpack_bf16_6[4];
+                wepi_p0_1[5] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[5] : 0.0f) * _unpack_bf16_6[5];
+                wepi_p0_1[6] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[6] : 0.0f) * _unpack_bf16_6[6];
+                wepi_p0_1[7] = ((wepi_gidx[1] >= 0 && wepi_gidx[1] < 9) ? _unpack_bf16_7[7] : 0.0f) * _unpack_bf16_6[7];
+                unsigned int wepi_p0_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p0_1[_lp*2 + 0], wepi_p0_1[_lp*2+1 + 0]));
+                    wepi_p0_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_8[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_8[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p0_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_8[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p0_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_9[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_9[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[4 + _pair]) << 16);
+                    (&_unpack_bf16_9[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[4 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out0_1[8];
+                wepi_out0_1[0] = _unpack_bf16_9[0] + _unpack_bf16_8[0];
+                wepi_out0_1[1] = _unpack_bf16_9[1] + _unpack_bf16_8[1];
+                wepi_out0_1[2] = _unpack_bf16_9[2] + _unpack_bf16_8[2];
+                wepi_out0_1[3] = _unpack_bf16_9[3] + _unpack_bf16_8[3];
+                wepi_out0_1[4] = _unpack_bf16_9[4] + _unpack_bf16_8[4];
+                wepi_out0_1[5] = _unpack_bf16_9[5] + _unpack_bf16_8[5];
+                wepi_out0_1[6] = _unpack_bf16_9[6] + _unpack_bf16_8[6];
+                wepi_out0_1[7] = _unpack_bf16_9[7] + _unpack_bf16_8[7];
+                unsigned int wepi_out0_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out0_1[_lp*2 + 0], wepi_out0_1[_lp*2+1 + 0]));
+                    wepi_out0_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 4) * 5376 + wgcol) / 2)), "r"((wepi_out0_1_bf16 + 0)[(0) + 0]), "r"((wepi_out0_1_bf16 + 0)[(0) + 1]), "r"((wepi_out0_1_bf16 + 0)[(0) + 2]), "r"((wepi_out0_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 4 < M)) : "memory");
+                float wscaled_0[16];
+                wscaled_0[0] = accum[2] * sa[1] * sw[0];
+                wscaled_0[1] = accum[3] * sa[1] * sw[1];
+                wscaled_0[2] = accum[6] * sa[1] * sw[2];
+                wscaled_0[3] = accum[7] * sa[1] * sw[3];
+                wscaled_0[4] = accum[10] * sa[1] * sw[4];
+                wscaled_0[5] = accum[11] * sa[1] * sw[5];
+                wscaled_0[6] = accum[14] * sa[1] * sw[6];
+                wscaled_0[7] = accum[15] * sa[1] * sw[7];
+                wscaled_0[8] = accum[18] * sa[1] * sw[8];
+                wscaled_0[9] = accum[19] * sa[1] * sw[9];
+                wscaled_0[10] = accum[22] * sa[1] * sw[10];
+                wscaled_0[11] = accum[23] * sa[1] * sw[11];
+                wscaled_0[12] = accum[26] * sa[1] * sw[12];
+                wscaled_0[13] = accum[27] * sa[1] * sw[13];
+                wscaled_0[14] = accum[30] * sa[1] * sw[14];
+                wscaled_0[15] = accum[31] * sa[1] * sw[15];
+                unsigned int wscaled_0_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_0[_lp*2 + 0], scaled_0[_lp*2+1 + 0]));
-                    scaled_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_0[_lp*2 + 0], wscaled_0[_lp*2+1 + 0]));
+                    wscaled_0_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_10 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_14 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_10), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[3]))
+                    :: "r"(_stmatrix_addr_14), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_11 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_15 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_11), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_0_bf16[7]))
+                    :: "r"(_stmatrix_addr_15), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_0_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_1 = grow_base + 8;
-                if (grow_1 < M) {
-                    unsigned int o_words_1[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_1[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_4[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_4[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_1[_pair]) << 16);
-                        (&_unpack_bf16_4[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_1[_pair]) & 0xffff0000u);
-                    }
-                    int valid_1 = meta[1];
-                    float p_raw_1[16];
-                    for (int e_2 = 0; e_2 < 8; e_2++) {
-                        float gv0_1 = ops[e_2];
-                        float gv1_1 = ops[8 + e_2];
-                        float gs0_1 = ((valid_1 == 1) ? gv0_1 : 0.0f);
-                        float gs1_1 = ((valid_1 == 1) ? gv1_1 : 0.0f);
-                        p_raw_1[e_2] = gs0_1 * _unpack_bf16_4[e_2];
-                        p_raw_1[8 + e_2] = gs1_1 * _unpack_bf16_4[8 + e_2];
-                    }
-                    unsigned int p_raw_bf16_1[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_1[_lp*2 + 0], p_raw_1[_lp*2+1 + 0]));
-                        p_raw_bf16_1[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_5[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_5[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_1[_pair]) << 16);
-                        (&_unpack_bf16_5[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_1[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_1[16];
-                    for (int e_3 = 0; e_3 < 8; e_3++) {
-                        float rv0_1 = ops[16 + e_3];
-                        float rv1_1 = ops[24 + e_3];
-                        out_raw_1[e_3] = rv0_1 + _unpack_bf16_5[e_3];
-                        out_raw_1[8 + e_3] = rv1_1 + _unpack_bf16_5[8 + e_3];
-                    }
-                    unsigned int out_raw_bf16_1[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_1[_lp*2 + 0], out_raw_1[_lp*2+1 + 0]));
-                        out_raw_bf16_1[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_1 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_1 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_1 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_1 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_1 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 16 < M) ? grow_base + 16 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_1[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_1[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_12 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_12[1];
+                    const uint4* _vptr_16 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? wepi_gidx[6] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_16 = reinterpret_cast<uint4*>(&wgw[24]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_12[_blk] = _vptr_12[_blk];
-                        uint32_t* _vpairs_12 = reinterpret_cast<uint32_t*>(&_vld_12[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_12[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_12[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_16[_blk] = _vptr_16[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_13 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_13[1];
+                    const uint4* _vptr_17 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 24 < M) ? wrow_base + 24 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_17 = reinterpret_cast<uint4*>(&wrw[24]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_13[_blk] = _vptr_13[_blk];
-                        uint32_t* _vpairs_13 = reinterpret_cast<uint32_t*>(&_vld_13[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_13[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_13[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_17[_blk] = _vptr_17[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_14 = reinterpret_cast<const uint4*>(residual + (((grow_base + 16 < M) ? grow_base + 16 : 0) * 5376 + col) + 0);
-                    uint4 _vld_14[1];
+                    const uint4* _vptr_18 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? wepi_gidx[7] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_18 = reinterpret_cast<uint4*>(&wgw[28]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_14[_blk] = _vptr_14[_blk];
-                        uint32_t* _vpairs_14 = reinterpret_cast<uint32_t*>(&_vld_14[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_14[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_14[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_18[_blk] = _vptr_18[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_15 = reinterpret_cast<const uint4*>(residual + (((grow_base + 16 < M) ? grow_base + 16 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_15[1];
+                    const uint4* _vptr_19 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 28 < M) ? wrow_base + 28 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_19 = reinterpret_cast<uint4*>(&wrw[28]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_15[_blk] = _vptr_15[_blk];
-                        uint32_t* _vpairs_15 = reinterpret_cast<uint32_t*>(&_vld_15[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_15[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_15[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_19[_blk] = _vptr_19[_blk];
                     }
                 }
-                float scaled_2[16];
-                scaled_2[0] = accum[32] * sa[2] * sw[0];
-                scaled_2[1] = accum[33] * sa[2] * sw[1];
-                scaled_2[2] = accum[36] * sa[2] * sw[2];
-                scaled_2[3] = accum[37] * sa[2] * sw[3];
-                scaled_2[4] = accum[40] * sa[2] * sw[4];
-                scaled_2[5] = accum[41] * sa[2] * sw[5];
-                scaled_2[6] = accum[44] * sa[2] * sw[6];
-                scaled_2[7] = accum[45] * sa[2] * sw[7];
-                scaled_2[8] = accum[48] * sa[2] * sw[8];
-                scaled_2[9] = accum[49] * sa[2] * sw[9];
-                scaled_2[10] = accum[52] * sa[2] * sw[10];
-                scaled_2[11] = accum[53] * sa[2] * sw[11];
-                scaled_2[12] = accum[56] * sa[2] * sw[12];
-                scaled_2[13] = accum[57] * sa[2] * sw[13];
-                scaled_2[14] = accum[60] * sa[2] * sw[14];
-                scaled_2[15] = accum[61] * sa[2] * sw[15];
-                unsigned int scaled_2_bf16[8];
+                float _unpack_bf16_10[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_10[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_1[_pair]) << 16);
+                    (&_unpack_bf16_10[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_1[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_11[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_11[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[8 + _pair]) << 16);
+                    (&_unpack_bf16_11[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[8 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p1_0[8];
+                wepi_p1_0[0] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[0] : 0.0f) * _unpack_bf16_10[0];
+                wepi_p1_0[1] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[1] : 0.0f) * _unpack_bf16_10[1];
+                wepi_p1_0[2] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[2] : 0.0f) * _unpack_bf16_10[2];
+                wepi_p1_0[3] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[3] : 0.0f) * _unpack_bf16_10[3];
+                wepi_p1_0[4] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[4] : 0.0f) * _unpack_bf16_10[4];
+                wepi_p1_0[5] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[5] : 0.0f) * _unpack_bf16_10[5];
+                wepi_p1_0[6] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[6] : 0.0f) * _unpack_bf16_10[6];
+                wepi_p1_0[7] = ((wepi_gidx[2] >= 0 && wepi_gidx[2] < 9) ? _unpack_bf16_11[7] : 0.0f) * _unpack_bf16_10[7];
+                unsigned int wepi_p1_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p1_0[_lp*2 + 0], wepi_p1_0[_lp*2+1 + 0]));
+                    wepi_p1_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_12[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_12[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p1_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_12[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p1_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_13[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_13[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[8 + _pair]) << 16);
+                    (&_unpack_bf16_13[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[8 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out1_0[8];
+                wepi_out1_0[0] = _unpack_bf16_13[0] + _unpack_bf16_12[0];
+                wepi_out1_0[1] = _unpack_bf16_13[1] + _unpack_bf16_12[1];
+                wepi_out1_0[2] = _unpack_bf16_13[2] + _unpack_bf16_12[2];
+                wepi_out1_0[3] = _unpack_bf16_13[3] + _unpack_bf16_12[3];
+                wepi_out1_0[4] = _unpack_bf16_13[4] + _unpack_bf16_12[4];
+                wepi_out1_0[5] = _unpack_bf16_13[5] + _unpack_bf16_12[5];
+                wepi_out1_0[6] = _unpack_bf16_13[6] + _unpack_bf16_12[6];
+                wepi_out1_0[7] = _unpack_bf16_13[7] + _unpack_bf16_12[7];
+                unsigned int wepi_out1_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out1_0[_lp*2 + 0], wepi_out1_0[_lp*2+1 + 0]));
+                    wepi_out1_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 8) * 5376 + wgcol) / 2)), "r"((wepi_out1_0_bf16 + 0)[(0) + 0]), "r"((wepi_out1_0_bf16 + 0)[(0) + 1]), "r"((wepi_out1_0_bf16 + 0)[(0) + 2]), "r"((wepi_out1_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 8 < M)) : "memory");
+                float _unpack_bf16_14[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_14[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_1[4 + _pair]) << 16);
+                    (&_unpack_bf16_14[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_1[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_15[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_15[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[12 + _pair]) << 16);
+                    (&_unpack_bf16_15[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[12 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p1_1[8];
+                wepi_p1_1[0] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[0] : 0.0f) * _unpack_bf16_14[0];
+                wepi_p1_1[1] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[1] : 0.0f) * _unpack_bf16_14[1];
+                wepi_p1_1[2] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[2] : 0.0f) * _unpack_bf16_14[2];
+                wepi_p1_1[3] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[3] : 0.0f) * _unpack_bf16_14[3];
+                wepi_p1_1[4] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[4] : 0.0f) * _unpack_bf16_14[4];
+                wepi_p1_1[5] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[5] : 0.0f) * _unpack_bf16_14[5];
+                wepi_p1_1[6] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[6] : 0.0f) * _unpack_bf16_14[6];
+                wepi_p1_1[7] = ((wepi_gidx[3] >= 0 && wepi_gidx[3] < 9) ? _unpack_bf16_15[7] : 0.0f) * _unpack_bf16_14[7];
+                unsigned int wepi_p1_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p1_1[_lp*2 + 0], wepi_p1_1[_lp*2+1 + 0]));
+                    wepi_p1_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_16[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_16[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p1_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_16[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p1_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_17[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_17[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[12 + _pair]) << 16);
+                    (&_unpack_bf16_17[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[12 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out1_1[8];
+                wepi_out1_1[0] = _unpack_bf16_17[0] + _unpack_bf16_16[0];
+                wepi_out1_1[1] = _unpack_bf16_17[1] + _unpack_bf16_16[1];
+                wepi_out1_1[2] = _unpack_bf16_17[2] + _unpack_bf16_16[2];
+                wepi_out1_1[3] = _unpack_bf16_17[3] + _unpack_bf16_16[3];
+                wepi_out1_1[4] = _unpack_bf16_17[4] + _unpack_bf16_16[4];
+                wepi_out1_1[5] = _unpack_bf16_17[5] + _unpack_bf16_16[5];
+                wepi_out1_1[6] = _unpack_bf16_17[6] + _unpack_bf16_16[6];
+                wepi_out1_1[7] = _unpack_bf16_17[7] + _unpack_bf16_16[7];
+                unsigned int wepi_out1_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out1_1[_lp*2 + 0], wepi_out1_1[_lp*2+1 + 0]));
+                    wepi_out1_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 12) * 5376 + wgcol) / 2)), "r"((wepi_out1_1_bf16 + 0)[(0) + 0]), "r"((wepi_out1_1_bf16 + 0)[(0) + 1]), "r"((wepi_out1_1_bf16 + 0)[(0) + 2]), "r"((wepi_out1_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 12 < M)) : "memory");
+                float wscaled_2[16];
+                wscaled_2[0] = accum[32] * sa[2] * sw[0];
+                wscaled_2[1] = accum[33] * sa[2] * sw[1];
+                wscaled_2[2] = accum[36] * sa[2] * sw[2];
+                wscaled_2[3] = accum[37] * sa[2] * sw[3];
+                wscaled_2[4] = accum[40] * sa[2] * sw[4];
+                wscaled_2[5] = accum[41] * sa[2] * sw[5];
+                wscaled_2[6] = accum[44] * sa[2] * sw[6];
+                wscaled_2[7] = accum[45] * sa[2] * sw[7];
+                wscaled_2[8] = accum[48] * sa[2] * sw[8];
+                wscaled_2[9] = accum[49] * sa[2] * sw[9];
+                wscaled_2[10] = accum[52] * sa[2] * sw[10];
+                wscaled_2[11] = accum[53] * sa[2] * sw[11];
+                wscaled_2[12] = accum[56] * sa[2] * sw[12];
+                wscaled_2[13] = accum[57] * sa[2] * sw[13];
+                wscaled_2[14] = accum[60] * sa[2] * sw[14];
+                wscaled_2[15] = accum[61] * sa[2] * sw[15];
+                unsigned int wscaled_2_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_2[_lp*2 + 0], scaled_2[_lp*2+1 + 0]));
-                    scaled_2_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_2[_lp*2 + 0], wscaled_2[_lp*2+1 + 0]));
+                    wscaled_2_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_16 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_20 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_16), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[3]))
+                    :: "r"(_stmatrix_addr_20), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_17 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_21 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_17), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_2_bf16[7]))
+                    :: "r"(_stmatrix_addr_21), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_2_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_3 = grow_base + 16;
-                if (grow_3 < M) {
-                    unsigned int o_words_2[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_2[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_6[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_6[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_2[_pair]) << 16);
-                        (&_unpack_bf16_6[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_2[_pair]) & 0xffff0000u);
-                    }
-                    int valid_2 = meta[1];
-                    float p_raw_2[16];
-                    for (int e_4 = 0; e_4 < 8; e_4++) {
-                        float gv0_2 = ops[e_4];
-                        float gv1_2 = ops[8 + e_4];
-                        float gs0_2 = ((valid_2 == 1) ? gv0_2 : 0.0f);
-                        float gs1_2 = ((valid_2 == 1) ? gv1_2 : 0.0f);
-                        p_raw_2[e_4] = gs0_2 * _unpack_bf16_6[e_4];
-                        p_raw_2[8 + e_4] = gs1_2 * _unpack_bf16_6[8 + e_4];
-                    }
-                    unsigned int p_raw_bf16_2[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_2[_lp*2 + 0], p_raw_2[_lp*2+1 + 0]));
-                        p_raw_bf16_2[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_7[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_7[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_2[_pair]) << 16);
-                        (&_unpack_bf16_7[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_2[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_2[16];
-                    for (int e_5 = 0; e_5 < 8; e_5++) {
-                        float rv0_2 = ops[16 + e_5];
-                        float rv1_2 = ops[24 + e_5];
-                        out_raw_2[e_5] = rv0_2 + _unpack_bf16_7[e_5];
-                        out_raw_2[8 + e_5] = rv1_2 + _unpack_bf16_7[8 + e_5];
-                    }
-                    unsigned int out_raw_bf16_2[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_2[_lp*2 + 0], out_raw_2[_lp*2+1 + 0]));
-                        out_raw_bf16_2[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_3 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_3 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_2 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_3 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_2 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 24 < M) ? grow_base + 24 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_3[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_3[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_18 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_18[1];
+                    const uint4* _vptr_22 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? wepi_gidx[8] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_22 = reinterpret_cast<uint4*>(&wgw[32]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_18[_blk] = _vptr_18[_blk];
-                        uint32_t* _vpairs_18 = reinterpret_cast<uint32_t*>(&_vld_18[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_18[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_18[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_22[_blk] = _vptr_22[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_19 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_19[1];
+                    const uint4* _vptr_23 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 32 < M) ? wrow_base + 32 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_23 = reinterpret_cast<uint4*>(&wrw[32]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_19[_blk] = _vptr_19[_blk];
-                        uint32_t* _vpairs_19 = reinterpret_cast<uint32_t*>(&_vld_19[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_19[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_19[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_23[_blk] = _vptr_23[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_20 = reinterpret_cast<const uint4*>(residual + (((grow_base + 24 < M) ? grow_base + 24 : 0) * 5376 + col) + 0);
-                    uint4 _vld_20[1];
+                    const uint4* _vptr_24 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? wepi_gidx[9] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_24 = reinterpret_cast<uint4*>(&wgw[36]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_20[_blk] = _vptr_20[_blk];
-                        uint32_t* _vpairs_20 = reinterpret_cast<uint32_t*>(&_vld_20[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_20[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_20[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_24[_blk] = _vptr_24[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_21 = reinterpret_cast<const uint4*>(residual + (((grow_base + 24 < M) ? grow_base + 24 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_21[1];
+                    const uint4* _vptr_25 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 36 < M) ? wrow_base + 36 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_25 = reinterpret_cast<uint4*>(&wrw[36]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_21[_blk] = _vptr_21[_blk];
-                        uint32_t* _vpairs_21 = reinterpret_cast<uint32_t*>(&_vld_21[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_21[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_21[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_25[_blk] = _vptr_25[_blk];
                     }
                 }
-                float scaled_4[16];
-                scaled_4[0] = accum[34] * sa[3] * sw[0];
-                scaled_4[1] = accum[35] * sa[3] * sw[1];
-                scaled_4[2] = accum[38] * sa[3] * sw[2];
-                scaled_4[3] = accum[39] * sa[3] * sw[3];
-                scaled_4[4] = accum[42] * sa[3] * sw[4];
-                scaled_4[5] = accum[43] * sa[3] * sw[5];
-                scaled_4[6] = accum[46] * sa[3] * sw[6];
-                scaled_4[7] = accum[47] * sa[3] * sw[7];
-                scaled_4[8] = accum[50] * sa[3] * sw[8];
-                scaled_4[9] = accum[51] * sa[3] * sw[9];
-                scaled_4[10] = accum[54] * sa[3] * sw[10];
-                scaled_4[11] = accum[55] * sa[3] * sw[11];
-                scaled_4[12] = accum[58] * sa[3] * sw[12];
-                scaled_4[13] = accum[59] * sa[3] * sw[13];
-                scaled_4[14] = accum[62] * sa[3] * sw[14];
-                scaled_4[15] = accum[63] * sa[3] * sw[15];
-                unsigned int scaled_4_bf16[8];
+                float _unpack_bf16_18[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_18[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_3[_pair]) << 16);
+                    (&_unpack_bf16_18[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_3[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_19[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_19[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[16 + _pair]) << 16);
+                    (&_unpack_bf16_19[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[16 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p2_0[8];
+                wepi_p2_0[0] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[0] : 0.0f) * _unpack_bf16_18[0];
+                wepi_p2_0[1] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[1] : 0.0f) * _unpack_bf16_18[1];
+                wepi_p2_0[2] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[2] : 0.0f) * _unpack_bf16_18[2];
+                wepi_p2_0[3] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[3] : 0.0f) * _unpack_bf16_18[3];
+                wepi_p2_0[4] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[4] : 0.0f) * _unpack_bf16_18[4];
+                wepi_p2_0[5] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[5] : 0.0f) * _unpack_bf16_18[5];
+                wepi_p2_0[6] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[6] : 0.0f) * _unpack_bf16_18[6];
+                wepi_p2_0[7] = ((wepi_gidx[4] >= 0 && wepi_gidx[4] < 9) ? _unpack_bf16_19[7] : 0.0f) * _unpack_bf16_18[7];
+                unsigned int wepi_p2_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p2_0[_lp*2 + 0], wepi_p2_0[_lp*2+1 + 0]));
+                    wepi_p2_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_20[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_20[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p2_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_20[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p2_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_21[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_21[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[16 + _pair]) << 16);
+                    (&_unpack_bf16_21[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[16 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out2_0[8];
+                wepi_out2_0[0] = _unpack_bf16_21[0] + _unpack_bf16_20[0];
+                wepi_out2_0[1] = _unpack_bf16_21[1] + _unpack_bf16_20[1];
+                wepi_out2_0[2] = _unpack_bf16_21[2] + _unpack_bf16_20[2];
+                wepi_out2_0[3] = _unpack_bf16_21[3] + _unpack_bf16_20[3];
+                wepi_out2_0[4] = _unpack_bf16_21[4] + _unpack_bf16_20[4];
+                wepi_out2_0[5] = _unpack_bf16_21[5] + _unpack_bf16_20[5];
+                wepi_out2_0[6] = _unpack_bf16_21[6] + _unpack_bf16_20[6];
+                wepi_out2_0[7] = _unpack_bf16_21[7] + _unpack_bf16_20[7];
+                unsigned int wepi_out2_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out2_0[_lp*2 + 0], wepi_out2_0[_lp*2+1 + 0]));
+                    wepi_out2_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 16) * 5376 + wgcol) / 2)), "r"((wepi_out2_0_bf16 + 0)[(0) + 0]), "r"((wepi_out2_0_bf16 + 0)[(0) + 1]), "r"((wepi_out2_0_bf16 + 0)[(0) + 2]), "r"((wepi_out2_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 16 < M)) : "memory");
+                float _unpack_bf16_22[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_22[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_3[4 + _pair]) << 16);
+                    (&_unpack_bf16_22[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_3[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_23[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_23[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[20 + _pair]) << 16);
+                    (&_unpack_bf16_23[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[20 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p2_1[8];
+                wepi_p2_1[0] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[0] : 0.0f) * _unpack_bf16_22[0];
+                wepi_p2_1[1] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[1] : 0.0f) * _unpack_bf16_22[1];
+                wepi_p2_1[2] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[2] : 0.0f) * _unpack_bf16_22[2];
+                wepi_p2_1[3] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[3] : 0.0f) * _unpack_bf16_22[3];
+                wepi_p2_1[4] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[4] : 0.0f) * _unpack_bf16_22[4];
+                wepi_p2_1[5] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[5] : 0.0f) * _unpack_bf16_22[5];
+                wepi_p2_1[6] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[6] : 0.0f) * _unpack_bf16_22[6];
+                wepi_p2_1[7] = ((wepi_gidx[5] >= 0 && wepi_gidx[5] < 9) ? _unpack_bf16_23[7] : 0.0f) * _unpack_bf16_22[7];
+                unsigned int wepi_p2_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p2_1[_lp*2 + 0], wepi_p2_1[_lp*2+1 + 0]));
+                    wepi_p2_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_24[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_24[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p2_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_24[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p2_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_25[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_25[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[20 + _pair]) << 16);
+                    (&_unpack_bf16_25[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[20 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out2_1[8];
+                wepi_out2_1[0] = _unpack_bf16_25[0] + _unpack_bf16_24[0];
+                wepi_out2_1[1] = _unpack_bf16_25[1] + _unpack_bf16_24[1];
+                wepi_out2_1[2] = _unpack_bf16_25[2] + _unpack_bf16_24[2];
+                wepi_out2_1[3] = _unpack_bf16_25[3] + _unpack_bf16_24[3];
+                wepi_out2_1[4] = _unpack_bf16_25[4] + _unpack_bf16_24[4];
+                wepi_out2_1[5] = _unpack_bf16_25[5] + _unpack_bf16_24[5];
+                wepi_out2_1[6] = _unpack_bf16_25[6] + _unpack_bf16_24[6];
+                wepi_out2_1[7] = _unpack_bf16_25[7] + _unpack_bf16_24[7];
+                unsigned int wepi_out2_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out2_1[_lp*2 + 0], wepi_out2_1[_lp*2+1 + 0]));
+                    wepi_out2_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 20) * 5376 + wgcol) / 2)), "r"((wepi_out2_1_bf16 + 0)[(0) + 0]), "r"((wepi_out2_1_bf16 + 0)[(0) + 1]), "r"((wepi_out2_1_bf16 + 0)[(0) + 2]), "r"((wepi_out2_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 20 < M)) : "memory");
+                float wscaled_4[16];
+                wscaled_4[0] = accum[34] * sa[3] * sw[0];
+                wscaled_4[1] = accum[35] * sa[3] * sw[1];
+                wscaled_4[2] = accum[38] * sa[3] * sw[2];
+                wscaled_4[3] = accum[39] * sa[3] * sw[3];
+                wscaled_4[4] = accum[42] * sa[3] * sw[4];
+                wscaled_4[5] = accum[43] * sa[3] * sw[5];
+                wscaled_4[6] = accum[46] * sa[3] * sw[6];
+                wscaled_4[7] = accum[47] * sa[3] * sw[7];
+                wscaled_4[8] = accum[50] * sa[3] * sw[8];
+                wscaled_4[9] = accum[51] * sa[3] * sw[9];
+                wscaled_4[10] = accum[54] * sa[3] * sw[10];
+                wscaled_4[11] = accum[55] * sa[3] * sw[11];
+                wscaled_4[12] = accum[58] * sa[3] * sw[12];
+                wscaled_4[13] = accum[59] * sa[3] * sw[13];
+                wscaled_4[14] = accum[62] * sa[3] * sw[14];
+                wscaled_4[15] = accum[63] * sa[3] * sw[15];
+                unsigned int wscaled_4_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_4[_lp*2 + 0], scaled_4[_lp*2+1 + 0]));
-                    scaled_4_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_4[_lp*2 + 0], wscaled_4[_lp*2+1 + 0]));
+                    wscaled_4_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_22 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_26 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_22), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[3]))
+                    :: "r"(_stmatrix_addr_26), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_23 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_27 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_23), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_4_bf16[7]))
+                    :: "r"(_stmatrix_addr_27), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_4_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_5 = grow_base + 24;
-                if (grow_5 < M) {
-                    unsigned int o_words_3[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_3[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_8[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_8[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_3[_pair]) << 16);
-                        (&_unpack_bf16_8[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_3[_pair]) & 0xffff0000u);
-                    }
-                    int valid_3 = meta[1];
-                    float p_raw_3[16];
-                    for (int e_6 = 0; e_6 < 8; e_6++) {
-                        float gv0_3 = ops[e_6];
-                        float gv1_3 = ops[8 + e_6];
-                        float gs0_3 = ((valid_3 == 1) ? gv0_3 : 0.0f);
-                        float gs1_3 = ((valid_3 == 1) ? gv1_3 : 0.0f);
-                        p_raw_3[e_6] = gs0_3 * _unpack_bf16_8[e_6];
-                        p_raw_3[8 + e_6] = gs1_3 * _unpack_bf16_8[8 + e_6];
-                    }
-                    unsigned int p_raw_bf16_3[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_3[_lp*2 + 0], p_raw_3[_lp*2+1 + 0]));
-                        p_raw_bf16_3[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_9[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_9[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_3[_pair]) << 16);
-                        (&_unpack_bf16_9[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_3[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_3[16];
-                    for (int e_7 = 0; e_7 < 8; e_7++) {
-                        float rv0_3 = ops[16 + e_7];
-                        float rv1_3 = ops[24 + e_7];
-                        out_raw_3[e_7] = rv0_3 + _unpack_bf16_9[e_7];
-                        out_raw_3[8 + e_7] = rv1_3 + _unpack_bf16_9[8 + e_7];
-                    }
-                    unsigned int out_raw_bf16_3[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_3[_lp*2 + 0], out_raw_3[_lp*2+1 + 0]));
-                        out_raw_bf16_3[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_5 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_5 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_3 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_5 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_3 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 32 < M) ? grow_base + 32 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_5[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_5[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_24 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_24[1];
+                    const uint4* _vptr_28 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? wepi_gidx[10] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_28 = reinterpret_cast<uint4*>(&wgw[40]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_24[_blk] = _vptr_24[_blk];
-                        uint32_t* _vpairs_24 = reinterpret_cast<uint32_t*>(&_vld_24[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_24[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_24[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_28[_blk] = _vptr_28[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_25 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_25[1];
+                    const uint4* _vptr_29 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 40 < M) ? wrow_base + 40 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_29 = reinterpret_cast<uint4*>(&wrw[40]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_25[_blk] = _vptr_25[_blk];
-                        uint32_t* _vpairs_25 = reinterpret_cast<uint32_t*>(&_vld_25[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_25[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_25[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_29[_blk] = _vptr_29[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_26 = reinterpret_cast<const uint4*>(residual + (((grow_base + 32 < M) ? grow_base + 32 : 0) * 5376 + col) + 0);
-                    uint4 _vld_26[1];
+                    const uint4* _vptr_30 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? wepi_gidx[11] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_30 = reinterpret_cast<uint4*>(&wgw[44]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_26[_blk] = _vptr_26[_blk];
-                        uint32_t* _vpairs_26 = reinterpret_cast<uint32_t*>(&_vld_26[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_26[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_26[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_30[_blk] = _vptr_30[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_27 = reinterpret_cast<const uint4*>(residual + (((grow_base + 32 < M) ? grow_base + 32 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_27[1];
+                    const uint4* _vptr_31 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 44 < M) ? wrow_base + 44 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_31 = reinterpret_cast<uint4*>(&wrw[44]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_27[_blk] = _vptr_27[_blk];
-                        uint32_t* _vpairs_27 = reinterpret_cast<uint32_t*>(&_vld_27[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_27[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_27[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_31[_blk] = _vptr_31[_blk];
                     }
                 }
-                float scaled_6[16];
-                scaled_6[0] = accum[64] * sa[4] * sw[0];
-                scaled_6[1] = accum[65] * sa[4] * sw[1];
-                scaled_6[2] = accum[68] * sa[4] * sw[2];
-                scaled_6[3] = accum[69] * sa[4] * sw[3];
-                scaled_6[4] = accum[72] * sa[4] * sw[4];
-                scaled_6[5] = accum[73] * sa[4] * sw[5];
-                scaled_6[6] = accum[76] * sa[4] * sw[6];
-                scaled_6[7] = accum[77] * sa[4] * sw[7];
-                scaled_6[8] = accum[80] * sa[4] * sw[8];
-                scaled_6[9] = accum[81] * sa[4] * sw[9];
-                scaled_6[10] = accum[84] * sa[4] * sw[10];
-                scaled_6[11] = accum[85] * sa[4] * sw[11];
-                scaled_6[12] = accum[88] * sa[4] * sw[12];
-                scaled_6[13] = accum[89] * sa[4] * sw[13];
-                scaled_6[14] = accum[92] * sa[4] * sw[14];
-                scaled_6[15] = accum[93] * sa[4] * sw[15];
-                unsigned int scaled_6_bf16[8];
+                float _unpack_bf16_26[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_26[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_5[_pair]) << 16);
+                    (&_unpack_bf16_26[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_5[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_27[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_27[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[24 + _pair]) << 16);
+                    (&_unpack_bf16_27[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[24 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p3_0[8];
+                wepi_p3_0[0] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[0] : 0.0f) * _unpack_bf16_26[0];
+                wepi_p3_0[1] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[1] : 0.0f) * _unpack_bf16_26[1];
+                wepi_p3_0[2] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[2] : 0.0f) * _unpack_bf16_26[2];
+                wepi_p3_0[3] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[3] : 0.0f) * _unpack_bf16_26[3];
+                wepi_p3_0[4] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[4] : 0.0f) * _unpack_bf16_26[4];
+                wepi_p3_0[5] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[5] : 0.0f) * _unpack_bf16_26[5];
+                wepi_p3_0[6] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[6] : 0.0f) * _unpack_bf16_26[6];
+                wepi_p3_0[7] = ((wepi_gidx[6] >= 0 && wepi_gidx[6] < 9) ? _unpack_bf16_27[7] : 0.0f) * _unpack_bf16_26[7];
+                unsigned int wepi_p3_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p3_0[_lp*2 + 0], wepi_p3_0[_lp*2+1 + 0]));
+                    wepi_p3_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_28[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_28[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p3_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_28[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p3_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_29[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_29[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[24 + _pair]) << 16);
+                    (&_unpack_bf16_29[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[24 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out3_0[8];
+                wepi_out3_0[0] = _unpack_bf16_29[0] + _unpack_bf16_28[0];
+                wepi_out3_0[1] = _unpack_bf16_29[1] + _unpack_bf16_28[1];
+                wepi_out3_0[2] = _unpack_bf16_29[2] + _unpack_bf16_28[2];
+                wepi_out3_0[3] = _unpack_bf16_29[3] + _unpack_bf16_28[3];
+                wepi_out3_0[4] = _unpack_bf16_29[4] + _unpack_bf16_28[4];
+                wepi_out3_0[5] = _unpack_bf16_29[5] + _unpack_bf16_28[5];
+                wepi_out3_0[6] = _unpack_bf16_29[6] + _unpack_bf16_28[6];
+                wepi_out3_0[7] = _unpack_bf16_29[7] + _unpack_bf16_28[7];
+                unsigned int wepi_out3_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out3_0[_lp*2 + 0], wepi_out3_0[_lp*2+1 + 0]));
+                    wepi_out3_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 24) * 5376 + wgcol) / 2)), "r"((wepi_out3_0_bf16 + 0)[(0) + 0]), "r"((wepi_out3_0_bf16 + 0)[(0) + 1]), "r"((wepi_out3_0_bf16 + 0)[(0) + 2]), "r"((wepi_out3_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 24 < M)) : "memory");
+                float _unpack_bf16_30[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_30[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_5[4 + _pair]) << 16);
+                    (&_unpack_bf16_30[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_5[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_31[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_31[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[28 + _pair]) << 16);
+                    (&_unpack_bf16_31[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[28 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p3_1[8];
+                wepi_p3_1[0] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[0] : 0.0f) * _unpack_bf16_30[0];
+                wepi_p3_1[1] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[1] : 0.0f) * _unpack_bf16_30[1];
+                wepi_p3_1[2] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[2] : 0.0f) * _unpack_bf16_30[2];
+                wepi_p3_1[3] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[3] : 0.0f) * _unpack_bf16_30[3];
+                wepi_p3_1[4] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[4] : 0.0f) * _unpack_bf16_30[4];
+                wepi_p3_1[5] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[5] : 0.0f) * _unpack_bf16_30[5];
+                wepi_p3_1[6] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[6] : 0.0f) * _unpack_bf16_30[6];
+                wepi_p3_1[7] = ((wepi_gidx[7] >= 0 && wepi_gidx[7] < 9) ? _unpack_bf16_31[7] : 0.0f) * _unpack_bf16_30[7];
+                unsigned int wepi_p3_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p3_1[_lp*2 + 0], wepi_p3_1[_lp*2+1 + 0]));
+                    wepi_p3_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_32[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_32[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p3_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_32[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p3_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_33[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_33[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[28 + _pair]) << 16);
+                    (&_unpack_bf16_33[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[28 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out3_1[8];
+                wepi_out3_1[0] = _unpack_bf16_33[0] + _unpack_bf16_32[0];
+                wepi_out3_1[1] = _unpack_bf16_33[1] + _unpack_bf16_32[1];
+                wepi_out3_1[2] = _unpack_bf16_33[2] + _unpack_bf16_32[2];
+                wepi_out3_1[3] = _unpack_bf16_33[3] + _unpack_bf16_32[3];
+                wepi_out3_1[4] = _unpack_bf16_33[4] + _unpack_bf16_32[4];
+                wepi_out3_1[5] = _unpack_bf16_33[5] + _unpack_bf16_32[5];
+                wepi_out3_1[6] = _unpack_bf16_33[6] + _unpack_bf16_32[6];
+                wepi_out3_1[7] = _unpack_bf16_33[7] + _unpack_bf16_32[7];
+                unsigned int wepi_out3_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out3_1[_lp*2 + 0], wepi_out3_1[_lp*2+1 + 0]));
+                    wepi_out3_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 28) * 5376 + wgcol) / 2)), "r"((wepi_out3_1_bf16 + 0)[(0) + 0]), "r"((wepi_out3_1_bf16 + 0)[(0) + 1]), "r"((wepi_out3_1_bf16 + 0)[(0) + 2]), "r"((wepi_out3_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 28 < M)) : "memory");
+                float wscaled_6[16];
+                wscaled_6[0] = accum[64] * sa[4] * sw[0];
+                wscaled_6[1] = accum[65] * sa[4] * sw[1];
+                wscaled_6[2] = accum[68] * sa[4] * sw[2];
+                wscaled_6[3] = accum[69] * sa[4] * sw[3];
+                wscaled_6[4] = accum[72] * sa[4] * sw[4];
+                wscaled_6[5] = accum[73] * sa[4] * sw[5];
+                wscaled_6[6] = accum[76] * sa[4] * sw[6];
+                wscaled_6[7] = accum[77] * sa[4] * sw[7];
+                wscaled_6[8] = accum[80] * sa[4] * sw[8];
+                wscaled_6[9] = accum[81] * sa[4] * sw[9];
+                wscaled_6[10] = accum[84] * sa[4] * sw[10];
+                wscaled_6[11] = accum[85] * sa[4] * sw[11];
+                wscaled_6[12] = accum[88] * sa[4] * sw[12];
+                wscaled_6[13] = accum[89] * sa[4] * sw[13];
+                wscaled_6[14] = accum[92] * sa[4] * sw[14];
+                wscaled_6[15] = accum[93] * sa[4] * sw[15];
+                unsigned int wscaled_6_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_6[_lp*2 + 0], scaled_6[_lp*2+1 + 0]));
-                    scaled_6_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_6[_lp*2 + 0], wscaled_6[_lp*2+1 + 0]));
+                    wscaled_6_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_28 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_32 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_28), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[3]))
+                    :: "r"(_stmatrix_addr_32), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_29 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_33 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_29), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_6_bf16[7]))
+                    :: "r"(_stmatrix_addr_33), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_6_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_7 = grow_base + 32;
-                if (grow_7 < M) {
-                    unsigned int o_words_4[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_4[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_10[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_10[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_4[_pair]) << 16);
-                        (&_unpack_bf16_10[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_4[_pair]) & 0xffff0000u);
-                    }
-                    int valid_4 = meta[1];
-                    float p_raw_4[16];
-                    for (int e_8 = 0; e_8 < 8; e_8++) {
-                        float gv0_4 = ops[e_8];
-                        float gv1_4 = ops[8 + e_8];
-                        float gs0_4 = ((valid_4 == 1) ? gv0_4 : 0.0f);
-                        float gs1_4 = ((valid_4 == 1) ? gv1_4 : 0.0f);
-                        p_raw_4[e_8] = gs0_4 * _unpack_bf16_10[e_8];
-                        p_raw_4[8 + e_8] = gs1_4 * _unpack_bf16_10[8 + e_8];
-                    }
-                    unsigned int p_raw_bf16_4[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_4[_lp*2 + 0], p_raw_4[_lp*2+1 + 0]));
-                        p_raw_bf16_4[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_11[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_11[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_4[_pair]) << 16);
-                        (&_unpack_bf16_11[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_4[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_4[16];
-                    for (int e_9 = 0; e_9 < 8; e_9++) {
-                        float rv0_4 = ops[16 + e_9];
-                        float rv1_4 = ops[24 + e_9];
-                        out_raw_4[e_9] = rv0_4 + _unpack_bf16_11[e_9];
-                        out_raw_4[8 + e_9] = rv1_4 + _unpack_bf16_11[8 + e_9];
-                    }
-                    unsigned int out_raw_bf16_4[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_4[_lp*2 + 0], out_raw_4[_lp*2+1 + 0]));
-                        out_raw_bf16_4[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_7 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_7 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_4 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_7 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_4 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 40 < M) ? grow_base + 40 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_7[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_7[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_30 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_30[1];
+                    const uint4* _vptr_34 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? wepi_gidx[12] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_34 = reinterpret_cast<uint4*>(&wgw[48]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_30[_blk] = _vptr_30[_blk];
-                        uint32_t* _vpairs_30 = reinterpret_cast<uint32_t*>(&_vld_30[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_30[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_30[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_34[_blk] = _vptr_34[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_31 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_31[1];
+                    const uint4* _vptr_35 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 48 < M) ? wrow_base + 48 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_35 = reinterpret_cast<uint4*>(&wrw[48]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_31[_blk] = _vptr_31[_blk];
-                        uint32_t* _vpairs_31 = reinterpret_cast<uint32_t*>(&_vld_31[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_31[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_31[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_35[_blk] = _vptr_35[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_32 = reinterpret_cast<const uint4*>(residual + (((grow_base + 40 < M) ? grow_base + 40 : 0) * 5376 + col) + 0);
-                    uint4 _vld_32[1];
+                    const uint4* _vptr_36 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? wepi_gidx[13] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_36 = reinterpret_cast<uint4*>(&wgw[52]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_32[_blk] = _vptr_32[_blk];
-                        uint32_t* _vpairs_32 = reinterpret_cast<uint32_t*>(&_vld_32[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_32[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_32[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_36[_blk] = _vptr_36[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_33 = reinterpret_cast<const uint4*>(residual + (((grow_base + 40 < M) ? grow_base + 40 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_33[1];
+                    const uint4* _vptr_37 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 52 < M) ? wrow_base + 52 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_37 = reinterpret_cast<uint4*>(&wrw[52]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_33[_blk] = _vptr_33[_blk];
-                        uint32_t* _vpairs_33 = reinterpret_cast<uint32_t*>(&_vld_33[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_33[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_33[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_37[_blk] = _vptr_37[_blk];
                     }
                 }
-                float scaled_8[16];
-                scaled_8[0] = accum[66] * sa[5] * sw[0];
-                scaled_8[1] = accum[67] * sa[5] * sw[1];
-                scaled_8[2] = accum[70] * sa[5] * sw[2];
-                scaled_8[3] = accum[71] * sa[5] * sw[3];
-                scaled_8[4] = accum[74] * sa[5] * sw[4];
-                scaled_8[5] = accum[75] * sa[5] * sw[5];
-                scaled_8[6] = accum[78] * sa[5] * sw[6];
-                scaled_8[7] = accum[79] * sa[5] * sw[7];
-                scaled_8[8] = accum[82] * sa[5] * sw[8];
-                scaled_8[9] = accum[83] * sa[5] * sw[9];
-                scaled_8[10] = accum[86] * sa[5] * sw[10];
-                scaled_8[11] = accum[87] * sa[5] * sw[11];
-                scaled_8[12] = accum[90] * sa[5] * sw[12];
-                scaled_8[13] = accum[91] * sa[5] * sw[13];
-                scaled_8[14] = accum[94] * sa[5] * sw[14];
-                scaled_8[15] = accum[95] * sa[5] * sw[15];
-                unsigned int scaled_8_bf16[8];
+                float _unpack_bf16_34[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_34[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_7[_pair]) << 16);
+                    (&_unpack_bf16_34[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_7[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_35[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_35[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[32 + _pair]) << 16);
+                    (&_unpack_bf16_35[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[32 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p4_0[8];
+                wepi_p4_0[0] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[0] : 0.0f) * _unpack_bf16_34[0];
+                wepi_p4_0[1] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[1] : 0.0f) * _unpack_bf16_34[1];
+                wepi_p4_0[2] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[2] : 0.0f) * _unpack_bf16_34[2];
+                wepi_p4_0[3] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[3] : 0.0f) * _unpack_bf16_34[3];
+                wepi_p4_0[4] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[4] : 0.0f) * _unpack_bf16_34[4];
+                wepi_p4_0[5] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[5] : 0.0f) * _unpack_bf16_34[5];
+                wepi_p4_0[6] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[6] : 0.0f) * _unpack_bf16_34[6];
+                wepi_p4_0[7] = ((wepi_gidx[8] >= 0 && wepi_gidx[8] < 9) ? _unpack_bf16_35[7] : 0.0f) * _unpack_bf16_34[7];
+                unsigned int wepi_p4_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p4_0[_lp*2 + 0], wepi_p4_0[_lp*2+1 + 0]));
+                    wepi_p4_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_36[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_36[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p4_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_36[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p4_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_37[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_37[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[32 + _pair]) << 16);
+                    (&_unpack_bf16_37[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[32 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out4_0[8];
+                wepi_out4_0[0] = _unpack_bf16_37[0] + _unpack_bf16_36[0];
+                wepi_out4_0[1] = _unpack_bf16_37[1] + _unpack_bf16_36[1];
+                wepi_out4_0[2] = _unpack_bf16_37[2] + _unpack_bf16_36[2];
+                wepi_out4_0[3] = _unpack_bf16_37[3] + _unpack_bf16_36[3];
+                wepi_out4_0[4] = _unpack_bf16_37[4] + _unpack_bf16_36[4];
+                wepi_out4_0[5] = _unpack_bf16_37[5] + _unpack_bf16_36[5];
+                wepi_out4_0[6] = _unpack_bf16_37[6] + _unpack_bf16_36[6];
+                wepi_out4_0[7] = _unpack_bf16_37[7] + _unpack_bf16_36[7];
+                unsigned int wepi_out4_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out4_0[_lp*2 + 0], wepi_out4_0[_lp*2+1 + 0]));
+                    wepi_out4_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 32) * 5376 + wgcol) / 2)), "r"((wepi_out4_0_bf16 + 0)[(0) + 0]), "r"((wepi_out4_0_bf16 + 0)[(0) + 1]), "r"((wepi_out4_0_bf16 + 0)[(0) + 2]), "r"((wepi_out4_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 32 < M)) : "memory");
+                float _unpack_bf16_38[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_38[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_7[4 + _pair]) << 16);
+                    (&_unpack_bf16_38[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_7[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_39[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_39[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[36 + _pair]) << 16);
+                    (&_unpack_bf16_39[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[36 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p4_1[8];
+                wepi_p4_1[0] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[0] : 0.0f) * _unpack_bf16_38[0];
+                wepi_p4_1[1] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[1] : 0.0f) * _unpack_bf16_38[1];
+                wepi_p4_1[2] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[2] : 0.0f) * _unpack_bf16_38[2];
+                wepi_p4_1[3] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[3] : 0.0f) * _unpack_bf16_38[3];
+                wepi_p4_1[4] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[4] : 0.0f) * _unpack_bf16_38[4];
+                wepi_p4_1[5] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[5] : 0.0f) * _unpack_bf16_38[5];
+                wepi_p4_1[6] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[6] : 0.0f) * _unpack_bf16_38[6];
+                wepi_p4_1[7] = ((wepi_gidx[9] >= 0 && wepi_gidx[9] < 9) ? _unpack_bf16_39[7] : 0.0f) * _unpack_bf16_38[7];
+                unsigned int wepi_p4_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p4_1[_lp*2 + 0], wepi_p4_1[_lp*2+1 + 0]));
+                    wepi_p4_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_40[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_40[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p4_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_40[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p4_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_41[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_41[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[36 + _pair]) << 16);
+                    (&_unpack_bf16_41[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[36 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out4_1[8];
+                wepi_out4_1[0] = _unpack_bf16_41[0] + _unpack_bf16_40[0];
+                wepi_out4_1[1] = _unpack_bf16_41[1] + _unpack_bf16_40[1];
+                wepi_out4_1[2] = _unpack_bf16_41[2] + _unpack_bf16_40[2];
+                wepi_out4_1[3] = _unpack_bf16_41[3] + _unpack_bf16_40[3];
+                wepi_out4_1[4] = _unpack_bf16_41[4] + _unpack_bf16_40[4];
+                wepi_out4_1[5] = _unpack_bf16_41[5] + _unpack_bf16_40[5];
+                wepi_out4_1[6] = _unpack_bf16_41[6] + _unpack_bf16_40[6];
+                wepi_out4_1[7] = _unpack_bf16_41[7] + _unpack_bf16_40[7];
+                unsigned int wepi_out4_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out4_1[_lp*2 + 0], wepi_out4_1[_lp*2+1 + 0]));
+                    wepi_out4_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 36) * 5376 + wgcol) / 2)), "r"((wepi_out4_1_bf16 + 0)[(0) + 0]), "r"((wepi_out4_1_bf16 + 0)[(0) + 1]), "r"((wepi_out4_1_bf16 + 0)[(0) + 2]), "r"((wepi_out4_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 36 < M)) : "memory");
+                float wscaled_8[16];
+                wscaled_8[0] = accum[66] * sa[5] * sw[0];
+                wscaled_8[1] = accum[67] * sa[5] * sw[1];
+                wscaled_8[2] = accum[70] * sa[5] * sw[2];
+                wscaled_8[3] = accum[71] * sa[5] * sw[3];
+                wscaled_8[4] = accum[74] * sa[5] * sw[4];
+                wscaled_8[5] = accum[75] * sa[5] * sw[5];
+                wscaled_8[6] = accum[78] * sa[5] * sw[6];
+                wscaled_8[7] = accum[79] * sa[5] * sw[7];
+                wscaled_8[8] = accum[82] * sa[5] * sw[8];
+                wscaled_8[9] = accum[83] * sa[5] * sw[9];
+                wscaled_8[10] = accum[86] * sa[5] * sw[10];
+                wscaled_8[11] = accum[87] * sa[5] * sw[11];
+                wscaled_8[12] = accum[90] * sa[5] * sw[12];
+                wscaled_8[13] = accum[91] * sa[5] * sw[13];
+                wscaled_8[14] = accum[94] * sa[5] * sw[14];
+                wscaled_8[15] = accum[95] * sa[5] * sw[15];
+                unsigned int wscaled_8_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_8[_lp*2 + 0], scaled_8[_lp*2+1 + 0]));
-                    scaled_8_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_8[_lp*2 + 0], wscaled_8[_lp*2+1 + 0]));
+                    wscaled_8_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_34 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_38 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_34), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[3]))
+                    :: "r"(_stmatrix_addr_38), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_35 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_39 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_35), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_8_bf16[7]))
+                    :: "r"(_stmatrix_addr_39), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_8_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_9 = grow_base + 40;
-                if (grow_9 < M) {
-                    unsigned int o_words_5[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_5[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_12[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_12[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_5[_pair]) << 16);
-                        (&_unpack_bf16_12[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_5[_pair]) & 0xffff0000u);
-                    }
-                    int valid_5 = meta[1];
-                    float p_raw_5[16];
-                    for (int e_10 = 0; e_10 < 8; e_10++) {
-                        float gv0_5 = ops[e_10];
-                        float gv1_5 = ops[8 + e_10];
-                        float gs0_5 = ((valid_5 == 1) ? gv0_5 : 0.0f);
-                        float gs1_5 = ((valid_5 == 1) ? gv1_5 : 0.0f);
-                        p_raw_5[e_10] = gs0_5 * _unpack_bf16_12[e_10];
-                        p_raw_5[8 + e_10] = gs1_5 * _unpack_bf16_12[8 + e_10];
-                    }
-                    unsigned int p_raw_bf16_5[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_5[_lp*2 + 0], p_raw_5[_lp*2+1 + 0]));
-                        p_raw_bf16_5[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_13[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_13[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_5[_pair]) << 16);
-                        (&_unpack_bf16_13[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_5[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_5[16];
-                    for (int e_11 = 0; e_11 < 8; e_11++) {
-                        float rv0_5 = ops[16 + e_11];
-                        float rv1_5 = ops[24 + e_11];
-                        out_raw_5[e_11] = rv0_5 + _unpack_bf16_13[e_11];
-                        out_raw_5[8 + e_11] = rv1_5 + _unpack_bf16_13[8 + e_11];
-                    }
-                    unsigned int out_raw_bf16_5[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_5[_lp*2 + 0], out_raw_5[_lp*2+1 + 0]));
-                        out_raw_bf16_5[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_9 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_9 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_5 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_9 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_5 + 4)[0];
-                    }
-                }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 48 < M) ? grow_base + 48 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
+                __syncwarp();
+                unsigned int wo_words_9[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_9[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
                 {
-                    const uint4* _vptr_36 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_36[1];
+                    const uint4* _vptr_40 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? wepi_gidx[14] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_40 = reinterpret_cast<uint4*>(&wgw[56]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_36[_blk] = _vptr_36[_blk];
-                        uint32_t* _vpairs_36 = reinterpret_cast<uint32_t*>(&_vld_36[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_36[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_36[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_40[_blk] = _vptr_40[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_37 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_37[1];
+                    const uint4* _vptr_41 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 56 < M) ? wrow_base + 56 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_41 = reinterpret_cast<uint4*>(&wrw[56]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_37[_blk] = _vptr_37[_blk];
-                        uint32_t* _vpairs_37 = reinterpret_cast<uint32_t*>(&_vld_37[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_37[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_37[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_41[_blk] = _vptr_41[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_38 = reinterpret_cast<const uint4*>(residual + (((grow_base + 48 < M) ? grow_base + 48 : 0) * 5376 + col) + 0);
-                    uint4 _vld_38[1];
+                    const uint4* _vptr_42 = reinterpret_cast<const uint4*>(gate + (((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? wepi_gidx[15] : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_42 = reinterpret_cast<uint4*>(&wgw[60]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_38[_blk] = _vptr_38[_blk];
-                        uint32_t* _vpairs_38 = reinterpret_cast<uint32_t*>(&_vld_38[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_38[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_38[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_42[_blk] = _vptr_42[_blk];
                     }
                 }
                 {
-                    const uint4* _vptr_39 = reinterpret_cast<const uint4*>(residual + (((grow_base + 48 < M) ? grow_base + 48 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_39[1];
+                    const uint4* _vptr_43 = reinterpret_cast<const uint4*>(residual + (((wrow_base + 60 < M) ? wrow_base + 60 : 0) * 5376 + wgcol) + 0);
+                    uint4* _vdst_43 = reinterpret_cast<uint4*>(&wrw[60]);
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_39[_blk] = _vptr_39[_blk];
-                        uint32_t* _vpairs_39 = reinterpret_cast<uint32_t*>(&_vld_39[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_39[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_39[_pair]) & 0xffff0000u);
-                        }
+                        _vdst_43[_blk] = _vptr_43[_blk];
                     }
                 }
-                float scaled_10[16];
-                scaled_10[0] = accum[96] * sa[6] * sw[0];
-                scaled_10[1] = accum[97] * sa[6] * sw[1];
-                scaled_10[2] = accum[100] * sa[6] * sw[2];
-                scaled_10[3] = accum[101] * sa[6] * sw[3];
-                scaled_10[4] = accum[104] * sa[6] * sw[4];
-                scaled_10[5] = accum[105] * sa[6] * sw[5];
-                scaled_10[6] = accum[108] * sa[6] * sw[6];
-                scaled_10[7] = accum[109] * sa[6] * sw[7];
-                scaled_10[8] = accum[112] * sa[6] * sw[8];
-                scaled_10[9] = accum[113] * sa[6] * sw[9];
-                scaled_10[10] = accum[116] * sa[6] * sw[10];
-                scaled_10[11] = accum[117] * sa[6] * sw[11];
-                scaled_10[12] = accum[120] * sa[6] * sw[12];
-                scaled_10[13] = accum[121] * sa[6] * sw[13];
-                scaled_10[14] = accum[124] * sa[6] * sw[14];
-                scaled_10[15] = accum[125] * sa[6] * sw[15];
-                unsigned int scaled_10_bf16[8];
+                float _unpack_bf16_42[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_42[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_9[_pair]) << 16);
+                    (&_unpack_bf16_42[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_9[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_43[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_43[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[40 + _pair]) << 16);
+                    (&_unpack_bf16_43[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[40 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p5_0[8];
+                wepi_p5_0[0] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[0] : 0.0f) * _unpack_bf16_42[0];
+                wepi_p5_0[1] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[1] : 0.0f) * _unpack_bf16_42[1];
+                wepi_p5_0[2] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[2] : 0.0f) * _unpack_bf16_42[2];
+                wepi_p5_0[3] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[3] : 0.0f) * _unpack_bf16_42[3];
+                wepi_p5_0[4] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[4] : 0.0f) * _unpack_bf16_42[4];
+                wepi_p5_0[5] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[5] : 0.0f) * _unpack_bf16_42[5];
+                wepi_p5_0[6] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[6] : 0.0f) * _unpack_bf16_42[6];
+                wepi_p5_0[7] = ((wepi_gidx[10] >= 0 && wepi_gidx[10] < 9) ? _unpack_bf16_43[7] : 0.0f) * _unpack_bf16_42[7];
+                unsigned int wepi_p5_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p5_0[_lp*2 + 0], wepi_p5_0[_lp*2+1 + 0]));
+                    wepi_p5_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_44[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_44[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p5_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_44[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p5_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_45[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_45[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[40 + _pair]) << 16);
+                    (&_unpack_bf16_45[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[40 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out5_0[8];
+                wepi_out5_0[0] = _unpack_bf16_45[0] + _unpack_bf16_44[0];
+                wepi_out5_0[1] = _unpack_bf16_45[1] + _unpack_bf16_44[1];
+                wepi_out5_0[2] = _unpack_bf16_45[2] + _unpack_bf16_44[2];
+                wepi_out5_0[3] = _unpack_bf16_45[3] + _unpack_bf16_44[3];
+                wepi_out5_0[4] = _unpack_bf16_45[4] + _unpack_bf16_44[4];
+                wepi_out5_0[5] = _unpack_bf16_45[5] + _unpack_bf16_44[5];
+                wepi_out5_0[6] = _unpack_bf16_45[6] + _unpack_bf16_44[6];
+                wepi_out5_0[7] = _unpack_bf16_45[7] + _unpack_bf16_44[7];
+                unsigned int wepi_out5_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out5_0[_lp*2 + 0], wepi_out5_0[_lp*2+1 + 0]));
+                    wepi_out5_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 40) * 5376 + wgcol) / 2)), "r"((wepi_out5_0_bf16 + 0)[(0) + 0]), "r"((wepi_out5_0_bf16 + 0)[(0) + 1]), "r"((wepi_out5_0_bf16 + 0)[(0) + 2]), "r"((wepi_out5_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 40 < M)) : "memory");
+                float _unpack_bf16_46[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_46[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_9[4 + _pair]) << 16);
+                    (&_unpack_bf16_46[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_9[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_47[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_47[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[44 + _pair]) << 16);
+                    (&_unpack_bf16_47[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[44 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p5_1[8];
+                wepi_p5_1[0] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[0] : 0.0f) * _unpack_bf16_46[0];
+                wepi_p5_1[1] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[1] : 0.0f) * _unpack_bf16_46[1];
+                wepi_p5_1[2] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[2] : 0.0f) * _unpack_bf16_46[2];
+                wepi_p5_1[3] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[3] : 0.0f) * _unpack_bf16_46[3];
+                wepi_p5_1[4] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[4] : 0.0f) * _unpack_bf16_46[4];
+                wepi_p5_1[5] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[5] : 0.0f) * _unpack_bf16_46[5];
+                wepi_p5_1[6] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[6] : 0.0f) * _unpack_bf16_46[6];
+                wepi_p5_1[7] = ((wepi_gidx[11] >= 0 && wepi_gidx[11] < 9) ? _unpack_bf16_47[7] : 0.0f) * _unpack_bf16_46[7];
+                unsigned int wepi_p5_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p5_1[_lp*2 + 0], wepi_p5_1[_lp*2+1 + 0]));
+                    wepi_p5_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_48[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_48[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p5_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_48[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p5_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_49[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_49[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[44 + _pair]) << 16);
+                    (&_unpack_bf16_49[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[44 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out5_1[8];
+                wepi_out5_1[0] = _unpack_bf16_49[0] + _unpack_bf16_48[0];
+                wepi_out5_1[1] = _unpack_bf16_49[1] + _unpack_bf16_48[1];
+                wepi_out5_1[2] = _unpack_bf16_49[2] + _unpack_bf16_48[2];
+                wepi_out5_1[3] = _unpack_bf16_49[3] + _unpack_bf16_48[3];
+                wepi_out5_1[4] = _unpack_bf16_49[4] + _unpack_bf16_48[4];
+                wepi_out5_1[5] = _unpack_bf16_49[5] + _unpack_bf16_48[5];
+                wepi_out5_1[6] = _unpack_bf16_49[6] + _unpack_bf16_48[6];
+                wepi_out5_1[7] = _unpack_bf16_49[7] + _unpack_bf16_48[7];
+                unsigned int wepi_out5_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out5_1[_lp*2 + 0], wepi_out5_1[_lp*2+1 + 0]));
+                    wepi_out5_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 44) * 5376 + wgcol) / 2)), "r"((wepi_out5_1_bf16 + 0)[(0) + 0]), "r"((wepi_out5_1_bf16 + 0)[(0) + 1]), "r"((wepi_out5_1_bf16 + 0)[(0) + 2]), "r"((wepi_out5_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 44 < M)) : "memory");
+                float wscaled_10[16];
+                wscaled_10[0] = accum[96] * sa[6] * sw[0];
+                wscaled_10[1] = accum[97] * sa[6] * sw[1];
+                wscaled_10[2] = accum[100] * sa[6] * sw[2];
+                wscaled_10[3] = accum[101] * sa[6] * sw[3];
+                wscaled_10[4] = accum[104] * sa[6] * sw[4];
+                wscaled_10[5] = accum[105] * sa[6] * sw[5];
+                wscaled_10[6] = accum[108] * sa[6] * sw[6];
+                wscaled_10[7] = accum[109] * sa[6] * sw[7];
+                wscaled_10[8] = accum[112] * sa[6] * sw[8];
+                wscaled_10[9] = accum[113] * sa[6] * sw[9];
+                wscaled_10[10] = accum[116] * sa[6] * sw[10];
+                wscaled_10[11] = accum[117] * sa[6] * sw[11];
+                wscaled_10[12] = accum[120] * sa[6] * sw[12];
+                wscaled_10[13] = accum[121] * sa[6] * sw[13];
+                wscaled_10[14] = accum[124] * sa[6] * sw[14];
+                wscaled_10[15] = accum[125] * sa[6] * sw[15];
+                unsigned int wscaled_10_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_10[_lp*2 + 0], scaled_10[_lp*2+1 + 0]));
-                    scaled_10_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_10[_lp*2 + 0], wscaled_10[_lp*2+1 + 0]));
+                    wscaled_10_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_40 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_44 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_40), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[3]))
+                    :: "r"(_stmatrix_addr_44), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_41 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_45 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_41), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_10_bf16[7]))
+                    :: "r"(_stmatrix_addr_45), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_10_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_11 = grow_base + 48;
-                if (grow_11 < M) {
-                    unsigned int o_words_6[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_6[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_14[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_14[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_6[_pair]) << 16);
-                        (&_unpack_bf16_14[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_6[_pair]) & 0xffff0000u);
-                    }
-                    int valid_6 = meta[1];
-                    float p_raw_6[16];
-                    for (int e_12 = 0; e_12 < 8; e_12++) {
-                        float gv0_6 = ops[e_12];
-                        float gv1_6 = ops[8 + e_12];
-                        float gs0_6 = ((valid_6 == 1) ? gv0_6 : 0.0f);
-                        float gs1_6 = ((valid_6 == 1) ? gv1_6 : 0.0f);
-                        p_raw_6[e_12] = gs0_6 * _unpack_bf16_14[e_12];
-                        p_raw_6[8 + e_12] = gs1_6 * _unpack_bf16_14[8 + e_12];
-                    }
-                    unsigned int p_raw_bf16_6[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_6[_lp*2 + 0], p_raw_6[_lp*2+1 + 0]));
-                        p_raw_bf16_6[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_15[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_15[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_6[_pair]) << 16);
-                        (&_unpack_bf16_15[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_6[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_6[16];
-                    for (int e_13 = 0; e_13 < 8; e_13++) {
-                        float rv0_6 = ops[16 + e_13];
-                        float rv1_6 = ops[24 + e_13];
-                        out_raw_6[e_13] = rv0_6 + _unpack_bf16_15[e_13];
-                        out_raw_6[8 + e_13] = rv1_6 + _unpack_bf16_15[8 + e_13];
-                    }
-                    unsigned int out_raw_bf16_6[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_6[_lp*2 + 0], out_raw_6[_lp*2+1 + 0]));
-                        out_raw_bf16_6[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_11 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_11 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_6 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_11 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_6 + 4)[0];
-                    }
+                __syncwarp();
+                unsigned int wo_words_11[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_11[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
+                float _unpack_bf16_50[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_50[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_11[_pair]) << 16);
+                    (&_unpack_bf16_50[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_11[_pair]) & 0xffff0000u);
                 }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                meta[0] = gate_index[((grow_base + 56 < M) ? grow_base + 56 : 0)];
-                meta[1] = ((meta[0] >= 0 && meta[0] < 9) ? 1 : 0);
-                {
-                    const uint4* _vptr_42 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col) + 0);
-                    uint4 _vld_42[1];
-                    #pragma unroll
-                    for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_42[_blk] = _vptr_42[_blk];
-                        uint32_t* _vpairs_42 = reinterpret_cast<uint32_t*>(&_vld_42[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_42[_pair]) << 16);
-                            (&ops[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_42[_pair]) & 0xffff0000u);
-                        }
-                    }
+                float _unpack_bf16_51[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_51[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[48 + _pair]) << 16);
+                    (&_unpack_bf16_51[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[48 + _pair]) & 0xffff0000u);
                 }
-                {
-                    const uint4* _vptr_43 = reinterpret_cast<const uint4*>(gate + (((meta[1] == 1) ? meta[0] : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_43[1];
-                    #pragma unroll
-                    for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_43[_blk] = _vptr_43[_blk];
-                        uint32_t* _vpairs_43 = reinterpret_cast<uint32_t*>(&_vld_43[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[8 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_43[_pair]) << 16);
-                            (&ops[8 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_43[_pair]) & 0xffff0000u);
-                        }
-                    }
+                float wepi_p6_0[8];
+                wepi_p6_0[0] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[0] : 0.0f) * _unpack_bf16_50[0];
+                wepi_p6_0[1] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[1] : 0.0f) * _unpack_bf16_50[1];
+                wepi_p6_0[2] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[2] : 0.0f) * _unpack_bf16_50[2];
+                wepi_p6_0[3] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[3] : 0.0f) * _unpack_bf16_50[3];
+                wepi_p6_0[4] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[4] : 0.0f) * _unpack_bf16_50[4];
+                wepi_p6_0[5] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[5] : 0.0f) * _unpack_bf16_50[5];
+                wepi_p6_0[6] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[6] : 0.0f) * _unpack_bf16_50[6];
+                wepi_p6_0[7] = ((wepi_gidx[12] >= 0 && wepi_gidx[12] < 9) ? _unpack_bf16_51[7] : 0.0f) * _unpack_bf16_50[7];
+                unsigned int wepi_p6_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p6_0[_lp*2 + 0], wepi_p6_0[_lp*2+1 + 0]));
+                    wepi_p6_0_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                {
-                    const uint4* _vptr_44 = reinterpret_cast<const uint4*>(residual + (((grow_base + 56 < M) ? grow_base + 56 : 0) * 5376 + col) + 0);
-                    uint4 _vld_44[1];
-                    #pragma unroll
-                    for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_44[_blk] = _vptr_44[_blk];
-                        uint32_t* _vpairs_44 = reinterpret_cast<uint32_t*>(&_vld_44[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[16 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_44[_pair]) << 16);
-                            (&ops[16 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_44[_pair]) & 0xffff0000u);
-                        }
-                    }
+                float _unpack_bf16_52[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_52[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p6_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_52[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p6_0_bf16[_pair]) & 0xffff0000u);
                 }
-                {
-                    const uint4* _vptr_45 = reinterpret_cast<const uint4*>(residual + (((grow_base + 56 < M) ? grow_base + 56 : 0) * 5376 + col + 8) + 0);
-                    uint4 _vld_45[1];
-                    #pragma unroll
-                    for (int _blk = 0; _blk < 1; _blk++) {
-                        _vld_45[_blk] = _vptr_45[_blk];
-                        uint32_t* _vpairs_45 = reinterpret_cast<uint32_t*>(&_vld_45[_blk]);
-                        #pragma unroll
-                        for (int _pair = 0; _pair < 4; _pair++) {
-                            (&ops[24 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_45[_pair]) << 16);
-                            (&ops[24 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_45[_pair]) & 0xffff0000u);
-                        }
-                    }
+                float _unpack_bf16_53[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_53[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[48 + _pair]) << 16);
+                    (&_unpack_bf16_53[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[48 + _pair]) & 0xffff0000u);
                 }
-                float scaled_12[16];
-                scaled_12[0] = accum[98] * sa[7] * sw[0];
-                scaled_12[1] = accum[99] * sa[7] * sw[1];
-                scaled_12[2] = accum[102] * sa[7] * sw[2];
-                scaled_12[3] = accum[103] * sa[7] * sw[3];
-                scaled_12[4] = accum[106] * sa[7] * sw[4];
-                scaled_12[5] = accum[107] * sa[7] * sw[5];
-                scaled_12[6] = accum[110] * sa[7] * sw[6];
-                scaled_12[7] = accum[111] * sa[7] * sw[7];
-                scaled_12[8] = accum[114] * sa[7] * sw[8];
-                scaled_12[9] = accum[115] * sa[7] * sw[9];
-                scaled_12[10] = accum[118] * sa[7] * sw[10];
-                scaled_12[11] = accum[119] * sa[7] * sw[11];
-                scaled_12[12] = accum[122] * sa[7] * sw[12];
-                scaled_12[13] = accum[123] * sa[7] * sw[13];
-                scaled_12[14] = accum[126] * sa[7] * sw[14];
-                scaled_12[15] = accum[127] * sa[7] * sw[15];
-                unsigned int scaled_12_bf16[8];
+                float wepi_out6_0[8];
+                wepi_out6_0[0] = _unpack_bf16_53[0] + _unpack_bf16_52[0];
+                wepi_out6_0[1] = _unpack_bf16_53[1] + _unpack_bf16_52[1];
+                wepi_out6_0[2] = _unpack_bf16_53[2] + _unpack_bf16_52[2];
+                wepi_out6_0[3] = _unpack_bf16_53[3] + _unpack_bf16_52[3];
+                wepi_out6_0[4] = _unpack_bf16_53[4] + _unpack_bf16_52[4];
+                wepi_out6_0[5] = _unpack_bf16_53[5] + _unpack_bf16_52[5];
+                wepi_out6_0[6] = _unpack_bf16_53[6] + _unpack_bf16_52[6];
+                wepi_out6_0[7] = _unpack_bf16_53[7] + _unpack_bf16_52[7];
+                unsigned int wepi_out6_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out6_0[_lp*2 + 0], wepi_out6_0[_lp*2+1 + 0]));
+                    wepi_out6_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 48) * 5376 + wgcol) / 2)), "r"((wepi_out6_0_bf16 + 0)[(0) + 0]), "r"((wepi_out6_0_bf16 + 0)[(0) + 1]), "r"((wepi_out6_0_bf16 + 0)[(0) + 2]), "r"((wepi_out6_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 48 < M)) : "memory");
+                float _unpack_bf16_54[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_54[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_11[4 + _pair]) << 16);
+                    (&_unpack_bf16_54[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_11[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_55[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_55[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[52 + _pair]) << 16);
+                    (&_unpack_bf16_55[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[52 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p6_1[8];
+                wepi_p6_1[0] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[0] : 0.0f) * _unpack_bf16_54[0];
+                wepi_p6_1[1] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[1] : 0.0f) * _unpack_bf16_54[1];
+                wepi_p6_1[2] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[2] : 0.0f) * _unpack_bf16_54[2];
+                wepi_p6_1[3] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[3] : 0.0f) * _unpack_bf16_54[3];
+                wepi_p6_1[4] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[4] : 0.0f) * _unpack_bf16_54[4];
+                wepi_p6_1[5] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[5] : 0.0f) * _unpack_bf16_54[5];
+                wepi_p6_1[6] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[6] : 0.0f) * _unpack_bf16_54[6];
+                wepi_p6_1[7] = ((wepi_gidx[13] >= 0 && wepi_gidx[13] < 9) ? _unpack_bf16_55[7] : 0.0f) * _unpack_bf16_54[7];
+                unsigned int wepi_p6_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p6_1[_lp*2 + 0], wepi_p6_1[_lp*2+1 + 0]));
+                    wepi_p6_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_56[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_56[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p6_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_56[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p6_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_57[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_57[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[52 + _pair]) << 16);
+                    (&_unpack_bf16_57[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[52 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out6_1[8];
+                wepi_out6_1[0] = _unpack_bf16_57[0] + _unpack_bf16_56[0];
+                wepi_out6_1[1] = _unpack_bf16_57[1] + _unpack_bf16_56[1];
+                wepi_out6_1[2] = _unpack_bf16_57[2] + _unpack_bf16_56[2];
+                wepi_out6_1[3] = _unpack_bf16_57[3] + _unpack_bf16_56[3];
+                wepi_out6_1[4] = _unpack_bf16_57[4] + _unpack_bf16_56[4];
+                wepi_out6_1[5] = _unpack_bf16_57[5] + _unpack_bf16_56[5];
+                wepi_out6_1[6] = _unpack_bf16_57[6] + _unpack_bf16_56[6];
+                wepi_out6_1[7] = _unpack_bf16_57[7] + _unpack_bf16_56[7];
+                unsigned int wepi_out6_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out6_1[_lp*2 + 0], wepi_out6_1[_lp*2+1 + 0]));
+                    wepi_out6_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 52) * 5376 + wgcol) / 2)), "r"((wepi_out6_1_bf16 + 0)[(0) + 0]), "r"((wepi_out6_1_bf16 + 0)[(0) + 1]), "r"((wepi_out6_1_bf16 + 0)[(0) + 2]), "r"((wepi_out6_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 52 < M)) : "memory");
+                float wscaled_12[16];
+                wscaled_12[0] = accum[98] * sa[7] * sw[0];
+                wscaled_12[1] = accum[99] * sa[7] * sw[1];
+                wscaled_12[2] = accum[102] * sa[7] * sw[2];
+                wscaled_12[3] = accum[103] * sa[7] * sw[3];
+                wscaled_12[4] = accum[106] * sa[7] * sw[4];
+                wscaled_12[5] = accum[107] * sa[7] * sw[5];
+                wscaled_12[6] = accum[110] * sa[7] * sw[6];
+                wscaled_12[7] = accum[111] * sa[7] * sw[7];
+                wscaled_12[8] = accum[114] * sa[7] * sw[8];
+                wscaled_12[9] = accum[115] * sa[7] * sw[9];
+                wscaled_12[10] = accum[118] * sa[7] * sw[10];
+                wscaled_12[11] = accum[119] * sa[7] * sw[11];
+                wscaled_12[12] = accum[122] * sa[7] * sw[12];
+                wscaled_12[13] = accum[123] * sa[7] * sw[13];
+                wscaled_12[14] = accum[126] * sa[7] * sw[14];
+                wscaled_12[15] = accum[127] * sa[7] * sw[15];
+                unsigned int wscaled_12_bf16[8];
                 #pragma unroll
                 for (int _lp = 0; _lp < 8; _lp++) {
-                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(scaled_12[_lp*2 + 0], scaled_12[_lp*2+1 + 0]));
-                    scaled_12_bf16[_lp] = *(uint32_t*)&_bf2;
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wscaled_12[_lp*2 + 0], wscaled_12[_lp*2+1 + 0]));
+                    wscaled_12_bf16[_lp] = *(uint32_t*)&_bf2;
                 }
-                uint32_t _stmatrix_addr_46 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + smat * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_46 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + wsmat * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_46), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[3]))
+                    :: "r"(_stmatrix_addr_46), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[0])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[1])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[2])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[3]))
                     : "memory");
-                uint32_t _stmatrix_addr_47 = static_cast<uint32_t>(staging_addr + (unsigned int)(srow_st * 256) + (unsigned int)((warp_n * 64 + (4 + smat) * 8) * 2 ^ (srow_st & 7) << 4));
+                uint32_t _stmatrix_addr_47 = static_cast<uint32_t>(staging_addr + (unsigned int)(wsrow_st * 256) + (unsigned int)((warp_n * 64 + (4 + wsmat) * 8) * 2 ^ (wsrow_st & 7) << 4));
                 asm volatile("stmatrix.sync.aligned.m8n8.x4.shared.b16 [%0], {%1, %2, %3, %4};\n"
-                    :: "r"(_stmatrix_addr_47), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&scaled_12_bf16[7]))
+                    :: "r"(_stmatrix_addr_47), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[4])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[5])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[6])), "r"(*reinterpret_cast<const uint32_t*>(&wscaled_12_bf16[7]))
                     : "memory");
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
-                int grow_13 = grow_base + 56;
-                if (grow_13 < M) {
-                    unsigned int o_words_7[8];
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[0])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(0) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 ^ (srow & 7) << 4)));
-                    asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
-                        : "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[4])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&o_words_7[(4) + 3]))
-                        : "r"(staging_addr + (unsigned int)(srow * 256) + (unsigned int)(c * 32 + 16 ^ (srow & 7) << 4)));
-                    float _unpack_bf16_16[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_16[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(o_words_7[_pair]) << 16);
-                        (&_unpack_bf16_16[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(o_words_7[_pair]) & 0xffff0000u);
-                    }
-                    int valid_7 = meta[1];
-                    float p_raw_7[16];
-                    for (int e_14 = 0; e_14 < 8; e_14++) {
-                        float gv0_7 = ops[e_14];
-                        float gv1_7 = ops[8 + e_14];
-                        float gs0_7 = ((valid_7 == 1) ? gv0_7 : 0.0f);
-                        float gs1_7 = ((valid_7 == 1) ? gv1_7 : 0.0f);
-                        p_raw_7[e_14] = gs0_7 * _unpack_bf16_16[e_14];
-                        p_raw_7[8 + e_14] = gs1_7 * _unpack_bf16_16[8 + e_14];
-                    }
-                    unsigned int p_raw_bf16_7[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(p_raw_7[_lp*2 + 0], p_raw_7[_lp*2+1 + 0]));
-                        p_raw_bf16_7[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    float _unpack_bf16_17[16];
-                    #pragma unroll
-                    for (int _pair = 0; _pair < 8; _pair++) {
-                        (&_unpack_bf16_17[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_7[_pair]) << 16);
-                        (&_unpack_bf16_17[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(p_raw_bf16_7[_pair]) & 0xffff0000u);
-                    }
-                    float out_raw_7[16];
-                    for (int e_15 = 0; e_15 < 8; e_15++) {
-                        float rv0_7 = ops[16 + e_15];
-                        float rv1_7 = ops[24 + e_15];
-                        out_raw_7[e_15] = rv0_7 + _unpack_bf16_17[e_15];
-                        out_raw_7[8 + e_15] = rv1_7 + _unpack_bf16_17[8 + e_15];
-                    }
-                    unsigned int out_raw_bf16_7[8];
-                    #pragma unroll
-                    for (int _lp = 0; _lp < 8; _lp++) {
-                        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_raw_7[_lp*2 + 0], out_raw_7[_lp*2+1 + 0]));
-                        out_raw_bf16_7[_lp] = *(uint32_t*)&_bf2;
-                    }
-                    if (grow_13 < M) {
-                        reinterpret_cast<int4*>(out + ((grow_13 * 5376 + col) / 2))[0] = reinterpret_cast<int4*>(out_raw_bf16_7 + 0)[0];
-                        reinterpret_cast<int4*>(out + ((grow_13 * 5376 + col) / 2 + 4))[0] = reinterpret_cast<int4*>(out_raw_bf16_7 + 4)[0];
-                    }
+                __syncwarp();
+                unsigned int wo_words_13[8];
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[0])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(0) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(0) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(0) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow0 * 256) + (unsigned int)(wcol * 2 ^ (wsrow0 & 7) << 4)));
+                asm volatile("ld.shared.v4.b32 {%0,%1,%2,%3}, [%4];"
+                    : "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[4])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(4) + 1])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(4) + 2])), "=r"(*reinterpret_cast<uint32_t*>(&wo_words_13[(4) + 3]))
+                    : "r"(staging_addr + (unsigned int)(wsrow1 * 256) + (unsigned int)(wcol * 2 ^ (wsrow1 & 7) << 4)));
+                __syncwarp();
+                float _unpack_bf16_58[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_58[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_13[_pair]) << 16);
+                    (&_unpack_bf16_58[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_13[_pair]) & 0xffff0000u);
                 }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
+                float _unpack_bf16_59[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_59[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[56 + _pair]) << 16);
+                    (&_unpack_bf16_59[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[56 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p7_0[8];
+                wepi_p7_0[0] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[0] : 0.0f) * _unpack_bf16_58[0];
+                wepi_p7_0[1] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[1] : 0.0f) * _unpack_bf16_58[1];
+                wepi_p7_0[2] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[2] : 0.0f) * _unpack_bf16_58[2];
+                wepi_p7_0[3] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[3] : 0.0f) * _unpack_bf16_58[3];
+                wepi_p7_0[4] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[4] : 0.0f) * _unpack_bf16_58[4];
+                wepi_p7_0[5] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[5] : 0.0f) * _unpack_bf16_58[5];
+                wepi_p7_0[6] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[6] : 0.0f) * _unpack_bf16_58[6];
+                wepi_p7_0[7] = ((wepi_gidx[14] >= 0 && wepi_gidx[14] < 9) ? _unpack_bf16_59[7] : 0.0f) * _unpack_bf16_58[7];
+                unsigned int wepi_p7_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p7_0[_lp*2 + 0], wepi_p7_0[_lp*2+1 + 0]));
+                    wepi_p7_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_60[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_60[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p7_0_bf16[_pair]) << 16);
+                    (&_unpack_bf16_60[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p7_0_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_61[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_61[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[56 + _pair]) << 16);
+                    (&_unpack_bf16_61[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[56 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out7_0[8];
+                wepi_out7_0[0] = _unpack_bf16_61[0] + _unpack_bf16_60[0];
+                wepi_out7_0[1] = _unpack_bf16_61[1] + _unpack_bf16_60[1];
+                wepi_out7_0[2] = _unpack_bf16_61[2] + _unpack_bf16_60[2];
+                wepi_out7_0[3] = _unpack_bf16_61[3] + _unpack_bf16_60[3];
+                wepi_out7_0[4] = _unpack_bf16_61[4] + _unpack_bf16_60[4];
+                wepi_out7_0[5] = _unpack_bf16_61[5] + _unpack_bf16_60[5];
+                wepi_out7_0[6] = _unpack_bf16_61[6] + _unpack_bf16_60[6];
+                wepi_out7_0[7] = _unpack_bf16_61[7] + _unpack_bf16_60[7];
+                unsigned int wepi_out7_0_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out7_0[_lp*2 + 0], wepi_out7_0[_lp*2+1 + 0]));
+                    wepi_out7_0_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 56) * 5376 + wgcol) / 2)), "r"((wepi_out7_0_bf16 + 0)[(0) + 0]), "r"((wepi_out7_0_bf16 + 0)[(0) + 1]), "r"((wepi_out7_0_bf16 + 0)[(0) + 2]), "r"((wepi_out7_0_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 56 < M)) : "memory");
+                float _unpack_bf16_62[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_62[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wo_words_13[4 + _pair]) << 16);
+                    (&_unpack_bf16_62[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wo_words_13[4 + _pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_63[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_63[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wgw[60 + _pair]) << 16);
+                    (&_unpack_bf16_63[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wgw[60 + _pair]) & 0xffff0000u);
+                }
+                float wepi_p7_1[8];
+                wepi_p7_1[0] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[0] : 0.0f) * _unpack_bf16_62[0];
+                wepi_p7_1[1] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[1] : 0.0f) * _unpack_bf16_62[1];
+                wepi_p7_1[2] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[2] : 0.0f) * _unpack_bf16_62[2];
+                wepi_p7_1[3] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[3] : 0.0f) * _unpack_bf16_62[3];
+                wepi_p7_1[4] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[4] : 0.0f) * _unpack_bf16_62[4];
+                wepi_p7_1[5] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[5] : 0.0f) * _unpack_bf16_62[5];
+                wepi_p7_1[6] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[6] : 0.0f) * _unpack_bf16_62[6];
+                wepi_p7_1[7] = ((wepi_gidx[15] >= 0 && wepi_gidx[15] < 9) ? _unpack_bf16_63[7] : 0.0f) * _unpack_bf16_62[7];
+                unsigned int wepi_p7_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_p7_1[_lp*2 + 0], wepi_p7_1[_lp*2+1 + 0]));
+                    wepi_p7_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                float _unpack_bf16_64[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_64[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wepi_p7_1_bf16[_pair]) << 16);
+                    (&_unpack_bf16_64[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wepi_p7_1_bf16[_pair]) & 0xffff0000u);
+                }
+                float _unpack_bf16_65[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    (&_unpack_bf16_65[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(wrw[60 + _pair]) << 16);
+                    (&_unpack_bf16_65[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(wrw[60 + _pair]) & 0xffff0000u);
+                }
+                float wepi_out7_1[8];
+                wepi_out7_1[0] = _unpack_bf16_65[0] + _unpack_bf16_64[0];
+                wepi_out7_1[1] = _unpack_bf16_65[1] + _unpack_bf16_64[1];
+                wepi_out7_1[2] = _unpack_bf16_65[2] + _unpack_bf16_64[2];
+                wepi_out7_1[3] = _unpack_bf16_65[3] + _unpack_bf16_64[3];
+                wepi_out7_1[4] = _unpack_bf16_65[4] + _unpack_bf16_64[4];
+                wepi_out7_1[5] = _unpack_bf16_65[5] + _unpack_bf16_64[5];
+                wepi_out7_1[6] = _unpack_bf16_65[6] + _unpack_bf16_64[6];
+                wepi_out7_1[7] = _unpack_bf16_65[7] + _unpack_bf16_64[7];
+                unsigned int wepi_out7_1_bf16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(wepi_out7_1[_lp*2 + 0], wepi_out7_1[_lp*2+1 + 0]));
+                    wepi_out7_1_bf16[_lp] = *(uint32_t*)&_bf2;
+                }
+                asm volatile("{ .reg .pred p_; setp.ne.b32 p_, %5, 0; @p_ st.global.v4.b32 [%0], {%1, %2, %3, %4}; }" :: "l"(out + (((wrow_base + 60) * 5376 + wgcol) / 2)), "r"((wepi_out7_1_bf16 + 0)[(0) + 0]), "r"((wepi_out7_1_bf16 + 0)[(0) + 1]), "r"((wepi_out7_1_bf16 + 0)[(0) + 2]), "r"((wepi_out7_1_bf16 + 0)[(0) + 3]), "r"((unsigned int)(wrow_base + 60 < M)) : "memory");
             }
         }
     }
