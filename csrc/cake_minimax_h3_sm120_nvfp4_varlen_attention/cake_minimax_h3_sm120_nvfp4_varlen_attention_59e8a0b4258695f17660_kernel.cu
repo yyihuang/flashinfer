@@ -172,7 +172,7 @@ __device__ __forceinline__ unsigned int __as_u32(int v) {
 extern "C" {
 
 __global__ __launch_bounds__(384, LAUNCH_MIN_BLOCKS) void
-kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_ac4dc40c1d6424bf7950(const __grid_constant__ CUtensorMap Q_map, const __grid_constant__ CUtensorMap K_map, const __grid_constant__ CUtensorMap KSF_map, const __grid_constant__ CUtensorMap VT_map, const __grid_constant__ CUtensorMap VSF_map, __nv_bfloat16* __restrict__ O, unsigned int* __restrict__ q_sf, unsigned int* __restrict__ qm4, unsigned int* __restrict__ qm_sf, int* __restrict__ seg_tile_begin, int* __restrict__ unit_table, int total_units, int num_heads, int num_kblocks, float softmax_scale_log2)
+kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_59e8a0b4258695f17660(const __grid_constant__ CUtensorMap Q_map, const __grid_constant__ CUtensorMap K_map, const __grid_constant__ CUtensorMap KSF_map, const __grid_constant__ CUtensorMap VT_map, const __grid_constant__ CUtensorMap VSF_map, __nv_bfloat16* __restrict__ O, unsigned int* __restrict__ q_sf, unsigned int* __restrict__ qm4, unsigned int* __restrict__ qm_sf, int* __restrict__ seg_tile_begin, int* __restrict__ unit_table, int total_units, int num_heads, int num_kblocks, float softmax_scale_log2)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -345,6 +345,9 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_ac4dc40c1d6424bf7950(const _
                     _vec_load_2[0 + 1] = _ivld_2.y;
                     _vec_load_2[0 + 2] = _ivld_2.z;
                     _vec_load_2[0 + 3] = _ivld_2.w;
+                }
+                if (warp == 0) {
+                    asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                 }
                 if (kb_first <= kb_last) {
                     if (warp == 0) {
@@ -1077,6 +1080,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_ac4dc40c1d6424bf7950(const _
                     }
                     if (warp == 0) {
                         mbarrier_wait(k_empty_addr + (kv_stage) * 8, kv_phase);
+                        asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     }
                     if (kb_last >= kb + 2) {
                         if (warp == 0) {
@@ -1136,6 +1140,9 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_ac4dc40c1d6424bf7950(const _
                 int q_row0_1 = seg_begin_v_1 + q_tile_1 * 128;
                 int kb_first_1 = seg_begin_v_1 / 128;
                 int kb_last_1 = (seg_end_v_1 - 1) / 128;
+                if (warp == 8) {
+                    asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
+                }
                 if (kb_first_1 <= kb_last_1) {
                     if (warp == 8) {
                         if (elect_sync()) {
@@ -1769,6 +1776,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_ac4dc40c1d6424bf7950(const _
                     }
                     if (warp == 8) {
                         mbarrier_wait(v_empty_addr + (kv_stage_1) * 8, kv_phase_1);
+                        asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     }
                     if (kb_last_1 >= kb_1 + 2) {
                         if (warp == 8) {
