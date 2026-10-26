@@ -144,14 +144,6 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
     int control_current = control_current_word % 3;
     int control_dirty = (control_current_word + 2) % 3;
     long long data_base = (long long)control_current * comm_stride_elems;
-    __half* peer0 = reinterpret_cast<__half*>(workspace_tensor[16]) + data_base;
-    __half* peer1 = reinterpret_cast<__half*>(workspace_tensor[17]) + data_base;
-    __half* peer2 = reinterpret_cast<__half*>(workspace_tensor[18]) + data_base;
-    __half* peer3 = reinterpret_cast<__half*>(workspace_tensor[19]) + data_base;
-    __half* peer4 = reinterpret_cast<__half*>(workspace_tensor[20]) + data_base;
-    __half* peer5 = reinterpret_cast<__half*>(workspace_tensor[21]) + data_base;
-    __half* peer6 = reinterpret_cast<__half*>(workspace_tensor[22]) + data_base;
-    __half* peer7 = reinterpret_cast<__half*>(workspace_tensor[23]) + data_base;
     __syncthreads();
     if (tid == 0) {
         asm volatile("fence.acq_rel.gpu;" ::: "memory");
@@ -706,13 +698,11 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                 __half2 _h2 = __float22half2_rn(make_float2(acc[_lp*2 + 0], acc[_lp*2+1 + 0]));
                 acc_f16_6[_lp] = *(uint32_t*)&_h2;
             }
-            {
-                const int ts_q = cluster_thread / 112;
-                const int ts_owner = (published_token + ts_q) & 7;
-                const long long ts_rs = ((long long)rank * (long long)tokens + (long long)published_token) * 896 + (long long)(cluster_thread - ts_q * 112) * 8;
-                __half* ts_dst = reinterpret_cast<__half*>(workspace_tensor[16 + ts_owner]) + data_base + ts_rs;
-                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(ts_dst), "r"((acc_f16_6)[0]), "r"((acc_f16_6)[1]), "r"((acc_f16_6)[2]), "r"((acc_f16_6)[3]) : "memory");
-            }
+            int chunk = cluster_thread / 112;
+            int owner = published_token + chunk & 7;
+            long long scatter_offset = ((long long)rank * (long long)tokens + (long long)published_token) * 896 + (long long)(cluster_thread - chunk * 112) * 8;
+            __half* scatter_dst = reinterpret_cast<__half*>(workspace_tensor[16 + owner]) + data_base + scatter_offset;
+            asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(scatter_dst), "r"((acc_f16_6)[0]), "r"((acc_f16_6)[1]), "r"((acc_f16_6)[2]), "r"((acc_f16_6)[3]) : "memory");
         }
         int clear_end = clear_next + clear_per_step * access_stride;
         clear_end = ((clear_end > clear_limit) ? clear_limit : clear_end);
@@ -729,50 +719,27 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
             asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
         }
         if (step >= 1 && step <= local_tokens) {
-            int own_token = token_begin + (step - 1) * token_stride;
-            const int own_q = cluster_thread / 112;
-            if (((own_token + own_q) & 7) == rank) {
-                const long long rs_off = (long long)own_token * 896 + (long long)(cluster_thread - own_q * 112) * 8;
-                const long long rs_stride = (long long)tokens * 896;
-                uint32_t _sysv_poll_group_0[32];
+            int owned_token = token_begin + (step - 1) * token_stride;
+            int owned_chunk = cluster_thread / 112;
+            if ((owned_token + owned_chunk & 7) == rank) {
+                long long owned_offset = (long long)owned_token * 896 + (long long)(cluster_thread - owned_chunk * 112) * 8;
+                long long sender_stride = (long long)tokens * 896;
+                int owned_access = owned_token * 896 + cluster_thread;
+                uint32_t _sysv_poll_group_0[16];
                 do {
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[0]), "=r"(_sysv_poll_group_0[1]), "=r"(_sysv_poll_group_0[2]), "=r"(_sysv_poll_group_0[3]) : "l"(workspace_local + (data_base + rs_off)) : "memory");
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[4]), "=r"(_sysv_poll_group_0[5]), "=r"(_sysv_poll_group_0[6]), "=r"(_sysv_poll_group_0[7]) : "l"(workspace_local + (data_base + rs_stride + rs_off)) : "memory");
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[8]), "=r"(_sysv_poll_group_0[9]), "=r"(_sysv_poll_group_0[10]), "=r"(_sysv_poll_group_0[11]) : "l"(workspace_local + (data_base + (long long)2 * rs_stride + rs_off)) : "memory");
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[12]), "=r"(_sysv_poll_group_0[13]), "=r"(_sysv_poll_group_0[14]), "=r"(_sysv_poll_group_0[15]) : "l"(workspace_local + (data_base + (long long)3 * rs_stride + rs_off)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[0]), "=r"(_sysv_poll_group_0[1]), "=r"(_sysv_poll_group_0[2]), "=r"(_sysv_poll_group_0[3]) : "l"(workspace_local + (data_base + owned_offset)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[4]), "=r"(_sysv_poll_group_0[5]), "=r"(_sysv_poll_group_0[6]), "=r"(_sysv_poll_group_0[7]) : "l"(workspace_local + (data_base + sender_stride + owned_offset)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[8]), "=r"(_sysv_poll_group_0[9]), "=r"(_sysv_poll_group_0[10]), "=r"(_sysv_poll_group_0[11]) : "l"(workspace_local + (data_base + 2 * sender_stride + owned_offset)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[12]), "=r"(_sysv_poll_group_0[13]), "=r"(_sysv_poll_group_0[14]), "=r"(_sysv_poll_group_0[15]) : "l"(workspace_local + (data_base + 3 * sender_stride + owned_offset)) : "memory");
                 } while (
-                    (((_sysv_poll_group_0[0] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[0] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[1] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[1] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[2] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[2] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[3] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[3] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[4] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[4] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[5] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[5] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[6] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[6] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[7] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[7] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[8] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[8] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[9] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[9] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[10] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[10] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[11] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[11] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[12] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[12] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[13] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[13] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[14] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[14] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[15] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[15] >> 16) & 0xffffu) == 0x8000u)
+                    (((_sysv_poll_group_0[0] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[0] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[1] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[1] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[2] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[2] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[3] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[3] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[4] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[4] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[5] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[5] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[6] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[6] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[7] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[7] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[8] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[8] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[9] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[9] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[10] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[10] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[11] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[11] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[12] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[12] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[13] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[13] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[14] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[14] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[15] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[15] >> 16) & 0xffffu) == 0x8000u)
                 );
                 float _unpack_f16_8[8];
                 #pragma unroll
@@ -911,44 +878,21 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                         : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
                         : "r"(sum_value_f16_1[_pair]));
                 }
+                uint32_t _sysv_poll_group_1[16];
                 do {
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[16]), "=r"(_sysv_poll_group_0[17]), "=r"(_sysv_poll_group_0[18]), "=r"(_sysv_poll_group_0[19]) : "l"(workspace_local + (data_base + (long long)4 * rs_stride + rs_off)) : "memory");
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[20]), "=r"(_sysv_poll_group_0[21]), "=r"(_sysv_poll_group_0[22]), "=r"(_sysv_poll_group_0[23]) : "l"(workspace_local + (data_base + (long long)5 * rs_stride + rs_off)) : "memory");
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[24]), "=r"(_sysv_poll_group_0[25]), "=r"(_sysv_poll_group_0[26]), "=r"(_sysv_poll_group_0[27]) : "l"(workspace_local + (data_base + (long long)6 * rs_stride + rs_off)) : "memory");
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[28]), "=r"(_sysv_poll_group_0[29]), "=r"(_sysv_poll_group_0[30]), "=r"(_sysv_poll_group_0[31]) : "l"(workspace_local + (data_base + (long long)7 * rs_stride + rs_off)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_1[0]), "=r"(_sysv_poll_group_1[1]), "=r"(_sysv_poll_group_1[2]), "=r"(_sysv_poll_group_1[3]) : "l"(workspace_local + (data_base + 4 * sender_stride + owned_offset)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_1[4]), "=r"(_sysv_poll_group_1[5]), "=r"(_sysv_poll_group_1[6]), "=r"(_sysv_poll_group_1[7]) : "l"(workspace_local + (data_base + 5 * sender_stride + owned_offset)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_1[8]), "=r"(_sysv_poll_group_1[9]), "=r"(_sysv_poll_group_1[10]), "=r"(_sysv_poll_group_1[11]) : "l"(workspace_local + (data_base + 6 * sender_stride + owned_offset)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_1[12]), "=r"(_sysv_poll_group_1[13]), "=r"(_sysv_poll_group_1[14]), "=r"(_sysv_poll_group_1[15]) : "l"(workspace_local + (data_base + 7 * sender_stride + owned_offset)) : "memory");
                 } while (
-                    (((_sysv_poll_group_0[16] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[16] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[17] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[17] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[18] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[18] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[19] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[19] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[20] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[20] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[21] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[21] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[22] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[22] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[23] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[23] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[24] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[24] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[25] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[25] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[26] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[26] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[27] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[27] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[28] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[28] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[29] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[29] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[30] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[30] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[31] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((_sysv_poll_group_0[31] >> 16) & 0xffffu) == 0x8000u)
+                    (((_sysv_poll_group_1[0] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[0] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[1] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[1] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_1[2] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[2] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[3] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[3] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_1[4] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[4] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[5] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[5] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_1[6] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[6] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[7] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[7] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_1[8] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[8] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[9] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[9] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_1[10] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[10] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[11] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[11] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_1[12] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[12] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[13] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[13] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_1[14] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[14] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[15] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_1[15] >> 16) & 0xffffu) == 0x8000u)
                 );
                 float _unpack_f16_12[8];
                 #pragma unroll
@@ -963,7 +907,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                         "mov.b64 %0, {f_lo, f_hi};\n\t"
                         "}\n"
                         : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_12[_pair * 2]))
-                        : "r"(_sysv_poll_group_0[16 + _pair]));
+                        : "r"(_sysv_poll_group_1[_pair]));
                 }
                 #pragma unroll
                 for (int j_16 = 0; j_16 < 8; j_16++) {
@@ -1002,7 +946,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                         "mov.b64 %0, {f_lo, f_hi};\n\t"
                         "}\n"
                         : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_13[_pair * 2]))
-                        : "r"(_sysv_poll_group_0[20 + _pair]));
+                        : "r"(_sysv_poll_group_1[4 + _pair]));
                 }
                 #pragma unroll
                 for (int j_17 = 0; j_17 < 8; j_17++) {
@@ -1041,7 +985,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                         "mov.b64 %0, {f_lo, f_hi};\n\t"
                         "}\n"
                         : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_14[_pair * 2]))
-                        : "r"(_sysv_poll_group_0[24 + _pair]));
+                        : "r"(_sysv_poll_group_1[8 + _pair]));
                 }
                 #pragma unroll
                 for (int j_18 = 0; j_18 < 8; j_18++) {
@@ -1080,7 +1024,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                         "mov.b64 %0, {f_lo, f_hi};\n\t"
                         "}\n"
                         : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_15[_pair * 2]))
-                        : "r"(_sysv_poll_group_0[28 + _pair]));
+                        : "r"(_sysv_poll_group_1[12 + _pair]));
                 }
                 #pragma unroll
                 for (int j_19 = 0; j_19 < 8; j_19++) {
@@ -1106,79 +1050,93 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                         : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
                         : "r"(sum_value_f16_5[_pair]));
                 }
-
-                const int own_access = own_token * 896 + cluster_thread;
-                const long long ag_out = (long long)tokens * 7168 + (long long)own_access * 8;
+                long long gather_offset = (long long)tokens * 7168 + (long long)owned_access * 8;
+                long long peer_base_0[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 16));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_10;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_10) : "l"((const void*)(workspace_tensor + (16))) : "memory");
+                    peer_base_0[0] = (long long)_scalar_bits_10;
                 }
+                __half* peer_0 = reinterpret_cast<__half*>(peer_base_0[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_0 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                long long peer_base_1[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 17));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_11;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_11) : "l"((const void*)(workspace_tensor + (17))) : "memory");
+                    peer_base_1[0] = (long long)_scalar_bits_11;
                 }
+                __half* peer_1 = reinterpret_cast<__half*>(peer_base_1[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_1 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                long long peer_base_2[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 18));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_12;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_12) : "l"((const void*)(workspace_tensor + (18))) : "memory");
+                    peer_base_2[0] = (long long)_scalar_bits_12;
                 }
+                __half* peer_2 = reinterpret_cast<__half*>(peer_base_2[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_2 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                long long peer_base_3[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 19));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_13;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_13) : "l"((const void*)(workspace_tensor + (19))) : "memory");
+                    peer_base_3[0] = (long long)_scalar_bits_13;
                 }
+                __half* peer_3 = reinterpret_cast<__half*>(peer_base_3[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_3 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                long long peer_base_4[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 20));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_14;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_14) : "l"((const void*)(workspace_tensor + (20))) : "memory");
+                    peer_base_4[0] = (long long)_scalar_bits_14;
                 }
+                __half* peer_4 = reinterpret_cast<__half*>(peer_base_4[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_4 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                long long peer_base_5[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 21));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_15;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_15) : "l"((const void*)(workspace_tensor + (21))) : "memory");
+                    peer_base_5[0] = (long long)_scalar_bits_15;
                 }
+                __half* peer_5 = reinterpret_cast<__half*>(peer_base_5[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_5 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                long long peer_base_6[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 22));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_16;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_16) : "l"((const void*)(workspace_tensor + (22))) : "memory");
+                    peer_base_6[0] = (long long)_scalar_bits_16;
                 }
+                __half* peer_6 = reinterpret_cast<__half*>(peer_base_6[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_6 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                long long peer_base_7[1];
                 {
-                    long long _pp;
-                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 23));
-                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
-                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
+                    uint64_t _scalar_bits_17;
+                    asm volatile("ld.global.b64 %0, [%1];"
+                        : "=l"(_scalar_bits_17) : "l"((const void*)(workspace_tensor + (23))) : "memory");
+                    peer_base_7[0] = (long long)_scalar_bits_17;
                 }
+                __half* peer_7 = reinterpret_cast<__half*>(peer_base_7[0]) + data_base;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer_7 + gather_offset), "r"((sum_value_f16_5)[0]), "r"((sum_value_f16_5)[1]), "r"((sum_value_f16_5)[2]), "r"((sum_value_f16_5)[3]) : "memory");
             }
         }
         if (step >= 2) {
+            int rms_wait_phase = rms_phase;
             int reduced_token = token_begin + (step - 2) * token_stride;
-            const int ag_q = cluster_thread / 112;
-            unsigned int ag_sum[4];
-            {
-                const long long ag_in = data_base + (long long)tokens * 7168 + (long long)access * 8;
-                do {
-                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(ag_sum[0]), "=r"(ag_sum[1]), "=r"(ag_sum[2]), "=r"(ag_sum[3]) : "l"(workspace_local + ag_in) : "memory");
-                } while (
-                    (((ag_sum[0] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((ag_sum[0] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((ag_sum[1] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((ag_sum[1] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((ag_sum[2] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((ag_sum[2] >> 16) & 0xffffu) == 0x8000u) ||
-                    (((ag_sum[3] >> 0) & 0xffffu) == 0x8000u) ||
-                    (((ag_sum[3] >> 16) & 0xffffu) == 0x8000u)
-                );
-            }
-            float sum_value[8];
+            float sum_value_1[8];
+            long long gather_in = data_base + (long long)tokens * 7168 + (long long)access * 8;
+            uint32_t gathered[4];
+            do {
+                asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(gathered[0]), "=r"(gathered[1]), "=r"(gathered[2]), "=r"(gathered[3]) : "l"(workspace_local + gather_in) : "memory");
+            } while (
+                (((gathered[0] >> 0) & 0xffffu) == 0x8000u) || (((gathered[0] >> 16) & 0xffffu) == 0x8000u) || (((gathered[1] >> 0) & 0xffffu) == 0x8000u) || (((gathered[1] >> 16) & 0xffffu) == 0x8000u) ||
+                (((gathered[2] >> 0) & 0xffffu) == 0x8000u) || (((gathered[2] >> 16) & 0xffffu) == 0x8000u) || (((gathered[3] >> 0) & 0xffffu) == 0x8000u) || (((gathered[3] >> 16) & 0xffffu) == 0x8000u)
+            );
             #pragma unroll
             for (int _pair = 0; _pair < 4; _pair++) {
                 asm volatile(
@@ -1190,19 +1148,19 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                     "cvt.f32.f16 f_hi, h_hi;\n\t"
                     "mov.b64 %0, {f_lo, f_hi};\n\t"
                     "}\n"
-                    : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
-                    : "r"(ag_sum[_pair]));
+                    : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value_1[_pair * 2]))
+                    : "r"(gathered[_pair]));
             }
             int access_in_token = cluster_thread;
             int elem = access * 8;
             float _vec_load_17[8];
             {
-                const uint4* _vptr_10 = reinterpret_cast<const uint4*>(residual + elem + 0);
-                uint4 _vld_10[1];
+                const uint4* _vptr_18 = reinterpret_cast<const uint4*>(residual + elem + 0);
+                uint4 _vld_18[1];
                 #pragma unroll
                 for (int _blk = 0; _blk < 1; _blk++) {
-                    _vld_10[_blk] = _vptr_10[_blk];
-                    uint32_t* _vpairs_10 = reinterpret_cast<uint32_t*>(&_vld_10[_blk]);
+                    _vld_18[_blk] = _vptr_18[_blk];
+                    uint32_t* _vpairs_18 = reinterpret_cast<uint32_t*>(&_vld_18[_blk]);
                     #pragma unroll
                     for (int _pair = 0; _pair < 4; _pair++) {
                         asm volatile(
@@ -1215,18 +1173,18 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                             "mov.b64 %0, {f_lo, f_hi};\n\t"
                             "}\n"
                             : "=l"(*reinterpret_cast<unsigned long long*>(&_vec_load_17[0 + _blk * 8 + _pair * 2]))
-                            : "r"(_vpairs_10[_pair]));
+                            : "r"(_vpairs_18[_pair]));
                     }
                 }
             }
             float _vec_load_18[8];
             {
-                const uint4* _vptr_11 = reinterpret_cast<const uint4*>(norm_weight + (access_in_token * 8) + 0);
-                uint4 _vld_11[1];
+                const uint4* _vptr_19 = reinterpret_cast<const uint4*>(norm_weight + (access_in_token * 8) + 0);
+                uint4 _vld_19[1];
                 #pragma unroll
                 for (int _blk = 0; _blk < 1; _blk++) {
-                    _vld_11[_blk] = _vptr_11[_blk];
-                    uint32_t* _vpairs_11 = reinterpret_cast<uint32_t*>(&_vld_11[_blk]);
+                    _vld_19[_blk] = _vptr_19[_blk];
+                    uint32_t* _vpairs_19 = reinterpret_cast<uint32_t*>(&_vld_19[_blk]);
                     #pragma unroll
                     for (int _pair = 0; _pair < 4; _pair++) {
                         asm volatile(
@@ -1239,13 +1197,13 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                             "mov.b64 %0, {f_lo, f_hi};\n\t"
                             "}\n"
                             : "=l"(*reinterpret_cast<unsigned long long*>(&_vec_load_18[0 + _blk * 8 + _pair * 2]))
-                            : "r"(_vpairs_11[_pair]));
+                            : "r"(_vpairs_19[_pair]));
                     }
                 }
             }
             #pragma unroll
             for (int j_20 = 0; j_20 < 8; j_20++) {
-                _vec_load_17[j_20] = _vec_load_17[j_20] + sum_value[j_20];
+                _vec_load_17[j_20] = _vec_load_17[j_20] + sum_value_1[j_20];
             }
             unsigned int _vec_load_17_f16[4];
             #pragma unroll
@@ -1294,11 +1252,11 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
             for (int j_21 = 0; j_21 < 8; j_21++) {
                 square_sum = __fmaf_rn(_vec_load_17[j_21], _vec_load_17[j_21], square_sum);
             }
-            float _warp_reduce_12 = square_sum;
+            float _warp_reduce_20 = square_sum;
             #pragma unroll
             for (int offset = 16; offset > 0; offset >>= 1)
-                _warp_reduce_12 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_12, offset);
-            square_sum = _warp_reduce_12;
+                _warp_reduce_20 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_20, offset);
+            square_sum = _warp_reduce_20;
             if (lane == 0) {
                 reduce_smem[warp] = square_sum;
             }
@@ -1308,50 +1266,50 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                 mbarrier_arrive_expect_tx(rms_bar_addr + (rms_parity) * 8, 16);
                 int slot_addr = rms_slots_addr + (unsigned int)(rms_parity * 16) + (unsigned int)(cta_rank * 4);
                 unsigned int bar_addr = rms_bar_addr + (unsigned int)(rms_parity * 8);
-                uint32_t _cluster_mapa_13;
+                uint32_t _cluster_mapa_21;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_13) : "r"(slot_addr), "r"(0));
-                uint32_t _cluster_mapa_14;
+                    : "=r"(_cluster_mapa_21) : "r"(slot_addr), "r"(0));
+                uint32_t _cluster_mapa_22;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_14) : "r"(bar_addr), "r"(0));
+                    : "=r"(_cluster_mapa_22) : "r"(bar_addr), "r"(0));
                 asm volatile(
                     "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_13), "f"(block_sum), "r"(_cluster_mapa_14) : "memory");
-                uint32_t _cluster_mapa_15;
+                    :: "r"(_cluster_mapa_21), "f"(block_sum), "r"(_cluster_mapa_22) : "memory");
+                uint32_t _cluster_mapa_23;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_15) : "r"(slot_addr), "r"(1));
-                uint32_t _cluster_mapa_16;
+                    : "=r"(_cluster_mapa_23) : "r"(slot_addr), "r"(1));
+                uint32_t _cluster_mapa_24;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_16) : "r"(bar_addr), "r"(1));
+                    : "=r"(_cluster_mapa_24) : "r"(bar_addr), "r"(1));
                 asm volatile(
                     "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_15), "f"(block_sum), "r"(_cluster_mapa_16) : "memory");
-                uint32_t _cluster_mapa_17;
+                    :: "r"(_cluster_mapa_23), "f"(block_sum), "r"(_cluster_mapa_24) : "memory");
+                uint32_t _cluster_mapa_25;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_17) : "r"(slot_addr), "r"(2));
-                uint32_t _cluster_mapa_18;
+                    : "=r"(_cluster_mapa_25) : "r"(slot_addr), "r"(2));
+                uint32_t _cluster_mapa_26;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_18) : "r"(bar_addr), "r"(2));
+                    : "=r"(_cluster_mapa_26) : "r"(bar_addr), "r"(2));
                 asm volatile(
                     "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_17), "f"(block_sum), "r"(_cluster_mapa_18) : "memory");
-                uint32_t _cluster_mapa_19;
+                    :: "r"(_cluster_mapa_25), "f"(block_sum), "r"(_cluster_mapa_26) : "memory");
+                uint32_t _cluster_mapa_27;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_19) : "r"(slot_addr), "r"(3));
-                uint32_t _cluster_mapa_20;
+                    : "=r"(_cluster_mapa_27) : "r"(slot_addr), "r"(3));
+                uint32_t _cluster_mapa_28;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_20) : "r"(bar_addr), "r"(3));
+                    : "=r"(_cluster_mapa_28) : "r"(bar_addr), "r"(3));
                 asm volatile(
                     "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_19), "f"(block_sum), "r"(_cluster_mapa_20) : "memory");
+                    :: "r"(_cluster_mapa_27), "f"(block_sum), "r"(_cluster_mapa_28) : "memory");
                 asm volatile("fence.release.sync_restrict::shared::cta.cluster;" ::: "memory");
                 asm volatile(
                     "{\n\t"
@@ -1375,7 +1333,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
                     "}"
                     :: "r"(rms_bar_addr + (rms_parity) * 8), "r"(cta_rank ^ 3) : "memory");
             }
-            mbarrier_wait_cluster_hint(rms_bar_addr + (rms_parity) * 8, rms_phase, 10000000);
+            mbarrier_wait_cluster_hint(rms_bar_addr + (rms_parity) * 8, rms_wait_phase, 10000000);
             float cluster_sum = 0.0f;
             cluster_sum = cluster_sum + rms_slots[rms_parity * 4];
             cluster_sum = cluster_sum + rms_slots[rms_parity * 4 + 1];
@@ -1405,16 +1363,16 @@ kernel_cake_trtllm_moe_finalize_float16_ws8_o110_ts(__half* __restrict__ allredu
     #pragma unroll 1
     for (int clear_access_1 = clear_next; clear_access_1 < clear_limit; clear_access_1 += access_stride) {
         {
-            auto _gst_21 = workspace_local + (clear_base + (long long)clear_access_1 * 8);
-            __builtin_assume(__isGlobal(_gst_21));
-            reinterpret_cast<int4*>(_gst_21)[0] = reinterpret_cast<int4*>(clear_words)[0];
+            auto _gst_29 = workspace_local + (clear_base + (long long)clear_access_1 * 8);
+            __builtin_assume(__isGlobal(_gst_29));
+            reinterpret_cast<int4*>(_gst_29)[0] = reinterpret_cast<int4*>(clear_words)[0];
         }
     }
     if (bid == 0) {
         if (tid == 0) {
             {
-                volatile int* _sysv_wait_p_22 = reinterpret_cast<volatile int*>(reinterpret_cast<unsigned int*>(control_0)) + (0);
-                while (*_sysv_wait_p_22 != static_cast<int>(num_bids)) {}
+                volatile int* _sysv_wait_p_30 = reinterpret_cast<volatile int*>(reinterpret_cast<unsigned int*>(control_0)) + (0);
+                while (*_sysv_wait_p_30 != static_cast<int>(num_bids)) {}
             }
             control_0[2] = (control_current_word + 1) % 3;
             control_0[4] = token_end * 14336;

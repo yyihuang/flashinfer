@@ -51,8 +51,12 @@ static_assert(sizeof(CUtensorMap) == 128, "CUtensorMap CUDA ABI must be 128 byte
 #define SMEM_RMS_SLOTS_OFF 136
 #define SMEM_RMS_SLOTS_STAGE_BYTES 32
 #define SMEM_RMS_SLOTS_STRIDE 32
-#define SMEM_TOTAL 256
+#define SMEM_OWN_RING_OFF 256
+#define SMEM_OWN_RING_STAGE_BYTES 7168
+#define SMEM_OWN_RING_STRIDE 7168
+#define SMEM_TOTAL 7424
 #define THREADS 224
+#define LAUNCH_MIN_BLOCKS 5
 
 #include <math_constants.h>
 
@@ -98,7 +102,7 @@ __device__ inline unsigned int laneId()
 
 extern "C" {
 
-__global__ __launch_bounds__(224, 5) __cluster_dims__(4,1,1) void
+__global__ __launch_bounds__(224, LAUNCH_MIN_BLOCKS) __cluster_dims__(4,1,1) void
 kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allreduce_in, int* __restrict__ inverse_indices, __half* __restrict__ expert_scales, __half* __restrict__ shared_expert_output, __half* __restrict__ residual, __half* __restrict__ norm_weight, __half* __restrict__ residual_out, __half* __restrict__ norm_out, __half* __restrict__ quant_out, __half* __restrict__ scale_out, long long* __restrict__ workspace_tensor, int world_rank, int tokens, int top_k, int has_shared_expert, float routed_scaling_factor, float epsilon, float weight_bias, float scale_factor)
 {
     const int tid = threadIdx.x;
@@ -128,7 +132,8 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
     const int rms_scalar_addr = smem + 132;
     float* rms_slots = reinterpret_cast<float*>(smem_raw + 136);
     const int rms_slots_addr = smem + 136;
-    uint4* own_ring = reinterpret_cast<uint4*>(smem_raw + 256);  // own partial of token m: own_ring[m & 1][tid]
+    unsigned int* own_ring = reinterpret_cast<unsigned int*>(smem_raw + 256);
+    const int own_ring_addr = smem + 256;
 
     // === Task calls (declaration order) ===
     int rank = world_rank;
@@ -171,18 +176,18 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
         clear_words[word] = 2147516416;
     }
     long long clear_base = (long long)control_dirty * comm_stride_elems;
-    int access_1 = first_access;
+    int access = first_access;
     int rms_parity = 0;
     int rms_phase = 0;
-    const int _il_n = (token_begin < token_end) ? (token_end - token_begin + token_stride - 1) / token_stride : 0;
-    const int _il_clim = control_clear_word / 8;
-    const int _il_ctot = (_il_clim > first_access) ? (_il_clim - first_access + access_stride - 1) / access_stride : 0;
-    const int _il_cper = (_il_ctot + _il_n + 1) / (_il_n + 1 + 1);
-    int _il_ca = first_access;
+    int interleaved_tokens = ((token_begin < token_end) ? (token_end - token_begin + token_stride - 1) / token_stride : 0);
+    int clear_limit = control_clear_word / 8;
+    int clear_total = ((clear_limit > first_access) ? (clear_limit - first_access + access_stride - 1) / access_stride : 0);
+    int clear_per_step = (clear_total + interleaved_tokens + 1) / (interleaved_tokens + 1 + 1);
+    int clear_next = first_access;
     #pragma unroll 1
-    for (int _il_m = 0; _il_m < _il_n + 1; ++_il_m) {
-        if (_il_m < _il_n) {
-            int token = token_begin + _il_m * token_stride;
+    for (int step = 0; step < interleaved_tokens + 1; step++) {
+        if (step < interleaved_tokens) {
+            int published_token = token_begin + step * token_stride;
             float acc[8];
             #pragma unroll
             for (int j = 0; j < 8; j++) {
@@ -193,14 +198,14 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
             if (top_k > 0) {
                 int _vec_load_0[1];
                 {
-                    _vec_load_0[0] = *reinterpret_cast<const int*>(inverse_indices + (token * top_k));
+                    _vec_load_0[0] = *reinterpret_cast<const int*>(inverse_indices + (published_token * top_k));
                 }
                 route_index_lo = _vec_load_0[0];
             }
             if (top_k > 1) {
                 int _vec_load_1[1];
                 {
-                    _vec_load_1[0] = *reinterpret_cast<const int*>(inverse_indices + (token * top_k + 1));
+                    _vec_load_1[0] = *reinterpret_cast<const int*>(inverse_indices + (published_token * top_k + 1));
                 }
                 route_index_hi = _vec_load_1[0];
             }
@@ -213,14 +218,14 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                 if (route_base + 2 < top_k) {
                     int _vec_load_2[1];
                     {
-                        _vec_load_2[0] = *reinterpret_cast<const int*>(inverse_indices + (token * top_k + route_base + 2));
+                        _vec_load_2[0] = *reinterpret_cast<const int*>(inverse_indices + (published_token * top_k + route_base + 2));
                     }
                     next_index_lo = _vec_load_2[0];
                 }
                 if (route_base + 3 < top_k) {
                     int _vec_load_3[1];
                     {
-                        _vec_load_3[0] = *reinterpret_cast<const int*>(inverse_indices + (token * top_k + route_base + 3));
+                        _vec_load_3[0] = *reinterpret_cast<const int*>(inverse_indices + (published_token * top_k + route_base + 3));
                     }
                     next_index_hi = _vec_load_3[0];
                 }
@@ -252,7 +257,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                     }
                     float _vec_load_5[1];
                     {
-                        __half _f16_1 = *reinterpret_cast<const __half*>(expert_scales + token * top_k + route_base);
+                        __half _f16_1 = *reinterpret_cast<const __half*>(expert_scales + published_token * top_k + route_base);
                         _vec_load_5[0] = __half2float(_f16_1);
                     }
                     route_scales[0] = _vec_load_5[0];
@@ -289,7 +294,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                     }
                     float _vec_load_7[1];
                     {
-                        __half _f16_3 = *reinterpret_cast<const __half*>(expert_scales + token * top_k + route_base + 1);
+                        __half _f16_3 = *reinterpret_cast<const __half*>(expert_scales + published_token * top_k + route_base + 1);
                         _vec_load_7[0] = __half2float(_f16_3);
                     }
                     route_scales[1] = _vec_load_7[0];
@@ -432,7 +437,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                 }
             }
             if (has_shared_expert != 0) {
-                int shared_elem = token * 7168 + cluster_thread * 8;
+                int shared_elem = published_token * 7168 + cluster_thread * 8;
                 float _vec_load_8[8];
                 {
                     const uint4* _vptr_4 = reinterpret_cast<const uint4*>(shared_expert_output + shared_elem + 0);
@@ -492,56 +497,64 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                 __half2 _h2 = __float22half2_rn(make_float2(acc[_lp*2 + 0], acc[_lp*2+1 + 0]));
                 acc_f16_4[_lp] = *(uint32_t*)&_h2;
             }
-            int access = token * 896 + cluster_thread;
-            long long slot = (long long)rank * (long long)total_access * 8 + (long long)access * 8;
-            own_ring[(_il_m & 1) * 224 + tid] = make_uint4((acc_f16_4)[0], (acc_f16_4)[1], (acc_f16_4)[2], (acc_f16_4)[3]);
+            int access_0 = published_token * 896 + cluster_thread;
+            long long slot = (long long)rank * (long long)total_access * 8 + (long long)access_0 * 8;
+            reinterpret_cast<int4*>(own_ring + (((step & 1) * 224 + tid) * 4))[0] = reinterpret_cast<int4*>(acc_f16_4)[0];
             if (rank == 0) {
-            asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer1 + slot), "r"((acc_f16_4)[0]), "r"((acc_f16_4)[1]), "r"((acc_f16_4)[2]), "r"((acc_f16_4)[3]) : "memory");
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer1 + slot), "r"((acc_f16_4)[0]), "r"((acc_f16_4)[1]), "r"((acc_f16_4)[2]), "r"((acc_f16_4)[3]) : "memory");
             } else {
-            asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer0 + slot), "r"((acc_f16_4)[0]), "r"((acc_f16_4)[1]), "r"((acc_f16_4)[2]), "r"((acc_f16_4)[3]) : "memory");
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer0 + slot), "r"((acc_f16_4)[0]), "r"((acc_f16_4)[1]), "r"((acc_f16_4)[2]), "r"((acc_f16_4)[3]) : "memory");
             }
         }
         #pragma unroll 1
-        for (int _il_c = 0; _il_c < _il_cper && _il_ca < _il_clim; ++_il_c, _il_ca += access_stride) {
-            int clear_access = _il_ca;
+        for (int clear_step = 0; clear_step < clear_per_step; clear_step++) {
+            if (clear_next >= clear_limit) {
+                break;
+            }
             {
-                auto _gst_5 = workspace_local + (clear_base + (long long)clear_access * 8);
+                auto _gst_5 = workspace_local + (clear_base + (long long)clear_next * 8);
                 __builtin_assume(__isGlobal(_gst_5));
                 reinterpret_cast<int4*>(_gst_5)[0] = reinterpret_cast<int4*>(clear_words)[0];
             }
+            clear_next += access_stride;
         }
-        if (_il_m == 1) {
-        asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
+        if (step == 1) {
+            asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
         }
-        if (_il_m >= 1) {
-            int token_1 = token_begin + (_il_m - 1) * token_stride;
+        if (step >= 1) {
+            int rms_wait_phase = rms_phase;
+            int reduced_token = token_begin + (step - 1) * token_stride;
             unsigned int residual_words[4];
             unsigned int _vec_load_9[4];
             {
-                uint4 _uv4_6 = *reinterpret_cast<const uint4*>(residual + (access_1 * 8) + 0);
+                uint4 _uv4_6 = *reinterpret_cast<const uint4*>(residual + (access * 8) + 0);
                 _vec_load_9[0 + 0] = _uv4_6.x;
                 _vec_load_9[0 + 1] = _uv4_6.y;
                 _vec_load_9[0 + 2] = _uv4_6.z;
                 _vec_load_9[0 + 3] = _uv4_6.w;
             }
             #pragma unroll
-            for (int word_2 = 0; word_2 < 4; word_2++) {
-                residual_words[word_2] = _vec_load_9[word_2];
+            for (int word_1 = 0; word_1 < 4; word_1++) {
+                residual_words[word_1] = _vec_load_9[word_1];
             }
             unsigned int rank_words[8];
-            const uint4 own_words = own_ring[((_il_m - 1) & 1) * 224 + tid];
+            unsigned int own_words[4];
+            reinterpret_cast<int4*>(own_words)[0] = reinterpret_cast<int4*>(own_ring + (((step - 1 & 1) * 224 + tid) * 4))[0];
             uint32_t peer_words[4];
             do {
-                asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(peer_words[0]), "=r"(peer_words[1]), "=r"(peer_words[2]), "=r"(peer_words[3]) : "l"(workspace_local + (data_base + (long long)(1 - rank) * (long long)(total_access * 8) + (long long)(access_1 * 8))) : "memory");
-            } while ((((peer_words[0] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[0] >> 16) & 0xffffu) == 0x8000u) || (((peer_words[1] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[1] >> 16) & 0xffffu) == 0x8000u) || (((peer_words[2] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[2] >> 16) & 0xffffu) == 0x8000u) || (((peer_words[3] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[3] >> 16) & 0xffffu) == 0x8000u));
-            rank_words[0] = (rank == 0) ? own_words.x : peer_words[0];
-            rank_words[1] = (rank == 0) ? own_words.y : peer_words[1];
-            rank_words[2] = (rank == 0) ? own_words.z : peer_words[2];
-            rank_words[3] = (rank == 0) ? own_words.w : peer_words[3];
-            rank_words[4] = (rank == 0) ? peer_words[0] : own_words.x;
-            rank_words[5] = (rank == 0) ? peer_words[1] : own_words.y;
-            rank_words[6] = (rank == 0) ? peer_words[2] : own_words.z;
-            rank_words[7] = (rank == 0) ? peer_words[3] : own_words.w;
+                asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(peer_words[0]), "=r"(peer_words[1]), "=r"(peer_words[2]), "=r"(peer_words[3]) : "l"(workspace_local + (data_base + (long long)(1 - rank) * (long long)(total_access * 8) + (long long)(access * 8))) : "memory");
+            } while (
+                (((peer_words[0] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[0] >> 16) & 0xffffu) == 0x8000u) || (((peer_words[1] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[1] >> 16) & 0xffffu) == 0x8000u) ||
+                (((peer_words[2] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[2] >> 16) & 0xffffu) == 0x8000u) || (((peer_words[3] >> 0) & 0xffffu) == 0x8000u) || (((peer_words[3] >> 16) & 0xffffu) == 0x8000u)
+            );
+            #pragma unroll
+            for (int word_2 = 0; word_2 < 4; word_2++) {
+                rank_words[word_2] = ((rank == 0) ? own_words[word_2] : peer_words[word_2]);
+            }
+            #pragma unroll
+            for (int word_3 = 0; word_3 < 4; word_3++) {
+                rank_words[4 + word_3] = ((rank == 0) ? peer_words[word_3] : own_words[word_3]);
+            }
             float _unpack_f16_2[8];
             #pragma unroll
             for (int _pair = 0; _pair < 4; _pair++) {
@@ -602,7 +615,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                     : "r"(sum_value_f16[_pair]));
             }
             int access_in_token = cluster_thread;
-            int elem = access_1 * 8;
+            int elem = access * 8;
             float _unpack_f16_4[8];
             #pragma unroll
             for (int _pair = 0; _pair < 4; _pair++) {
@@ -620,12 +633,12 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
             }
             float _vec_load_11[8];
             {
-                const uint4* _vptr_8 = reinterpret_cast<const uint4*>(norm_weight + (access_in_token * 8) + 0);
-                uint4 _vld_8[1];
+                const uint4* _vptr_7 = reinterpret_cast<const uint4*>(norm_weight + (access_in_token * 8) + 0);
+                uint4 _vld_7[1];
                 #pragma unroll
                 for (int _blk = 0; _blk < 1; _blk++) {
-                    _vld_8[_blk] = _vptr_8[_blk];
-                    uint32_t* _vpairs_8 = reinterpret_cast<uint32_t*>(&_vld_8[_blk]);
+                    _vld_7[_blk] = _vptr_7[_blk];
+                    uint32_t* _vpairs_7 = reinterpret_cast<uint32_t*>(&_vld_7[_blk]);
                     #pragma unroll
                     for (int _pair = 0; _pair < 4; _pair++) {
                         asm volatile(
@@ -638,7 +651,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                             "mov.b64 %0, {f_lo, f_hi};\n\t"
                             "}\n"
                             : "=l"(*reinterpret_cast<unsigned long long*>(&_vec_load_11[0 + _blk * 8 + _pair * 2]))
-                            : "r"(_vpairs_8[_pair]));
+                            : "r"(_vpairs_7[_pair]));
                     }
                 }
             }
@@ -693,11 +706,11 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
             for (int j_13 = 0; j_13 < 8; j_13++) {
                 square_sum = __fmaf_rn(_unpack_f16_4[j_13], _unpack_f16_4[j_13], square_sum);
             }
-            float _warp_reduce_9 = square_sum;
+            float _warp_reduce_8 = square_sum;
             #pragma unroll
             for (int offset = 16; offset > 0; offset >>= 1)
-                _warp_reduce_9 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_9, offset);
-            square_sum = _warp_reduce_9;
+                _warp_reduce_8 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_8, offset);
+            square_sum = _warp_reduce_8;
             if (lane == 0) {
                 reduce_smem[warp] = square_sum;
             }
@@ -707,50 +720,50 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                 mbarrier_arrive_expect_tx(rms_bar_addr + (rms_parity) * 8, 16);
                 int slot_addr = rms_slots_addr + (unsigned int)(rms_parity * 16) + (unsigned int)(cta_rank * 4);
                 unsigned int bar_addr = rms_bar_addr + (unsigned int)(rms_parity * 8);
+                uint32_t _cluster_mapa_9;
+                asm volatile(
+                    "mapa.shared::cluster.u32 %0, %1, %2;"
+                    : "=r"(_cluster_mapa_9) : "r"(slot_addr), "r"(0));
                 uint32_t _cluster_mapa_10;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_10) : "r"(slot_addr), "r"(0));
+                    : "=r"(_cluster_mapa_10) : "r"(bar_addr), "r"(0));
+                asm volatile(
+                    "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
+                    :: "r"(_cluster_mapa_9), "f"(block_sum), "r"(_cluster_mapa_10) : "memory");
                 uint32_t _cluster_mapa_11;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_11) : "r"(bar_addr), "r"(0));
-                asm volatile(
-                    "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_10), "f"(block_sum), "r"(_cluster_mapa_11) : "memory");
+                    : "=r"(_cluster_mapa_11) : "r"(slot_addr), "r"(1));
                 uint32_t _cluster_mapa_12;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_12) : "r"(slot_addr), "r"(1));
+                    : "=r"(_cluster_mapa_12) : "r"(bar_addr), "r"(1));
+                asm volatile(
+                    "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
+                    :: "r"(_cluster_mapa_11), "f"(block_sum), "r"(_cluster_mapa_12) : "memory");
                 uint32_t _cluster_mapa_13;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_13) : "r"(bar_addr), "r"(1));
-                asm volatile(
-                    "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_12), "f"(block_sum), "r"(_cluster_mapa_13) : "memory");
+                    : "=r"(_cluster_mapa_13) : "r"(slot_addr), "r"(2));
                 uint32_t _cluster_mapa_14;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_14) : "r"(slot_addr), "r"(2));
+                    : "=r"(_cluster_mapa_14) : "r"(bar_addr), "r"(2));
+                asm volatile(
+                    "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
+                    :: "r"(_cluster_mapa_13), "f"(block_sum), "r"(_cluster_mapa_14) : "memory");
                 uint32_t _cluster_mapa_15;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_15) : "r"(bar_addr), "r"(2));
-                asm volatile(
-                    "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_14), "f"(block_sum), "r"(_cluster_mapa_15) : "memory");
+                    : "=r"(_cluster_mapa_15) : "r"(slot_addr), "r"(3));
                 uint32_t _cluster_mapa_16;
                 asm volatile(
                     "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_16) : "r"(slot_addr), "r"(3));
-                uint32_t _cluster_mapa_17;
-                asm volatile(
-                    "mapa.shared::cluster.u32 %0, %1, %2;"
-                    : "=r"(_cluster_mapa_17) : "r"(bar_addr), "r"(3));
+                    : "=r"(_cluster_mapa_16) : "r"(bar_addr), "r"(3));
                 asm volatile(
                     "st.async.shared::cluster.mbarrier::complete_tx::bytes.f32 [%0], %1, [%2];"
-                    :: "r"(_cluster_mapa_16), "f"(block_sum), "r"(_cluster_mapa_17) : "memory");
+                    :: "r"(_cluster_mapa_15), "f"(block_sum), "r"(_cluster_mapa_16) : "memory");
                 asm volatile("fence.release.sync_restrict::shared::cta.cluster;" ::: "memory");
                 asm volatile(
                     "{\n\t"
@@ -774,7 +787,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                     "}"
                     :: "r"(rms_bar_addr + (rms_parity) * 8), "r"(cta_rank ^ 3) : "memory");
             }
-            mbarrier_wait_cluster_hint(rms_bar_addr + (rms_parity) * 8, rms_phase, 10000000);
+            mbarrier_wait_cluster_hint(rms_bar_addr + (rms_parity) * 8, rms_wait_phase, 10000000);
             float cluster_sum = 0.0f;
             cluster_sum = cluster_sum + rms_slots[rms_parity * 4];
             cluster_sum = cluster_sum + rms_slots[rms_parity * 4 + 1];
@@ -793,21 +806,20 @@ kernel_cake_trtllm_moe_finalize_float16_ws2_o110_lt(__half* __restrict__ allredu
                 norm_value_f16[_lp] = *(uint32_t*)&_h2;
             }
             reinterpret_cast<int4*>(norm_out + elem)[0] = reinterpret_cast<int4*>(norm_value_f16)[0];
-            access_1 += access_stride;
+            access += access_stride;
             rms_phase = rms_phase ^ rms_parity;
             rms_parity = 1 - rms_parity;
         }
     }
-    if (_il_n == 0) {
+    if (interleaved_tokens == 0) {
         asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
     }
     #pragma unroll 1
-    for (; _il_ca < _il_clim; _il_ca += access_stride) {
-        int clear_access = _il_ca;
+    for (int clear_access = clear_next; clear_access < clear_limit; clear_access += access_stride) {
         {
-            auto _gst_5 = workspace_local + (clear_base + (long long)clear_access * 8);
-            __builtin_assume(__isGlobal(_gst_5));
-            reinterpret_cast<int4*>(_gst_5)[0] = reinterpret_cast<int4*>(clear_words)[0];
+            auto _gst_17 = workspace_local + (clear_base + (long long)clear_access * 8);
+            __builtin_assume(__isGlobal(_gst_17));
+            reinterpret_cast<int4*>(_gst_17)[0] = reinterpret_cast<int4*>(clear_words)[0];
         }
     }
     if (bid == 0) {
