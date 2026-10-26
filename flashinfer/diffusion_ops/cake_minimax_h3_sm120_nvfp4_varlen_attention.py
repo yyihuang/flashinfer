@@ -1190,7 +1190,11 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
     # ``attention_grid`` CTAs), the head-major producers (``first``, ``first_grid`` CTAs) and the tail
     # attention (``tail``, ``tail_grid`` CTAs), sharing the head-control words ``hctr``.
     tokens, heads = int(q.shape[0]), int(q.shape[1])
-    with tvm_ffi.use_raw_stream(_ffi_device(q.device.index), stream):
+    index = q.device.index
+    # The call's own tensors are converted once, before the first launch: converted by each launch, their
+    # exports would sit between the programmatic-dependent launches and delay the dependent launches.
+    ffi_q, ffi_k, ffi_v, ffi_out = (tvm_ffi.from_dlpack(t) for t in (q, k, v, out))
+    with tvm_ffi.use_raw_stream(_ffi_device(index), stream):
         if tail >= 0:
             attention_args = (
                 q4_rows,
@@ -1198,7 +1202,7 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
                 k_sf_rows,
                 vt4_rows,
                 v_sf_rows,
-                out,
+                ffi_out,
                 q_sf_words,
                 qm4,
                 qm_sf_words,
@@ -1206,9 +1210,9 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
                 unit_table,
             )
             producer_args = (
-                q,
-                k,
-                v,
+                ffi_q,
+                ffi_k,
+                ffi_v,
                 tile_table,
                 seg_tile_begin,
                 tok_seg,
@@ -1226,7 +1230,7 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
                 vt4,
                 v_sf,
             )
-            key = (q.device.index, attention)
+            key = (index, attention)
             if (
                 key not in _NVFP4_OVERLAP_LOADED
                 and not torch.cuda.is_current_stream_capturing()
@@ -1239,7 +1243,7 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
                     tokens,
                     num_kblocks,
                     softmax_scale_log2,
-                    q.device.index,
+                    index,
                 )
                 _NVFP4_OVERLAP_LOADED.add(key)
             _nvfp4_entry(target, attention)(
@@ -1285,9 +1289,9 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
             return
         if second < 0:
             _nvfp4_entry(target, first)(
-                q,
-                k,
-                v,
+                ffi_q,
+                ffi_k,
+                ffi_v,
                 tile_table,
                 seg_tile_begin,
                 tok_seg,
@@ -1316,8 +1320,8 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
             )
         else:
             _nvfp4_entry(target, first)(
-                q,
-                k,
+                ffi_q,
+                ffi_k,
                 tile_table,
                 seg_tile_begin,
                 partials,
@@ -1336,9 +1340,9 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
                 1,
             )
             _nvfp4_entry(target, second)(
-                q,
-                k,
-                v,
+                ffi_q,
+                ffi_k,
+                ffi_v,
                 tok_seg,
                 cu_seqlens,
                 seg_tile_begin,
@@ -1366,7 +1370,7 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
             k_sf_rows,
             vt4_rows,
             v_sf_rows,
-            out,
+            ffi_out,
             q_sf_words,
             qm4,
             qm_sf_words,
