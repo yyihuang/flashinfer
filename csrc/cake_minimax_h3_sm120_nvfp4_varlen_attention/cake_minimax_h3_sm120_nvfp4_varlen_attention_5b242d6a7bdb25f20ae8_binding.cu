@@ -85,6 +85,21 @@ cuuint64_t Stride(int64_t value, const char* descriptor) {
   return static_cast<cuuint64_t>(value);
 }
 
+CUtensorMap* TensorMapBuffer(const TensorView& t, int64_t count) {
+  TVM_FFI_CHECK(t.device().device_type == kDLCPU || t.device().device_type == kDLCUDAHost, ValueError)
+      << KERNEL_NAME << ": 'tensor_maps' must be a CPU tensor";
+  check_dtype(t, DLDataType{kDLUInt, 8, 1}, "tensor_maps");
+  check_contiguous(t, "tensor_maps");
+  const int64_t bytes = count * static_cast<int64_t>(sizeof(CUtensorMap));
+  TVM_FFI_CHECK(t.numel() == bytes, ValueError)
+      << KERNEL_NAME << ": 'tensor_maps' must hold exactly " << bytes << " bytes (" << count << " tensor maps), got "
+      << t.numel();
+  void* data = DataPtr(t);
+  TVM_FFI_CHECK(reinterpret_cast<uintptr_t>(data) % alignof(CUtensorMap) == 0, ValueError)
+      << KERNEL_NAME << ": 'tensor_maps' must be aligned to " << alignof(CUtensorMap) << " bytes";
+  return static_cast<CUtensorMap*>(data);
+}
+
 CUtensorMap EncodeTma_Q_map(const TensorView& t) {
   TVM_FFI_CHECK(t.ndim() >= 2, ValueError)
       << KERNEL_NAME << ": descriptor 'Q_map' takes a source of at least 2 dims, got " << t.ndim();
@@ -217,7 +232,10 @@ CUtensorMap EncodeTma_VSF_map(const TensorView& t) {
   return map;
 }
 
-void Run(TensorView a_Q_map, TensorView a_K_map, TensorView a_KSF_map, TensorView a_VT_map, TensorView a_VSF_map, TensorView a_O, TensorView a_q_sf, TensorView a_qm4, TensorView a_qm_sf, TensorView a_seg_tile_begin, TensorView a_unit_table, int64_t a_total_units, int64_t a_num_heads, int64_t a_num_kblocks, double a_softmax_scale_log2, int64_t grid_x, int64_t grid_y, int64_t grid_z) {
+// The number of tensor maps the caller's buffer holds, in the order of the descriptor arguments.
+int64_t TensorMapCount() { return 5; }
+
+void EncodeTensorMaps(TensorView a_Q_map, TensorView a_K_map, TensorView a_KSF_map, TensorView a_VT_map, TensorView a_VSF_map, TensorView a_O, TensorView a_q_sf, TensorView a_qm4, TensorView a_qm_sf, TensorView a_seg_tile_begin, TensorView a_unit_table, int64_t a_total_units, int64_t a_num_heads, int64_t a_num_kblocks, double a_softmax_scale_log2, TensorView a_tensor_maps) {
   DLDevice dev = a_Q_map.device();
   tvm::ffi::CUDADeviceGuard device_guard(dev.device_id);
   check_cuda_tensor(a_Q_map, "Q_map");
@@ -270,26 +288,96 @@ void Run(TensorView a_Q_map, TensorView a_K_map, TensorView a_KSF_map, TensorVie
   check_same_device(a_seg_tile_begin, a_Q_map, "seg_tile_begin", "Q_map");
   check_contiguous(a_unit_table, "unit_table");
   check_same_device(a_unit_table, a_Q_map, "unit_table", "Q_map");
+  CUtensorMap* maps = TensorMapBuffer(a_tensor_maps, 5);
+  {
+    // Once per thread per device: the tensor-map encoders need this thread's context of the device bound.
+    static thread_local uint64_t prepared_devices = 0;
+    const uint64_t device_bit = dev.device_id < 64 ? uint64_t{1} << dev.device_id : uint64_t{0};
+    if (device_bit == 0 || (prepared_devices & device_bit) == 0) {
+      CheckCuda(cudaSetDevice(dev.device_id), "cudaSetDevice");
+      prepared_devices |= device_bit;
+    }
+  }
+  maps[0] = EncodeTma_Q_map(a_Q_map);
+  maps[1] = EncodeTma_K_map(a_K_map);
+  maps[2] = EncodeTma_KSF_map(a_KSF_map);
+  maps[3] = EncodeTma_VT_map(a_VT_map);
+  maps[4] = EncodeTma_VSF_map(a_VSF_map);
+}
+
+void Run(TensorView a_Q_map, TensorView a_K_map, TensorView a_KSF_map, TensorView a_VT_map, TensorView a_VSF_map, TensorView a_O, TensorView a_q_sf, TensorView a_qm4, TensorView a_qm_sf, TensorView a_seg_tile_begin, TensorView a_unit_table, int64_t a_total_units, int64_t a_num_heads, int64_t a_num_kblocks, double a_softmax_scale_log2, TensorView a_tensor_maps, int64_t grid_x, int64_t grid_y, int64_t grid_z) {
+  DLDevice dev = a_Q_map.device();
+  tvm::ffi::CUDADeviceGuard device_guard(dev.device_id);
+  check_cuda_tensor(a_Q_map, "Q_map");
+  check_dtype(a_Q_map, DLDataType{kDLUInt, 8, 1}, "Q_map");
+  check_cuda_tensor(a_K_map, "K_map");
+  check_dtype(a_K_map, DLDataType{kDLUInt, 8, 1}, "K_map");
+  check_cuda_tensor(a_KSF_map, "KSF_map");
+  check_dtype(a_KSF_map, DLDataType{kDLUInt, 8, 1}, "KSF_map");
+  check_cuda_tensor(a_VT_map, "VT_map");
+  check_dtype(a_VT_map, DLDataType{kDLUInt, 8, 1}, "VT_map");
+  check_cuda_tensor(a_VSF_map, "VSF_map");
+  check_dtype(a_VSF_map, DLDataType{kDLUInt, 8, 1}, "VSF_map");
+  check_cuda_tensor(a_O, "O");
+  check_dtype(a_O, DLDataType{kDLBfloat, 16, 1}, "O");
+  check_cuda_tensor(a_q_sf, "q_sf");
+  check_dtype(a_q_sf, DLDataType{kDLUInt, 32, 1}, "q_sf");
+  check_cuda_tensor(a_qm4, "qm4");
+  check_dtype(a_qm4, DLDataType{kDLUInt, 32, 1}, "qm4");
+  check_cuda_tensor(a_qm_sf, "qm_sf");
+  check_dtype(a_qm_sf, DLDataType{kDLUInt, 32, 1}, "qm_sf");
+  check_cuda_tensor(a_seg_tile_begin, "seg_tile_begin");
+  check_dtype(a_seg_tile_begin, DLDataType{kDLInt, 32, 1}, "seg_tile_begin");
+  check_cuda_tensor(a_unit_table, "unit_table");
+  check_dtype(a_unit_table, DLDataType{kDLInt, 32, 1}, "unit_table");
+  TVM_FFI_CHECK(a_total_units >= -2147483648LL && a_total_units <= 2147483647LL, ValueError)
+      << KERNEL_NAME << ": 'total_units' = " << a_total_units
+      << " is outside the i32 range [-2147483648, 2147483647]";
+  TVM_FFI_CHECK(a_num_heads >= -2147483648LL && a_num_heads <= 2147483647LL, ValueError)
+      << KERNEL_NAME << ": 'num_heads' = " << a_num_heads
+      << " is outside the i32 range [-2147483648, 2147483647]";
+  TVM_FFI_CHECK(a_num_kblocks >= -2147483648LL && a_num_kblocks <= 2147483647LL, ValueError)
+      << KERNEL_NAME << ": 'num_kblocks' = " << a_num_kblocks
+      << " is outside the i32 range [-2147483648, 2147483647]";
+  check_contiguous(a_Q_map, "Q_map");
+  check_contiguous(a_K_map, "K_map");
+  check_same_device(a_K_map, a_Q_map, "K_map", "Q_map");
+  check_same_device(a_KSF_map, a_Q_map, "KSF_map", "Q_map");
+  check_contiguous(a_VT_map, "VT_map");
+  check_same_device(a_VT_map, a_Q_map, "VT_map", "Q_map");
+  check_same_device(a_VSF_map, a_Q_map, "VSF_map", "Q_map");
+  check_contiguous(a_O, "O");
+  check_same_device(a_O, a_Q_map, "O", "Q_map");
+  check_contiguous(a_q_sf, "q_sf");
+  check_same_device(a_q_sf, a_Q_map, "q_sf", "Q_map");
+  check_contiguous(a_qm4, "qm4");
+  check_same_device(a_qm4, a_Q_map, "qm4", "Q_map");
+  check_contiguous(a_qm_sf, "qm_sf");
+  check_same_device(a_qm_sf, a_Q_map, "qm_sf", "Q_map");
+  check_contiguous(a_seg_tile_begin, "seg_tile_begin");
+  check_same_device(a_seg_tile_begin, a_Q_map, "seg_tile_begin", "Q_map");
+  check_contiguous(a_unit_table, "unit_table");
+  check_same_device(a_unit_table, a_Q_map, "unit_table", "Q_map");
+  const CUtensorMap* maps = TensorMapBuffer(a_tensor_maps, 5);
   TVM_FFI_CHECK(grid_x > 0 && grid_y > 0 && grid_z > 0, ValueError)
       << KERNEL_NAME << ": the grid (" << grid_x << ", " << grid_y << ", " << grid_z << ") must be positive";
   TVM_FFI_CHECK(grid_x <= 2147483647 && grid_y <= 65535 && grid_z <= 65535, ValueError)
       << KERNEL_NAME << ": the grid (" << grid_x << ", " << grid_y << ", " << grid_z << ") exceeds CUDA's limits";
   cudaStream_t stream = static_cast<cudaStream_t>(TVMFFIEnvGetStream(dev.device_type, dev.device_id));
   {
-    // Once per thread per device: the kernel's function attributes hold per device; the tensor-map encoders need this thread's context of the device bound.
+    // Once per thread per device: the kernel's function attributes hold per device.
     static thread_local uint64_t prepared_devices = 0;
     const uint64_t device_bit = dev.device_id < 64 ? uint64_t{1} << dev.device_id : uint64_t{0};
     if (device_bit == 0 || (prepared_devices & device_bit) == 0) {
-      CheckCuda(cudaSetDevice(dev.device_id), "cudaSetDevice");
       CheckCuda(cudaFuncSetAttribute(reinterpret_cast<const void*>(kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_5b242d6a7bdb25f20ae8), cudaFuncAttributeMaxDynamicSharedMemorySize, 66560), "cudaFuncSetAttribute");
       prepared_devices |= device_bit;
     }
   }
-  CUtensorMap v_Q_map = EncodeTma_Q_map(a_Q_map);
-  CUtensorMap v_K_map = EncodeTma_K_map(a_K_map);
-  CUtensorMap v_KSF_map = EncodeTma_KSF_map(a_KSF_map);
-  CUtensorMap v_VT_map = EncodeTma_VT_map(a_VT_map);
-  CUtensorMap v_VSF_map = EncodeTma_VSF_map(a_VSF_map);
+  CUtensorMap v_Q_map = maps[0];
+  CUtensorMap v_K_map = maps[1];
+  CUtensorMap v_KSF_map = maps[2];
+  CUtensorMap v_VT_map = maps[3];
+  CUtensorMap v_VSF_map = maps[4];
   void* v_O = DataPtr(a_O);
   void* v_q_sf = DataPtr(a_q_sf);
   void* v_qm4 = DataPtr(a_qm4);
@@ -318,4 +406,6 @@ void Run(TensorView a_Q_map, TensorView a_K_map, TensorView a_KSF_map, TensorVie
 }  // namespace cake_binding_kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_5b242d6a7bdb25f20ae8
 
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(run, cake_binding_kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_5b242d6a7bdb25f20ae8::Run);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(encode_tensor_maps, cake_binding_kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_5b242d6a7bdb25f20ae8::EncodeTensorMaps);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(tensor_map_count, cake_binding_kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_5b242d6a7bdb25f20ae8::TensorMapCount);
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(build_cuda_version, cake_ffi_build_cuda_version);
