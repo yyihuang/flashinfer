@@ -121,6 +121,11 @@ _OVERLAP_WIDTH = {170: 42, 188: 46}
 _OVERLAP_PRODUCERS_PER_SM = 3
 _HCTR_WORDS_PER_HEAD = 5
 _HCTR_TAIL_WORDS = 8
+# The base attention programs take their five tensor maps from the host (the bindings' caller-encoded form):
+# each cached launch encodes them once, at its first call, into a CPU buffer of 128 bytes per map aligned to
+# 128 bytes, and every call passes that buffer, so no map is encoded on the launch path of a call.
+_CALLER_MAPS = (ATTENTION, ATTENTION_NODELTA)
+_TENSOR_MAP_BYTES = 128
 _NVFP4_PROGRAMS = (
     PREPROCESS,
     STATS,
@@ -876,10 +881,17 @@ class _Nvfp4Launch:
     """One plan's launches of one route on one set of workspace buffers: ``args`` are the custom op's
     arguments from ``tok_seg`` through ``attention_grid``, every tensor among them sliced to the plan's
     exact size (the bindings encode their tensor maps from the shapes handed in) and already converted to
-    a tvm-ffi tensor, so a call converts nothing but Q, K, V and the output."""
+    a tvm-ffi tensor, so a call converts nothing but Q, K, V and the output.  ``maps`` is the CPU buffer of
+    the base attention program's tensor maps (``None`` for the other attention programs), ``encode`` its
+    encoder until the first call has run it (then ``None``): the maps hold the addresses, extents and
+    strides of the five descriptor sources, which are fixed for the life of the launch (slices of the
+    set's buffers, which the set holds, at the plan's sizes; a grown buffer drops the launch)."""
 
-    __slots__ = ("args",)
+    __slots__ = ("args", "maps", "encode", "_encoder")
     args: Tuple[Any, ...]
+    maps: Any
+    encode: Any
+    _encoder: Any
 
     def __init__(
         self,
@@ -1012,6 +1024,39 @@ class _Nvfp4Launch:
             tail_grid,
             units_per_head,
         )
+        self.maps, self.encode, self._encoder = None, None, None
+        program = _NVFP4_PROGRAMS[slots[-1]]
+        if tail < 0 and program in _CALLER_MAPS:
+            module = program.load(target)
+            count = int(module.tensor_map_count())
+            raw = torch.empty((count + 1) * _TENSOR_MAP_BYTES, dtype=torch.uint8)
+            start = -raw.data_ptr() % _TENSOR_MAP_BYTES
+            self.maps = tvm_ffi.from_dlpack(
+                raw[start : start + count * _TENSOR_MAP_BYTES]
+            )
+            self._encoder = (module.encode_tensor_maps, heads)
+            self.encode = self._encode
+
+    def _encode(self, out: Any, softmax_scale_log2: float) -> None:
+        """Encode the base attention program's maps into ``maps`` from the host arguments its ``run`` takes
+        (the call's ``out`` and scale only pass the binding's checks: no map is encoded from them)."""
+        encode_tensor_maps, heads = self._encoder
+        a = self.args
+        encode_tensor_maps(
+            *a[19:24],  # q4_rows, k4_rows, k_sf_rows, vt4_rows, v_sf_rows: the descriptor sources
+            out,
+            a[24],  # q_sf_words
+            a[9],  # qm4
+            a[25],  # qm_sf_words
+            a[2],  # seg_tile_begin
+            a[4],  # unit_table
+            a[30],  # num_units
+            heads,
+            a[29],  # num_kblocks
+            softmax_scale_log2,
+            self.maps,
+        )
+        self.encode = None
 
 
 # Per (device, stream): the workspace buffers the cached launches slice and the launches per (plan, route).
@@ -1176,6 +1221,7 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
     tail: int,
     tail_grid: int,
     units_per_head: int,
+    attention_maps: Any,
     softmax_scale_log2: float,
     stream: int,
     target: str,
@@ -1184,8 +1230,10 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
     # pre-processing (``second < 0``), or the statistics (which also quantize Q) and the K / V quantizer;
     # then the attention of either route.  ``first`` / ``second`` / ``attention`` index
     # ``_NVFP4_PROGRAMS``.  The bindings take the host arguments in the kernels' signature order followed
-    # by the grid triple; the attention binding encodes its five tensor maps from the byte tensors handed
-    # in its descriptor positions (``*_rows``, views of the quantized operands and scales).
+    # by the grid triple.  The base attention binding (``ATTENTION`` / ``ATTENTION_NODELTA``) takes its five
+    # tensor maps from ``attention_maps``, encoded once per cached launch from the byte tensors in its
+    # descriptor positions (``*_rows``, views of the quantized operands and scales); the other attention
+    # programs (``attention_maps`` is ``None``) encode them from those tensors on every call.
     # The overlapped form (``tail >= 0``): the lead attention (``attention``, a plain launch over
     # ``attention_grid`` CTAs), the head-major producers (``first``, ``first_grid`` CTAs) and the tail
     # attention (``tail``, ``tail_grid`` CTAs), sharing the head-control words ``hctr``.
@@ -1364,26 +1412,49 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
                 1,
                 1,
             )
-        _nvfp4_entry(target, attention)(
-            q4_rows,
-            k4_rows,
-            k_sf_rows,
-            vt4_rows,
-            v_sf_rows,
-            ffi_out,
-            q_sf_words,
-            qm4,
-            qm_sf_words,
-            seg_tile_begin,
-            unit_table,
-            num_units,
-            heads,
-            num_kblocks,
-            softmax_scale_log2,
-            attention_grid,
-            1,
-            1,
-        )
+        if attention_maps is None:
+            _nvfp4_entry(target, attention)(
+                q4_rows,
+                k4_rows,
+                k_sf_rows,
+                vt4_rows,
+                v_sf_rows,
+                ffi_out,
+                q_sf_words,
+                qm4,
+                qm_sf_words,
+                seg_tile_begin,
+                unit_table,
+                num_units,
+                heads,
+                num_kblocks,
+                softmax_scale_log2,
+                attention_grid,
+                1,
+                1,
+            )
+        else:
+            _nvfp4_entry(target, attention)(
+                q4_rows,
+                k4_rows,
+                k_sf_rows,
+                vt4_rows,
+                v_sf_rows,
+                ffi_out,
+                q_sf_words,
+                qm4,
+                qm_sf_words,
+                seg_tile_begin,
+                unit_table,
+                num_units,
+                heads,
+                num_kblocks,
+                softmax_scale_log2,
+                attention_maps,
+                attention_grid,
+                1,
+                1,
+            )
 
 
 @register_fake_op("flashinfer::minimax_h3_sm120_varlen_attention_nvfp4")
@@ -1432,6 +1503,7 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_fake(
     tail: int,
     tail_grid: int,
     units_per_head: int,
+    attention_maps: Any,
     softmax_scale_log2: float,
     stream: int,
     target: str,
@@ -1453,13 +1525,18 @@ def _run_nvfp4(
     index = _device_index(q.device)
     target = _nvfp4_target(index)
     stream = _current_stream(index)
+    launch = _nvfp4_launch(plan, delta, index, stream, target)
+    softmax_scale_log2 = _softmax_scale_log2(softmax_scale)
+    if launch.encode is not None:  # the launch's first call: its tensor maps, before any launch
+        launch.encode(tvm_ffi.from_dlpack(out), softmax_scale_log2)
     _minimax_h3_sm120_varlen_attention_nvfp4_impl(
         q,
         k,
         v,
         out,
-        *_nvfp4_launch(plan, delta, index, stream, target).args,
-        _softmax_scale_log2(softmax_scale),
+        *launch.args,
+        launch.maps,
+        softmax_scale_log2,
         stream,
         target,
     )

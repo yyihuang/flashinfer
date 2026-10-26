@@ -35,6 +35,7 @@ import torch
 from flashinfer.diffusion_ops import (
     minimax_h3_sm120_varlen_attention_fp8,
     minimax_h3_sm120_varlen_attention_nvfp4,
+    minimax_h3_sm120_varlen_attention_nvfp4_nodelta,
 )
 import flashinfer.diffusion_ops.cake_minimax_h3_sm120_nvfp4_varlen_attention as nvfp4_ops
 from flashinfer.diffusion_ops.cake_minimax_h3_sm120_nvfp4_varlen_attention import (
@@ -222,6 +223,76 @@ def test_minimax_h3_sm120_varlen_attention_nvfp4_custom_scale_and_empty_stream()
         minimax_h3_sm120_varlen_attention_nvfp4(empty, empty, empty, cu0).shape
         == empty.shape
     )
+
+
+@requires_sm120
+@pytest.mark.parametrize("nodelta", [False, True])
+def test_minimax_h3_sm120_varlen_attention_nvfp4_cached_tensor_maps_follow_the_shape(
+    nodelta: bool,
+) -> None:
+    # The base attention program takes its tensor maps from the cached launch, which encodes them once.
+    # Two plans of different shapes run on the same workspace buffers (the same addresses): each launch
+    # holds the maps of its own extents and strides, a fresh encode reproduces them byte for byte, and
+    # every call (cached or fresh, in either order) gives the same output bit for bit.
+    op = (
+        minimax_h3_sm120_varlen_attention_nvfp4_nodelta
+        if nodelta
+        else minimax_h3_sm120_varlen_attention_nvfp4
+    )
+    device = torch.device("cuda:0")
+    heads = 4
+    # Both plans stay below the fused pre-processing's 2048 padded tokens: statistics, quantizer and the
+    # base attention; the larger plan runs first, so the smaller one reuses its buffers.
+    shapes = ((0, 700, 1100), (0, 300))
+    inputs = [
+        synthetic_inputs(cu[-1], heads, seed=31 + i, device=device)
+        for i, cu in enumerate(shapes)
+    ]
+
+    def run(i: int) -> torch.Tensor:
+        q, k, v = inputs[i]
+        cu = torch.tensor(shapes[i], dtype=torch.int32, device=device)
+        return op(q, k, v, cu, cu_seqlens_host=shapes[i])
+
+    def launches():
+        (entry,) = nvfp4_ops._NVFP4_LAUNCHES.values()
+        return list(entry[1].values())
+
+    def maps_of(launch) -> torch.Tensor:
+        assert launch.maps is not None and launch.encode is None
+        return torch.from_dlpack(launch.maps).clone()
+
+    nvfp4_ops._NVFP4_LAUNCHES.clear()
+    first = [run(0), run(1)]
+    torch.cuda.synchronize()
+    big, small = launches()
+    # the same descriptor source addresses, different extents: different maps
+    for a, b in zip(big.args[19:24], small.args[19:24], strict=True):
+        assert torch.from_dlpack(a).data_ptr() == torch.from_dlpack(b).data_ptr()
+    cached = [maps_of(big), maps_of(small)]
+    assert not torch.equal(cached[0], cached[1])
+    if not nodelta:
+        for i, out in enumerate(first):
+            _check(out, fp32_oracle(*inputs[i], shapes[i]))
+    # cached launches
+    for i in (1, 0):
+        assert torch.equal(run(i), first[i])
+    # fresh launches, in the other order: the same maps and the same outputs
+    nvfp4_ops._NVFP4_LAUNCHES.clear()
+    again = {1: run(1)}
+    again[0] = run(0)
+    torch.cuda.synchronize()
+    small, big = launches()
+    assert torch.equal(maps_of(big), cached[0]) and torch.equal(maps_of(small), cached[1])
+    for i in (0, 1):
+        assert torch.equal(again[i], first[i])
+    # the maps decide the result: the small plan run with the large plan's maps gives another output
+    small.maps, big.maps = big.maps, small.maps
+    try:
+        assert not torch.equal(run(1), first[1])
+    finally:
+        small.maps, big.maps = big.maps, small.maps
+    assert torch.equal(run(1), first[1])
 
 
 @requires_sm120
