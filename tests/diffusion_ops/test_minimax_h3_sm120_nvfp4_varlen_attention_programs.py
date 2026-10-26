@@ -182,8 +182,9 @@ HOST_ARGS = {
     "STATS": STATS_ARGS,
     "QUANTIZE_KV": QUANTIZE_ARGS,
     "QUANTIZE_KV_HBLK64": QUANTIZE_ARGS,
-    "ATTENTION": ATTENTION_ARGS,
-    "ATTENTION_NODELTA": ATTENTION_ARGS,
+    # the base attention bindings take their tensor maps from the host (the caller-encoded form)
+    "ATTENTION": (*ATTENTION_ARGS, "tensor_maps"),
+    "ATTENTION_NODELTA": (*ATTENTION_ARGS, "tensor_maps"),
     "ATTENTION_WS": ATTENTION_ARGS,
     "ATTENTION_WS_NODELTA": ATTENTION_ARGS,
     "PREPROCESS_HEAD_MAJOR": PREPROCESS_HEAD_MAJOR_ARGS,
@@ -215,11 +216,16 @@ def test_the_loader_publishes_the_thirteen_programs() -> None:
             "use_pdl": identifier not in PLAIN,
         }
         assert program.needs_device_linking is False
-    # the two quantizer work orders and the four attention programs share their argument lists
+    # the two quantizer work orders share their argument lists; so do the four attention programs, but
+    # for the base pair's tensor-map buffer
     assert QUANTIZE_KV.args == QUANTIZE_KV_HBLK64.args
     assert QUANTIZE_KV.name != QUANTIZE_KV_HBLK64.name
     attention = (ATTENTION, ATTENTION_NODELTA, ATTENTION_WS, ATTENTION_WS_NODELTA)
-    assert len({program.args for program in attention}) == 1
+    assert (
+        len({tuple(a for a in program.args if a != "tensor_maps") for program in attention})
+        == 1
+    )
+    assert ATTENTION.args == ATTENTION_NODELTA.args
     overlap = (
         ATTENTION_LEAD,
         ATTENTION_TAIL,
