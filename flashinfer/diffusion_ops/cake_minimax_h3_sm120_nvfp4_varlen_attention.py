@@ -712,7 +712,8 @@ def minimax_h3_sm120_nvfp4_programs(
         if delta:
             return (ATTENTION_LEAD, PREPROCESS_HEAD_MAJOR, ATTENTION_TAIL)
         return (ATTENTION_NODELTA_LEAD, PREPROCESS_HEAD_MAJOR, ATTENTION_NODELTA_TAIL)
-    if fused:
+    if fused or padded < _PREPROCESS_MIN_TOKENS:
+        # below 2048 padded tokens the fused pre-processing runs as one plain launch (no overlapped form)
         pre: Tuple[CakeProgram, ...] = (PREPROCESS,)
     elif padded > _PREPROCESS_MAX_TOKENS:
         pre = (STATS, QUANTIZE_KV_HBLK64)
