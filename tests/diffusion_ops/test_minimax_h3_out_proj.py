@@ -519,10 +519,13 @@ def test_minimax_h3_out_proj_nvfp4_engine_gate(model, prepared_nvfp4, device):
 # with 4824 rows = 399 tile pairs (19 past five waves of 76 co-resident pairs), 7169 rows = 609
 # (one past eight waves) and 300 rows = 42, plus every tile as two half units.
 TAIL_SPLIT_CASES = [(4824, 8, 19), (7169, 4, 1), (300, 2, 5)]
+# NVFP4 only: 129 rows = 21 tile pairs (less than one wave, all tail tiles) and 6912 rows = 567
+# (35 past seven waves), the two ends of the low-wave tail-split shapes on 76 co-resident pairs.
+NVFP4_TAIL_SPLIT_CASES = [*TAIL_SPLIT_CASES, (129, 8, 21), (6912, 4, 35)]
 
 
 @requires_blackwell
-@pytest.mark.parametrize("rows,degree,tail", TAIL_SPLIT_CASES)
+@pytest.mark.parametrize("rows,degree,tail", NVFP4_TAIL_SPLIT_CASES)
 def test_minimax_h3_out_proj_nvfp4_tail_split_bitwise(
     rows, degree, tail, model, prepared_nvfp4, device
 ):

@@ -10554,7 +10554,8 @@ constexpr bool kGemmNvfp4Pdl = true;
 //          measured M from 129 on; below 129 rows some shapes run up to 15 % slower.
 //   NVFP4: no longer repays the program beyond about 10 waves on sm_100a (where it costs about 1 % on whole tiles)
 //          and about 50 waves on sm_103a; slower at M = 1 and M = 16 and faster at every measured M from 32 on.
-//          On sm_103a the _ts_wr_pw_sr program replaces it from kNvfp4WrPwMinWaves waves on (PickNvfp4Schedule).
+//          On sm_103a the _ts_wr_pw_sr program replaces it from kNvfp4WrPwMinWaves waves on and, on a device with
+//          kNvfp4SrLowWavePairs co-resident pairs, from one wave on (PickNvfp4Schedule).
 struct TailSplitRule {
   int64_t max_waves;
   int64_t min_rows;
@@ -10902,11 +10903,14 @@ constexpr auto kBf16TailSplitKernel = kernel_minimax_h3_out_proj_bf16_ts;
 // kNvfp4TailSplit's row and wave limits; kernel_minimax_h3_out_proj_e2m1_ts_wr_pw_sr, the _ts_wr_pw program with
 // the epilogue's residual staged in shared memory (two cp.async slots per epilogue warp; the same output bits and
 // launch shape, kGemmNvfp4SrSmem dynamic shared memory), runs the tail-split shapes from kNvfp4WrPwMinWaves full
-// waves on (fewer keep _ts); every other shape keeps its program.  Measured on GB300 against the program each
-// shape ran before: _ts_wr_pw faster at every measured whole shape of 4.7 to 41.7 waves, not at 5 waves and
-// fewer; _ts_wr_pw_sr faster than _ts_wr_pw at every measured tail-split shape of 8 to 40 waves.  A forced
-// schedule (tests only) runs the program the rule picks for the shape: _ts_wr_pw_sr, _ts_wr_pw or _ts.
+// waves on and, on a device with kNvfp4SrLowWavePairs co-resident pairs (the 152-SM GB300), from one full wave
+// on (fewer keep _ts); every other shape keeps its program.  Measured on GB300 against the program each shape
+// ran before: _ts_wr_pw faster at every measured whole shape of 4.7 to 41.7 waves, not at 5 waves and fewer;
+// _ts_wr_pw_sr faster than _ts_wr_pw at every measured tail-split shape of 8 to 40 waves and than _ts at every
+// measured one of 1 to 7 waves.  A forced schedule (tests only) runs the program the rule picks for the shape:
+// _ts_wr_pw_sr, _ts_wr_pw or _ts.
 constexpr int64_t kNvfp4WrPwMinWaves = 8;
+constexpr int64_t kNvfp4SrLowWavePairs = 76;
 
 struct Nvfp4Schedule {
   GemmSchedule gemm;
@@ -10922,7 +10926,7 @@ Nvfp4Schedule PickNvfp4Schedule(int64_t rows, int64_t num_tiles, int64_t pairs, 
       num_tiles <= kNvfp4TailSplit.max_waves * pairs) {
     if (rule.tail_split) {
       wr_pw = num_tiles >= kNvfp4WrPwMinWaves * pairs;
-      sr = wr_pw;
+      sr = wr_pw || (pairs == kNvfp4SrLowWavePairs && num_tiles >= pairs);
     } else {
       wr_pw = true;
       rule = GemmSchedule{true, num_tiles, num_tiles};
