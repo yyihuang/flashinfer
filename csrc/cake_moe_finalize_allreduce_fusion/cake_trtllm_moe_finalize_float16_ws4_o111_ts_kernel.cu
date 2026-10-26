@@ -107,7 +107,7 @@ __device__ inline unsigned int laneId()
 extern "C" {
 
 __global__ __launch_bounds__(224, LAUNCH_MIN_BLOCKS) __cluster_dims__(4,1,1) void
-kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allreduce_in, int* __restrict__ inverse_indices, __half* __restrict__ expert_scales, __half* __restrict__ shared_expert_output, __half* __restrict__ residual, __half* __restrict__ norm_weight, __half* __restrict__ residual_out, __half* __restrict__ norm_out, __half* __restrict__ quant_out, __half* __restrict__ scale_out, long long* __restrict__ workspace_tensor, int world_rank, int tokens, int top_k, int has_shared_expert, float routed_scaling_factor, float epsilon, float weight_bias, float scale_factor)
+kernel_cake_trtllm_moe_finalize_float16_ws4_o111_ts(__half* __restrict__ allreduce_in, int* __restrict__ inverse_indices, __half* __restrict__ expert_scales, __half* __restrict__ shared_expert_output, __half* __restrict__ residual, __half* __restrict__ norm_weight, __half* __restrict__ residual_out, __half* __restrict__ norm_out, __half* __restrict__ quant_out, __half* __restrict__ scale_out, long long* __restrict__ workspace_tensor, int world_rank, int tokens, int top_k, int has_shared_expert, float routed_scaling_factor, float epsilon, float weight_bias, float scale_factor)
 {
     const int tid = threadIdx.x;
     const uint32_t warp = __shfl_sync(0xffffffff, threadIdx.x / 32, 0);
@@ -182,14 +182,14 @@ kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allredu
     }
     long long clear_base = (long long)control_dirty * comm_stride_elems;
     int access = first_access;
-    int rms_parity = 1;
-    int rms_phase = 1;
+    int rms_parity = 0;
+    int rms_phase = 0;
     int clear_limit = control_clear_word / 8;
     int clear_total = ((clear_limit > first_access) ? (clear_limit - first_access + access_stride - 1) / access_stride : 0);
     int clear_per_step = (clear_total + local_tokens + 1) / (local_tokens + 2);
     int clear_next = first_access;
     #pragma unroll 1
-    for (int step = 0; step < local_tokens + 1; step++) {
+    for (int step = 0; step < local_tokens + 2; step++) {
         if (local_tokens > step) {
             int published_token = token_begin + step * token_stride;
             float acc[8];
@@ -709,12 +709,13 @@ kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allredu
                 __half2 _h2 = __float22half2_rn(make_float2(acc[_lp*2 + 0], acc[_lp*2+1 + 0]));
                 acc_f16_6[_lp] = *(uint32_t*)&_h2;
             }
-            int access_0 = published_token * 896 + cluster_thread;
-            long long slot = (long long)rank * (long long)total_access * 8 + (long long)access_0 * 8;
-            asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer0 + slot), "r"((acc_f16_6)[0]), "r"((acc_f16_6)[1]), "r"((acc_f16_6)[2]), "r"((acc_f16_6)[3]) : "memory");
-            asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer1 + slot), "r"((acc_f16_6)[0]), "r"((acc_f16_6)[1]), "r"((acc_f16_6)[2]), "r"((acc_f16_6)[3]) : "memory");
-            asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer2 + slot), "r"((acc_f16_6)[0]), "r"((acc_f16_6)[1]), "r"((acc_f16_6)[2]), "r"((acc_f16_6)[3]) : "memory");
-            asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(peer3 + slot), "r"((acc_f16_6)[0]), "r"((acc_f16_6)[1]), "r"((acc_f16_6)[2]), "r"((acc_f16_6)[3]) : "memory");
+            {
+                const int ts_q = cluster_thread / 224;
+                const int ts_owner = (published_token + ts_q) & 3;
+                const long long ts_rs = ((long long)rank * (long long)tokens + (long long)published_token) * 1792 + (long long)(cluster_thread - ts_q * 224) * 8;
+                __half* ts_dst = reinterpret_cast<__half*>(workspace_tensor[8 + ts_owner]) + data_base + ts_rs;
+                asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(ts_dst), "r"((acc_f16_6)[0]), "r"((acc_f16_6)[1]), "r"((acc_f16_6)[2]), "r"((acc_f16_6)[3]) : "memory");
+            }
         }
         int clear_end = clear_next + clear_per_step * access_stride;
         clear_end = ((clear_end > clear_limit) ? clear_limit : clear_end);
@@ -727,11 +728,223 @@ kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allredu
             }
         }
         clear_next = clear_end;
-        if (step == 1) {
+        if (step == 2) {
             asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
         }
-        if (step >= 1) {
-            int reduced_token = token_begin + (step - 1) * token_stride;
+        if (step >= 1 && step <= local_tokens) {
+            int own_token = token_begin + (step - 1) * token_stride;
+            const int own_q = cluster_thread / 224;
+            if (((own_token + own_q) & 3) == rank) {
+                const long long rs_off = (long long)own_token * 1792 + (long long)(cluster_thread - own_q * 224) * 8;
+                const long long rs_stride = (long long)tokens * 1792;
+                uint32_t _sysv_poll_group_0[16];
+                do {
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[0]), "=r"(_sysv_poll_group_0[1]), "=r"(_sysv_poll_group_0[2]), "=r"(_sysv_poll_group_0[3]) : "l"(workspace_local + (data_base + rs_off)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[4]), "=r"(_sysv_poll_group_0[5]), "=r"(_sysv_poll_group_0[6]), "=r"(_sysv_poll_group_0[7]) : "l"(workspace_local + (data_base + rs_stride + rs_off)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[8]), "=r"(_sysv_poll_group_0[9]), "=r"(_sysv_poll_group_0[10]), "=r"(_sysv_poll_group_0[11]) : "l"(workspace_local + (data_base + (long long)2 * rs_stride + rs_off)) : "memory");
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[12]), "=r"(_sysv_poll_group_0[13]), "=r"(_sysv_poll_group_0[14]), "=r"(_sysv_poll_group_0[15]) : "l"(workspace_local + (data_base + (long long)3 * rs_stride + rs_off)) : "memory");
+                } while (
+                    (((_sysv_poll_group_0[0] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[0] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[1] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[1] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[2] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[2] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[3] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[3] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[4] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[4] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[5] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[5] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[6] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[6] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[7] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[7] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[8] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[8] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[9] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[9] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[10] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[10] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[11] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[11] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[12] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[12] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[13] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[13] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[14] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[14] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[15] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((_sysv_poll_group_0[15] >> 16) & 0xffffu) == 0x8000u)
+                );
+                float _unpack_f16_8[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    asm volatile(
+                        "{\n\t"
+                        ".reg .b16 h_lo, h_hi;\n\t"
+                        ".reg .b32 f_lo, f_hi;\n\t"
+                        "mov.b32 {h_lo, h_hi}, %1;\n\t"
+                        "cvt.f32.f16 f_lo, h_lo;\n\t"
+                        "cvt.f32.f16 f_hi, h_hi;\n\t"
+                        "mov.b64 %0, {f_lo, f_hi};\n\t"
+                        "}\n"
+                        : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_8[_pair * 2]))
+                        : "r"(_sysv_poll_group_0[_pair]));
+                }
+                float sum_value[8];
+                #pragma unroll
+                for (int j_12 = 0; j_12 < 8; j_12++) {
+                    sum_value[j_12] = _unpack_f16_8[j_12];
+                }
+                float _unpack_f16_9[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    asm volatile(
+                        "{\n\t"
+                        ".reg .b16 h_lo, h_hi;\n\t"
+                        ".reg .b32 f_lo, f_hi;\n\t"
+                        "mov.b32 {h_lo, h_hi}, %1;\n\t"
+                        "cvt.f32.f16 f_lo, h_lo;\n\t"
+                        "cvt.f32.f16 f_hi, h_hi;\n\t"
+                        "mov.b64 %0, {f_lo, f_hi};\n\t"
+                        "}\n"
+                        : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_9[_pair * 2]))
+                        : "r"(_sysv_poll_group_0[4 + _pair]));
+                }
+                #pragma unroll
+                for (int j_13 = 0; j_13 < 8; j_13++) {
+                    sum_value[j_13] = sum_value[j_13] + _unpack_f16_9[j_13];
+                }
+                unsigned int sum_value_f16[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __half2 _h2 = __float22half2_rn(make_float2(sum_value[_lp*2 + 0], sum_value[_lp*2+1 + 0]));
+                    sum_value_f16[_lp] = *(uint32_t*)&_h2;
+                }
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    asm volatile(
+                        "{\n\t"
+                        ".reg .b16 h_lo, h_hi;\n\t"
+                        ".reg .b32 f_lo, f_hi;\n\t"
+                        "mov.b32 {h_lo, h_hi}, %1;\n\t"
+                        "cvt.f32.f16 f_lo, h_lo;\n\t"
+                        "cvt.f32.f16 f_hi, h_hi;\n\t"
+                        "mov.b64 %0, {f_lo, f_hi};\n\t"
+                        "}\n"
+                        : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
+                        : "r"(sum_value_f16[_pair]));
+                }
+                float _unpack_f16_10[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    asm volatile(
+                        "{\n\t"
+                        ".reg .b16 h_lo, h_hi;\n\t"
+                        ".reg .b32 f_lo, f_hi;\n\t"
+                        "mov.b32 {h_lo, h_hi}, %1;\n\t"
+                        "cvt.f32.f16 f_lo, h_lo;\n\t"
+                        "cvt.f32.f16 f_hi, h_hi;\n\t"
+                        "mov.b64 %0, {f_lo, f_hi};\n\t"
+                        "}\n"
+                        : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_10[_pair * 2]))
+                        : "r"(_sysv_poll_group_0[8 + _pair]));
+                }
+                #pragma unroll
+                for (int j_14 = 0; j_14 < 8; j_14++) {
+                    sum_value[j_14] = sum_value[j_14] + _unpack_f16_10[j_14];
+                }
+                unsigned int sum_value_f16_0[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __half2 _h2 = __float22half2_rn(make_float2(sum_value[_lp*2 + 0], sum_value[_lp*2+1 + 0]));
+                    sum_value_f16_0[_lp] = *(uint32_t*)&_h2;
+                }
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    asm volatile(
+                        "{\n\t"
+                        ".reg .b16 h_lo, h_hi;\n\t"
+                        ".reg .b32 f_lo, f_hi;\n\t"
+                        "mov.b32 {h_lo, h_hi}, %1;\n\t"
+                        "cvt.f32.f16 f_lo, h_lo;\n\t"
+                        "cvt.f32.f16 f_hi, h_hi;\n\t"
+                        "mov.b64 %0, {f_lo, f_hi};\n\t"
+                        "}\n"
+                        : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
+                        : "r"(sum_value_f16_0[_pair]));
+                }
+                float _unpack_f16_11[8];
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    asm volatile(
+                        "{\n\t"
+                        ".reg .b16 h_lo, h_hi;\n\t"
+                        ".reg .b32 f_lo, f_hi;\n\t"
+                        "mov.b32 {h_lo, h_hi}, %1;\n\t"
+                        "cvt.f32.f16 f_lo, h_lo;\n\t"
+                        "cvt.f32.f16 f_hi, h_hi;\n\t"
+                        "mov.b64 %0, {f_lo, f_hi};\n\t"
+                        "}\n"
+                        : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_11[_pair * 2]))
+                        : "r"(_sysv_poll_group_0[12 + _pair]));
+                }
+                #pragma unroll
+                for (int j_15 = 0; j_15 < 8; j_15++) {
+                    sum_value[j_15] = sum_value[j_15] + _unpack_f16_11[j_15];
+                }
+                unsigned int sum_value_f16_1[4];
+                #pragma unroll
+                for (int _lp = 0; _lp < 4; _lp++) {
+                    __half2 _h2 = __float22half2_rn(make_float2(sum_value[_lp*2 + 0], sum_value[_lp*2+1 + 0]));
+                    sum_value_f16_1[_lp] = *(uint32_t*)&_h2;
+                }
+                #pragma unroll
+                for (int _pair = 0; _pair < 4; _pair++) {
+                    asm volatile(
+                        "{\n\t"
+                        ".reg .b16 h_lo, h_hi;\n\t"
+                        ".reg .b32 f_lo, f_hi;\n\t"
+                        "mov.b32 {h_lo, h_hi}, %1;\n\t"
+                        "cvt.f32.f16 f_lo, h_lo;\n\t"
+                        "cvt.f32.f16 f_hi, h_hi;\n\t"
+                        "mov.b64 %0, {f_lo, f_hi};\n\t"
+                        "}\n"
+                        : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
+                        : "r"(sum_value_f16_1[_pair]));
+                }
+
+                const int own_access = own_token * 896 + cluster_thread;
+                const long long ag_out = (long long)tokens * 7168 + (long long)own_access * 8;
+                {
+                    long long _pp;
+                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 8));
+                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
+                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_1)[0]), "r"((sum_value_f16_1)[1]), "r"((sum_value_f16_1)[2]), "r"((sum_value_f16_1)[3]) : "memory");
+                }
+                {
+                    long long _pp;
+                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 9));
+                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
+                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_1)[0]), "r"((sum_value_f16_1)[1]), "r"((sum_value_f16_1)[2]), "r"((sum_value_f16_1)[3]) : "memory");
+                }
+                {
+                    long long _pp;
+                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 10));
+                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
+                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_1)[0]), "r"((sum_value_f16_1)[1]), "r"((sum_value_f16_1)[2]), "r"((sum_value_f16_1)[3]) : "memory");
+                }
+                {
+                    long long _pp;
+                    asm volatile("ld.global.b64 %0, [%1];" : "=l"(_pp) : "l"(workspace_tensor + 11));
+                    __half* _pb = reinterpret_cast<__half*>(_pp) + data_base;
+                    asm volatile("st.volatile.global.v4.b32 [%0], {%1, %2, %3, %4};" :: "l"(_pb + ag_out), "r"((sum_value_f16_1)[0]), "r"((sum_value_f16_1)[1]), "r"((sum_value_f16_1)[2]), "r"((sum_value_f16_1)[3]) : "memory");
+                }
+            }
+        }
+        if (step >= 2) {
+            int reduced_token = token_begin + (step - 2) * token_stride;
             int elem_early = access * 8;
             float _vec_load_17[8];
             {
@@ -757,68 +970,25 @@ kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allredu
                     }
                 }
             }
-            uint32_t _sysv_poll_group_0[16];
-            do {
-                asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[0]), "=r"(_sysv_poll_group_0[1]), "=r"(_sysv_poll_group_0[2]), "=r"(_sysv_poll_group_0[3]) : "l"(workspace_local + (data_base + (long long)(access * 8))) : "memory");
-                asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[4]), "=r"(_sysv_poll_group_0[5]), "=r"(_sysv_poll_group_0[6]), "=r"(_sysv_poll_group_0[7]) : "l"(workspace_local + (data_base + (long long)(total_access * 8) + (long long)(access * 8))) : "memory");
-                asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[8]), "=r"(_sysv_poll_group_0[9]), "=r"(_sysv_poll_group_0[10]), "=r"(_sysv_poll_group_0[11]) : "l"(workspace_local + (data_base + (long long)(2 * total_access * 8) + (long long)(access * 8))) : "memory");
-                asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_sysv_poll_group_0[12]), "=r"(_sysv_poll_group_0[13]), "=r"(_sysv_poll_group_0[14]), "=r"(_sysv_poll_group_0[15]) : "l"(workspace_local + (data_base + (long long)(3 * total_access * 8) + (long long)(access * 8))) : "memory");
-            } while (
-                (((_sysv_poll_group_0[0] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[0] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[1] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[1] >> 16) & 0xffffu) == 0x8000u) ||
-                (((_sysv_poll_group_0[2] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[2] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[3] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[3] >> 16) & 0xffffu) == 0x8000u) ||
-                (((_sysv_poll_group_0[4] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[4] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[5] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[5] >> 16) & 0xffffu) == 0x8000u) ||
-                (((_sysv_poll_group_0[6] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[6] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[7] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[7] >> 16) & 0xffffu) == 0x8000u) ||
-                (((_sysv_poll_group_0[8] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[8] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[9] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[9] >> 16) & 0xffffu) == 0x8000u) ||
-                (((_sysv_poll_group_0[10] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[10] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[11] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[11] >> 16) & 0xffffu) == 0x8000u) ||
-                (((_sysv_poll_group_0[12] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[12] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[13] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[13] >> 16) & 0xffffu) == 0x8000u) ||
-                (((_sysv_poll_group_0[14] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[14] >> 16) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[15] >> 0) & 0xffffu) == 0x8000u) || (((_sysv_poll_group_0[15] >> 16) & 0xffffu) == 0x8000u)
-            );
-            float _unpack_f16_8[8];
-            #pragma unroll
-            for (int _pair = 0; _pair < 4; _pair++) {
-                asm volatile(
-                    "{\n\t"
-                    ".reg .b16 h_lo, h_hi;\n\t"
-                    ".reg .b32 f_lo, f_hi;\n\t"
-                    "mov.b32 {h_lo, h_hi}, %1;\n\t"
-                    "cvt.f32.f16 f_lo, h_lo;\n\t"
-                    "cvt.f32.f16 f_hi, h_hi;\n\t"
-                    "mov.b64 %0, {f_lo, f_hi};\n\t"
-                    "}\n"
-                    : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_8[_pair * 2]))
-                    : "r"(_sysv_poll_group_0[_pair]));
+            const int ag_q = cluster_thread / 224;
+            unsigned int ag_sum[4];
+            {
+                const long long ag_in = data_base + (long long)tokens * 7168 + (long long)access * 8;
+                do {
+                    asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(ag_sum[0]), "=r"(ag_sum[1]), "=r"(ag_sum[2]), "=r"(ag_sum[3]) : "l"(workspace_local + ag_in) : "memory");
+                } while (
+                    (((ag_sum[0] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((ag_sum[0] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((ag_sum[1] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((ag_sum[1] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((ag_sum[2] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((ag_sum[2] >> 16) & 0xffffu) == 0x8000u) ||
+                    (((ag_sum[3] >> 0) & 0xffffu) == 0x8000u) ||
+                    (((ag_sum[3] >> 16) & 0xffffu) == 0x8000u)
+                );
             }
             float sum_value[8];
             #pragma unroll
-            for (int j_12 = 0; j_12 < 8; j_12++) {
-                sum_value[j_12] = _unpack_f16_8[j_12];
-            }
-            float _unpack_f16_9[8];
-            #pragma unroll
-            for (int _pair = 0; _pair < 4; _pair++) {
-                asm volatile(
-                    "{\n\t"
-                    ".reg .b16 h_lo, h_hi;\n\t"
-                    ".reg .b32 f_lo, f_hi;\n\t"
-                    "mov.b32 {h_lo, h_hi}, %1;\n\t"
-                    "cvt.f32.f16 f_lo, h_lo;\n\t"
-                    "cvt.f32.f16 f_hi, h_hi;\n\t"
-                    "mov.b64 %0, {f_lo, f_hi};\n\t"
-                    "}\n"
-                    : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_9[_pair * 2]))
-                    : "r"(_sysv_poll_group_0[4 + _pair]));
-            }
-            #pragma unroll
-            for (int j_13 = 0; j_13 < 8; j_13++) {
-                sum_value[j_13] = sum_value[j_13] + _unpack_f16_9[j_13];
-            }
-            unsigned int sum_value_f16[4];
-            #pragma unroll
-            for (int _lp = 0; _lp < 4; _lp++) {
-                __half2 _h2 = __float22half2_rn(make_float2(sum_value[_lp*2 + 0], sum_value[_lp*2+1 + 0]));
-                sum_value_f16[_lp] = *(uint32_t*)&_h2;
-            }
-            #pragma unroll
             for (int _pair = 0; _pair < 4; _pair++) {
                 asm volatile(
                     "{\n\t"
@@ -830,85 +1000,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allredu
                     "mov.b64 %0, {f_lo, f_hi};\n\t"
                     "}\n"
                     : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
-                    : "r"(sum_value_f16[_pair]));
-            }
-            float _unpack_f16_10[8];
-            #pragma unroll
-            for (int _pair = 0; _pair < 4; _pair++) {
-                asm volatile(
-                    "{\n\t"
-                    ".reg .b16 h_lo, h_hi;\n\t"
-                    ".reg .b32 f_lo, f_hi;\n\t"
-                    "mov.b32 {h_lo, h_hi}, %1;\n\t"
-                    "cvt.f32.f16 f_lo, h_lo;\n\t"
-                    "cvt.f32.f16 f_hi, h_hi;\n\t"
-                    "mov.b64 %0, {f_lo, f_hi};\n\t"
-                    "}\n"
-                    : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_10[_pair * 2]))
-                    : "r"(_sysv_poll_group_0[8 + _pair]));
-            }
-            #pragma unroll
-            for (int j_14 = 0; j_14 < 8; j_14++) {
-                sum_value[j_14] = sum_value[j_14] + _unpack_f16_10[j_14];
-            }
-            unsigned int sum_value_f16_0[4];
-            #pragma unroll
-            for (int _lp = 0; _lp < 4; _lp++) {
-                __half2 _h2 = __float22half2_rn(make_float2(sum_value[_lp*2 + 0], sum_value[_lp*2+1 + 0]));
-                sum_value_f16_0[_lp] = *(uint32_t*)&_h2;
-            }
-            #pragma unroll
-            for (int _pair = 0; _pair < 4; _pair++) {
-                asm volatile(
-                    "{\n\t"
-                    ".reg .b16 h_lo, h_hi;\n\t"
-                    ".reg .b32 f_lo, f_hi;\n\t"
-                    "mov.b32 {h_lo, h_hi}, %1;\n\t"
-                    "cvt.f32.f16 f_lo, h_lo;\n\t"
-                    "cvt.f32.f16 f_hi, h_hi;\n\t"
-                    "mov.b64 %0, {f_lo, f_hi};\n\t"
-                    "}\n"
-                    : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
-                    : "r"(sum_value_f16_0[_pair]));
-            }
-            float _unpack_f16_11[8];
-            #pragma unroll
-            for (int _pair = 0; _pair < 4; _pair++) {
-                asm volatile(
-                    "{\n\t"
-                    ".reg .b16 h_lo, h_hi;\n\t"
-                    ".reg .b32 f_lo, f_hi;\n\t"
-                    "mov.b32 {h_lo, h_hi}, %1;\n\t"
-                    "cvt.f32.f16 f_lo, h_lo;\n\t"
-                    "cvt.f32.f16 f_hi, h_hi;\n\t"
-                    "mov.b64 %0, {f_lo, f_hi};\n\t"
-                    "}\n"
-                    : "=l"(*reinterpret_cast<unsigned long long*>(&_unpack_f16_11[_pair * 2]))
-                    : "r"(_sysv_poll_group_0[12 + _pair]));
-            }
-            #pragma unroll
-            for (int j_15 = 0; j_15 < 8; j_15++) {
-                sum_value[j_15] = sum_value[j_15] + _unpack_f16_11[j_15];
-            }
-            unsigned int sum_value_f16_1[4];
-            #pragma unroll
-            for (int _lp = 0; _lp < 4; _lp++) {
-                __half2 _h2 = __float22half2_rn(make_float2(sum_value[_lp*2 + 0], sum_value[_lp*2+1 + 0]));
-                sum_value_f16_1[_lp] = *(uint32_t*)&_h2;
-            }
-            #pragma unroll
-            for (int _pair = 0; _pair < 4; _pair++) {
-                asm volatile(
-                    "{\n\t"
-                    ".reg .b16 h_lo, h_hi;\n\t"
-                    ".reg .b32 f_lo, f_hi;\n\t"
-                    "mov.b32 {h_lo, h_hi}, %1;\n\t"
-                    "cvt.f32.f16 f_lo, h_lo;\n\t"
-                    "cvt.f32.f16 f_hi, h_hi;\n\t"
-                    "mov.b64 %0, {f_lo, f_hi};\n\t"
-                    "}\n"
-                    : "=l"(*reinterpret_cast<unsigned long long*>(&sum_value[_pair * 2]))
-                    : "r"(sum_value_f16_1[_pair]));
+                    : "r"(ag_sum[_pair]));
             }
             int access_in_token = cluster_thread;
             int elem = access * 8;
@@ -1156,9 +1248,9 @@ kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allredu
                 *reinterpret_cast<unsigned char*>(reinterpret_cast<uint8_t*>(scale_out) + scale_index) = (unsigned char)((unsigned int)(unsigned char)(_cvt_satfinite_e4m3x2_f32_28 & 127));
             }
             access += access_stride;
+            rms_phase = rms_phase ^ rms_parity;
+            rms_parity = 1 - rms_parity;
         }
-        rms_phase = rms_phase ^ rms_parity;
-        rms_parity = 1 - rms_parity;
     }
     if (local_tokens == 0) {
         asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
@@ -1178,7 +1270,7 @@ kernel_cake_trtllm_moe_finalize_float16_ws4_o111_lt(__half* __restrict__ allredu
                 while (*_sysv_wait_p_30 != static_cast<int>(num_bids)) {}
             }
             control_0[2] = (control_current_word + 1) % 3;
-            control_0[4] = token_end * 7168 * 4;
+            control_0[4] = token_end * 14336;
             reinterpret_cast<unsigned int*>(control_0)[0] = 0;
         }
     }
