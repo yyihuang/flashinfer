@@ -17,7 +17,7 @@ limitations under the License.
 import functools
 import math
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 import tvm_ffi
@@ -46,6 +46,7 @@ from ..jit.cake_minimax_h3_sm120_nvfp4_varlen_attention import (
     STATS,
 )
 from ..jit.cake_program import CakeProgram
+from ..jit.cake_program_sequence import make_sequence
 from ..utils import register_custom_op, register_fake_op
 from .cake_minimax_h3_sm120_quant_varlen_attention import (
     _BLOCK_M,
@@ -872,14 +873,276 @@ def _nvfp4_buffers(plan, num_stats_tiles: int, index: int) -> Tuple[torch.Tensor
     )
 
 
-class _Nvfp4Launch:
-    """One plan's launches of one route on one set of workspace buffers: ``args`` are the custom op's
-    arguments from ``tok_seg`` through ``attention_grid``, every tensor among them sliced to the plan's
-    exact size (the bindings encode their tensor maps from the shapes handed in) and already converted to
-    a tvm-ffi tensor, so a call converts nothing but Q, K, V and the output."""
+class _CallArg:
+    """A binding argument the operation call supplies: index 0 Q, 1 K, 2 V, 3 the output, 4 the log2-domain
+    softmax scale (the arguments of ``_Nvfp4Launch.call``)."""
 
-    __slots__ = ("args",)
+    __slots__ = ("index",)
+
+    def __init__(self, index: int):
+        self.index = index
+
+
+_CALL_Q, _CALL_K, _CALL_V, _CALL_OUT, _CALL_SCALE = (_CallArg(i) for i in range(5))
+
+
+def _call_positions(arguments: Tuple[Any, ...]) -> List[int]:
+    """The ``(position, call-argument index)`` pairs, flattened, of the ``_CallArg`` positions of one
+    binding's arguments (``make_sequence``'s slot list)."""
+    pairs: List[int] = []
+    for position, argument in enumerate(arguments):
+        if isinstance(argument, _CallArg):
+            pairs += (position, argument.index)
+    return pairs
+
+
+def _nvfp4_steps(
+    args: Tuple[Any, ...], tokens: int, heads: int
+) -> Tuple[Tuple[Tuple[int, Tuple[Any, ...]], ...], Tuple[Any, ...], Tuple[Any, ...]]:
+    """The launches of one call of a cached launch with arguments ``args`` (``_Nvfp4Launch.args``), in launch order,
+    as ``(program slot, binding arguments)``: two or three programmatic-dependent launches -- the fused
+    pre-processing (``second < 0``), or the statistics (which also quantize Q) and the K / V quantizer; then the
+    attention of either route -- or the overlapped form (``tail >= 0``): the lead attention (a plain launch over
+    ``attention_grid`` CTAs), the head-major producers (``first_grid`` CTAs) and the tail attention (``tail_grid``
+    CTAs), sharing the head-control words ``hctr``.  The bindings take the host arguments in the kernels' signature
+    order followed by the grid triple; the attention binding encodes its five tensor maps from the byte tensors
+    handed in its descriptor positions (``*_rows``, views of the quantized operands and scales).  ``_CallArg``
+    positions take the call's Q, K, V, output and scale.  Also returns the overlapped form's attention and
+    producer argument prefixes (empty for the other forms)."""
+    (
+        tok_seg,
+        cu_seqlens,
+        seg_tile_begin,
+        tile_table,
+        unit_table,
+        q4,
+        k4,
+        q_sf,
+        k_sf,
+        qm4,
+        qm_sf,
+        vt4,
+        v_sf,
+        q_mean,
+        mean_k,
+        partials,
+        counters,
+        barrier,
+        hctr,
+        q4_rows,
+        k4_rows,
+        k_sf_rows,
+        vt4_rows,
+        v_sf_rows,
+        q_sf_words,
+        qm_sf_words,
+        num_stats_tiles,
+        q_slots,
+        padded_tokens,
+        num_kblocks,
+        num_units,
+        first,
+        second,
+        attention,
+        first_grid,
+        second_grid,
+        attention_grid,
+        tail,
+        tail_grid,
+        units_per_head,
+    ) = args
+    q, k, v, out, scale = _CALL_Q, _CALL_K, _CALL_V, _CALL_OUT, _CALL_SCALE
+    attention_args = (
+        q4_rows,
+        k4_rows,
+        k_sf_rows,
+        vt4_rows,
+        v_sf_rows,
+        out,
+        q_sf_words,
+        qm4,
+        qm_sf_words,
+        seg_tile_begin,
+        unit_table,
+    )
+    if tail >= 0:
+        producer_args = (
+            q,
+            k,
+            v,
+            tile_table,
+            seg_tile_begin,
+            tok_seg,
+            cu_seqlens,
+            partials,
+            counters,
+            mean_k,
+            q_mean,
+            q4,
+            k4,
+            q_sf,
+            k_sf,
+            qm4,
+            qm_sf,
+            vt4,
+            v_sf,
+        )
+        attention_tail = (num_units, heads, num_kblocks, scale, hctr, units_per_head)
+        steps: Tuple[Tuple[int, Tuple[Any, ...]], ...] = (
+            (
+                attention,
+                (
+                    *attention_args,
+                    *attention_tail,
+                    attention_grid,
+                    tail_grid,
+                    attention_grid,
+                    1,
+                    1,
+                ),
+            ),
+            (
+                first,
+                (
+                    *producer_args,
+                    hctr,
+                    num_stats_tiles,
+                    tokens,
+                    padded_tokens,
+                    heads,
+                    num_kblocks,
+                    first_grid,
+                    1,
+                    1,
+                ),
+            ),
+            (
+                tail,
+                (
+                    *attention_args,
+                    *attention_tail,
+                    attention_grid,
+                    tail_grid,
+                    tail_grid,
+                    1,
+                    1,
+                ),
+            ),
+        )
+        return steps, attention_args, producer_args
+    if second < 0:
+        pre: Tuple[Tuple[int, Tuple[Any, ...]], ...] = (
+            (
+                first,
+                (
+                    q,
+                    k,
+                    v,
+                    tile_table,
+                    seg_tile_begin,
+                    tok_seg,
+                    cu_seqlens,
+                    partials,
+                    counters,
+                    mean_k,
+                    q_mean,
+                    q4,
+                    k4,
+                    q_sf,
+                    k_sf,
+                    qm4,
+                    qm_sf,
+                    vt4,
+                    v_sf,
+                    barrier,
+                    num_stats_tiles,
+                    tokens,
+                    padded_tokens,
+                    heads,
+                    num_kblocks,
+                    first_grid,
+                    1,
+                    1,
+                ),
+            ),
+        )
+    else:
+        pre = (
+            (
+                first,
+                (
+                    q,
+                    k,
+                    tile_table,
+                    seg_tile_begin,
+                    partials,
+                    counters,
+                    mean_k,
+                    q_mean,
+                    q4,
+                    q_sf,
+                    qm4,
+                    qm_sf,
+                    num_stats_tiles,
+                    heads,
+                    q_slots,
+                    first_grid,
+                    1,
+                    1,
+                ),
+            ),
+            (
+                second,
+                (
+                    q,
+                    k,
+                    v,
+                    tok_seg,
+                    cu_seqlens,
+                    seg_tile_begin,
+                    mean_k,
+                    q_mean,
+                    q4,
+                    k4,
+                    q_sf,
+                    k_sf,
+                    qm4,
+                    qm_sf,
+                    vt4,
+                    v_sf,
+                    tokens,
+                    padded_tokens,
+                    heads,
+                    num_kblocks,
+                    second_grid,
+                    1,
+                    1,
+                ),
+            ),
+        )
+    attention_step = (
+        attention,
+        (*attention_args, num_units, heads, num_kblocks, scale, attention_grid, 1, 1),
+    )
+    return (*pre, attention_step), (), ()
+
+
+class _Nvfp4Launch:
+    """One plan's launches of one route on one set of workspace buffers: ``args`` are the launch facts from
+    ``tok_seg`` through ``units_per_head``, every tensor among them sliced to the plan's exact size (the bindings
+    encode their tensor maps from the shapes handed in) and already converted to a tvm-ffi tensor.  ``call(q, k,
+    v, out, softmax_scale_log2)`` issues the call's two or three launches back to back from one host call
+    (``make_sequence`` over the programs' bindings, ``_nvfp4_steps``), so a call converts nothing but Q, K, V and
+    the output, once.  ``overlap`` is ``None``, or for the overlapped form the ``(lead attention, producers, tail
+    attention)`` program slots, the attention and producer argument prefixes and the K-block count
+    ``_load_overlap`` launches with."""
+
+    __slots__ = ("args", "call", "overlap")
     args: Tuple[Any, ...]
+    call: Any
+    overlap: Optional[
+        Tuple[Tuple[int, int, int], Tuple[Any, ...], Tuple[Any, ...], int]
+    ]
 
     def __init__(
         self,
@@ -1012,6 +1275,22 @@ class _Nvfp4Launch:
             tail_grid,
             units_per_head,
         )
+        steps, attention_args, producer_args = _nvfp4_steps(self.args, tokens, heads)
+        self.call = make_sequence(
+            [_nvfp4_entry(target, slot) for slot, _ in steps],
+            [[0 if isinstance(a, _CallArg) else a for a in step] for _, step in steps],
+            [_call_positions(step) for _, step in steps],
+        )
+        self.overlap = (
+            (
+                (slots[-1], slots[0], tail),
+                attention_args,
+                producer_args,
+                plan.num_kblocks,
+            )
+            if overlap
+            else None
+        )
 
 
 # Per (device, stream): the workspace buffers the cached launches slice and the launches per (plan, route).
@@ -1109,277 +1388,56 @@ def _load_overlap(
     )
 
 
-# One custom op serves both routes: the attention program slot it is handed selects the compensated or the
-# uncompensated attention.
+# One custom op serves both routes: the cached launch it is handed carries the compensated or the uncompensated
+# attention program.
 @register_custom_op(
     "flashinfer::minimax_h3_sm120_varlen_attention_nvfp4",
-    mutates_args=(
-        "out",
-        "q4",
-        "k4",
-        "q_sf",
-        "k_sf",
-        "qm4",
-        "qm_sf",
-        "vt4",
-        "v_sf",
-        "q_mean",
-        "mean_k",
-        "partials",
-        "counters",
-        "barrier",
-        "hctr",
-    ),
+    mutates_args=("out",),
 )
 def _minimax_h3_sm120_varlen_attention_nvfp4_impl(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
     out: torch.Tensor,
-    tok_seg: Any,
-    cu_seqlens: Any,
-    seg_tile_begin: Any,
-    tile_table: Any,
-    unit_table: Any,
-    q4: Any,
-    k4: Any,
-    q_sf: Any,
-    k_sf: Any,
-    qm4: Any,
-    qm_sf: Any,
-    vt4: Any,
-    v_sf: Any,
-    q_mean: Any,
-    mean_k: Any,
-    partials: Any,
-    counters: Any,
-    barrier: Any,
-    hctr: Any,
-    q4_rows: Any,
-    k4_rows: Any,
-    k_sf_rows: Any,
-    vt4_rows: Any,
-    v_sf_rows: Any,
-    q_sf_words: Any,
-    qm_sf_words: Any,
-    num_stats_tiles: int,
-    q_slots: int,
-    padded_tokens: int,
-    num_kblocks: int,
-    num_units: int,
-    first: int,
-    second: int,
-    attention: int,
-    first_grid: int,
-    second_grid: int,
-    attention_grid: int,
-    tail: int,
-    tail_grid: int,
-    units_per_head: int,
+    launch: Any,
     softmax_scale_log2: float,
     stream: int,
     target: str,
 ) -> None:
-    # Two or three programmatic-dependent launches on ``stream`` (the current torch stream): the fused
-    # pre-processing (``second < 0``), or the statistics (which also quantize Q) and the K / V quantizer;
-    # then the attention of either route.  ``first`` / ``second`` / ``attention`` index
-    # ``_NVFP4_PROGRAMS``.  The bindings take the host arguments in the kernels' signature order followed
-    # by the grid triple; the attention binding encodes its five tensor maps from the byte tensors handed
-    # in its descriptor positions (``*_rows``, views of the quantized operands and scales).
-    # The overlapped form (``tail >= 0``): the lead attention (``attention``, a plain launch over
-    # ``attention_grid`` CTAs), the head-major producers (``first``, ``first_grid`` CTAs) and the tail
-    # attention (``tail``, ``tail_grid`` CTAs), sharing the head-control words ``hctr``.
-    tokens, heads = int(q.shape[0]), int(q.shape[1])
-    with tvm_ffi.use_raw_stream(_ffi_device(q.device.index), stream):
-        if tail >= 0:
-            attention_args = (
-                q4_rows,
-                k4_rows,
-                k_sf_rows,
-                vt4_rows,
-                v_sf_rows,
-                out,
-                q_sf_words,
-                qm4,
-                qm_sf_words,
-                seg_tile_begin,
-                unit_table,
-            )
-            producer_args = (
-                q,
-                k,
-                v,
-                tile_table,
-                seg_tile_begin,
-                tok_seg,
-                cu_seqlens,
-                partials,
-                counters,
-                mean_k,
-                q_mean,
-                q4,
-                k4,
-                q_sf,
-                k_sf,
-                qm4,
-                qm_sf,
-                vt4,
-                v_sf,
-            )
-            key = (q.device.index, attention)
+    # The two or three programmatic-dependent launches of ``launch`` (``_nvfp4_steps``) on ``stream`` (the current
+    # torch stream), issued back to back by one host call (``launch.call``); the call's Q, K, V and output and the
+    # scale are its arguments, every other binding argument is fixed per cached launch.  The overlapped form's
+    # three programs are loaded once per device before its first call (``_load_overlap``), never while a graph
+    # is captured.
+    index = q.device.index
+    with tvm_ffi.use_raw_stream(_ffi_device(index), stream):
+        if launch.overlap is not None:
+            programs, attention_args, producer_args, num_kblocks = launch.overlap
+            key = (index, programs[0])
             if (
                 key not in _NVFP4_OVERLAP_LOADED
                 and not torch.cuda.is_current_stream_capturing()
             ):
+                values = (q, k, v, out, softmax_scale_log2)
+
+                def bind(arguments: Tuple[Any, ...]) -> Tuple[Any, ...]:
+                    return tuple(
+                        values[a.index] if isinstance(a, _CallArg) else a
+                        for a in arguments
+                    )
+
                 _load_overlap(
                     target,
-                    (attention, first, tail),
-                    attention_args,
-                    producer_args,
-                    tokens,
+                    programs,
+                    bind(attention_args),
+                    bind(producer_args),
+                    int(q.shape[0]),
                     num_kblocks,
                     softmax_scale_log2,
-                    q.device.index,
+                    index,
                 )
                 _NVFP4_OVERLAP_LOADED.add(key)
-            _nvfp4_entry(target, attention)(
-                *attention_args,
-                num_units,
-                heads,
-                num_kblocks,
-                softmax_scale_log2,
-                hctr,
-                units_per_head,
-                attention_grid,
-                tail_grid,
-                attention_grid,
-                1,
-                1,
-            )
-            _nvfp4_entry(target, first)(
-                *producer_args,
-                hctr,
-                num_stats_tiles,
-                tokens,
-                padded_tokens,
-                heads,
-                num_kblocks,
-                first_grid,
-                1,
-                1,
-            )
-            _nvfp4_entry(target, tail)(
-                *attention_args,
-                num_units,
-                heads,
-                num_kblocks,
-                softmax_scale_log2,
-                hctr,
-                units_per_head,
-                attention_grid,
-                tail_grid,
-                tail_grid,
-                1,
-                1,
-            )
-            return
-        if second < 0:
-            _nvfp4_entry(target, first)(
-                q,
-                k,
-                v,
-                tile_table,
-                seg_tile_begin,
-                tok_seg,
-                cu_seqlens,
-                partials,
-                counters,
-                mean_k,
-                q_mean,
-                q4,
-                k4,
-                q_sf,
-                k_sf,
-                qm4,
-                qm_sf,
-                vt4,
-                v_sf,
-                barrier,
-                num_stats_tiles,
-                tokens,
-                padded_tokens,
-                heads,
-                num_kblocks,
-                first_grid,
-                1,
-                1,
-            )
-        else:
-            _nvfp4_entry(target, first)(
-                q,
-                k,
-                tile_table,
-                seg_tile_begin,
-                partials,
-                counters,
-                mean_k,
-                q_mean,
-                q4,
-                q_sf,
-                qm4,
-                qm_sf,
-                num_stats_tiles,
-                heads,
-                q_slots,
-                first_grid,
-                1,
-                1,
-            )
-            _nvfp4_entry(target, second)(
-                q,
-                k,
-                v,
-                tok_seg,
-                cu_seqlens,
-                seg_tile_begin,
-                mean_k,
-                q_mean,
-                q4,
-                k4,
-                q_sf,
-                k_sf,
-                qm4,
-                qm_sf,
-                vt4,
-                v_sf,
-                tokens,
-                padded_tokens,
-                heads,
-                num_kblocks,
-                second_grid,
-                1,
-                1,
-            )
-        _nvfp4_entry(target, attention)(
-            q4_rows,
-            k4_rows,
-            k_sf_rows,
-            vt4_rows,
-            v_sf_rows,
-            out,
-            q_sf_words,
-            qm4,
-            qm_sf_words,
-            seg_tile_begin,
-            unit_table,
-            num_units,
-            heads,
-            num_kblocks,
-            softmax_scale_log2,
-            attention_grid,
-            1,
-            1,
-        )
+        launch.call(q, k, v, out, softmax_scale_log2)
 
 
 @register_fake_op("flashinfer::minimax_h3_sm120_varlen_attention_nvfp4")
@@ -1388,46 +1446,7 @@ def _minimax_h3_sm120_varlen_attention_nvfp4_fake(
     k: torch.Tensor,
     v: torch.Tensor,
     out: torch.Tensor,
-    tok_seg: Any,
-    cu_seqlens: Any,
-    seg_tile_begin: Any,
-    tile_table: Any,
-    unit_table: Any,
-    q4: Any,
-    k4: Any,
-    q_sf: Any,
-    k_sf: Any,
-    qm4: Any,
-    qm_sf: Any,
-    vt4: Any,
-    v_sf: Any,
-    q_mean: Any,
-    mean_k: Any,
-    partials: Any,
-    counters: Any,
-    barrier: Any,
-    hctr: Any,
-    q4_rows: Any,
-    k4_rows: Any,
-    k_sf_rows: Any,
-    vt4_rows: Any,
-    v_sf_rows: Any,
-    q_sf_words: Any,
-    qm_sf_words: Any,
-    num_stats_tiles: int,
-    q_slots: int,
-    padded_tokens: int,
-    num_kblocks: int,
-    num_units: int,
-    first: int,
-    second: int,
-    attention: int,
-    first_grid: int,
-    second_grid: int,
-    attention_grid: int,
-    tail: int,
-    tail_grid: int,
-    units_per_head: int,
+    launch: Any,
     softmax_scale_log2: float,
     stream: int,
     target: str,
@@ -1445,7 +1464,7 @@ def _run_nvfp4(
     softmax_scale: float,
 ) -> torch.Tensor:
     """The NVFP4 body of both routes: the plan's cached launch on the (device, stream) workspace set,
-    then the two or three launches."""
+    then the two or three launches from one host call."""
     index = _device_index(q.device)
     target = _nvfp4_target(index)
     stream = _current_stream(index)
@@ -1454,7 +1473,7 @@ def _run_nvfp4(
         k,
         v,
         out,
-        *_nvfp4_launch(plan, delta, index, stream, target).args,
+        _nvfp4_launch(plan, delta, index, stream, target),
         _softmax_scale_log2(softmax_scale),
         stream,
         target,
