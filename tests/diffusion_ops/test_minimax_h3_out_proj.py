@@ -594,6 +594,12 @@ def test_minimax_h3_out_proj_nvfp4_tail_split_bitwise(
 # row (one pair of row tiles, so all 21 tile pairs are tail tiles).
 BF16_MXFP8_TAIL_SPLIT_CASES = [*TAIL_SPLIT_CASES, (9648, 4, 38), (1, 8, 21)]
 
+# On sm_103a with 76 co-resident CTA pairs the MXFP8 host runs some whole-tile shapes
+# on the whole-tile program with 256-bit residual loads: 4097 rows = 357 tile pairs
+# (53 past four waves) and 19201 rows = 1596 (21 full waves).  Every schedule writes
+# the same bits there too.
+MXFP8_TAIL_SPLIT_CASES = [*BF16_MXFP8_TAIL_SPLIT_CASES, (4097, 8, 53), (19201, 2, 76)]
+
 
 def check_tail_split_bitwise(run, rows: int, degree: int, tail: int, what: str) -> None:
     """``run(full_units)`` returns the output of the host's schedule (None) or of a forced
@@ -642,7 +648,7 @@ def test_minimax_h3_out_proj_bf16_tail_split_bitwise(rows, degree, tail, model, 
 
 
 @requires_blackwell
-@pytest.mark.parametrize("rows,degree,tail", BF16_MXFP8_TAIL_SPLIT_CASES)
+@pytest.mark.parametrize("rows,degree,tail", MXFP8_TAIL_SPLIT_CASES)
 def test_minimax_h3_out_proj_mxfp8_tail_split_bitwise(
     rows, degree, tail, model, prepared_mxfp8, device
 ):
