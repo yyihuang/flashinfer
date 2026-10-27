@@ -1397,13 +1397,15 @@ def test_round15_host_levers_change_only_their_cells(monkeypatch):
     from the whole-CTA tail to the leader-push chain on 9.0 / 10.0 / 10.3 (B200's V = 151936 B = 1, 2 and 4 cells and
     every V = 128256 cell keep the tail); L-PK2 adds measured stage-1 picks on H100, B200 and GB300, two of them in the
     CTA-local-select top-k class only (top-k 10 changes, top-k 50 keeps its plan).  R200 and RTX PRO 6000 keep every
-    plan.  Both sides leave out round 17's leader-push whole-CTA tail (``_LEADER_PUSH_BLOCK_TAIL_CELLS``) and its
-    cluster-1 / cluster-2 whole-CTA-tail cells (``_C12_BLOCK_TAIL_CELLS`` beyond row A)."""
+    plan.  Both sides leave out round 17's leader-push whole-CTA tail (``_LEADER_PUSH_BLOCK_TAIL_CELLS``), its
+    cluster-1 / cluster-2 whole-CTA-tail cells (``_C12_BLOCK_TAIL_CELLS`` beyond row A) and its compact-list picks
+    (``_COMPACT_PICKS_BY_DEVICE``)."""
     if not torch.cuda.is_available():
         # without CUDA every k > 64 launch plans the two-launch chain
         pytest.skip("CUDA required")
     monkeypatch.setattr(cs, "_LEADER_PUSH_BLOCK_TAIL_CELLS", {})
     monkeypatch.setattr(cs, "_C12_BLOCK_TAIL_CELLS", _R15_C12_BLOCK_TAIL_CELLS)
+    monkeypatch.setattr(cs, "_COMPACT_PICKS_BY_DEVICE", {})
     new = _emulated_plans(monkeypatch)
     with monkeypatch.context() as m:
         m.setattr(cs, "_BLOCK_TAIL_MAX_VOCAB_BY_CAPABILITY", _R14_BLOCK_TAIL_MAX_VOCAB)
@@ -1475,7 +1477,9 @@ def test_round16_sm12x_resident_changes_only_its_cells(monkeypatch):
     launch_flags bit 12 added and every other flag, the slab and its stage-2/3 form kept.  A (12, 0)
     device with 170 or 84 SMs keeps every plan, its (8, 48) launches included, and the cost model never ranks the
     (8, 40) build.  No plan of a 12.x device depends on whether CUDA is present (it runs no whole-CTA tail), and every
-    other device is compared with itself, so no GPU is needed."""
+    other device is compared with itself, so no GPU is needed.  Both sides leave out round 17's compact-list picks
+    (``_COMPACT_PICKS_BY_DEVICE``)."""
+    monkeypatch.setattr(cs, "_COMPACT_PICKS_BY_DEVICE", {})
     assert cs._SM12X_RESIDENTS_BY_DEVICE == {
         (12, 0, 188): {(8, 48, False): (8, 40, False)}
     }
@@ -1800,7 +1804,9 @@ def test_multi_wave_chain_changes_only_its_cells(monkeypatch):
     a plan changes exactly where it is that variant's fused-tail launch with a vocab of at least 92544 and at least 32
     rows, into the same variant's two-launch chain on its no-tail twin.  A (12, 0) device with 170 or 84 SMs keeps
     every plan, its (8, 32) fused-tail launches of that vocab and batch range included.  The rule acts only up to the
-    two-warp tail's top-k cap, where no plan depends on whether CUDA is present, so no GPU is needed."""
+    two-warp tail's top-k cap, where no plan depends on whether CUDA is present, so no GPU is needed.  Both sides
+    leave out round 17's compact-list picks (``_COMPACT_PICKS_BY_DEVICE``)."""
+    monkeypatch.setattr(cs, "_COMPACT_PICKS_BY_DEVICE", {})
 
     def without_rule(cells=_PLAN_CELLS, emulated=None):
         with monkeypatch.context() as m:
@@ -1960,7 +1966,9 @@ def test_multi_wave_chain_of_the_e40_resident_changes_only_its_cells(monkeypatch
     the same build's two-launch chain on its no-tail twin: the (8, 48) chain the (8, 40) build replaces
     (``_SM12X_RESIDENTS_BY_DEVICE``) with launch_flags bit 12 added, the slab and its stage-2/3 form kept.  H100, B200,
     GB300, R200 and a (12, 0) device with 170 or 84 SMs keep every plan.  No plan of a 12.x device depends on whether
-    CUDA is present (it runs no whole-CTA tail), and every other device is compared with itself, so no GPU is needed."""
+    CUDA is present (it runs no whole-CTA tail), and every other device is compared with itself, so no GPU is needed.
+    Every side leaves out round 17's compact-list picks (``_COMPACT_PICKS_BY_DEVICE``)."""
+    monkeypatch.setattr(cs, "_COMPACT_PICKS_BY_DEVICE", {})
     vocab_least, batch_least = cs._MULTI_WAVE_CHAIN_BY_DEVICE[12, 0, 188][8, 40, False]
     assert batch_least > 128  # no owner cell
 
@@ -5713,5 +5721,217 @@ def test_c12_block_tail_route_samples_like_the_chain(monkeypatch):
             fused, _ = _run_and_check(probs, k, p, 0x1718, 9)
             _assert_runs_bitwise(
                 chain, fused, (vocab, batch, k if isinstance(k, int) else "row")
+            )
+    _clear_plan_caches()
+
+
+# Round 17 (lever RTX-S, ``_COMPACT_PICKS_BY_DEVICE``): RTX PRO 6000's compact-list picks, as measured.
+_R17_COMPACT_PICKS = {
+    (128256, 32, False): (2, 16, cs._FLAG_SPEC_SAMPLE),
+    (128256, 64, False): (1, 32, cs._FLAG_SPEC_SAMPLE),
+    (128256, 64, True): (1, 16, cs._FLAG_SPEC_SAMPLE | cs._FLAG_NO_TAIL),
+    (128256, 128, False): (1, 16, 0),
+    (128256, 128, True): (1, 16, 0),
+    (151936, 32, False): (2, 32, cs._FLAG_SPEC_SAMPLE),
+    (151936, 32, True): (2, 16, cs._FLAG_SPEC_SAMPLE | cs._FLAG_NO_TAIL),
+    (151936, 64, False): (2, 32, 0),
+    (151936, 64, True): (2, 16, cs._FLAG_SPEC_SAMPLE),
+    (151936, 128, False): (1, 16, cs._FLAG_SPEC_SAMPLE),
+    (151936, 128, True): (1, 32, cs._FLAG_SPEC_SAMPLE),
+}
+# The owner cells whose plan the picks change while round 16's device rules keep their launches
+# (``_COMPACT_PICKS_OVER_DEVICE_RULES`` False), and the ones they change only with that switch on (the launches the
+# (8, 40) resident or the multi-wave chain decide).
+_R17_COMPACT_OWNER_CELLS = {
+    ("RTX PRO 6000", 128256, 64, 1000),
+    ("RTX PRO 6000", 128256, 128, 1000),
+}
+_R17_COMPACT_OVER_RULE_OWNER_CELLS = {
+    ("RTX PRO 6000", vocab, batch, k)
+    for vocab, ks in ((128256, (10, 50)), (151936, (10, 50, 1000)))
+    for batch in (32, 64, 128)
+    for k in ks
+}
+# A wide grid around the picks' bins: vocabularies across the V = 128256 / 151936 bins and the round-16 rules' ranges,
+# batches across the bins, one cluster-8 wave and 128 rows, top-k across the fused tail and the whole-CTA tail.
+_R17_COMPACT_WIDE_CELLS = tuple(
+    itertools.product(
+        (
+            32768,
+            65536,
+            92544,
+            96192,
+            96193,
+            100000,
+            122881,
+            128256,
+            128257,
+            131072,
+            131073,
+            140000,
+            151936,
+            151937,
+            163840,
+            262144,
+        ),
+        (1, 16, 17, 22, 23, 24, 31, 32, 33, 47, 64, 65, 96, 128, 129, 160, 256),
+        (1, 10, 50, 64, 65, 768, 769, 1000, 1024),
+    )
+)
+
+
+def _compact_bin(vocab: int, batch: int, k: int):
+    """The ``_COMPACT_PICKS_BY_DEVICE`` key of a launch: (vocab bin, batch bin, top-k above fused_tail_kcap), or None
+    outside the vocab bins of ``_STAGE1_PICK_VOCABS`` and above 128 rows."""
+    if not 1 <= batch <= 128:
+        return None
+    lower = 0
+    for v in cs._STAGE1_PICK_VOCABS:
+        if max(lower, 3 * v // 4) < vocab <= v:
+            return (v, 1 << (batch - 1).bit_length(), k > cs._fused_tail_kcap())
+        lower = v
+    return None
+
+
+def test_compact_list_picks_change_only_their_cells(monkeypatch):
+    """The compact-list picks (``_COMPACT_PICKS_BY_DEVICE``: RTX PRO 6000 with 188 SMs) change, against the plans
+    without them, exactly the launches of their (vocab bin, batch bin, top-k class) keys whose plan round 16's device
+    rules (the (8, 40) resident, the multi-wave chain) leave as it was without those rules; with
+    ``_COMPACT_PICKS_OVER_DEVICE_RULES`` on they change every launch of their keys.  Owner cells: 2 (V = 128256 at top-k
+    1000 with 64 / 128 rows), and 15 more with the switch on (V = 128256 at top-k 10 / 50 and V = 151936 at top-k 10 / 50
+    / 1000, with 32 / 64 / 128 rows).  Each changed plan runs its pick's compact-list stream (launch_flags bit 13, the
+    pick's sample / no-tail bits): the two-warp tail fused in one launch up to fused_tail_kcap, the two-launch chain
+    above, with the slab ``choose_stage23`` names.  H100, B200, GB300, R200 (212 / 208 SMs) and 12.0 devices with 170 or
+    84 SMs keep every plan with and without the picks and the switch.  The emulated devices report CUDA, so no GPU is
+    needed."""
+    assert cs._COMPACT_PICKS_BY_DEVICE == {(12, 0, 188): _R17_COMPACT_PICKS}
+    assert cs._COMPACT_PICKS_OVER_DEVICE_RULES is False
+    shipped = {
+        (c, e, b) for c, e, b, smem in cs._compact_stage1_builds() if smem <= 101376
+    }
+    assert set(_R17_COMPACT_PICKS.values()) <= shipped
+    # a top-k up to fused_tail_kcap fuses the two-warp tail: no small-top-k pick names a no-tail twin
+    assert not any(
+        b & cs._FLAG_NO_TAIL
+        for (_, _, large), (_, _, b) in _R17_COMPACT_PICKS.items()
+        if not large
+    )
+    kcap = cs._fused_tail_kcap()
+
+    def plans(cells, emulated=None, picks=True, over=False, rules16=True):
+        with monkeypatch.context() as m:
+            if not picks:
+                m.setattr(cs, "_COMPACT_PICKS_BY_DEVICE", {})
+            m.setattr(cs, "_COMPACT_PICKS_OVER_DEVICE_RULES", over)
+            if not rules16:
+                m.setattr(cs, "_SM12X_RESIDENTS_BY_DEVICE", {})
+                m.setattr(cs, "_MULTI_WAVE_CHAIN_BY_DEVICE", {})
+            return _emulated_launch_plans(m, emulated, cells, cuda=True)
+
+    def check(cell, plan, pick):
+        _, _, _, k = cell
+        c, e, b = pick
+        assert (plan.cluster, plan.ept, plan.stream) == (c, e, True), (cell, plan)
+        assert plan.launch_flags & cs._FLAG_COMPACT_LIST, (cell, plan)
+        assert plan.launch_flags & (cs._FLAG_SPEC_SAMPLE | cs._FLAG_NO_TAIL) == b
+        assert plan.one_launch == (k <= kcap), (cell, plan)
+        assert (plan.threads, plan.items) == choose_stage23(k), (cell, plan)
+        if plan.one_launch:
+            assert plan.launch_flags == cs._FLAG_FUSE_TAIL | b | cs._FLAG_COMPACT_LIST
+        else:
+            assert not plan.launch_flags & (
+                cs._FLAG_FUSE_TAIL | cs._FLAG_FUSE_BLOCK_TAIL
+            ), (cell, plan)
+
+    owner = plans(_PLAN_CELLS)
+    owner_old = plans(_PLAN_CELLS, picks=False)
+    owner_over = plans(_PLAN_CELLS, over=True)
+    changed = {cell for cell, plan in owner.items() if plan != owner_old[cell]}
+    assert changed == _R17_COMPACT_OWNER_CELLS
+    changed_over = {cell for cell, plan in owner_over.items() if plan != owner[cell]}
+    assert changed_over == _R17_COMPACT_OVER_RULE_OWNER_CELLS
+    for cell in changed | changed_over:
+        _, vocab, batch, k = cell
+        check(cell, owner_over[cell], _R17_COMPACT_PICKS[_compact_bin(vocab, batch, k)])
+    rtx = {"RTX PRO 6000": _PLAN_DEVICES["RTX PRO 6000"]}
+    cells = _R17_COMPACT_WIDE_CELLS
+    new = plans(cells, rtx)
+    old = plans(cells, rtx, picks=False)
+    over = plans(cells, rtx, over=True)
+    bare = plans(cells, rtx, picks=False, rules16=False)
+    taken = taken_over = 0
+    for cell, before in old.items():
+        _, vocab, batch, k = cell
+        pick = _R17_COMPACT_PICKS.get(_compact_bin(vocab, batch, k))
+        ruled = before != bare[cell]  # a round-16 device rule decides this launch
+        for got, take in (
+            (new[cell], pick is not None and not ruled),
+            (over[cell], pick is not None),
+        ):
+            if take:
+                check(cell, got, pick)
+            else:
+                assert got == before, cell
+        taken += pick is not None and not ruled
+        taken_over += pick is not None
+    assert 0 < taken < taken_over
+    # every other device keeps every plan, with and without the picks and the switch
+    smem = _PLAN_DEVICES["RTX PRO 6000"][2]
+    others = {name: d for name, d in _PLAN_DEVICES.items() if name != "RTX PRO 6000"}
+    others.update({f"(12, 0) {n} SMs": ((12, 0), n, smem) for n in (170, 84)})
+    sparse = tuple(
+        itertools.product(
+            (96193, 128256, 128257, 131073, 151936), (17, 32, 33, 64, 128), (10, 1000)
+        )
+    )
+    keep = plans(sparse, others)
+    assert keep == plans(sparse, others, picks=False)
+    assert keep == plans(sparse, others, over=True)
+
+
+def test_compact_list_route_samples_like_the_plan_without_the_picks(monkeypatch):
+    """The route with the compact-list picks (keyed here to this device's capability and SM count, so every device
+    with the compact twins runs it, with ``_COMPACT_PICKS_OVER_DEVICE_RULES`` on so that each pick is taken) plans each
+    pick's compact-list build on the smallest batch of its bin and samples the same tokens and writes the same slab
+    and renormalized probabilities as the plan without the picks, bitwise and against the reference: ties across the k
+    cut, +inf entries, one warp segment past its 512 entries (the exact fallback), per-row top-k and top-p."""
+    _require_supported_device()
+    device = torch.cuda.current_device()
+    here = (*cs._device_capability(device), cs._sm_count(device))
+    picks = cs._COMPACT_PICKS_BY_DEVICE[(12, 0, 188)]
+    kcap = cs._fused_tail_kcap()
+    for (vbin, bbin, large), (c, e, b) in sorted(picks.items()):
+        batch, vocab = bbin // 2 + 1, vbin - 1
+        probs = _probs(batch, vocab, seed=vbin % 997 + bbin)
+        pn = probs.cpu().numpy()
+        pn[0, (np.arange(1500) * 11) % vocab] = np.float32(2**-12)
+        pn[1, [3, vocab - 1]] = np.inf
+        pn[2, 100:800] = np.float32(2**-12)
+        probs.copy_(torch.tensor(pn, device="cuda"))
+        ks = (1000, 65, kcap + 400) if large else (50, 1, kcap)
+        k_row = torch.tensor(
+            [ks[r % 3] for r in range(batch)], device="cuda", dtype=torch.int32
+        )
+        p_row = torch.linspace(0.3, 1.0, batch, device="cuda", dtype=torch.float32)
+        for k, p in ((ks[0], 0.9), (k_row, p_row)):
+            top_k_max = k if isinstance(k, int) else int(k.max().item())
+            with monkeypatch.context() as m:
+                m.setattr(cs, "_COMPACT_PICKS_BY_DEVICE", {})
+                _clear_plan_caches()
+                plan = cs._launch_plan(device, batch, vocab, top_k_max)
+                assert not plan.launch_flags & cs._FLAG_COMPACT_LIST, plan
+                base, _ = _run_and_check(probs, k, p, 0x1719, 11)
+            with monkeypatch.context() as m:
+                m.setattr(cs, "_COMPACT_PICKS_BY_DEVICE", {here: picks})
+                m.setattr(cs, "_COMPACT_PICKS_OVER_DEVICE_RULES", True)
+                _clear_plan_caches()
+                plan = cs._launch_plan(device, batch, vocab, top_k_max)
+                assert (plan.cluster, plan.ept, plan.stream) == (c, e, True), plan
+                assert plan.launch_flags & cs._FLAG_COMPACT_LIST, plan
+                assert plan.launch_flags & b == b, plan
+                assert plan.one_launch == (not large), plan
+                got, _ = _run_and_check(probs, k, p, 0x1719, 11)
+            _assert_runs_bitwise(
+                base, got, (vbin, bbin, large, k if isinstance(k, int) else "row")
             )
     _clear_plan_caches()
