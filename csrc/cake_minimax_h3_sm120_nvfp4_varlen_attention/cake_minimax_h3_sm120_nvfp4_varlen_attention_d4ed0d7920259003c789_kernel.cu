@@ -119,7 +119,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 unsigned int _atomic_fetch_add_0 = atomicAdd(&hctr[5 * num_heads + 4], 1);
                 item_cell[0] = (int)_atomic_fetch_add_0;
             }
-            asm volatile("barrier.sync 1, 256;" ::: "memory");
+            asm volatile("bar.sync 1, 256;" ::: "memory");
             #pragma unroll 1
             for (int it = 0; it < per * num_heads; it++) {
                 int w = item_cell[0 + (it & 1)];
@@ -415,7 +415,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                             for (int e_1 = 0; e_1 < 8; e_1++) {
                                 red_q[0 + rgrp * 128 + col + e_1] = qsum[e_1];
                             }
-                            asm volatile("barrier.sync 1, 256;" ::: "memory");
+                            asm volatile("bar.sync 1, 256;" ::: "memory");
                             int qt = qt_base + batch;
                             if (wtid < 128) {
                                 float qtot = 0.0f;
@@ -426,7 +426,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 float _fdiv_11 = __fdiv_rn(qtot, (float)brows);
                                 *(reinterpret_cast<float*>(q_mean + ((qt * num_heads + head_0) * 128 + wtid)) + (0)) = _fdiv_11;
                             }
-                            asm volatile("barrier.sync 1, 256;" ::: "memory");
+                            asm volatile("bar.sync 1, 256;" ::: "memory");
                             #pragma unroll 1
                             for (int blk = 0; blk < 4; blk++) {
                                 int tok = brow + blk * 32 + trow;
@@ -993,7 +993,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                         for (int e_4 = 0; e_4 < 8; e_4++) {
                             red_sum[0 + rgrp * 128 + col + e_4] = ksum[e_4];
                         }
-                        asm volatile("barrier.sync 1, 256;" ::: "memory");
+                        asm volatile("bar.sync 1, 256;" ::: "memory");
                         int direct = ((t1 - t0_1 == 1) ? 1 : 0);
                         if (direct == 0) {
                             if (wtid < 128) {
@@ -1003,7 +1003,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 }
                                 *(reinterpret_cast<float*>(partials + (((ri - num_tiles - num_tblk) * num_heads + head) * 128 + wtid)) + (0)) = total;
                             }
-                            asm volatile("barrier.sync 1, 256;" ::: "memory");
+                            asm volatile("bar.sync 1, 256;" ::: "memory");
                             if (wtid == 0) {
                                 unsigned int old;
                                 asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
@@ -1014,7 +1014,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                     *(reinterpret_cast<unsigned int*>(counters + (seg_1 * num_heads + head_0_1)) + (0)) = (unsigned int)0;
                                 }
                             }
-                            asm volatile("barrier.sync 1, 256;" ::: "memory");
+                            asm volatile("bar.sync 1, 256;" ::: "memory");
                         }
                         int is_last = ((direct == 0) ? flag[0] : 1);
                         if (is_last == 1) {
@@ -1046,7 +1046,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 }
                             }
                         }
-                        asm volatile("barrier.sync 1, 256;" ::: "memory");
+                        asm volatile("bar.sync 1, 256;" ::: "memory");
                         if (wtid == 0) {
                             asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(hctr) + (num_heads + head))), "r"(static_cast<unsigned int>(1)) : "memory");
                         }
@@ -1060,7 +1060,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                         } while (static_cast<unsigned int>(_acquire_observed - static_cast<unsigned int>(num_tiles)) >= static_cast<unsigned int>(1));
                         }
                     }
-                    asm volatile("barrier.sync 1, 256;" ::: "memory");
+                    asm volatile("bar.sync 1, 256;" ::: "memory");
                     int tok_1 = ri * 32 + trow;
                     int valid_1 = ((tok_1 < total_tokens) ? 1 : 0);
                     int tok_c_1 = ((tok_1 < total_tokens) ? tok_1 : total_tokens - 1);
@@ -1146,7 +1146,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 if (wtid == 0) {
                     item_cell[0 + (it + 1 & 1)] = (int)nxt_r[0];
                 }
-                asm volatile("barrier.sync 1, 256;" ::: "memory");
+                asm volatile("bar.sync 1, 256;" ::: "memory");
                 if (wtid == 0) {
                     if (is_d == 1) {
                         unsigned int dold;
@@ -1202,7 +1202,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 unsigned int _atomic_fetch_add_0_1 = atomicAdd(&hctr[5 * num_heads + 4], 1);
                 item_cell[4] = (int)_atomic_fetch_add_0_1;
             }
-            asm volatile("barrier.sync 2, 256;" ::: "memory");
+            asm volatile("bar.sync 2, 256;" ::: "memory");
             #pragma unroll 1
             for (int it_1 = 0; it_1 < per_1 * num_heads; it_1++) {
                 int w_1 = item_cell[4 + (it_1 & 1)];
@@ -1498,7 +1498,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                             for (int e_7 = 0; e_7 < 8; e_7++) {
                                 red_q[2048 + rgrp_1 * 128 + col_1 + e_7] = qsum_1[e_7];
                             }
-                            asm volatile("barrier.sync 2, 256;" ::: "memory");
+                            asm volatile("bar.sync 2, 256;" ::: "memory");
                             int qt_1 = qt_base_1 + batch_2;
                             if (wtid_1 < 128) {
                                 float qtot_1 = 0.0f;
@@ -1509,7 +1509,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 float _fdiv_11_1 = __fdiv_rn(qtot_1, (float)brows_1);
                                 *(reinterpret_cast<float*>(q_mean + ((qt_1 * num_heads + head_0_2) * 128 + wtid_1)) + (0)) = _fdiv_11_1;
                             }
-                            asm volatile("barrier.sync 2, 256;" ::: "memory");
+                            asm volatile("bar.sync 2, 256;" ::: "memory");
                             #pragma unroll 1
                             for (int blk_1 = 0; blk_1 < 4; blk_1++) {
                                 int tok_2 = brow_2 + blk_1 * 32 + trow_1;
@@ -2076,7 +2076,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                         for (int e_10 = 0; e_10 < 8; e_10++) {
                             red_sum[2048 + rgrp_1 * 128 + col_1 + e_10] = ksum_1[e_10];
                         }
-                        asm volatile("barrier.sync 2, 256;" ::: "memory");
+                        asm volatile("bar.sync 2, 256;" ::: "memory");
                         int direct_1 = ((t1_1 - t0_3 == 1) ? 1 : 0);
                         if (direct_1 == 0) {
                             if (wtid_1 < 128) {
@@ -2086,7 +2086,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 }
                                 *(reinterpret_cast<float*>(partials + (((ri_1 - num_tiles - num_tblk_1) * num_heads + head_1) * 128 + wtid_1)) + (0)) = total_1;
                             }
-                            asm volatile("barrier.sync 2, 256;" ::: "memory");
+                            asm volatile("bar.sync 2, 256;" ::: "memory");
                             if (wtid_1 == 0) {
                                 unsigned int old_2;
                                 asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
@@ -2097,7 +2097,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                     *(reinterpret_cast<unsigned int*>(counters + (seg_4 * num_heads + head_0_3)) + (0)) = (unsigned int)0;
                                 }
                             }
-                            asm volatile("barrier.sync 2, 256;" ::: "memory");
+                            asm volatile("bar.sync 2, 256;" ::: "memory");
                         }
                         int is_last_1 = ((direct_1 == 0) ? flag[4] : 1);
                         if (is_last_1 == 1) {
@@ -2129,7 +2129,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 }
                             }
                         }
-                        asm volatile("barrier.sync 2, 256;" ::: "memory");
+                        asm volatile("bar.sync 2, 256;" ::: "memory");
                         if (wtid_1 == 0) {
                             asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(hctr) + (num_heads + head_1))), "r"(static_cast<unsigned int>(1)) : "memory");
                         }
@@ -2143,7 +2143,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                         } while (static_cast<unsigned int>(_acquire_observed - static_cast<unsigned int>(num_tiles)) >= static_cast<unsigned int>(1));
                         }
                     }
-                    asm volatile("barrier.sync 2, 256;" ::: "memory");
+                    asm volatile("bar.sync 2, 256;" ::: "memory");
                     int tok_3 = ri_1 * 32 + trow_1;
                     int valid_3 = ((tok_3 < total_tokens) ? 1 : 0);
                     int tok_c_3 = ((tok_3 < total_tokens) ? tok_3 : total_tokens - 1);
@@ -2229,7 +2229,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 if (wtid_1 == 0) {
                     item_cell[4 + (it_1 + 1 & 1)] = (int)nxt_r_1[0];
                 }
-                asm volatile("barrier.sync 2, 256;" ::: "memory");
+                asm volatile("bar.sync 2, 256;" ::: "memory");
                 if (wtid_1 == 0) {
                     if (is_d_1 == 1) {
                         unsigned int dold_1;
@@ -2275,7 +2275,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 unsigned int _atomic_fetch_add_0_2 = atomicAdd(&hctr[5 * num_heads + 4], 1);
                 item_cell[8] = (int)_atomic_fetch_add_0_2;
             }
-            asm volatile("barrier.sync 3, 256;" ::: "memory");
+            asm volatile("bar.sync 3, 256;" ::: "memory");
             #pragma unroll 1
             for (int it_2 = 0; it_2 < per_2 * num_heads; it_2++) {
                 int w_2 = item_cell[8 + (it_2 & 1)];
@@ -2571,7 +2571,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                             for (int e_13 = 0; e_13 < 8; e_13++) {
                                 red_q[4096 + rgrp_2 * 128 + col_2 + e_13] = qsum_2[e_13];
                             }
-                            asm volatile("barrier.sync 3, 256;" ::: "memory");
+                            asm volatile("bar.sync 3, 256;" ::: "memory");
                             int qt_2 = qt_base_2 + batch_4;
                             if (wtid_2 < 128) {
                                 float qtot_2 = 0.0f;
@@ -2582,7 +2582,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 float _fdiv_11_2 = __fdiv_rn(qtot_2, (float)brows_2);
                                 *(reinterpret_cast<float*>(q_mean + ((qt_2 * num_heads + head_0_4) * 128 + wtid_2)) + (0)) = _fdiv_11_2;
                             }
-                            asm volatile("barrier.sync 3, 256;" ::: "memory");
+                            asm volatile("bar.sync 3, 256;" ::: "memory");
                             #pragma unroll 1
                             for (int blk_2 = 0; blk_2 < 4; blk_2++) {
                                 int tok_4 = brow_4 + blk_2 * 32 + trow_2;
@@ -3149,7 +3149,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                         for (int e_16 = 0; e_16 < 8; e_16++) {
                             red_sum[4096 + rgrp_2 * 128 + col_2 + e_16] = ksum_2[e_16];
                         }
-                        asm volatile("barrier.sync 3, 256;" ::: "memory");
+                        asm volatile("bar.sync 3, 256;" ::: "memory");
                         int direct_2 = ((t1_2 - t0_5 == 1) ? 1 : 0);
                         if (direct_2 == 0) {
                             if (wtid_2 < 128) {
@@ -3159,7 +3159,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 }
                                 *(reinterpret_cast<float*>(partials + (((ri_2 - num_tiles - num_tblk_2) * num_heads + head_2) * 128 + wtid_2)) + (0)) = total_2;
                             }
-                            asm volatile("barrier.sync 3, 256;" ::: "memory");
+                            asm volatile("bar.sync 3, 256;" ::: "memory");
                             if (wtid_2 == 0) {
                                 unsigned int old_4;
                                 asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
@@ -3170,7 +3170,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                     *(reinterpret_cast<unsigned int*>(counters + (seg_7 * num_heads + head_0_5)) + (0)) = (unsigned int)0;
                                 }
                             }
-                            asm volatile("barrier.sync 3, 256;" ::: "memory");
+                            asm volatile("bar.sync 3, 256;" ::: "memory");
                         }
                         int is_last_2 = ((direct_2 == 0) ? flag[8] : 1);
                         if (is_last_2 == 1) {
@@ -3202,7 +3202,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                                 }
                             }
                         }
-                        asm volatile("barrier.sync 3, 256;" ::: "memory");
+                        asm volatile("bar.sync 3, 256;" ::: "memory");
                         if (wtid_2 == 0) {
                             asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(hctr) + (num_heads + head_2))), "r"(static_cast<unsigned int>(1)) : "memory");
                         }
@@ -3216,7 +3216,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                         } while (static_cast<unsigned int>(_acquire_observed - static_cast<unsigned int>(num_tiles)) >= static_cast<unsigned int>(1));
                         }
                     }
-                    asm volatile("barrier.sync 3, 256;" ::: "memory");
+                    asm volatile("bar.sync 3, 256;" ::: "memory");
                     int tok_5 = ri_2 * 32 + trow_2;
                     int valid_5 = ((tok_5 < total_tokens) ? 1 : 0);
                     int tok_c_5 = ((tok_5 < total_tokens) ? tok_5 : total_tokens - 1);
@@ -3302,7 +3302,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 if (wtid_2 == 0) {
                     item_cell[8 + (it_2 + 1 & 1)] = (int)nxt_r_2[0];
                 }
-                asm volatile("barrier.sync 3, 256;" ::: "memory");
+                asm volatile("bar.sync 3, 256;" ::: "memory");
                 if (wtid_2 == 0) {
                     if (is_d_2 == 1) {
                         unsigned int dold_2;
