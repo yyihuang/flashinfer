@@ -119,7 +119,7 @@ _WS_MAX_MEAN_SEGMENT = 16384
 # attention launch over all but P SMs (a programmatic dependent of the producers) and the tail attention launch
 # over P CTAs (a programmatic dependent of the lead), all three sharing the head-control words ``hctr`` (5 words
 # per head, then 8): each head's operands are published by a ready flag the attention CTAs wait on before their
-# loads, the tail ends after every lead CTA and the producers' last worker have signalled their completion, and
+# loads, the tail ends after every lead CTA and the producers' last CTA have signalled their completion, and
 # the words reset themselves in every complete call.  A CTA only waits on CTAs of an earlier launch of its own
 # call, which have been resident (or have exited) before it runs, so a call completes whatever else runs on the
 # device.
