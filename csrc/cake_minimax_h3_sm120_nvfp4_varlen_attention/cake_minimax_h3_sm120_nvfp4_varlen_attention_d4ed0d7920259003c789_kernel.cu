@@ -50,33 +50,33 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define CAKE_INF CUDART_INF_F
 #define NUM_MAIN_1_STAGES 1
 #define SMEM_RED_SUM_OFF 0
-#define SMEM_RED_SUM_STAGE_BYTES 8192
-#define SMEM_RED_SUM_STRIDE 8192
-#define SMEM_RED_Q_OFF 8192
-#define SMEM_RED_Q_STAGE_BYTES 8192
-#define SMEM_RED_Q_STRIDE 8192
-#define SMEM_FLAG_OFF 16384
-#define SMEM_FLAG_STAGE_BYTES 16
-#define SMEM_FLAG_STRIDE 16
+#define SMEM_RED_SUM_STAGE_BYTES 24576
+#define SMEM_RED_SUM_STRIDE 24576
+#define SMEM_RED_Q_OFF 24576
+#define SMEM_RED_Q_STAGE_BYTES 24576
+#define SMEM_RED_Q_STRIDE 24576
+#define SMEM_FLAG_OFF 49152
+#define SMEM_FLAG_STAGE_BYTES 48
+#define SMEM_FLAG_STRIDE 48
 #define SMEM_ITEM_CELL_OFF 0
-#define SMEM_ITEM_CELL_STAGE_BYTES 16
-#define SMEM_ITEM_CELL_STRIDE 16
-#define SMEM_TOTAL 16512
-#define THREADS 256
-#define LAUNCH_MIN_BLOCKS 3
+#define SMEM_ITEM_CELL_STAGE_BYTES 48
+#define SMEM_ITEM_CELL_STRIDE 48
+#define SMEM_TOTAL 49536
+#define THREADS 768
+#define LAUNCH_MIN_BLOCKS 1
 
 #include <math_constants.h>
 
 extern "C" {
 
-__global__ __launch_bounds__(256, LAUNCH_MIN_BLOCKS) void
+__global__ __launch_bounds__(768, LAUNCH_MIN_BLOCKS) void
 kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bfloat16* __restrict__ Q, __nv_bfloat16* __restrict__ K, __nv_bfloat16* __restrict__ V, int* __restrict__ tile_table, int* __restrict__ seg_tile_begin, int* __restrict__ tok_seg, int* __restrict__ cu_seqlens, float* __restrict__ partials, unsigned int* __restrict__ counters, float* __restrict__ mean_k, float* __restrict__ q_mean, unsigned int* __restrict__ q4, unsigned int* __restrict__ k4, uint8_t* __restrict__ q_sf, uint8_t* __restrict__ k_sf, unsigned int* __restrict__ qm4, uint8_t* __restrict__ qm_sf, unsigned int* __restrict__ vt4, uint8_t* __restrict__ v_sf, unsigned int* __restrict__ hctr, int num_tiles, int total_tokens, int total_padded, int num_heads, int num_kblocks)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
     const int lane = tid % 32;
 
-    __shared__ __align__(16) unsigned char smem_static_raw[16];
+    __shared__ __align__(16) unsigned char smem_static_raw[48];
     extern __shared__ __align__(1024) char smem_raw[];
     int smem;
     smem = (int)(unsigned long long)__cvta_generic_to_shared(smem_raw);
@@ -89,22 +89,26 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
     // Kernel setup ops
     float* red_sum = reinterpret_cast<float*>(smem_raw + 0);
     const int red_sum_addr = smem + 0;
-    float* red_q = reinterpret_cast<float*>(smem_raw + 8192);
-    const int red_q_addr = smem + 8192;
-    int* flag = reinterpret_cast<int*>(smem_raw + 16384);
-    const int flag_addr = smem + 16384;
+    float* red_q = reinterpret_cast<float*>(smem_raw + 24576);
+    const int red_q_addr = smem + 24576;
+    int* flag = reinterpret_cast<int*>(smem_raw + 49152);
+    const int flag_addr = smem + 49152;
     int* item_cell = reinterpret_cast<int*>(smem_static_raw + 0);
     const int item_cell_addr = (int)(unsigned long long)__cvta_generic_to_shared(item_cell);
 
     // === Task calls (declaration order) ===
-    int col = (tid & 15) * 8;
-    int rgrp = tid >> 4;
-    int sub = tid & 7;
-    int trow = tid >> 3;
+    int worker = tid >> 8;
+    int wtid = tid & 255;
+    int wred = worker * 2048;
+    int wflag = worker * 4;
+    int col = (wtid & 15) * 8;
+    int rgrp = wtid >> 4;
+    int sub = wtid & 7;
+    int trow = wtid >> 3;
     int col16 = sub * 16;
     int num_tblk = total_padded / 32;
-    int vwarp = tid >> 5;
-    int vlane = tid & 31;
+    int vwarp = wtid >> 5;
+    int vlane = wtid & 31;
     int vblk = vwarp & 1;
     int vdp = (vwarp >> 1) * 16 + (vlane & 15);
     int vhalf = vlane >> 4;
@@ -112,18 +116,18 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
     int per = n_abc + num_tblk;
     asm volatile("griddepcontrol.launch_dependents;" ::: "memory");
     unsigned int nxt_r[2];
-    if (tid == 0) {
+    if (wtid == 0) {
         unsigned int _atomic_fetch_add_0 = atomicAdd(&hctr[5 * num_heads + 4], 1);
-        item_cell[0] = (int)_atomic_fetch_add_0;
+        item_cell[wflag] = (int)_atomic_fetch_add_0;
     }
-    __syncthreads();
+    asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
     #pragma unroll 1
     for (int it = 0; it < per * num_heads; it++) {
-        int w = item_cell[it & 1];
+        int w = item_cell[wflag + (it & 1)];
         if (w >= per * num_heads) {
             break;
         }
-        if (tid == 0) {
+        if (wtid == 0) {
             unsigned int _atomic_fetch_add_1 = atomicAdd(&hctr[5 * num_heads + 4], 1);
             nxt_r[0] = _atomic_fetch_add_1;
         }
@@ -410,20 +414,20 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                     qsum[6] = qsum[6] + ((row_end > brow + 112 + rgrp) ? qf8[6] : 0.0f);
                     qsum[7] = qsum[7] + ((row_end > brow + 112 + rgrp) ? qf8[7] : 0.0f);
                     for (int e_1 = 0; e_1 < 8; e_1++) {
-                        red_q[rgrp * 128 + col + e_1] = qsum[e_1];
+                        red_q[wred + rgrp * 128 + col + e_1] = qsum[e_1];
                     }
-                    __syncthreads();
+                    asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
                     int qt = qt_base + batch;
-                    if (tid < 128) {
+                    if (wtid < 128) {
                         float qtot = 0.0f;
                         for (int g = 0; g < 16; g++) {
-                            qtot = qtot + red_q[g * 128 + tid];
+                            qtot = qtot + red_q[wred + g * 128 + wtid];
                         }
                         int brows = ((row_end - brow < 128) ? row_end - brow : 128);
                         float _fdiv_11 = __fdiv_rn(qtot, (float)brows);
-                        *(reinterpret_cast<float*>(q_mean + ((qt * num_heads + head_0) * 128 + tid)) + (0)) = _fdiv_11;
+                        *(reinterpret_cast<float*>(q_mean + ((qt * num_heads + head_0) * 128 + wtid)) + (0)) = _fdiv_11;
                     }
-                    __syncthreads();
+                    asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
                     #pragma unroll 1
                     for (int blk = 0; blk < 4; blk++) {
                         int tok = brow + blk * 32 + trow;
@@ -988,47 +992,47 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                     ksum[7] = ksum[7] + ((row_end_1 > brow_1 + 112 + rgrp) ? kf8[7] : 0.0f);
                 }
                 for (int e_4 = 0; e_4 < 8; e_4++) {
-                    red_sum[rgrp * 128 + col + e_4] = ksum[e_4];
+                    red_sum[wred + rgrp * 128 + col + e_4] = ksum[e_4];
                 }
-                __syncthreads();
+                asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
                 int direct = ((t1 - t0_1 == 1) ? 1 : 0);
                 if (direct == 0) {
-                    if (tid < 128) {
+                    if (wtid < 128) {
                         float total = 0.0f;
                         for (int g_1 = 0; g_1 < 16; g_1++) {
-                            total = total + red_sum[g_1 * 128 + tid];
+                            total = total + red_sum[wred + g_1 * 128 + wtid];
                         }
-                        *(reinterpret_cast<float*>(partials + (((ri - num_tiles - num_tblk) * num_heads + head) * 128 + tid)) + (0)) = total;
+                        *(reinterpret_cast<float*>(partials + (((ri - num_tiles - num_tblk) * num_heads + head) * 128 + wtid)) + (0)) = total;
                     }
-                    __syncthreads();
-                    if (tid == 0) {
+                    asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
+                    if (wtid == 0) {
                         unsigned int old;
                         asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
                             : "=r"(old) : "l"(&counters[seg_1 * num_heads + head_0_1]), "r"(static_cast<uint32_t>(1)) : "memory");
                         int last = (((int)old == t1 - t0_1 - 1) ? 1 : 0);
-                        flag[0] = last;
+                        flag[wflag] = last;
                         if (last == 1) {
                             *(reinterpret_cast<unsigned int*>(counters + (seg_1 * num_heads + head_0_1)) + (0)) = (unsigned int)0;
                         }
                     }
-                    __syncthreads();
+                    asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
                 }
-                int is_last = ((direct == 0) ? flag[0] : 1);
+                int is_last = ((direct == 0) ? flag[wflag] : 1);
                 if (is_last == 1) {
-                    if (tid < 128) {
+                    if (wtid < 128) {
                         float acc_a[1];
                         float fold_v[4];
                         acc_a[0] = 0.0f;
                         if (direct == 1) {
                             for (int g_2 = 0; g_2 < 16; g_2++) {
-                                acc_a[0] = acc_a[0] + red_sum[g_2 * 128 + tid];
+                                acc_a[0] = acc_a[0] + red_sum[wred + g_2 * 128 + wtid];
                             }
                         } else {
                             #pragma unroll 1
                             for (int tt = t0_1; tt < t1; tt += 4) {
                                 for (int j = 0; j < 4; j++) {
                                     int ttj = ((t1 > tt + j) ? tt + j : t1 - 1);
-                                    fold_v[j] = partials[(ttj * num_heads + head_0_1) * 128 + tid];
+                                    fold_v[j] = partials[(ttj * num_heads + head_0_1) * 128 + wtid];
                                 }
                                 for (int j_1 = 0; j_1 < 4; j_1++) {
                                     float fv = ((t1 > tt + j_1) ? fold_v[j_1] : 0.0f);
@@ -1039,17 +1043,17 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                         if (length > 0) {
                             float lenf = (float)length;
                             float _fdiv_48 = __fdiv_rn(acc_a[0], lenf);
-                            *(reinterpret_cast<float*>(mean_k + ((seg_1 * num_heads + head_0_1) * 128 + tid)) + (0)) = _fdiv_48;
+                            *(reinterpret_cast<float*>(mean_k + ((seg_1 * num_heads + head_0_1) * 128 + wtid)) + (0)) = _fdiv_48;
                         }
                     }
                 }
-                __syncthreads();
-                if (tid == 0) {
+                asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
+                if (wtid == 0) {
                     asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(hctr) + (num_heads + head))), "r"(static_cast<unsigned int>(1)) : "memory");
                 }
             }
         } else {
-            if (tid == 0) {
+            if (wtid == 0) {
                 {
                 unsigned int _acquire_observed;
                 do {
@@ -1057,7 +1061,7 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 } while (static_cast<unsigned int>(_acquire_observed - static_cast<unsigned int>(num_tiles)) >= static_cast<unsigned int>(1));
                 }
             }
-            __syncthreads();
+            asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
             int tok_1 = ri * 32 + trow;
             int valid_1 = ((tok_1 < total_tokens) ? 1 : 0);
             int tok_c_1 = ((tok_1 < total_tokens) ? tok_1 : total_tokens - 1);
@@ -1140,11 +1144,11 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
                 }
             }
         }
-        if (tid == 0) {
-            item_cell[it + 1 & 1] = (int)nxt_r[0];
+        if (wtid == 0) {
+            item_cell[wflag + (it + 1 & 1)] = (int)nxt_r[0];
         }
-        __syncthreads();
-        if (tid == 0) {
+        asm volatile("barrier.sync %0, 256;" :: "r"(1 + worker) : "memory");
+        if (wtid == 0) {
             if (is_d == 1) {
                 unsigned int dold;
                 asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
@@ -1163,13 +1167,14 @@ kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789(__nv_bf
             }
         }
     }
-    if (tid == 0) {
+    if (wtid == 0) {
         unsigned int eold;
         asm volatile("atom.acq_rel.gpu.global.add.u32 %0, [%1], %2;"
             : "=r"(eold) : "l"(&hctr[5 * num_heads + 5]), "r"(static_cast<uint32_t>(1)) : "memory");
-        if ((int)eold == num_bids - 1) {
+        if ((int)eold == 3 * num_bids - 1) {
             *(reinterpret_cast<unsigned int*>(hctr + (5 * num_heads + 4)) + (0)) = (unsigned int)0;
             *(reinterpret_cast<unsigned int*>(hctr + (5 * num_heads + 5)) + (0)) = (unsigned int)0;
+            asm volatile("red.release.gpu.global.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(hctr) + (5 * num_heads + 2))), "r"(static_cast<unsigned int>(1)) : "memory");
         }
     }
 }

@@ -347,6 +347,11 @@ void Run(TensorView a_Q_map, TensorView a_K_map, TensorView a_KSF_map, TensorVie
   config.blockDim = dim3(256, 1, 1);
   config.dynamicSmemBytes = 48128;
   config.stream = stream;
+  cudaLaunchAttribute attrs[1] = {};
+  attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
+  attrs[0].val.programmaticStreamSerializationAllowed = 1;
+  config.attrs = attrs;
+  config.numAttrs = 1;
   CheckCuda(cudaLaunchKernelExC(&config, reinterpret_cast<const void*>(kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_4192aaa15a4bfbe6b3bd), kernel_args),
             "cudaLaunchKernelExC");
 }
