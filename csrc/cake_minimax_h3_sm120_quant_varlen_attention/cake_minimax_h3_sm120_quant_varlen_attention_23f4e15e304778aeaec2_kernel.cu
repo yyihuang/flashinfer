@@ -61,7 +61,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 extern "C" {
 
 __global__ __launch_bounds__(256, LAUNCH_MIN_BLOCKS) void
-kernel_cake_minimax_h3_sm120_quant_varlen_attention_e2abeffeb2ef21daba83(__nv_bfloat16* __restrict__ Q, __nv_bfloat16* __restrict__ K, __nv_bfloat16* __restrict__ V, int* __restrict__ cu_seqlens, float* __restrict__ mean_k, float* __restrict__ v_scale, unsigned int* __restrict__ q8, unsigned int* __restrict__ k8, unsigned int* __restrict__ vt8, float* __restrict__ q_scale, float* __restrict__ k_scale, int total_tokens, int total_padded, int num_segments, int num_heads, int num_kblocks)
+kernel_cake_minimax_h3_sm120_quant_varlen_attention_23f4e15e304778aeaec2(__nv_bfloat16* __restrict__ Q, __nv_bfloat16* __restrict__ K, __nv_bfloat16* __restrict__ V, int* __restrict__ cu_seqlens, float* __restrict__ mean_k, float* __restrict__ v_scale, unsigned int* __restrict__ q8, unsigned int* __restrict__ k8, unsigned int* __restrict__ vt8, float* __restrict__ q_scale, float* __restrict__ k_scale, int total_tokens, int total_padded, int num_segments, int num_heads, int num_kblocks)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
