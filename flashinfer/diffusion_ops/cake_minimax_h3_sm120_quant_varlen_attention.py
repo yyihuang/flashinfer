@@ -27,6 +27,7 @@ from ..jit.cake_minimax_h3_sm120_quant_varlen_attention import (
     ATTENTION,
     KV_STATS,
     QUANTIZE,
+    QUANTIZE_LU,
 )
 from ..utils import register_custom_op, register_fake_op
 
@@ -49,7 +50,24 @@ _LOG2E = 1.4426950408889634
 # Grid rule (``minimax_h3_sm120_quant_varlen_attention_launch_grids``): grid-stride statistics and
 # quantizer launches of at most 4 CTAs per SM, one persistent attention CTA per SM.
 _PREP_CTAS_PER_SM = 4
-_PROGRAMS = (KV_STATS, QUANTIZE, ATTENTION)
+_PROGRAMS = (KV_STATS, QUANTIZE, QUANTIZE_LU, ATTENTION)
+# Quantizer form per plan: QUANTIZE_LU (its BF16 Q / K / V loads carry the L2 evict_first priority,
+# so the E4M3 operands it writes stay in L2 for the attention) when the operand bytes (q8 + k8 + vt8 =
+# 384 bytes per token and head) lie within [_LU_LO, _LU_HI] x the device's L2 size, QUANTIZE
+# otherwise (same codes and scales).
+_LU_LO = 0.2
+_LU_HI = 1.5
+
+
+@functools.cache
+def _l2_bytes(index: int) -> int:
+    return int(torch.cuda.get_device_properties(index).L2_cache_size)
+
+
+def _quantize_form(tokens: int, heads: int, index: int) -> int:
+    operand_bytes = 3 * MINIMAX_H3_HEAD_DIM * tokens * heads
+    l2 = _l2_bytes(index)
+    return 1 if _LU_LO * l2 <= operand_bytes <= _LU_HI * l2 else 0
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -300,6 +318,7 @@ class _Launch:
             stats_grid,
             quantize_grid,
             attention_grid,
+            _quantize_form(tokens, heads, index),
         )
 
 
@@ -501,6 +520,7 @@ def _minimax_h3_sm120_varlen_attention_fp8_impl(
     stats_grid: int,
     quantize_grid: int,
     attention_grid: int,
+    quantize_form: int,
     softmax_scale_log2: float,
     stream: int,
     target: str,
@@ -511,7 +531,7 @@ def _minimax_h3_sm120_varlen_attention_fp8_impl(
     # signature order followed by the grid triple; the attention binding encodes its three tensor maps
     # from the byte tensors handed in its descriptor positions (``*_rows``, views of ``*_words``).
     tokens, heads = int(q.shape[0]), int(q.shape[1])
-    stats, quantize, attention = _entries(target)
+    stats, quantize, attention = _entries(target, quantize_form)
     with tvm_ffi.use_raw_stream(_ffi_device(q.device.index), stream):
         stats(
             k,
@@ -604,6 +624,7 @@ def _minimax_h3_sm120_varlen_attention_fp8_fake(
     stats_grid: int,
     quantize_grid: int,
     attention_grid: int,
+    quantize_form: int,
     softmax_scale_log2: float,
     stream: int,
     target: str,
@@ -612,9 +633,11 @@ def _minimax_h3_sm120_varlen_attention_fp8_fake(
 
 
 @functools.cache
-def _entries(target: str) -> Tuple[Any, Any, Any]:
-    """The ``run`` entries of the statistics, quantizer and attention programs on ``target``."""
-    return KV_STATS.entry(target), QUANTIZE.entry(target), ATTENTION.entry(target)
+def _entries(target: str, quantize_form: int = 0) -> Tuple[Any, Any, Any]:
+    """The ``run`` entries of the statistics, quantizer (``QUANTIZE_LU`` when ``quantize_form``) and
+    attention programs on ``target``."""
+    quantize = QUANTIZE_LU if quantize_form else QUANTIZE
+    return KV_STATS.entry(target), quantize.entry(target), ATTENTION.entry(target)
 
 
 def _check_thd(name: str, tensor: torch.Tensor, tokens: int, heads: int) -> None:

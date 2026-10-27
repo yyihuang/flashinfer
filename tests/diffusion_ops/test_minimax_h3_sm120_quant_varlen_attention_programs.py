@@ -17,7 +17,7 @@ matches its two translation units (the kernel symbol the device unit defines and
 the binding namespace, the exported ``run`` entry, the FFI checks header), its digests follow from the
 file bytes, its JIT spec carries the target flags, ``--fmad=false`` and the recorded options, and the
 host module's grid rule and log2-domain scale are what the kernels
-expect."""
+expect, and the quantizer form the host picks per plan follows its L2 band."""
 
 import hashlib
 import math
@@ -33,17 +33,20 @@ from flashinfer.jit.cake_minimax_h3_sm120_quant_varlen_attention import (
     KV_STATS,
     PROGRAMS,
     QUANTIZE,
+    QUANTIZE_LU,
 )
 from flashinfer.jit.core import sm120a_nvcc_flags
 
 NAMED = {
     "KV_STATS": KV_STATS,
     "QUANTIZE": QUANTIZE,
+    "QUANTIZE_LU": QUANTIZE_LU,
     "ATTENTION": ATTENTION,
 }
 DYNAMIC_SMEM = {
     "KV_STATS": 16512,
     "QUANTIZE": 128,
+    "QUANTIZE_LU": 128,
     "ATTENTION": 82944,
 }
 STATS_ARGS = (
@@ -97,13 +100,14 @@ ATTENTION_ARGS = (
 HOST_ARGS = {
     "KV_STATS": STATS_ARGS,
     "QUANTIZE": QUANTIZE_ARGS,
+    "QUANTIZE_LU": QUANTIZE_ARGS,
     "ATTENTION": ATTENTION_ARGS,
 }
 
 
-def test_the_loader_publishes_the_three_programs() -> None:
+def test_the_loader_publishes_the_four_programs() -> None:
     assert tuple(NAMED.values()) == PROGRAMS
-    assert len({program.name for program in PROGRAMS}) == 3
+    assert len({program.name for program in PROGRAMS}) == 4
     for identifier, program in NAMED.items():
         assert program.name.startswith("cake_minimax_h3_sm120_quant_varlen_attention_")
         assert program.operator_dir == "cake_minimax_h3_sm120_quant_varlen_attention"
@@ -223,6 +227,22 @@ def test_attention_grid_is_the_plan_grid() -> None:
             num_sms, num_heads=5, num_units=plan.num_units
         )
         assert grids[2] == plan.grid
+
+
+def test_quantizer_form_follows_the_l2_band(monkeypatch) -> None:
+    # QUANTIZE_LU (the L2 evict_first priority on the quantizer's BF16 loads) for plans whose E4M3
+    # operands (384 bytes per token and head) lie within [_LU_LO, _LU_HI] x L2, QUANTIZE otherwise.
+    for l2 in (96 << 20, 128 << 20):
+        monkeypatch.setattr(ops, "_l2_bytes", lambda _index, l2=l2: l2)
+        per_token = 3 * ops.MINIMAX_H3_HEAD_DIM * 56
+        lo = math.ceil(ops._LU_LO * l2 / per_token)
+        hi = math.floor(ops._LU_HI * l2 / per_token)
+        assert 0 < lo < hi
+        assert [ops._quantize_form(t, 56, 0) for t in (lo - 1, lo, hi, hi + 1)] == [0, 1, 1, 0]
+        for tokens in (1, 128, 129, 500, 900, 33472, 109952):
+            assert ops._quantize_form(tokens, 56, 0) == 0
+        assert ops._quantize_form(4824, 56, 0) == 1
+        assert ops._quantize_form(4824, 3, 0) == 0
 
 
 def test_softmax_scale_log2_rounds_as_the_kernel_takes_it() -> None:
