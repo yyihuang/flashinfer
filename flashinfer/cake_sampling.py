@@ -867,6 +867,7 @@ _FLAG_NO_TAIL = 4096
 # Stage-1 launch_flags bit 13: the compact-list form (`_cl8` twin) of a cluster-1 / 2 / 4 stream build, whose candidate
 # list holds 8192 entries per CTA (512 per warp segment) instead of 16384, so one streaming CTA fits the 101,376 B opt-in
 # of compute capability 12.x.  A warp whose segment overflows takes the exact fallback; every output is bit-identical.
+# Only ``_compact_launch_plan`` takes it, on the cells of ``_COMPACT_PICKS_BY_DEVICE``.
 _FLAG_COMPACT_LIST = 8192
 # The build-selection bits a no-tail twin shares with the build it doubles (manifest key per bit).
 _NO_TAIL_SHARED_BITS = (
@@ -2145,6 +2146,139 @@ class _LaunchPlan(NamedTuple):
     stage23_flags: int
 
 
+# Round 17 (lever RTX-S) on RTX PRO 6000 (12.0, 188 SMs): no full-list stream fits the 101,376 B opt-in, so launches of
+# 32-128 rows at V = 128256 / 151936 run the cluster-8 register-resident grids in two to six waves.  The compact-list
+# streams (``_FLAG_COMPACT_LIST``) fit one CTA per SM and run those rows in one wave.  Key (vocab bin, batch bin, top-k
+# class) as ``_STAGE1_PICKS_BY_DEVICE`` (False: a top-k up to the fused tail's, True: a larger top-k); value (cluster,
+# ept, build bits): ``_FLAG_SPEC_SAMPLE`` for the speculative-sample build, ``_FLAG_NO_TAIL`` for the no-tail twin of a
+# two-launch chain.  A small top-k fuses the two-warp tail; a larger one runs the two-launch chain.  Each pick is the
+# compact-list build whose worst ratio over a sweep of its bin's cells was at most 0.97x of the round-15 plan, both
+# modes; 17-32 rows of the V = 128256 bin at top-k above 64 keep their plan (best compact build up to 1.019x).  A pick
+# takes every launch of its key, including those round 16's device rules decide (the (8, 40) resident of
+# ``_SM12X_RESIDENTS_BY_DEVICE`` and the multi-wave chain of ``_MULTI_WAVE_CHAIN_BY_DEVICE``).  Against the round-16
+# plans (two boards, eager and CUDA graph, two input placements, 8 rounds after a warm-up round, the same sampled
+# tokens) the picks ran 0.669-0.958x on all 53 measured cells whose plan they change (V = 96193-151936, 17-128 rows,
+# top-k 10-1000), 0.707-0.767x on the 17 of them with V = 128256 / 151936, 32 / 64 / 128 rows and top-k 10 / 50 / 1000.
+_COMPACT_PICKS_BY_DEVICE: dict[
+    tuple[int, int, int], dict[tuple[int, int, bool], tuple[int, int, int]]
+] = {
+    # RTX PRO 6000 Blackwell Server
+    (12, 0, 188): {
+        (128256, 32, False): (2, 16, _FLAG_SPEC_SAMPLE),
+        (128256, 64, False): (1, 32, _FLAG_SPEC_SAMPLE),
+        (128256, 64, True): (1, 16, _FLAG_SPEC_SAMPLE | _FLAG_NO_TAIL),
+        (128256, 128, False): (1, 16, 0),
+        (128256, 128, True): (1, 16, 0),
+        (151936, 32, False): (2, 32, _FLAG_SPEC_SAMPLE),
+        (151936, 32, True): (2, 16, _FLAG_SPEC_SAMPLE | _FLAG_NO_TAIL),
+        (151936, 64, False): (2, 32, 0),
+        (151936, 64, True): (2, 16, _FLAG_SPEC_SAMPLE),
+        (151936, 128, False): (1, 16, _FLAG_SPEC_SAMPLE),
+        (151936, 128, True): (1, 32, _FLAG_SPEC_SAMPLE),
+    },
+}
+
+
+@functools.cache
+def _compact_stage1_builds() -> frozenset[tuple[int, int, int, int]]:
+    """``(cluster, ept, build bits, dynamic shared memory)`` of every compact-list twin the frozen module ships (build
+    bits ``_FLAG_SPEC_SAMPLE`` / ``_FLAG_NO_TAIL``)."""
+    return frozenset(
+        (
+            int(v["cluster"]),
+            int(v["ept"]),
+            (_FLAG_SPEC_SAMPLE if v["spec_sample"] else 0)
+            | (_FLAG_NO_TAIL if v.get("no_tail", False) else 0),
+            int(v["dynamic_smem_bytes"]),
+        )
+        for v in load_manifest()["stage1"]
+        if v.get("compact_list", False)
+    )
+
+
+def _compact_pick(
+    capability: tuple[int, int],
+    sm_count: int,
+    batch: int,
+    vocab: int,
+    top_k_max: int,
+    smem_limit: Optional[int],
+) -> Optional[tuple[int, int, int]]:
+    """The ``_COMPACT_PICKS_BY_DEVICE`` entry for this call when the device has one for its vocab and batch bins and
+    top-k class and the frozen module ships that compact-list build within ``smem_limit``; else None."""
+    picks = _COMPACT_PICKS_BY_DEVICE.get(
+        (int(capability[0]), int(capability[1]), int(sm_count))
+    )
+    if not picks or not 1 <= batch <= 128:
+        return None
+    lower = 0
+    vbin = None
+    for v in _STAGE1_PICK_VOCABS:
+        if max(lower, 3 * v // 4) < vocab <= v:
+            vbin = v
+            break
+        lower = v
+    if vbin is None:
+        return None
+    bbin = 1 << (int(batch) - 1).bit_length()
+    large = int(top_k_max) > _fused_tail_kcap()
+    pick = picks.get((vbin, bbin, large))
+    if pick is None:
+        return None
+    cluster, ept, build = pick
+    if not any(
+        (c, e, b) == (cluster, ept, build)
+        and (smem_limit is None or smem <= smem_limit)
+        for c, e, b, smem in _compact_stage1_builds()
+    ):
+        return None
+    return pick
+
+
+def _compact_launch_plan(
+    device_index: int, batch: int, vocab: int, top_k_max: int
+) -> Optional[_LaunchPlan]:
+    """The launch plan of a compact-list pick (``_COMPACT_PICKS_BY_DEVICE``) for this call, or None: a top-k up to the
+    fused tail's runs the build with the two-warp tail fused (one launch); a larger top-k runs the two-launch chain
+    (its no-tail twin when the pick names it), triggering stage 2/3 as every stream chain does."""
+    sm_count = _sm_count(device_index)
+    pick = _compact_pick(
+        _device_capability(device_index),
+        sm_count,
+        batch,
+        vocab,
+        top_k_max,
+        _smem_optin(device_index),
+    )
+    if pick is None:
+        return None
+    cluster, ept, build = pick
+    threads, items = choose_stage23(top_k_max)
+    fused = top_k_max <= _fused_tail_kcap()
+    if fused:
+        if build & _FLAG_NO_TAIL:
+            return None
+        launch_flags = _FLAG_FUSE_TAIL | build | _FLAG_COMPACT_LIST
+    else:
+        launch_flags = (
+            _early_trigger_flag(batch, cluster, sm_count)
+            | _stream_prepass_flag(device_index)
+            | _row_span_diet_flag(cluster, True, top_k_max, device_index)
+            | build
+            | _FLAG_COMPACT_LIST
+        )
+    return _LaunchPlan(
+        cluster,
+        ept,
+        True,
+        threads,
+        items,
+        launch_flags,
+        fused,
+        _stage23_plan_flags(device_index, threads, items),
+    )
+
+
 @functools.lru_cache(maxsize=8192)
 def _launch_plan(
     device_index: int, batch: int, vocab: int, top_k_max: int
@@ -2153,6 +2287,9 @@ def _launch_plan(
     top-k ``top_k_max`` on device ``device_index``: a pure function of these four values and the frozen bundle, so
     it is computed once per distinct call shape (the route check and the launch share it).  Raises ``ValueError``
     when no frozen stage-1 variant covers ``vocab``."""
+    compact = _compact_launch_plan(device_index, batch, vocab, top_k_max)
+    if compact is not None:
+        return compact
     sm_count = _sm_count(device_index)
     capability = _device_capability(device_index)
     two_launch = _launch_is_two_kernels(top_k_max, device_index)
