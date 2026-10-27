@@ -56,8 +56,8 @@ struct Step {
 Function MakeSequence(Array<Function> runs, Array<Array<Any>> args, Array<Array<int64_t>> slots) {
   TVM_FFI_CHECK(runs.size() >= 1 && runs.size() == args.size() && runs.size() == slots.size(),
                 ValueError)
-      << "make_sequence takes one argument list and one slot list per binding, got "
-      << runs.size() << ", " << args.size() << " and " << slots.size();
+      << "make_sequence takes one argument list and one slot list per binding, got " << runs.size()
+      << ", " << args.size() << " and " << slots.size();
   auto steps = std::make_shared<std::vector<Step>>();
   int32_t arity = 0;
   for (size_t i = 0; i < runs.size(); ++i) {
@@ -65,8 +65,7 @@ Function MakeSequence(Array<Function> runs, Array<Array<Any>> args, Array<Array<
     step.run = runs[i];
     for (const Any& value : args[i]) step.args.push_back(value);
     TVM_FFI_CHECK(step.args.size() <= kMaxArgs, ValueError)
-        << "binding " << i << " takes " << step.args.size() << " arguments, more than "
-        << kMaxArgs;
+        << "binding " << i << " takes " << step.args.size() << " arguments, more than " << kMaxArgs;
     const Array<int64_t> pairs = slots[i];
     TVM_FFI_CHECK(pairs.size() % 2 == 0, ValueError)
         << "slot list " << i << " must hold (position, index) pairs";
