@@ -29960,20 +29960,20 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
             if (oks[0]) {
                 unsigned int bits = __as_u32(words_all[0]);
                 unsigned int key = ((bits <= 2139095040) ? bits : 0);
-                unsigned int bucket = key >> 21;
-                atomicAdd(&hist0[bucket], 1);
+                unsigned int bucket_0 = key >> 21;
+                atomicAdd(&hist0[bucket_0], 1);
                 unsigned int bits_0 = __as_u32(words_all[1]);
                 unsigned int key_1 = ((bits_0 <= 2139095040) ? bits_0 : 0);
-                unsigned int bucket_2 = key_1 >> 21;
-                atomicAdd(&hist0[bucket_2], 1);
+                unsigned int bucket_2_0 = key_1 >> 21;
+                atomicAdd(&hist0[bucket_2_0], 1);
                 unsigned int bits_3 = __as_u32(words_all[2]);
                 unsigned int key_4 = ((bits_3 <= 2139095040) ? bits_3 : 0);
-                unsigned int bucket_5 = key_4 >> 21;
-                atomicAdd(&hist0[bucket_5], 1);
+                unsigned int bucket_5_0 = key_4 >> 21;
+                atomicAdd(&hist0[bucket_5_0], 1);
                 unsigned int bits_6 = __as_u32(words_all[3]);
                 unsigned int key_7 = ((bits_6 <= 2139095040) ? bits_6 : 0);
-                unsigned int bucket_8 = key_7 >> 21;
-                atomicAdd(&hist0[bucket_8], 1);
+                unsigned int bucket_8_0 = key_7 >> 21;
+                atomicAdd(&hist0[bucket_8_0], 1);
             }
             if (oks[1]) {
                 unsigned int bits_1 = __as_u32(words_all[4]);
@@ -29996,8 +29996,8 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
             if (oks[2]) {
                 unsigned int bits_2 = __as_u32(words_all[8]);
                 unsigned int key_3 = ((bits_2 <= 2139095040) ? bits_2 : 0);
-                unsigned int bucket_3 = key_3 >> 21;
-                atomicAdd(&hist0[bucket_3], 1);
+                unsigned int bucket_2 = key_3 >> 21;
+                atomicAdd(&hist0[bucket_2], 1);
                 unsigned int bits_0_2 = __as_u32(words_all[9]);
                 unsigned int key_1_2 = ((bits_0_2 <= 2139095040) ? bits_0_2 : 0);
                 unsigned int bucket_2_2 = key_1_2 >> 21;
@@ -30014,8 +30014,8 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
             if (oks[3]) {
                 unsigned int bits_4 = __as_u32(words_all[12]);
                 unsigned int key_5 = ((bits_4 <= 2139095040) ? bits_4 : 0);
-                unsigned int bucket_4 = key_5 >> 21;
-                atomicAdd(&hist0[bucket_4], 1);
+                unsigned int bucket_3 = key_5 >> 21;
+                atomicAdd(&hist0[bucket_3], 1);
                 unsigned int bits_0_3 = __as_u32(words_all[13]);
                 unsigned int key_1_3 = ((bits_0_3 <= 2139095040) ? bits_0_3 : 0);
                 unsigned int bucket_2_3 = key_1_3 >> 21;
@@ -30037,32 +30037,32 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                 float v = probs[row_base + (unsigned long long)i_2];
                 unsigned int bits_5 = __as_u32(v);
                 unsigned int key_6 = ((bits_5 <= 2139095040) ? bits_5 : 0);
-                unsigned int bucket_6 = key_6 >> 21;
-                atomicAdd(&hist0[bucket_6], 1);
+                unsigned int bucket = key_6 >> 21;
+                atomicAdd(&hist0[bucket], 1);
             }
             int i_0 = start + c_1 * 8192 + (512 + tid) * 4;
             if (i_0 < vocab) {
                 float v_1 = probs[row_base + (unsigned long long)i_0];
                 unsigned int bits_7 = __as_u32(v_1);
                 unsigned int key_8 = ((bits_7 <= 2139095040) ? bits_7 : 0);
-                unsigned int bucket_7 = key_8 >> 21;
-                atomicAdd(&hist0[bucket_7], 1);
+                unsigned int bucket_4 = key_8 >> 21;
+                atomicAdd(&hist0[bucket_4], 1);
             }
             int i_1_1 = start + c_1 * 8192 + (1024 + tid) * 4;
             if (i_1_1 < vocab) {
                 float v_2 = probs[row_base + (unsigned long long)i_1_1];
                 unsigned int bits_8 = __as_u32(v_2);
                 unsigned int key_9 = ((bits_8 <= 2139095040) ? bits_8 : 0);
-                unsigned int bucket_9 = key_9 >> 21;
-                atomicAdd(&hist0[bucket_9], 1);
+                unsigned int bucket_5 = key_9 >> 21;
+                atomicAdd(&hist0[bucket_5], 1);
             }
             int i_2_1 = start + c_1 * 8192 + (1536 + tid) * 4;
             if (i_2_1 < vocab) {
                 float v_3 = probs[row_base + (unsigned long long)i_2_1];
                 unsigned int bits_9 = __as_u32(v_3);
                 unsigned int key_10 = ((bits_9 <= 2139095040) ? bits_9 : 0);
-                unsigned int bucket_10 = key_10 >> 21;
-                atomicAdd(&hist0[bucket_10], 1);
+                unsigned int bucket_6 = key_10 >> 21;
+                atomicAdd(&hist0[bucket_6], 1);
             }
         }
     }
@@ -34151,23 +34151,23 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
         }
         unsigned long long c_4 = comps[0];
         if (c_4 < 9214364837600034816) {
-            unsigned int bucket_11 = (unsigned int)(c_4 >> 53);
-            atomicAdd(&hist1[bucket_11], 1);
+            unsigned int bucket_7 = (unsigned int)(c_4 >> 53);
+            atomicAdd(&hist1[bucket_7], 1);
         }
         unsigned long long c_3_1 = comps[1];
         if (c_3_1 < 9214364837600034816) {
-            unsigned int bucket_12 = (unsigned int)(c_3_1 >> 53);
-            atomicAdd(&hist1[bucket_12], 1);
+            unsigned int bucket_8 = (unsigned int)(c_3_1 >> 53);
+            atomicAdd(&hist1[bucket_8], 1);
         }
         unsigned long long c_4_1 = comps[2];
         if (c_4_1 < 9214364837600034816) {
-            unsigned int bucket_13 = (unsigned int)(c_4_1 >> 53);
-            atomicAdd(&hist1[bucket_13], 1);
+            unsigned int bucket_9 = (unsigned int)(c_4_1 >> 53);
+            atomicAdd(&hist1[bucket_9], 1);
         }
         unsigned long long c_5 = comps[3];
         if (c_5 < 9214364837600034816) {
-            unsigned int bucket_14 = (unsigned int)(c_5 >> 53);
-            atomicAdd(&hist1[bucket_14], 1);
+            unsigned int bucket_10 = (unsigned int)(c_5 >> 53);
+            atomicAdd(&hist1[bucket_10], 1);
         }
         hist0[tid] = 0;
         hist0[tid + 512] = 0;
@@ -34202,7 +34202,7 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
         asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(warps_above) : "r"(above_1));
         unsigned int suffix = lane_suffix + warps_above;
         bool hit = 0;
-        unsigned int bucket_15 = 0;
+        unsigned int bucket_11 = 0;
         unsigned int rest = 0;
         unsigned int count = 0;
         if (suffix < k_u && k_u <= suffix + local_6) {
@@ -34211,27 +34211,27 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
             unsigned int s2_4 = s3_4 + c2;
             unsigned int s1_4 = s2_4 + c1;
             if (k_u <= s3_4) {
-                bucket_15 = (unsigned int)(tid * 4 + 3);
+                bucket_11 = (unsigned int)(tid * 4 + 3);
                 rest = k_u - suffix;
                 count = c3;
             } else if (k_u <= s2_4) {
-                bucket_15 = (unsigned int)(tid * 4 + 2);
+                bucket_11 = (unsigned int)(tid * 4 + 2);
                 rest = k_u - s3_4;
                 count = c2;
             } else {
                 if (k_u <= s1_4) {
-                    bucket_15 = (unsigned int)(tid * 4 + 1);
+                    bucket_11 = (unsigned int)(tid * 4 + 1);
                     rest = k_u - s2_4;
                     count = c1;
                 } else {
-                    bucket_15 = (unsigned int)(tid * 4);
+                    bucket_11 = (unsigned int)(tid * 4);
                     rest = k_u - s1_4;
                     count = c0;
                 }
             }
         }
         if (hit) {
-            scal[0] = bucket_15;
+            scal[0] = bucket_11;
             scal[1] = rest;
             scal[2] = count;
         }
@@ -34364,9 +34364,9 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                     atomicAdd(&hist1[bucket_11_1], 1);
                 }
                 unsigned long long c_12 = comps[3];
-                unsigned int bucket_13_1 = (unsigned int)(c_12 >> 32 & 1023);
+                unsigned int bucket_13 = (unsigned int)(c_12 >> 32 & 1023);
                 if (c_12 >> 42 == prefix1) {
-                    atomicAdd(&hist1[bucket_13_1], 1);
+                    atomicAdd(&hist1[bucket_13], 1);
                 }
                 hist0[tid] = 0;
                 hist0[tid + 512] = 0;
@@ -34453,14 +34453,14 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                         unsigned long long sh = (unsigned long long)shift;
                         unsigned long long hi = (unsigned long long)(shift + nbits);
                         unsigned long long c_8 = comps[0];
-                        unsigned int bucket_12_1 = (unsigned int)(c_8 >> sh & mask);
+                        unsigned int bucket_12 = (unsigned int)(c_8 >> sh & mask);
                         if (c_8 >> hi == tpre) {
-                            atomicAdd(&hist0[bucket_12_1], 1);
+                            atomicAdd(&hist0[bucket_12], 1);
                         }
                         unsigned long long c_13 = comps[1];
-                        unsigned int bucket_14_1 = (unsigned int)(c_13 >> sh & mask);
+                        unsigned int bucket_14 = (unsigned int)(c_13 >> sh & mask);
                         if (c_13 >> hi == tpre) {
-                            atomicAdd(&hist0[bucket_14_1], 1);
+                            atomicAdd(&hist0[bucket_14], 1);
                         }
                         unsigned long long c_15 = comps[2];
                         unsigned int bucket_16 = (unsigned int)(c_15 >> sh & mask);
@@ -34747,8 +34747,8 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                 unsigned int e_1 = (unsigned int)(j_1 * 32 + lane);
                 if (e_1 < n_w_0_2) {
                     unsigned int key_51 = lkeys[seg_base + j_1 * 32 + lane];
-                    unsigned int bucket_17 = key_51 >> 21 & 2047;
-                    atomicAdd(&hist1[bucket_17], 1);
+                    unsigned int bucket_15 = key_51 >> 21 & 2047;
+                    atomicAdd(&hist1[bucket_15], 1);
                 }
             }
         }
@@ -35778,9 +35778,9 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                 }
                 if (done_1 == 0) {
                     unsigned long long c_11 = comps2[0];
-                    unsigned int bucket_19 = (unsigned int)(c_11 >> 42 & 2047);
+                    unsigned int bucket_17 = (unsigned int)(c_11 >> 42 & 2047);
                     if (c_11 >> 53 == (unsigned long long)bucket_sel_1) {
-                        atomicAdd(&hist0[bucket_19], 1);
+                        atomicAdd(&hist0[bucket_17], 1);
                     }
                     unsigned long long c_0_1 = comps2[1];
                     unsigned int bucket_1_2 = (unsigned int)(c_0_1 >> 42 & 2047);
@@ -35989,14 +35989,14 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                                     atomicAdd(&hist0[bucket_10_2], 1);
                                 }
                                 unsigned long long c_11_1 = comps2[1];
-                                unsigned int bucket_12_2 = (unsigned int)(c_11_1 >> sh_1 & mask_1);
+                                unsigned int bucket_12_1 = (unsigned int)(c_11_1 >> sh_1 & mask_1);
                                 if (c_11_1 >> hi_1 == tpre_1) {
-                                    atomicAdd(&hist0[bucket_12_2], 1);
+                                    atomicAdd(&hist0[bucket_12_1], 1);
                                 }
                                 unsigned long long c_13_1 = comps2[2];
-                                unsigned int bucket_14_2 = (unsigned int)(c_13_1 >> sh_1 & mask_1);
+                                unsigned int bucket_14_1 = (unsigned int)(c_13_1 >> sh_1 & mask_1);
                                 if (c_13_1 >> hi_1 == tpre_1) {
-                                    atomicAdd(&hist0[bucket_14_2], 1);
+                                    atomicAdd(&hist0[bucket_14_1], 1);
                                 }
                                 unsigned long long c_15_1 = comps2[3];
                                 unsigned int bucket_16_1 = (unsigned int)(c_15_1 >> sh_1 & mask_1);
@@ -36350,9 +36350,9 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                     unsigned int mask_2 = (1 << nbits_2) - 1;
                     unsigned int bits_50 = __as_u32(vals_t[0]);
                     unsigned int key_56 = ((bits_50 <= 2139095040) ? bits_50 : 0);
-                    unsigned int bucket_20 = key_56 >> shift_2 & mask_2;
+                    unsigned int bucket_19 = key_56 >> shift_2 & mask_2;
                     if (key_56 >> shift_2 >> nbits_2 == prefix) {
-                        atomicAdd(&hist0[bucket_20], 1);
+                        atomicAdd(&hist0[bucket_19], 1);
                     }
                     unsigned int bits_3_8 = __as_u32(vals_t[1]);
                     unsigned int key_4_8 = ((bits_3_8 <= 2139095040) ? bits_3_8 : 0);
@@ -36496,7 +36496,7 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                 asm volatile("redux.sync.add.u32 %0, %1, 0xffffffff;" : "=r"(warps_above_2) : "r"(above_4));
                 unsigned int suffix_2 = lane_suffix_2 + warps_above_2;
                 bool hit_2 = 0;
-                unsigned int bucket_21 = 0;
+                unsigned int bucket_20 = 0;
                 unsigned int rest_2 = 0;
                 if (suffix_2 < remaining && remaining <= suffix_2 + local_7_1) {
                     hit_2 = 1;
@@ -36504,23 +36504,23 @@ kernel_cake_radix_topk_c8_e16s_bt(float* __restrict__ probs, int* __restrict__ t
                     unsigned int s2_13 = s3_13 + c2_2;
                     unsigned int s1_13 = s2_13 + c1_2;
                     if (remaining <= s3_13) {
-                        bucket_21 = (unsigned int)(tid * 4 + 3);
+                        bucket_20 = (unsigned int)(tid * 4 + 3);
                         rest_2 = remaining - suffix_2;
                     } else if (remaining <= s2_13) {
-                        bucket_21 = (unsigned int)(tid * 4 + 2);
+                        bucket_20 = (unsigned int)(tid * 4 + 2);
                         rest_2 = remaining - s3_13;
                     } else {
                         if (remaining <= s1_13) {
-                            bucket_21 = (unsigned int)(tid * 4 + 1);
+                            bucket_20 = (unsigned int)(tid * 4 + 1);
                             rest_2 = remaining - s2_13;
                         } else {
-                            bucket_21 = (unsigned int)(tid * 4);
+                            bucket_20 = (unsigned int)(tid * 4);
                             rest_2 = remaining - s1_13;
                         }
                     }
                 }
                 if (hit_2) {
-                    scal[0] = bucket_21;
+                    scal[0] = bucket_20;
                     scal[1] = rest_2;
                 }
                 __syncthreads();
