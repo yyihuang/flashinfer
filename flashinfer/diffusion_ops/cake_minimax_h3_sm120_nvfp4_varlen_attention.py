@@ -121,11 +121,12 @@ _OVERLAP_WIDTH = {170: 42, 188: 46}
 # A plan of more than 16384 padded tokens (the statistics / quantizer plans) takes the overlapped form too when its
 # attention-weighted mean segment length -- the sum of the squared segment lengths over the token count, which the
 # pre-processing share of the call falls with -- is at most ``_OVERLAP_LONG_MAX_SEGMENT[(SM count, delta)]`` tokens
-# (no entry: never), with the overlap width ``_OVERLAP_WIDTH_LONG``.  The compensated route's bound stops where the
-# hidden pre-processing no longer pays for the per-unit Q load of its overlap attention (no next-unit prefetch).
+# (no entry: never), with the overlap width ``_OVERLAP_WIDTH_LONG``.  The compensated route's bound on 188 SMs stops
+# where the hidden pre-processing no longer pays for the per-unit Q load of its overlap attention (no next-unit
+# prefetch); on 170 SMs both routes overlap every such plan.
 _OVERLAP_WIDTH_LONG = {170: 64, 188: 46}
 _OVERLAP_LONG_MAX_SEGMENT = {
-    (170, True): 40960,
+    (170, True): 1 << 40,
     (170, False): 1 << 40,
     (188, True): 36864,
     (188, False): 1 << 40,
