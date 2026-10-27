@@ -741,6 +741,5 @@ def test_minimax_h3_sm120_varlen_attention_nvfp4_serialized_launches(
         )
     except subprocess.TimeoutExpired:
         pytest.fail("overlapped calls with serialized launches did not finish in 600 s")
-    assert result.returncode == 0 and "SERIALIZED_OK" in result.stdout, (
-        result.stderr[-4000:]
-    )
+    stderr_tail = result.stderr[-4000:]
+    assert result.returncode == 0 and "SERIALIZED_OK" in result.stdout, stderr_tail

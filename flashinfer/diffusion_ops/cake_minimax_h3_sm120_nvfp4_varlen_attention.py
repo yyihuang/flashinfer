@@ -52,7 +52,6 @@ from .cake_minimax_h3_sm120_quant_varlen_attention import (
     _BLOCK_N,
     _MAX_HEADS,
     _MAX_PLANS,
-    _MAX_WORKSPACE_SETS,
     MINIMAX_H3_HEAD_DIM,
     MINIMAX_H3_NUM_HEADS,
     _ceil_div,
