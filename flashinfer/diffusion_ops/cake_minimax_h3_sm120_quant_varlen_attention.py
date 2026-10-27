@@ -27,6 +27,7 @@ from ..jit.cake_minimax_h3_sm120_quant_varlen_attention import (
     ATTENTION,
     KV_STATS,
     QUANTIZE,
+    QUANTIZE_LU,
 )
 from ..utils import register_custom_op, register_fake_op
 
@@ -49,7 +50,26 @@ _LOG2E = 1.4426950408889634
 # Grid rule (``minimax_h3_sm120_quant_varlen_attention_launch_grids``): grid-stride statistics and
 # quantizer launches of at most 4 CTAs per SM, one persistent attention CTA per SM.
 _PREP_CTAS_PER_SM = 4
-_PROGRAMS = (KV_STATS, QUANTIZE, ATTENTION)
+_PROGRAMS = (KV_STATS, QUANTIZE, QUANTIZE_LU, ATTENTION)
+# Quantizer form per plan: QUANTIZE_LU (its BF16 Q / K / V loads carry the L2 evict_first priority,
+# so the E4M3 operands it writes stay in L2 for the attention) when the operand bytes (q8 + k8 + vt8 =
+# 384 bytes per token and head) lie within [_LU_LO, _LU_HI] x the device's L2 size, QUANTIZE
+# otherwise (same codes and scales).  The plan's launch picks the form once and names it in its
+# program key (the target, with _LU_KEY appended for QUANTIZE_LU), so a call does no extra work.
+_LU_LO = 0.2
+_LU_HI = 1.5
+_LU_KEY = "+lu"
+
+
+@functools.cache
+def _l2_bytes(index: int) -> int:
+    return int(torch.cuda.get_device_properties(index).L2_cache_size)
+
+
+def _quantize_form(tokens: int, heads: int, index: int) -> int:
+    operand_bytes = 3 * MINIMAX_H3_HEAD_DIM * tokens * heads
+    l2 = _l2_bytes(index)
+    return 1 if _LU_LO * l2 <= operand_bytes <= _LU_HI * l2 else 0
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -232,10 +252,11 @@ class _Launch:
     """One plan's workspace slices and launch facts, built once per (device, stream) workspace: ``args``
     are the custom op's arguments from ``cu_seqlens`` through ``attention_grid``, the tensors among them
     already converted to tvm-ffi tensors, so a call hands the bindings no DLPack exchange but Q, K, V
-    and the output's."""
+    and the output's; ``programs`` is the plan's program key (``_entries``)."""
 
-    __slots__ = ("args",)
+    __slots__ = ("args", "programs")
     args: Tuple[Any, ...]
+    programs: str
 
     def __init__(
         self, plan: MiniMaxH3VarlenPlan, workspace: "_StreamWorkspace", index: int
@@ -300,6 +321,9 @@ class _Launch:
             stats_grid,
             quantize_grid,
             attention_grid,
+        )
+        self.programs = _fp8_target(index) + (
+            _LU_KEY if _quantize_form(tokens, heads, index) else ""
         )
 
 
@@ -503,7 +527,7 @@ def _minimax_h3_sm120_varlen_attention_fp8_impl(
     attention_grid: int,
     softmax_scale_log2: float,
     stream: int,
-    target: str,
+    programs: str,
 ) -> None:
     # Three launches on ``stream`` (the current torch stream): the K / V statistics (per-tile partials,
     # the last tile of each (segment, head) folding them into its K means and V scales) -> E4M3 Q8 /
@@ -511,7 +535,7 @@ def _minimax_h3_sm120_varlen_attention_fp8_impl(
     # signature order followed by the grid triple; the attention binding encodes its three tensor maps
     # from the byte tensors handed in its descriptor positions (``*_rows``, views of ``*_words``).
     tokens, heads = int(q.shape[0]), int(q.shape[1])
-    stats, quantize, attention = _entries(target)
+    stats, quantize, attention = _entries(programs)
     with tvm_ffi.use_raw_stream(_ffi_device(q.device.index), stream):
         stats(
             k,
@@ -606,15 +630,18 @@ def _minimax_h3_sm120_varlen_attention_fp8_fake(
     attention_grid: int,
     softmax_scale_log2: float,
     stream: int,
-    target: str,
+    programs: str,
 ) -> None:
     pass
 
 
 @functools.cache
-def _entries(target: str) -> Tuple[Any, Any, Any]:
-    """The ``run`` entries of the statistics, quantizer and attention programs on ``target``."""
-    return KV_STATS.entry(target), QUANTIZE.entry(target), ATTENTION.entry(target)
+def _entries(programs: str) -> Tuple[Any, Any, Any]:
+    """The ``run`` entries of the statistics, quantizer and attention programs of a plan's program key:
+    the target, with ``_LU_KEY`` appended when the plan quantizes with ``QUANTIZE_LU``."""
+    target = programs.removesuffix(_LU_KEY)
+    quantize = QUANTIZE if target == programs else QUANTIZE_LU
+    return KV_STATS.entry(target), quantize.entry(target), ATTENTION.entry(target)
 
 
 def _check_thd(name: str, tensor: torch.Tensor, tokens: int, heads: int) -> None:
@@ -708,17 +735,19 @@ def minimax_h3_sm120_varlen_attention_fp8(
     plan = _plan_at(bounds, heads, index)
     if plan.num_units == 0:
         return out  # every segment is empty: nothing to write
-    target = _fp8_target(index)
+    # raises on a device other than SM120 before any workspace is touched
+    _fp8_target(index)
     stream = _current_stream(index)
+    launch = _stream_workspace(index, stream).launch(plan, index)
     _minimax_h3_sm120_varlen_attention_fp8_impl(
         q,
         k,
         v,
         out,
-        *_stream_workspace(index, stream).launch(plan, index).args,
+        *launch.args,
         _softmax_scale_log2(softmax_scale),
         stream,
-        target,
+        launch.programs,
     )
     return out
 

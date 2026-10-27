@@ -25,6 +25,7 @@ import math
 import pytest
 import torch
 
+from flashinfer.diffusion_ops import cake_minimax_h3_sm120_quant_varlen_attention as ops
 from flashinfer.diffusion_ops import minimax_h3_sm120_varlen_attention_fp8
 from flashinfer.diffusion_ops.cake_minimax_h3_sm120_quant_varlen_attention import (
     _STREAM_WORKSPACES,
@@ -230,6 +231,34 @@ def test_minimax_h3_sm120_varlen_attention_fp8_workspace_reuse_is_bitwise() -> N
     assert torch.equal(first, again) and torch.equal(first, on_side)
     assert torch.equal(large_first, large_again)
     _check(first, fp32_oracle(q, k, v, small))
+
+
+@requires_sm120
+def test_minimax_h3_sm120_varlen_attention_fp8_quantizer_forms_are_bitwise(
+    monkeypatch,
+) -> None:
+    # QUANTIZE_LU (the L2 evict_first priority on the quantizer's BF16 loads) writes the same operands
+    # as QUANTIZE: the output of one plan is bitwise the same with either form, and the plan's program
+    # key selects the form.
+    device = torch.device("cuda:0")
+    bounds = (0, 257, 4567, 4824)
+    q, k, v = synthetic_inputs(bounds[-1], MINIMAX_H3_NUM_HEADS, seed=7, device=device)
+    cu = torch.tensor(bounds, dtype=torch.int32, device=device)
+    entries, keys = ops._entries, []
+    monkeypatch.setattr(
+        ops, "_entries", lambda programs: keys.append(programs) or entries(programs)
+    )
+    outs = []
+    for form in (0, 1):
+        monkeypatch.setattr(ops, "_quantize_form", lambda *_args, form=form: form)
+        _STREAM_WORKSPACES.clear()  # a plan's launch caches its form
+        outs.append(
+            minimax_h3_sm120_varlen_attention_fp8(q, k, v, cu, cu_seqlens_host=bounds)
+        )
+    torch.cuda.synchronize()
+    _STREAM_WORKSPACES.clear()
+    assert keys == ["sm_120a", "sm_120a" + ops._LU_KEY]
+    assert torch.equal(outs[0], outs[1])
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
