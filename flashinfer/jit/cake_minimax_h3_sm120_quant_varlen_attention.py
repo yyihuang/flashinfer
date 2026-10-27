@@ -13,8 +13,9 @@
 # limitations under the License.
 """Generated programs of the MiniMax-H3 SM120 FP8 packed-varlen attention: the K/V
 statistics with their per-segment fold into the K means and V scales (KV_STATS), the
-E4M3 quantizer (QUANTIZE) and the attention launch in the unit-scaled block-scale MMA
-form (ATTENTION), each shipped for sm_120a. The host module
+E4M3 quantizer (QUANTIZE; QUANTIZE_LU with the L2 evict_first priority on its BF16
+loads) and the attention launch in the unit-scaled block-scale MMA form (ATTENTION),
+each shipped for sm_120a. The host module
 ``flashinfer.diffusion_ops.cake_minimax_h3_sm120_quant_varlen_attention`` computes the
 grids and launches the three stages behind ``minimax_h3_sm120_varlen_attention_fp8``.
 
@@ -75,12 +76,64 @@ KV_STATS = cake_program.CakeProgram(
 )
 
 QUANTIZE = cake_program.CakeProgram(
-    name="cake_minimax_h3_sm120_quant_varlen_attention_e2abeffeb2ef21daba83",
+    name="cake_minimax_h3_sm120_quant_varlen_attention_23f4e15e304778aeaec2",
     operator_dir="cake_minimax_h3_sm120_quant_varlen_attention",
-    kernel="kernel_cake_minimax_h3_sm120_quant_varlen_attention_e2abeffeb2ef21daba83",
+    kernel="kernel_cake_minimax_h3_sm120_quant_varlen_attention_23f4e15e304778aeaec2",
     sources=(
-        "cake_minimax_h3_sm120_quant_varlen_attention_e2abeffeb2ef21daba83_kernel.cu",
-        "cake_minimax_h3_sm120_quant_varlen_attention_e2abeffeb2ef21daba83_binding.cu",
+        "cake_minimax_h3_sm120_quant_varlen_attention_23f4e15e304778aeaec2_kernel.cu",
+        "cake_minimax_h3_sm120_quant_varlen_attention_23f4e15e304778aeaec2_binding.cu",
+    ),
+    targets=("sm_120a",),
+    compile_options=(("sm_120a", ()),),
+    args=(
+        "Q",
+        "K",
+        "V",
+        "cu_seqlens",
+        "mean_k",
+        "v_scale",
+        "q8",
+        "k8",
+        "vt8",
+        "q_scale",
+        "k_scale",
+        "total_tokens",
+        "total_padded",
+        "num_segments",
+        "num_heads",
+        "num_kblocks",
+        "grid_x",
+        "grid_y",
+        "grid_z",
+    ),
+    tensors=(
+        "Q",
+        "K",
+        "V",
+        "cu_seqlens",
+        "mean_k",
+        "v_scale",
+        "q8",
+        "k8",
+        "vt8",
+        "q_scale",
+        "k_scale",
+    ),
+    block=(256, 1, 1),
+    cluster=(1, 1, 1),
+    dynamic_smem_bytes=128,
+    use_pdl=False,
+    cooperative=False,
+    needs_device_linking=False,
+)
+
+QUANTIZE_LU = cake_program.CakeProgram(
+    name="cake_minimax_h3_sm120_quant_varlen_attention_1eb17638c723a4b02f25",
+    operator_dir="cake_minimax_h3_sm120_quant_varlen_attention",
+    kernel="kernel_cake_minimax_h3_sm120_quant_varlen_attention_1eb17638c723a4b02f25",
+    sources=(
+        "cake_minimax_h3_sm120_quant_varlen_attention_1eb17638c723a4b02f25_kernel.cu",
+        "cake_minimax_h3_sm120_quant_varlen_attention_1eb17638c723a4b02f25_binding.cu",
     ),
     targets=("sm_120a",),
     compile_options=(("sm_120a", ()),),
@@ -175,7 +228,12 @@ ATTENTION = cake_program.CakeProgram(
     needs_device_linking=False,
 )
 
-PROGRAMS: tuple[cake_program.CakeProgram, ...] = (KV_STATS, QUANTIZE, ATTENTION)
+PROGRAMS: tuple[cake_program.CakeProgram, ...] = (
+    KV_STATS,
+    QUANTIZE,
+    QUANTIZE_LU,
+    ATTENTION,
+)
 
 
 def aot_specs(target: str) -> tuple[JitSpec, ...]:
@@ -183,4 +241,4 @@ def aot_specs(target: str) -> tuple[JitSpec, ...]:
     return cake_program.aot_specs(PROGRAMS, target)
 
 
-__all__ = ["KV_STATS", "QUANTIZE", "ATTENTION", "PROGRAMS", "aot_specs"]
+__all__ = ["KV_STATS", "QUANTIZE", "QUANTIZE_LU", "ATTENTION", "PROGRAMS", "aot_specs"]

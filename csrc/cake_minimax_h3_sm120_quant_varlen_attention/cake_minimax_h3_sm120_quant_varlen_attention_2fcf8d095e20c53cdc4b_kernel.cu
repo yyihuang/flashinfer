@@ -211,6 +211,7 @@ kernel_cake_minimax_h3_sm120_quant_varlen_attention_2fcf8d095e20c53cdc4b(const _
     fp8_unit_sfa_main[0] = fp8_unit_word_main[0];
     fp8_unit_sfb_main[0] = fp8_unit_word_main[0];
     unsigned int _phase_q_full_0 = 0;
+    unsigned int _phase_k_full = 0;
     #pragma unroll 1
     for (int slot = bid; slot < total_units; slot += num_bids) {
         int seg = unit_table[2 * slot];
@@ -387,7 +388,7 @@ kernel_cake_minimax_h3_sm120_quant_varlen_attention_2fcf8d095e20c53cdc4b(const _
             : "memory");
         #pragma unroll 1
         for (int kb = kb_first; kb < kb_last + 1; kb++) {
-            mbarrier_wait(k_full_addr + (kv_stage) * 8, kv_phase);
+            mbarrier_wait(k_full_addr + (kv_stage) * 8, _phase_k_full);
             asm volatile("barrier.sync %0, 256;" :: "r"(1 + warp / 4) : "memory");
             asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
                 : "=r"(k_frag[0]), "=r"(k_frag[1]), "=r"(k_frag[2]), "=r"(k_frag[3])
@@ -1266,7 +1267,7 @@ kernel_cake_minimax_h3_sm120_quant_varlen_attention_2fcf8d095e20c53cdc4b(const _
                                        "f"(p_tmp[6]), "f"(p_tmp[7]));
                 p_frag[15] = _packed;
             }
-            mbarrier_wait(v_full_addr + (kv_stage) * 8, kv_phase);
+            mbarrier_wait(v_full_addr + (kv_stage) * 8, _phase_k_full);
             asm volatile("barrier.sync %0, 256;" :: "r"(1 + warp / 4) : "memory");
             asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
                 : "=r"(v_frag[0]), "=r"(v_frag[1]), "=r"(v_frag[2]), "=r"(v_frag[3])
@@ -1595,7 +1596,7 @@ kernel_cake_minimax_h3_sm120_quant_varlen_attention_2fcf8d095e20c53cdc4b(const _
                 mbarrier_arrive(v_empty_addr + (kv_stage) * 8);
             }
             if (warp == 0) {
-                mbarrier_wait(k_empty_addr + (kv_stage) * 8, kv_phase);
+                mbarrier_wait(k_empty_addr + (kv_stage) * 8, _phase_k_full);
             }
             if (kb_last >= kb + 2) {
                 if (warp == 0) {
@@ -1647,7 +1648,7 @@ kernel_cake_minimax_h3_sm120_quant_varlen_attention_2fcf8d095e20c53cdc4b(const _
                 }
             }
             if (warp == 4) {
-                mbarrier_wait(v_empty_addr + (kv_stage) * 8, kv_phase);
+                mbarrier_wait(v_empty_addr + (kv_stage) * 8, _phase_k_full);
             }
             if (kb_last >= kb + 2) {
                 if (warp == 4) {
@@ -1686,7 +1687,7 @@ kernel_cake_minimax_h3_sm120_quant_varlen_attention_2fcf8d095e20c53cdc4b(const _
                 }
             }
             kv_stage += 1;
-            if (kv_stage == 2) { kv_stage = 0; kv_phase ^= 1; }
+            if (kv_stage == 2) { kv_stage = 0; _phase_k_full ^= 1; }
         }
         float l0 = l_state[0];
         float l1 = l_state[1];
