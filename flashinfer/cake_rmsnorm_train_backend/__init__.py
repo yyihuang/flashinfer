@@ -35,6 +35,7 @@ from .cake_jit import (
     ARCHES,
     BACKWARD_ALIGNMENT_BYTES,
     FORWARD_ALIGNMENT_BYTES,
+    FP32_WEIGHT_ALIGNMENT_BYTES,
     arch_for_capability,
     program_windows,
     route_applies,
@@ -42,6 +43,7 @@ from .cake_jit import (
     route_modules,
     selected_modules,
     supported_hidden_sizes,
+    weight_dtypes,
 )
 
 SUPPORTED_COMPUTE_CAPABILITIES: tuple[tuple[int, int], ...] = tuple(
@@ -246,6 +248,48 @@ def _contiguous_input(
     return _materialize(tensor, alignment)
 
 
+# The weight dtypes the host accepts and their route tokens (``cake_jit.WEIGHT_DTYPES``).
+_WEIGHT_DTYPES = {torch.bfloat16: "bf16", torch.float32: "f32"}
+
+
+def _weight(
+    w: torch.Tensor, *, hidden: int, device: torch.device, alignment: int
+) -> tuple[torch.Tensor, str]:
+    """``(the weight the kernel reads, its route token)``: a BF16 weight in place
+    when contiguous and ``alignment``-byte aligned, an FP32 weight in place when
+    contiguous and ``FP32_WEIGHT_ALIGNMENT_BYTES`` aligned (the FP32-weight
+    programs load it with 32-byte vectors), else a copy; another dtype is refused."""
+
+    if not isinstance(w, torch.Tensor):
+        raise TypeError("w must be a torch.Tensor")
+    token = _WEIGHT_DTYPES.get(w.dtype)
+    if token is None:
+        raise ValueError(f"w must be one of {tuple(_WEIGHT_DTYPES)}, got {w.dtype}")
+    if token == "f32":
+        alignment = FP32_WEIGHT_ALIGNMENT_BYTES
+    kernel_w = _contiguous_input(
+        w, "w", shape=(hidden,), device=device, dtype=w.dtype, alignment=alignment
+    )
+    return kernel_w, token
+
+
+def _route_error(
+    kind: str, hidden: int, residual: bool, w: torch.Tensor, arch: str
+) -> ValueError:
+    """The error of a call no exported route serves: the hidden sizes with routes
+    on ``arch`` and the weight dtypes this route ships for."""
+
+    word = "forward" if kind == "fwd" else "backward"
+    shipped = weight_dtypes(arch, hidden, kind, residual)
+    dtypes = tuple(dtype for dtype, token in _WEIGHT_DTYPES.items() if token in shipped)
+    return ValueError(
+        f"no exported Cake RMSNorm training {word} for hidden={hidden} "
+        f"(residual={residual}, w={w.dtype}) on {arch}; supported hidden sizes: "
+        f"{supported_hidden_sizes(arch)}; weight dtypes exported for this route: "
+        f"{dtypes if dtypes else 'none'}"
+    )
+
+
 def _output_buffer(
     tensor: Optional[torch.Tensor],
     name: str,
@@ -283,13 +327,18 @@ def _copy_back(pairs: list[tuple[torch.Tensor, Optional[torch.Tensor]]]) -> None
             user_buffer.copy_(kernel_buffer.reshape(user_buffer.shape))
 
 
-def _backward_module_records(arch: str, hidden: int, residual: bool) -> list[dict]:
+def _backward_module_records(
+    arch: str, hidden: int, residual: bool, w_dtype: str = "bf16"
+) -> list[dict]:
     return [
-        _loader.MODULES[name] for name in route_modules(arch, hidden, "bwd", residual)
+        _loader.MODULES[name]
+        for name in route_modules(arch, hidden, "bwd", residual, w_dtype)
     ]
 
 
-def _workspace_record(arch: str, hidden: int, residual: bool, rows: int) -> dict:
+def _workspace_record(
+    arch: str, hidden: int, residual: bool, rows: int, w_dtype: str = "bf16"
+) -> dict:
     """The backward module that sizes the partial / counter workspace for ``rows`` tokens.
 
     Every main backward module of a route (the record owning a
@@ -301,7 +350,7 @@ def _workspace_record(arch: str, hidden: int, residual: bool, rows: int) -> dict
 
     owners = [
         record
-        for record in _backward_module_records(arch, hidden, residual)
+        for record in _backward_module_records(arch, hidden, residual, w_dtype)
         if record.get("workspace_rule") is not None
     ]
     if not owners:
@@ -332,7 +381,8 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     that many tokens.  The counters must be zero on first use (allocate with
     ``torch.zeros`` or use :func:`cake_rmsnorm_train_backward_workspace`); the
     kernels leave them zero, so the same buffer is reusable across calls and
-    CUDA Graph replays without host writes.
+    CUDA Graph replays without host writes.  The buffer serves the BF16-weight
+    and the FP32-weight route of the width alike.
     """
 
     device = torch.device(device)
@@ -341,19 +391,20 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     if rows < 0:
         raise ValueError("rows must be non-negative")
     arch = _device_arch(device)
-    owner = _workspace_record(arch, hidden, residual, max(rows, 1))
     device_index = _device_index(device)
-    # Every module of the route shares the owner's partial capacity; the buffer
-    # also holds the widest counter table any module of the route declares.
-    return max(
-        int(
-            _loader.workspace_layout(
+    # Every module of a route shares its owner's partial capacity; the buffer
+    # also holds the widest counter table any module of the routes declares.
+    total = 0
+    for w_dtype in weight_dtypes(arch, hidden, "bwd", residual) or ("bf16",):
+        owner = _workspace_record(arch, hidden, residual, max(rows, 1), w_dtype)
+        for record in _backward_module_records(arch, hidden, residual, w_dtype):
+            if record.get("workspace_rule") is None:
+                continue
+            layout = _loader.workspace_layout(
                 record, max(rows, 1), device_index=device_index, capacity_record=owner
-            )["total_bytes"]
-        )
-        for record in _backward_module_records(arch, hidden, residual)
-        if record.get("workspace_rule") is not None
-    )
+            )
+            total = max(total, int(layout["total_bytes"]))
+    return total
 
 
 def cake_rmsnorm_train_backward_workspace(
@@ -442,8 +493,12 @@ def cake_rmsnorm_train_forward(
         is the residual stream ``h`` and the normalized value is
         ``h_new = BF16(h + residual)``.
     w : torch.Tensor
-        BF16 ``[H]`` weight, read in place when contiguous and 32-byte aligned
-        (the forward kernels load it with 32-byte vectors), else copied once.
+        BF16 or FP32 ``[H]`` weight.  BF16 is read in place when contiguous and
+        32-byte aligned (the forward kernels load it with 32-byte vectors), FP32
+        -- the effective weight ``1 + w`` a zero-centred model computes in FP32
+        -- when contiguous and 32-byte aligned; any other layout is copied once.
+        An FP32 weight needs the FP32-weight route of the width on the device
+        (:func:`weight_dtypes`), else ``ValueError``.
     eps : float
         Variance epsilon (FP32 inside the kernel).
     residual : torch.Tensor, optional
@@ -478,14 +533,7 @@ def cake_rmsnorm_train_forward(
         dtype=torch.bfloat16,
         alignment=align,
     )
-    w = _contiguous_input(
-        w,
-        "w",
-        shape=(hidden,),
-        device=device,
-        dtype=torch.bfloat16,
-        alignment=align,
-    )
+    w, w_dtype = _weight(w, hidden=hidden, device=device, alignment=align)
     if has_residual:
         residual = _kernel_input(
             _companion_view(residual, "residual", lead=lead, hidden=hidden),
@@ -501,12 +549,9 @@ def cake_rmsnorm_train_forward(
         hidden=hidden,
         kind="fwd",
         residual=has_residual,
+        w_dtype=w_dtype,
     ):
-        raise ValueError(
-            f"no exported Cake RMSNorm training forward for hidden={hidden} "
-            f"(residual={has_residual}) on {arch}; supported hidden sizes: "
-            f"{supported_hidden_sizes(arch)}"
-        )
+        raise _route_error("fwd", hidden, has_residual, w, arch)
     out, y_result, out_user = _output_buffer(
         out,
         "out",
@@ -556,7 +601,9 @@ def cake_rmsnorm_train_forward(
         "u_stride": int(residual.stride(0)) if has_residual else 0,
     }
     device_index = _device_index(device)
-    for name in selected_modules(arch, hidden, "fwd", has_residual, rows=rows):
+    for name in selected_modules(
+        arch, hidden, "fwd", has_residual, rows=rows, w_dtype=w_dtype
+    ):
         _loader.run_module(name, values, rows=rows, device_index=device_index)
     _copy_back(copy_backs)
     return results
@@ -590,8 +637,10 @@ def cake_rmsnorm_train_backward(
         the plain forward, ``h_new`` of the residual forward); same layout rules
         as the forward's ``x``.
     w : torch.Tensor
-        BF16 ``[H]`` weight, read in place when contiguous and 16-byte aligned,
-        else copied once.
+        BF16 or FP32 ``[H]`` weight (the forward's).  BF16 is read in place when
+        contiguous and 16-byte aligned, FP32 when contiguous and 32-byte aligned;
+        any other layout is copied once.  An FP32 weight needs the FP32-weight
+        route of the width (:func:`weight_dtypes`), else ``ValueError``.
     rstd : torch.Tensor
         FP32 ``[T]`` reciprocal RMS returned by the forward (of the leading
         shape ``[...]`` for an N-D call, or flat ``[prod(...)]``).
@@ -637,9 +686,7 @@ def cake_rmsnorm_train_backward(
         dtype=torch.bfloat16,
         alignment=align,
     )
-    w = _contiguous_input(
-        w, "w", shape=(hidden,), device=device, dtype=torch.bfloat16, alignment=align
-    )
+    w, w_dtype = _weight(w, hidden=hidden, device=device, alignment=align)
     rstd = _contiguous_input(
         _rows_view(rstd, lead=lead, rows=rows),
         "rstd",
@@ -672,12 +719,9 @@ def cake_rmsnorm_train_backward(
         hidden=hidden,
         kind="bwd",
         residual=has_residual,
+        w_dtype=w_dtype,
     ):
-        raise ValueError(
-            f"no exported Cake RMSNorm training backward for hidden={hidden} "
-            f"(residual={has_residual}) on {arch}; supported hidden sizes: "
-            f"{supported_hidden_sizes(arch)}"
-        )
+        raise _route_error("bwd", hidden, has_residual, w, arch)
     dx, dx_result, dx_user = _output_buffer(
         dx,
         "dx",
@@ -694,8 +738,10 @@ def cake_rmsnorm_train_backward(
     if rows == 0:
         dw_result.zero_()
         return dx_result, dw_result
-    owner = _workspace_record(arch, hidden, has_residual, rows)
-    names = selected_modules(arch, hidden, "bwd", has_residual, rows=rows)
+    owner = _workspace_record(arch, hidden, has_residual, rows, w_dtype)
+    names = selected_modules(
+        arch, hidden, "bwd", has_residual, rows=rows, w_dtype=w_dtype
+    )
     launched = [
         _loader.MODULES[name]
         for name in names
@@ -801,7 +847,9 @@ def cake_rmsnorm(
         the layout rule of :func:`cake_rmsnorm_train_forward` (its leading
         dimensions collapse into rows).
     w : torch.Tensor
-        BF16 ``[H]`` RMSNorm weight.
+        BF16 or FP32 ``[H]`` RMSNorm weight (FP32 on the routes that ship the
+        FP32-weight programs, see :func:`weight_dtypes`); the weight gradient is
+        returned in ``w.dtype``.
     eps : float
         Variance epsilon evaluated in FP32 by the kernel.
     residual : torch.Tensor, optional
@@ -855,4 +903,5 @@ __all__ = [
     "is_cake_rmsnorm_train_supported",
     "program_windows",
     "route_key",
+    "weight_dtypes",
 ]

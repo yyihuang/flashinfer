@@ -997,6 +997,172 @@ def test_nd_inputs_outside_the_collapse_rule_are_refused(hidden: int) -> None:
     assert tuple(y.shape) == (rows, 1, hidden) and tuple(rstd.shape) == (rows, 1)
 
 
+# --------------------------------------------------------------------------- FP32 effective weights
+
+
+def _fp32_route(hidden: int, kind: str, residual: bool) -> bool:
+    return loader.route_applies(
+        device_capability=_capability(),
+        hidden=hidden,
+        kind=kind,
+        residual=residual,
+        w_dtype="f32",
+    )
+
+
+def _skip_unless_fp32_routes(hidden: int, residual: bool) -> None:
+    _skip_unless_route(hidden, residual)
+    if not (
+        _fp32_route(hidden, "fwd", residual) and _fp32_route(hidden, "bwd", residual)
+    ):
+        pytest.skip(
+            f"hidden={hidden} residual={residual}: no FP32-weight route on this device"
+        )
+
+
+def _fp32_case(
+    hidden: int,
+    rows: int,
+    residual: bool,
+    w32: torch.Tensor,
+    generator: torch.Generator,
+) -> tuple[
+    tuple[torch.Tensor, ...], torch.Tensor, torch.Tensor, dict[str, torch.Tensor]
+]:
+    """One forward + backward with the FP32 weight ``w32``: ``(forward outputs, dx, dw, inputs)``."""
+
+    eps = EPS[hidden]
+    x = _rows(rows, hidden, generator=generator)
+    u = _rows(rows, hidden, generator=generator) if residual else None
+    g = _rows(rows, hidden, generator=generator)
+    g_h = _rows(rows, hidden, generator=generator) if residual else None
+    outputs = cake_rmsnorm_train_forward(x, w32, eps, residual=u)
+    normalized = outputs[2] if residual else x
+    dx, dw = cake_rmsnorm_train_backward(g, normalized, w32, outputs[1], g_residual=g_h)
+    return (
+        outputs,
+        dx,
+        dw,
+        {"x": x, "u": u, "g": g, "g_h": g_h, "normalized": normalized},
+    )
+
+
+def _window_rows(hidden: int, residual: bool) -> tuple[int, ...]:
+    """The row counts that visit every window of the route's forward and backward programs:
+    both sides of every window edge, the smallest counts and the training shape."""
+
+    arch = loader.arch_for_capability(_capability())
+    rows = {1, 2, 129, 16231}
+    for kind in ("fwd", "bwd"):
+        for above, at_most, _library in loader.program_windows(
+            arch, hidden, kind, residual
+        ):
+            rows.add(above + 1)
+            if at_most is not None:
+                rows.update((at_most, at_most + 1))
+    return tuple(sorted(rows))
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES)
+@pytest.mark.parametrize("residual", (False, True))
+def test_fp32_weight_equal_to_the_bf16_weight_matches_it_bitwise(
+    hidden: int, residual: bool
+) -> None:
+    """``w32 = float(w16)`` gives bitwise the BF16 path's y, rstd, h_new, dx and dw in every
+    window of the route: the FP32-weight programs are the BF16 programs with the weight loaded
+    at FP32, selected over the same windows."""
+
+    _skip_unless_fp32_routes(hidden, residual)
+    for rows in _window_rows(hidden, residual):
+        generator = _generator(hidden, rows, residual, 83)
+        w16 = _weight(hidden, generator)
+        seed = generator.get_state()
+        outputs16, dx16, dw16, _ = _fp32_case(hidden, rows, residual, w16, generator)
+        generator.set_state(seed)
+        outputs32, dx32, dw32, _ = _fp32_case(
+            hidden, rows, residual, w16.float(), generator
+        )
+        assert len(outputs16) == len(outputs32) == (3 if residual else 2)
+        for name, a, b in zip(
+            ("y", "rstd", "h_new")[: len(outputs16)], outputs16, outputs32, strict=True
+        ):
+            assert torch.equal(a, b), (
+                f"hidden={hidden} residual={residual} rows={rows}: {name} differs"
+            )
+        label = f"hidden={hidden} residual={residual} rows={rows}"
+        assert torch.equal(dx16, dx32), f"{label}: dx differs"
+        assert torch.equal(dw16, dw32), f"{label}: dw differs"
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES)
+@pytest.mark.parametrize("residual", (False, True))
+@pytest.mark.parametrize("rows", (7, 16231))
+def test_fp32_weight_is_applied_at_fp32(hidden: int, residual: bool, rows: int) -> None:
+    """An effective weight ``1 + delta`` that BF16 cannot represent is applied as given: y and dx match the FP64
+    reference computed with the FP32 weight, and differ from the BF16 path given ``bf16(w32)``."""
+
+    _skip_unless_fp32_routes(hidden, residual)
+    generator = _generator(hidden, rows, residual, 89)
+    w32 = 1.0 + 1e-3 * torch.randn(
+        hidden, dtype=torch.float32, device=_device(), generator=generator
+    )
+    assert not torch.equal(w32.to(torch.bfloat16).float(), w32)
+    seed = generator.get_state()
+    outputs, dx, dw, inputs = _fp32_case(hidden, rows, residual, w32, generator)
+    eps = EPS[hidden]
+    y_ref, rstd_ref, _h = _reference_forward(
+        inputs["x"], w32, eps, residual=inputs["u"]
+    )
+    dx_ref, dw_ref = _reference_backward(
+        inputs["g"], inputs["normalized"], w32, eps, g_h=inputs["g_h"]
+    )
+    label = f"hidden={hidden} residual={residual} rows={rows} fp32 w"
+    _assert_bf16_close(outputs[0], y_ref, f"y {label}")
+    assert _rel_l2(outputs[1], rstd_ref) <= RSTD_REL_L2, f"rstd {label}"
+    _assert_bf16_close(dx, dx_ref, f"dx {label}")
+    _assert_dw(dw, dw_ref, inputs["g"], inputs["normalized"], outputs[1], f"dw {label}")
+    generator.set_state(seed)
+    outputs16, dx16, _dw16, _ = _fp32_case(
+        hidden, rows, residual, w32.to(torch.bfloat16), generator
+    )
+    assert torch.equal(outputs16[1], outputs[1]), f"{label}: rstd does not depend on w"
+    assert not torch.equal(outputs16[0], outputs[0]), (
+        f"{label}: y ignores the FP32 weight"
+    )
+    assert not torch.equal(dx16, dx), f"{label}: dx ignores the FP32 weight"
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES)
+def test_fp32_weight_layouts_outside_the_rule_are_materialized(hidden: int) -> None:
+    """An FP32 weight that is not 32-byte aligned, or not contiguous, is copied once: the same results as the
+    aligned contiguous weight (and the autograd path returns ``dw`` in FP32 for an FP32 weight)."""
+
+    _skip_unless_fp32_routes(hidden, False)
+    rows = 129
+    generator = _generator(hidden, rows, 97)
+    w32 = 1.0 + 1e-3 * torch.randn(
+        hidden, dtype=torch.float32, device=_device(), generator=generator
+    )
+    seed = generator.get_state()
+    outputs, dx, dw, _ = _fp32_case(hidden, rows, False, w32, generator)
+    storage = torch.empty(hidden + 8, dtype=torch.float32, device=_device())
+    half_aligned = storage[4 : 4 + hidden]
+    half_aligned.copy_(w32)
+    assert half_aligned.data_ptr() % loader.FP32_WEIGHT_ALIGNMENT_BYTES == 16
+    strided = torch.empty(2 * hidden, dtype=torch.float32, device=_device())[::2]
+    strided.copy_(w32)
+    for layout in (half_aligned, strided):
+        generator.set_state(seed)
+        outputs_l, dx_l, dw_l, _ = _fp32_case(hidden, rows, False, layout, generator)
+        assert all(torch.equal(a, b) for a, b in zip(outputs, outputs_l, strict=True))
+        assert torch.equal(dx, dx_l) and torch.equal(dw, dw_l)
+    x = _rows(rows, hidden, generator=generator).requires_grad_(True)
+    w_leaf = w32.clone().requires_grad_(True)
+    y = cake_rmsnorm(x, w_leaf, EPS[hidden])
+    y.backward(torch.ones_like(y))
+    assert w_leaf.grad.dtype == torch.float32 and x.grad.dtype == torch.bfloat16
+
+
 @pytest.mark.parametrize("hidden", HIDDEN_SIZES)
 def test_zero_rows(hidden: int) -> None:
     _skip_unless_hidden(hidden)
@@ -1262,7 +1428,10 @@ def test_argument_validation(hidden: int) -> None:
     with pytest.raises(ValueError):
         cake_rmsnorm_train_forward(x.float(), w, eps)
     with pytest.raises(ValueError):
-        cake_rmsnorm_train_forward(x, w.float(), eps)
+        cake_rmsnorm_train_forward(x, w.double(), eps)
+    if not _fp32_route(hidden, "fwd", False):
+        with pytest.raises(ValueError, match="weight dtypes exported for this route"):
+            cake_rmsnorm_train_forward(x, w.float(), eps)
     with pytest.raises(ValueError):
         cake_rmsnorm_train_forward(x[:, 1:], w[1:], eps)
     # An odd row stride is accepted (materialized once), not rejected.

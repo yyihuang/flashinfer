@@ -48,14 +48,15 @@ ROWS = (
 )  # fmt: skip
 # The row count standing in for an unbounded window's upper edge.
 OPEN_WINDOW_ROWS = 65536
-ROUTE_KEY = re.compile(r"^(fwd|bwd)(_residual)?_h(\d+)$")
+ROUTE_KEY = re.compile(r"^(fwd|bwd)(_w32)?(_residual)?_h(\d+)$")
 
 
-def _route_parts(route: str) -> tuple[int, str, bool]:
-    """``(hidden, kind, residual)`` of a route key (``cake_jit.route_key``)."""
+def _route_parts(route: str) -> tuple[int, str, bool, str]:
+    """``(hidden, kind, residual, w_dtype)`` of a route key (``cake_jit.route_key``)."""
     match = ROUTE_KEY.fullmatch(route)
     assert match is not None, route
-    return int(match.group(3)), match.group(1), match.group(2) is not None
+    w_dtype = "f32" if match.group(2) else "bf16"
+    return int(match.group(4)), match.group(1), match.group(3) is not None, w_dtype
 
 
 def _edges(route_windows) -> tuple[int, ...]:
@@ -200,8 +201,9 @@ def test_program_windows_tile_every_route_and_name_the_selected_program(
     and names the program ``selected_modules`` launches at both ends of each window (a backward window's dw reduce
     companion shares the window)."""
     for route in loader.ROUTES[arch]:
-        hidden, kind, residual = _route_parts(route)
-        route_windows = loader.program_windows(arch, hidden, kind, residual)
+        hidden, kind, residual, w_dtype = _route_parts(route)
+        assert loader.route_key(hidden, kind, residual, w_dtype) == route
+        route_windows = loader.program_windows(arch, hidden, kind, residual, w_dtype)
         assert (
             route_windows and route_windows[0][0] == 0 and route_windows[-1][1] is None
         ), (arch, route)
@@ -213,7 +215,7 @@ def test_program_windows_tile_every_route_and_name_the_selected_program(
             top = OPEN_WINDOW_ROWS if high is None else high
             for rows in sorted({low + 1, top}):
                 selected = loader.selected_modules(
-                    arch, hidden, kind, residual, rows=rows
+                    arch, hidden, kind, residual, rows=rows, w_dtype=w_dtype
                 )
                 assert len(selected) == (2 if kind == "bwd" else 1), (
                     arch,
@@ -237,7 +239,8 @@ def test_program_windows_tile_every_route_and_name_the_selected_program(
 def test_rendered_windows_match_the_registry() -> None:
     """The exporter's ``cake_windows`` module is the registry: its table is ``program_windows`` of every route, its
     edges are the windows' upper bounds with a known class, and its sections (the docstring notes of the forward and
-    backward) name every route of their kind."""
+    backward) name every BF16 route of their kind and cover the FP32-weight routes in one sentence (they select among
+    the twins over the same windows)."""
     assert set(windows.PROGRAM_WINDOWS) == set(loader.ROUTES) == set(windows.EDGES)
     assert set(windows.EDGE_CLASSES) == {"same", "ulp", "dx", "unmeasured"}
     for arch, routes in loader.ROUTES.items():
@@ -247,8 +250,8 @@ def test_rendered_windows_match_the_registry() -> None:
             == set(windows.EDGES[arch])
         ), arch
         for route in routes:
-            hidden, kind, residual = _route_parts(route)
-            expected = loader.program_windows(arch, hidden, kind, residual)
+            hidden, kind, residual, w_dtype = _route_parts(route)
+            expected = loader.program_windows(arch, hidden, kind, residual, w_dtype)
             assert windows.PROGRAM_WINDOWS[arch][route] == expected, (arch, route)
             edges = windows.EDGES[arch][route]
             assert tuple(edge for edge, _cls in edges) == _edges(expected), (
@@ -259,7 +262,21 @@ def test_rendered_windows_match_the_registry() -> None:
                 arch,
                 route,
             )
-            assert f"``{arch}`` ``{route}``:" in windows.SECTIONS[kind], (arch, route)
+            listed = f"``{arch}`` ``{route}``:" in windows.SECTIONS[kind]
+            if w_dtype == "f32":
+                # an FP32-weight route is one sentence of the section; its base route is the line
+                assert not listed, (arch, route)
+                base = loader.route_key(hidden, kind, residual)
+                assert f"``{arch}`` ``{base}``:" in windows.SECTIONS[kind], (
+                    arch,
+                    route,
+                )
+                assert (
+                    f"The FP32-weight routes (``{kind}_w32_...``)"
+                    in windows.SECTIONS[kind]
+                ), (arch, kind)
+            else:
+                assert listed, (arch, route)
     for kind, function in (
         ("fwd", pkg.cake_rmsnorm_train_forward),
         ("bwd", pkg.cake_rmsnorm_train_backward),
@@ -280,11 +297,71 @@ def test_rows_cover_every_backward_window_edge() -> None:
     launches each program of the registry (the forward edges are covered by the prefix-invariance test)."""
     for arch, routes in loader.ROUTES.items():
         for route in routes:
-            hidden, kind, residual = _route_parts(route)
+            hidden, kind, residual, w_dtype = _route_parts(route)
             if kind != "bwd":
                 continue
-            for edge in _edges(loader.program_windows(arch, hidden, kind, residual)):
+            for edge in _edges(
+                loader.program_windows(arch, hidden, kind, residual, w_dtype)
+            ):
                 assert edge in ROWS and edge + 1 in ROWS, (arch, route, edge)
+
+
+@pytest.mark.parametrize("arch", sorted(loader.ROUTES))
+def test_fp32_weight_routes_mirror_their_bf16_routes(arch: str) -> None:
+    """Every FP32-weight route (``_w32``) is the twin of the BF16 route of its width, kind and residual form: the
+    same windows, companions and host plans, the owners' roles carrying ``_w32`` before ``_residual``; and the BF16
+    routes alone decide ``supported_hidden_sizes``."""
+    routes = loader.ROUTES[arch]
+    twins = [route for route in routes if _route_parts(route)[3] == "f32"]
+    if not twins:
+        pytest.skip(f"{arch}: the registry ships no FP32-weight route yet")
+    for route in twins:
+        hidden, kind, residual, _w_dtype = _route_parts(route)
+        base = loader.route_key(hidden, kind, residual)
+        assert base in routes, (arch, route)
+        assert loader.weight_dtypes(arch, hidden, kind, residual) == ("bf16", "f32")
+        mine = loader.program_windows(arch, hidden, kind, residual, "f32")
+        theirs = loader.program_windows(arch, hidden, kind, residual)
+        assert [(low, high) for low, high, _l in mine] == [
+            (low, high) for low, high, _l in theirs
+        ], (arch, route)
+        assert all(
+            a != b for (_l, _h, a), (_l2, _h2, b) in zip(mine, theirs, strict=True)
+        ), (
+            arch,
+            route,
+        )
+        owners = [n for n in routes[route] if loader.MODULES[n]["role"] != REDUCE_ROLE]
+        base_owners = [
+            n for n in routes[base] if loader.MODULES[n]["role"] != REDUCE_ROLE
+        ]
+        assert [
+            n for n in routes[route] if loader.MODULES[n]["role"] == REDUCE_ROLE
+        ] == [n for n in routes[base] if loader.MODULES[n]["role"] == REDUCE_ROLE], (
+            arch,
+            route,
+        )
+        assert len(owners) == len(base_owners), (arch, route)
+        for mine_name, theirs_name in zip(owners, base_owners, strict=True):
+            twin, owner = loader.MODULES[mine_name], loader.MODULES[theirs_name]
+            for key in (
+                "arches",
+                "grid_rule",
+                "hidden",
+                "select_rule",
+                "workspace_rule",
+            ):
+                assert twin[key] == owner[key], (arch, route, mine_name, key)
+            expected_role = (
+                owner["role"][: -len("_residual")] + "_w32_residual"
+                if owner["role"].endswith("_residual")
+                else owner["role"] + "_w32"
+            )
+            assert twin["role"] == expected_role, (arch, route, mine_name)
+    assert all(
+        _route_parts(loader.route_key(h, "fwd", False))[3] == "bf16"
+        for h in loader.supported_hidden_sizes(arch)
+    )
 
 
 # --------------------------------------------------------------------------- the chunk formula (no device)

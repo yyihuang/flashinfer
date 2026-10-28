@@ -28,7 +28,9 @@ the gradient of both ``h`` and ``u``.
 
 All kernels use FP32 statistics and accumulation with IEEE division and
 square root (no fast-math).  Inputs and outputs are BF16; ``rstd`` and ``dw``
-are FP32.  Row-strided inputs (``x``, ``residual``, ``g``, ``g_residual``)
+are FP32.  ``w`` is BF16, or FP32 on the routes that ship the FP32-weight
+programs (the effective weight ``1 + w`` of a zero-centred model, computed by
+the caller in FP32; :func:`weight_dtypes` lists them per route).  Row-strided inputs (``x``, ``residual``, ``g``, ``g_residual``)
 are accepted when ``stride(1) == 1``, ``stride(0)`` is a multiple of eight
 elements and the storage is aligned (32 bytes for the forward inputs, 16 for
 the backward); outputs are contiguous.  An input of more dimensions,
@@ -73,6 +75,7 @@ from .cake_rmsnorm_train_backend import (  # noqa: F401
     is_cake_rmsnorm_train_supported,
     program_windows,
     route_key,
+    weight_dtypes,
 )
 
 # The three stable entry points are real ``def``s here (public-API tooling reads the
@@ -159,4 +162,5 @@ __all__ = [
     "is_cake_rmsnorm_train_supported",
     "program_windows",
     "route_key",
+    "weight_dtypes",
 ]
