@@ -456,75 +456,44 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
     },
     "sm_103a": {
         "bwd_h1536": (
-            (1024, "unmeasured"),
-            (4096, "unmeasured"),
+            (1024, "same"),
+            (4096, "same"),
             (14928, "unmeasured"),
             (15566, "unmeasured"),
         ),
         "bwd_w32_h1536": (
-            (1024, "unmeasured"),
-            (4096, "unmeasured"),
+            (1024, "same"),
+            (4096, "same"),
             (14928, "unmeasured"),
             (15566, "unmeasured"),
         ),
-        "bwd_h2048": (
-            (3072, "unmeasured"),
-            (4096, "unmeasured"),
-            (16384, "unmeasured"),
-            (32768, "unmeasured"),
-        ),
+        "bwd_h2048": ((3072, "same"), (4096, "ulp"), (16384, "same"), (32768, "same")),
         "bwd_w32_h2048": (
-            (3072, "unmeasured"),
-            (4096, "unmeasured"),
-            (16384, "unmeasured"),
-            (32768, "unmeasured"),
+            (3072, "same"),
+            (4096, "ulp"),
+            (16384, "same"),
+            (32768, "same"),
         ),
-        "bwd_h4096": ((256, "unmeasured"), (1024, "unmeasured"), (4096, "unmeasured")),
-        "bwd_w32_h4096": (
-            (256, "unmeasured"),
-            (1024, "unmeasured"),
-            (4096, "unmeasured"),
-        ),
-        "bwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (32768, "unmeasured")),
-        "bwd_w32_h512": (
-            (1024, "unmeasured"),
-            (4096, "unmeasured"),
-            (32768, "unmeasured"),
-        ),
-        "bwd_h6144": ((4096, "unmeasured"),),
-        "bwd_w32_h6144": ((4096, "unmeasured"),),
+        "bwd_h4096": ((256, "same"), (1024, "same"), (4096, "same")),
+        "bwd_w32_h4096": ((256, "same"), (1024, "same"), (4096, "same")),
+        "bwd_h512": ((1024, "ulp"), (4096, "same"), (32768, "same")),
+        "bwd_w32_h512": ((1024, "ulp"), (4096, "same"), (32768, "same")),
+        "bwd_h6144": ((4096, "same"),),
+        "bwd_w32_h6144": ((4096, "same"),),
         "bwd_residual_h6144": (),
         "bwd_w32_residual_h6144": (),
-        "fwd_h1536": ((1536, "unmeasured"), (3584, "unmeasured"), (6144, "unmeasured")),
-        "fwd_w32_h1536": (
-            (1536, "unmeasured"),
-            (3584, "unmeasured"),
-            (6144, "unmeasured"),
-        ),
-        "fwd_h2048": ((1024, "unmeasured"), (4096, "unmeasured")),
-        "fwd_w32_h2048": ((1024, "unmeasured"), (4096, "unmeasured")),
-        "fwd_h4096": (
-            (640, "unmeasured"),
-            (1024, "unmeasured"),
-            (3072, "unmeasured"),
-            (6144, "unmeasured"),
-        ),
-        "fwd_w32_h4096": (
-            (640, "unmeasured"),
-            (1024, "unmeasured"),
-            (3072, "unmeasured"),
-            (6144, "unmeasured"),
-        ),
-        "fwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (16384, "unmeasured")),
-        "fwd_w32_h512": (
-            (1024, "unmeasured"),
-            (4096, "unmeasured"),
-            (16384, "unmeasured"),
-        ),
-        "fwd_h6144": ((1024, "unmeasured"),),
+        "fwd_h1536": ((1536, "ulp"), (3584, "same"), (6144, "same")),
+        "fwd_w32_h1536": ((1536, "ulp"), (3584, "same"), (6144, "same")),
+        "fwd_h2048": ((1024, "same"), (4096, "ulp")),
+        "fwd_w32_h2048": ((1024, "same"), (4096, "ulp")),
+        "fwd_h4096": ((640, "ulp"), (1024, "same"), (3072, "same"), (6144, "same")),
+        "fwd_w32_h4096": ((640, "ulp"), (1024, "same"), (3072, "same"), (6144, "same")),
+        "fwd_h512": ((1024, "ulp"), (4096, "same"), (16384, "same")),
+        "fwd_w32_h512": ((1024, "ulp"), (4096, "same"), (16384, "same")),
+        "fwd_h6144": ((1024, "same"),),
         "fwd_w32_h6144": ((1024, "unmeasured"), (6144, "unmeasured")),
-        "fwd_residual_h6144": ((256, "unmeasured"), (1024, "unmeasured")),
-        "fwd_w32_residual_h6144": ((256, "unmeasured"), (1024, "unmeasured")),
+        "fwd_residual_h6144": ((256, "same"), (1024, "ulp")),
+        "fwd_w32_residual_h6144": ((256, "same"), (1024, "ulp")),
     },
     "sm_107a": {
         "bwd_h1536": ((1024, "same"), (16384, "same")),
@@ -589,7 +558,7 @@ identical: the H = 6144 route, which switched between the base backward kernel a
 bulk-copy one with ``dx`` differing on about 1-2 % of the rows, now runs the bulk-copy
 kernel at every ``T`` on every architecture.  ``dw`` sums every row and depends on ``T``
 by definition; for a fixed ``T`` on one architecture it is bitwise reproducible.
-Measured on B200 (sm_100a) and R200 (sm_107a).
+Measured on B200 (sm_100a), GB300 (sm_103a) and R200 (sm_107a).
 """
 
 FORWARD_SECTION = """
@@ -610,7 +579,7 @@ identical: the H = 6144 route, which switched between the base backward kernel a
 bulk-copy one with ``dx`` differing on about 1-2 % of the rows, now runs the bulk-copy
 kernel at every ``T`` on every architecture.  ``dw`` sums every row and depends on ``T``
 by definition; for a fixed ``T`` on one architecture it is bitwise reproducible.
-Measured on B200 (sm_100a) and R200 (sm_107a).
+Measured on B200 (sm_100a), GB300 (sm_103a) and R200 (sm_107a).
 
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
 8 hex digits of its name).  The mark after a window names the measured outcome
@@ -637,18 +606,18 @@ its own windows.
   (1024, 6144] 3d619cd1 ? (6144, inf) 5f89e5fd
 * ``sm_100a`` ``fwd_residual_h6144``: (0, 256] 308da182 = (256, 1024] 03bdf566 ~
   (1024, inf) e646bbdb
-* ``sm_103a`` ``fwd_h1536``: (0, 1536] 1ea88523 ? (1536, 3584] 2fdbab2a ?
-  (3584, 6144] 7de1e510 ? (6144, inf) 2fdbab2a
-* ``sm_103a`` ``fwd_h2048``: (0, 1024] c5a8099e ? (1024, 4096] b44107e0 ?
+* ``sm_103a`` ``fwd_h1536``: (0, 1536] 1ea88523 ~ (1536, 3584] 2fdbab2a =
+  (3584, 6144] 7de1e510 = (6144, inf) 2fdbab2a
+* ``sm_103a`` ``fwd_h2048``: (0, 1024] c5a8099e = (1024, 4096] b44107e0 ~
   (4096, inf) 780b9833
-* ``sm_103a`` ``fwd_h4096``: (0, 640] 8392d1a0 ? (640, 1024] fd913ecd ?
-  (1024, 3072] d447b7f6 ? (3072, 6144] d447b7f6 ? (6144, inf) fd913ecd
-* ``sm_103a`` ``fwd_h512``: (0, 1024] 8757f6da ? (1024, 4096] 7673978d ?
-  (4096, 16384] 3d20ab4a ? (16384, inf) 3430e5d9
-* ``sm_103a`` ``fwd_h6144``: (0, 1024] bad4db91 ? (1024, inf) 288d7b1d
+* ``sm_103a`` ``fwd_h4096``: (0, 640] 8392d1a0 ~ (640, 1024] fd913ecd =
+  (1024, 3072] d447b7f6 = (3072, 6144] d447b7f6 = (6144, inf) fd913ecd
+* ``sm_103a`` ``fwd_h512``: (0, 1024] 8757f6da ~ (1024, 4096] 7673978d =
+  (4096, 16384] 3d20ab4a = (16384, inf) 3430e5d9
+* ``sm_103a`` ``fwd_h6144``: (0, 1024] bad4db91 = (1024, inf) 288d7b1d
 * ``sm_103a`` ``fwd_w32_h6144``: (0, 1024] 2763cd5e ? (1024, 6144] 2763cd5e ?
   (6144, inf) 5f89e5fd
-* ``sm_103a`` ``fwd_residual_h6144``: (0, 256] 308da182 ? (256, 1024] 03bdf566 ?
+* ``sm_103a`` ``fwd_residual_h6144``: (0, 256] 308da182 = (256, 1024] 03bdf566 ~
   (1024, inf) e646bbdb
 * ``sm_107a`` ``fwd_h1536``: (0, 2048] 1ea88523 ~ (2048, 12288] 4cdc4c49 =
   (12288, inf) 682675bd
@@ -683,7 +652,7 @@ identical: the H = 6144 route, which switched between the base backward kernel a
 bulk-copy one with ``dx`` differing on about 1-2 % of the rows, now runs the bulk-copy
 kernel at every ``T`` on every architecture.  ``dw`` sums every row and depends on ``T``
 by definition; for a fixed ``T`` on one architecture it is bitwise reproducible.
-Measured on B200 (sm_100a) and R200 (sm_107a).
+Measured on B200 (sm_100a), GB300 (sm_103a) and R200 (sm_107a).
 
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
 8 hex digits of its name).  The mark after a window names the measured outcome
@@ -707,15 +676,15 @@ its own windows.
 * ``sm_100a`` ``bwd_h6144``: (0, 256] b93bf060 = (256, 4096] 5c804aed =
   (4096, inf) b93bf060
 * ``sm_100a`` ``bwd_residual_h6144``: (0, inf) 0dcdc563
-* ``sm_103a`` ``bwd_h1536``: (0, 1024] 7dc29629 ? (1024, 4096] c1a9efdf ?
+* ``sm_103a`` ``bwd_h1536``: (0, 1024] 7dc29629 = (1024, 4096] c1a9efdf =
   (4096, 14928] 1df7db17 ? (14928, 15566] 4df08ce5 ? (15566, inf) f522f5b8
-* ``sm_103a`` ``bwd_h2048``: (0, 3072] caf6978e ? (3072, 4096] 9ac8d21e ?
-  (4096, 16384] caf6978e ? (16384, 32768] caf6978e ? (32768, inf) 302f64db
-* ``sm_103a`` ``bwd_h4096``: (0, 256] 50044ee3 ? (256, 1024] ad2bb26e ?
-  (1024, 4096] 24643edc ? (4096, inf) 35a0b0ca
-* ``sm_103a`` ``bwd_h512``: (0, 1024] 09601d42 ? (1024, 4096] 8e7f4d81 ?
-  (4096, 32768] 274b0055 ? (32768, inf) cfaae3ce
-* ``sm_103a`` ``bwd_h6144``: (0, 4096] 5c804aed ? (4096, inf) 322574af
+* ``sm_103a`` ``bwd_h2048``: (0, 3072] caf6978e = (3072, 4096] 9ac8d21e ~
+  (4096, 16384] caf6978e = (16384, 32768] caf6978e = (32768, inf) 302f64db
+* ``sm_103a`` ``bwd_h4096``: (0, 256] 50044ee3 = (256, 1024] ad2bb26e =
+  (1024, 4096] 24643edc = (4096, inf) 35a0b0ca
+* ``sm_103a`` ``bwd_h512``: (0, 1024] 09601d42 ~ (1024, 4096] 8e7f4d81 =
+  (4096, 32768] 274b0055 = (32768, inf) cfaae3ce
+* ``sm_103a`` ``bwd_h6144``: (0, 4096] 5c804aed = (4096, inf) 322574af
 * ``sm_103a`` ``bwd_residual_h6144``: (0, inf) 0dcdc563
 * ``sm_107a`` ``bwd_h1536``: (0, 1024] 7dc29629 = (1024, 16384] 6a428da2 =
   (16384, inf) 56d26996
