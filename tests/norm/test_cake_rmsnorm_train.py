@@ -836,6 +836,167 @@ def test_half_vector_aligned_weight_is_materialized(hidden: int) -> None:
     assert torch.equal(dx, dx_aligned) and torch.equal(dw, dw_aligned), label
 
 
+# --------------------------------------------------------------------------- N-D inputs (the row collapse)
+
+
+def _nd_rows(
+    rows: int, heads: int, hidden: int, *, pitch_pad: int, generator: torch.Generator
+) -> torch.Tensor:
+    """BF16 ``[rows, heads, hidden]`` view of a ``[rows, heads, hidden + pitch_pad]`` buffer: strides
+    ``(heads x (hidden + pad), hidden + pad, 1)``, the issue's layout when ``pad > 0``."""
+
+    base = torch.randn(
+        max(rows, 1),
+        heads,
+        hidden + pitch_pad,
+        dtype=torch.float32,
+        device=_device(),
+        generator=generator,
+    ).to(torch.bfloat16)
+    return base[:rows, :, :hidden]
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES)
+@pytest.mark.parametrize("heads", (1, 3, 24))
+@pytest.mark.parametrize("rows", (0, 1, 7, 129))
+@pytest.mark.parametrize("pitch_pad", (0, 16))
+def test_nd_inputs_collapse_to_rows(
+    hidden: int, heads: int, rows: int, pitch_pad: int
+) -> None:
+    """A ``[T, heads, H]`` input whose leading dimensions are contiguous with one another (strides
+    ``(heads x pitch, pitch, 1)``) is the ``[T x heads, H]`` call: y, rstd, dx and dw bitwise equal to the 2-D call
+    on the same rows, the outputs in the input's leading shape, a flat rstd accepted by the backward too."""
+
+    _skip_unless_hidden(hidden)
+    generator = _generator(hidden, heads, rows, pitch_pad, 71)
+    x3 = _nd_rows(rows, heads, hidden, pitch_pad=pitch_pad, generator=generator)
+    w = _weight(hidden, generator)
+    g3 = _nd_rows(rows, heads, hidden, pitch_pad=pitch_pad, generator=generator)
+    eps = EPS[hidden]
+    x2 = x3.reshape(rows * heads, hidden)
+    g2 = g3.reshape(rows * heads, hidden)
+    y3, rstd3 = cake_rmsnorm_train_forward(x3, w, eps)
+    y2, rstd2 = cake_rmsnorm_train_forward(x2, w, eps)
+    assert tuple(y3.shape) == (rows, heads, hidden) and y3.is_contiguous()
+    assert tuple(rstd3.shape) == (rows, heads) and rstd3.dtype == torch.float32
+    assert torch.equal(y3.reshape(-1, hidden), y2) and torch.equal(
+        rstd3.reshape(-1), rstd2
+    )
+    dx3, dw3 = cake_rmsnorm_train_backward(g3, x3, w, rstd3)
+    dx2, dw2 = cake_rmsnorm_train_backward(g2, x2, w, rstd2)
+    assert tuple(dx3.shape) == (rows, heads, hidden) and dx3.is_contiguous()
+    assert torch.equal(dx3.reshape(-1, hidden), dx2) and torch.equal(dw3, dw2)
+    dx3_flat, dw3_flat = cake_rmsnorm_train_backward(g3, x3, w, rstd3.reshape(-1))
+    assert torch.equal(dx3_flat, dx3) and torch.equal(dw3_flat, dw3)
+    if rows == 0:
+        return
+    # Preallocated N-D outputs: contiguous ones are written in place, a strided one receives a copy.
+    out = torch.empty_like(y3)
+    rstd_out = torch.empty(rows, heads, dtype=torch.float32, device=_device())
+    outputs = cake_rmsnorm_train_forward(x3, w, eps, out=out, rstd=rstd_out)
+    assert outputs[0] is out and outputs[1] is rstd_out
+    assert torch.equal(out, y3) and torch.equal(rstd_out, rstd3)
+    strided = torch.empty(
+        rows, heads, hidden + 16, dtype=torch.bfloat16, device=_device()
+    )[..., :hidden]
+    outputs = cake_rmsnorm_train_forward(x3, w, eps, out=strided)
+    assert outputs[0] is strided and torch.equal(strided, y3)
+    dx_out = torch.empty_like(dx3)
+    outputs = cake_rmsnorm_train_backward(g3, x3, w, rstd3, dx=dx_out)
+    assert outputs[0] is dx_out and torch.equal(dx_out, dx3)
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES)
+def test_nd_autograd_matches_the_2d_call(hidden: int) -> None:
+    _skip_unless_hidden(hidden)
+    rows, heads = 7, 3
+    generator = _generator(hidden, rows, heads, 73)
+    x3 = _nd_rows(rows, heads, hidden, pitch_pad=16, generator=generator)
+    g3 = _nd_rows(rows, heads, hidden, pitch_pad=0, generator=generator)
+    w = _weight(hidden, generator)
+    x3_leaf = x3.detach().clone().requires_grad_(True)
+    x2_leaf = x3.reshape(rows * heads, hidden).detach().clone().requires_grad_(True)
+    w3 = w.detach().clone().requires_grad_(True)
+    w2 = w.detach().clone().requires_grad_(True)
+    y3 = cake_rmsnorm(x3_leaf, w3, EPS[hidden])
+    y2 = cake_rmsnorm(x2_leaf, w2, EPS[hidden])
+    assert tuple(y3.shape) == (rows, heads, hidden)
+    assert torch.equal(y3.reshape(-1, hidden), y2)
+    y3.backward(g3)
+    y2.backward(g3.reshape(-1, hidden))
+    assert tuple(x3_leaf.grad.shape) == (rows, heads, hidden)
+    assert torch.equal(x3_leaf.grad.reshape(-1, hidden), x2_leaf.grad)
+    assert torch.equal(w3.grad, w2.grad)
+
+
+def test_the_issues_hidden_256_view_collapses_before_the_route_lookup() -> None:
+    """The ``[T, 24, 256]`` view with strides ``(12288, 512, 1)`` of a ``[T, 24, 512]`` buffer collapses to
+    ``24 T`` rows of 256: the host reaches the route lookup, which answers for hidden 256 (the width-256 route
+    once it ships; until then its ValueError names hidden=256, not the shape)."""
+
+    rows = 16
+    buffer = torch.zeros(rows, 24, 512, dtype=torch.bfloat16, device=_device())
+    x = buffer[..., :256]
+    assert tuple(x.stride()) == (12288, 512, 1)
+    w = torch.ones(256, dtype=torch.bfloat16, device=_device())
+    if is_cake_rmsnorm_train_supported(_device(), 256):
+        y, rstd = cake_rmsnorm_train_forward(x, w, 1e-6)
+        assert tuple(y.shape) == (rows, 24, 256) and tuple(rstd.shape) == (rows, 24)
+        dx, dw = cake_rmsnorm_train_backward(x, x, w, rstd)
+        assert tuple(dx.shape) == (rows, 24, 256) and tuple(dw.shape) == (256,)
+        return
+    with pytest.raises(
+        ValueError, match=r"no exported Cake RMSNorm training forward for hidden=256 "
+    ):
+        cake_rmsnorm_train_forward(x, w, 1e-6)
+    rstd = torch.ones(rows, 24, dtype=torch.float32, device=_device())
+    with pytest.raises(
+        ValueError, match=r"no exported Cake RMSNorm training backward for hidden=256 "
+    ):
+        cake_rmsnorm_train_backward(x, x, w, rstd)
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES[:1])
+def test_nd_inputs_outside_the_collapse_rule_are_refused(hidden: int) -> None:
+    _skip_unless_hidden(hidden)
+    rows, heads = 8, 4
+    eps = EPS[hidden]
+    w = _weight(hidden, _generator(hidden, 5))
+    # Heads-major storage viewed as [T, heads, H]: stride(0) != stride(1) * heads.
+    x = torch.zeros(
+        heads, rows, hidden, dtype=torch.bfloat16, device=_device()
+    ).transpose(0, 1)
+    assert tuple(x.stride()) == (hidden, rows * hidden, 1)
+    with pytest.raises(ValueError, match=r"cannot be viewed as \[32, "):
+        cake_rmsnorm_train_forward(x, w, eps)
+    rstd = torch.ones(rows, heads, dtype=torch.float32, device=_device())
+    with pytest.raises(ValueError, match=r"cannot be viewed as \[32, "):
+        cake_rmsnorm_train_backward(x.contiguous(), x, w, rstd)
+    # A feature dimension that is not contiguous.
+    x = torch.zeros(rows, heads, hidden, 2, dtype=torch.bfloat16, device=_device())[
+        ..., 0
+    ]
+    with pytest.raises(ValueError, match="cannot be viewed as"):
+        cake_rmsnorm_train_forward(x, w, eps)
+    # One dimension is not enough.
+    with pytest.raises(ValueError, match=r"must be a \[T, H\] tensor"):
+        cake_rmsnorm_train_forward(
+            torch.zeros(hidden, dtype=torch.bfloat16, device=_device()), w, eps
+        )
+    # Companions take x's N-D shape.
+    x3 = torch.zeros(rows, heads, hidden, dtype=torch.bfloat16, device=_device())
+    with pytest.raises(ValueError, match="residual must have shape"):
+        cake_rmsnorm_train_forward(
+            x3, w, eps, residual=x3.reshape(rows * heads, hidden)
+        )
+    with pytest.raises(ValueError, match="g must have shape"):
+        cake_rmsnorm_train_backward(x3.reshape(rows * heads, hidden), x3, w, rstd)
+    # Dimensions of size one are free: [T, 1, H] slices of a wider buffer collapse to T rows.
+    x = torch.zeros(rows, 3, hidden, dtype=torch.bfloat16, device=_device())[:, 1:2, :]
+    y, rstd = cake_rmsnorm_train_forward(x, w, eps)
+    assert tuple(y.shape) == (rows, 1, hidden) and tuple(rstd.shape) == (rows, 1)
+
+
 @pytest.mark.parametrize("hidden", HIDDEN_SIZES)
 def test_zero_rows(hidden: int) -> None:
     _skip_unless_hidden(hidden)

@@ -31,7 +31,11 @@ square root (no fast-math).  Inputs and outputs are BF16; ``rstd`` and ``dw``
 are FP32.  Row-strided inputs (``x``, ``residual``, ``g``, ``g_residual``)
 are accepted when ``stride(1) == 1``, ``stride(0)`` is a multiple of eight
 elements and the storage is aligned (32 bytes for the forward inputs, 16 for
-the backward); outputs are contiguous.  The
+the backward); outputs are contiguous.  An input of more dimensions,
+``[..., H]``, is normalized row by row when its leading dimensions are
+contiguous with one another in row-major order (a ``[T, heads, H]`` slice of
+a wider buffer qualifies): the outputs take its shape, ``rstd`` its leading
+shape, ``w`` is shared by every row and ``dw`` sums them all.  The
 token count ``T`` is a runtime scalar: it may change between calls, ``T == 1``
 is supported and ``T == 0`` returns empty outputs without launching.  Each
 route selects one of several programs from ``T``; within one program window
