@@ -37,7 +37,7 @@ loader = cake_package("cake_rmsnorm_train", "cake_jit")
 windows = cake_package("cake_rmsnorm_train", "cake_windows")
 
 SUPPORTED_CAPABILITIES = ((10, 0), (10, 3), (10, 7))
-HIDDEN_SIZES = (6144, 4096, 2048, 1536, 512)
+HIDDEN_SIZES = (6144, 5120, 4096, 2048, 1536, 512, 256)
 REDUCE_ROLE = "bwd_reduce"
 SHIPPED_SLABS = (16, 32, 64)
 # Row counts of the contract: the small counts, both sides of every backward window edge of every route

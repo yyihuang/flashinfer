@@ -60,7 +60,15 @@ cake_rmsnorm_train_forward = pkg.cake_rmsnorm_train_forward
 is_cake_rmsnorm_train_supported = pkg.is_cake_rmsnorm_train_supported
 
 SUPPORTED_CAPABILITIES = ((10, 0), (10, 3), (10, 7))
-WIDTHS = ((6144, 1e-5), (4096, 1e-5), (2048, 1e-6), (1536, 1e-6), (512, 1e-6))
+WIDTHS = (
+    (6144, 1e-5),
+    (5120, 1e-5),
+    (4096, 1e-5),
+    (2048, 1e-6),
+    (1536, 1e-6),
+    (512, 1e-6),
+    (256, 1e-6),
+)
 HIDDEN_SIZES = tuple(hidden for hidden, _eps in WIDTHS)
 EPS = {hidden: eps for hidden, eps in WIDTHS}
 # Widths whose contract names both eps values: every case runs at each.
@@ -859,7 +867,7 @@ def _nd_rows(
 @pytest.mark.parametrize("hidden", HIDDEN_SIZES)
 @pytest.mark.parametrize("heads", (1, 3, 24))
 @pytest.mark.parametrize("rows", (0, 1, 7, 129))
-@pytest.mark.parametrize("pitch_pad", (0, 16))
+@pytest.mark.parametrize("pitch_pad", (0, 16, 256))
 def test_nd_inputs_collapse_to_rows(
     hidden: int, heads: int, rows: int, pitch_pad: int
 ) -> None:
@@ -870,6 +878,8 @@ def test_nd_inputs_collapse_to_rows(
     _skip_unless_hidden(hidden)
     generator = _generator(hidden, heads, rows, pitch_pad, 71)
     x3 = _nd_rows(rows, heads, hidden, pitch_pad=pitch_pad, generator=generator)
+    if (hidden, heads, pitch_pad) == (256, 24, 256):
+        assert tuple(x3.stride()) == (12288, 512, 1)  # the issue's per-head view
     w = _weight(hidden, generator)
     g3 = _nd_rows(rows, heads, hidden, pitch_pad=pitch_pad, generator=generator)
     eps = EPS[hidden]
@@ -931,8 +941,8 @@ def test_nd_autograd_matches_the_2d_call(hidden: int) -> None:
 
 def test_the_issues_hidden_256_view_collapses_before_the_route_lookup() -> None:
     """The ``[T, 24, 256]`` view with strides ``(12288, 512, 1)`` of a ``[T, 24, 512]`` buffer collapses to
-    ``24 T`` rows of 256: the host reaches the route lookup, which answers for hidden 256 (the width-256 route
-    once it ships; until then its ValueError names hidden=256, not the shape)."""
+    ``24 T`` rows of 256: the host reaches the route lookup, which answers for hidden 256 with the width-256
+    route (a device without it gets the ValueError naming hidden=256, not the shape)."""
 
     rows = 16
     buffer = torch.zeros(rows, 24, 512, dtype=torch.bfloat16, device=_device())
