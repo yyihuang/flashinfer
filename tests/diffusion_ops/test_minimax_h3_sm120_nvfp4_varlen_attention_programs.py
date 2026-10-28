@@ -348,8 +348,9 @@ OVERLAP_WS_NODELTA = (
 )
 
 
-def _overlap_nodelta(num_sms: int) -> tuple:
-    return OVERLAP_WS_NODELTA if num_sms == 188 else OVERLAP_NODELTA
+def _overlap_nodelta(num_sms: int, fused: bool = False) -> tuple:
+    # the uncompensated overlap is warp-specialised on 188 SMs, and on 170 SMs for a fused pre-processing plan
+    return OVERLAP_WS_NODELTA if num_sms == 188 or (fused and num_sms == 170) else OVERLAP_NODELTA
 
 
 @pytest.mark.parametrize(
@@ -415,7 +416,7 @@ def test_fused_plans_take_the_overlapped_form_on_the_overlap_sm_counts(
 ) -> None:
     plan = _plan(bounds)
     assert ops.minimax_h3_sm120_nvfp4_programs(plan, num_sms) == OVERLAP
-    nodelta = _overlap_nodelta(num_sms)
+    nodelta = _overlap_nodelta(num_sms, fused=True)
     assert ops.minimax_h3_sm120_nvfp4_programs(plan, num_sms, delta=False) == nodelta
     # a plan below the fused pre-processing keeps the separate launches
     small = _plan((0, 1920))
@@ -504,16 +505,19 @@ def test_uncompensated_overlap_is_warp_specialised_on_188_sms(
     bounds, nodelta_188
 ) -> None:
     """On 188 SMs the uncompensated overlapped form launches the warp-specialised lead and tail; on 170 SMs
-    it keeps the poll lead and tail, and the compensated route keeps its overlapped form on both."""
+    only a fused pre-processing plan's does (a longer plan keeps the poll lead and tail), and the compensated
+    route keeps its overlapped form on both."""
     plan = _plan(bounds)
+    fused = 2048 <= plan.padded_tokens <= 16384
     assert ops.minimax_h3_sm120_nvfp4_programs(plan, 188, delta=False) == nodelta_188
     on_170 = ops.minimax_h3_sm120_nvfp4_programs(plan, 170, delta=False)
     if PREPROCESS_HEAD_MAJOR in nodelta_188:
-        assert on_170 == OVERLAP_NODELTA
+        assert on_170 == (OVERLAP_WS_NODELTA if fused else OVERLAP_NODELTA)
         assert ops.minimax_h3_sm120_nvfp4_programs(plan, 188) == OVERLAP
         assert ops.minimax_h3_sm120_nvfp4_programs(plan, 170) == OVERLAP
-    assert ATTENTION_WS_NODELTA_LEAD not in on_170
-    assert ATTENTION_WS_NODELTA_TAIL not in on_170
+    if not fused:
+        assert ATTENTION_WS_NODELTA_LEAD not in on_170
+        assert ATTENTION_WS_NODELTA_TAIL not in on_170
     for num_sms in (170, 188):
         for program in (ATTENTION_WS_NODELTA_LEAD, ATTENTION_WS_NODELTA_TAIL):
             assert program not in ops.minimax_h3_sm120_nvfp4_programs(plan, num_sms)

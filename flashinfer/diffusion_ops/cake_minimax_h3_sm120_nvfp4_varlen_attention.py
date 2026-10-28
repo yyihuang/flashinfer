@@ -131,8 +131,11 @@ _OVERLAP_WIDTH = {170: 42, 188: 46}
 # tail (``ATTENTION_WS_NODELTA_LEAD`` / ``ATTENTION_WS_NODELTA_TAIL``: the ``ATTENTION_WS_NODELTA`` unit -- 8 QK /
 # softmax warps hand each tile's P record to 4 PV warps, 384 threads -- taking its units from the counter and
 # waiting for each unit's head flag) in place of ``ATTENTION_NODELTA_LEAD`` / ``ATTENTION_NODELTA_TAIL``, with the
-# same grids, head-control words and protocol.
+# same grids, head-control words and protocol.  On the SM counts of ``_OVERLAP_WS_NODELTA_FUSED_SMS`` only the
+# overlap of a plan of the fused pre-processing (2048 to 16384 padded tokens) does; a longer plan keeps the poll lead
+# and tail there.
 _OVERLAP_WS_NODELTA_SMS = (188,)
+_OVERLAP_WS_NODELTA_FUSED_SMS = (170,)
 # A plan of more than 16384 padded tokens (the statistics / quantizer plans) takes the overlapped form too when its
 # attention-weighted mean segment length -- the sum of the squared segment lengths over the token count, which the
 # pre-processing share of the call falls with -- is at most ``_OVERLAP_LONG_MAX_SEGMENT[(SM count, delta)]`` tokens
@@ -729,7 +732,8 @@ def minimax_h3_sm120_nvfp4_programs(
     runs the overlapped form instead: ``(PREPROCESS_HEAD_MAJOR, ATTENTION_LEAD, ATTENTION_TAIL)``
     (``ATTENTION_NODELTA_LEAD`` / ``ATTENTION_NODELTA_TAIL`` when ``delta`` is false, the warp-specialised
     ``ATTENTION_WS_NODELTA_LEAD`` / ``ATTENTION_WS_NODELTA_TAIL`` on the SM counts of
-    ``_OVERLAP_WS_NODELTA_SMS``) -- the head-major
+    ``_OVERLAP_WS_NODELTA_SMS``, and for a plan of the fused pre-processing on those of
+    ``_OVERLAP_WS_NODELTA_FUSED_SMS``) -- the head-major
     pre-processing producers (a plain launch), the lead attention launch on the SMs the producers leave free
     (a programmatic dependent of the producers), then the tail attention launch (a programmatic dependent of
     the lead), which takes the remaining work on the producers' SMs as they drain."""
@@ -740,7 +744,9 @@ def minimax_h3_sm120_nvfp4_programs(
     ):
         if delta:
             return (PREPROCESS_HEAD_MAJOR, ATTENTION_LEAD, ATTENTION_TAIL)
-        if int(num_sms) in _OVERLAP_WS_NODELTA_SMS:
+        if int(num_sms) in _OVERLAP_WS_NODELTA_SMS or (
+            fused and int(num_sms) in _OVERLAP_WS_NODELTA_FUSED_SMS
+        ):
             return (
                 PREPROCESS_HEAD_MAJOR,
                 ATTENTION_WS_NODELTA_LEAD,
@@ -1676,7 +1682,8 @@ def minimax_h3_sm120_varlen_attention_nvfp4_nodelta(
       skip the compensation term); its warp-specialised form is taken from a mean segment of 1536 tokens
       with no upper bound, and on parts of at least 170 SMs also for a plan of 2048 to 16384 padded tokens;
       on parts of 188 SMs the overlapped form's two attention launches are warp-specialised too
-      (``ATTENTION_WS_NODELTA_LEAD`` / ``ATTENTION_WS_NODELTA_TAIL``).
+      (``ATTENTION_WS_NODELTA_LEAD`` / ``ATTENTION_WS_NODELTA_TAIL``), and on parts of 170 SMs those of a plan
+      of 2048 to 16384 padded tokens.
 
     Use the default route unless the extra error has been validated for the model in question.  Inputs,
     output, ``cu_seqlens`` handling, workspace and caching are exactly those of the default route.
