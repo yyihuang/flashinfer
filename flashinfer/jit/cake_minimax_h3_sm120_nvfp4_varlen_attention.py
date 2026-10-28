@@ -21,9 +21,10 @@ ATTENTION_WS_NODELTA), and the overlapped form of the fused plans in launch orde
 head-major pre-processing producers (PREPROCESS_HEAD_MAJOR, a plain launch), the lead
 attention launch (ATTENTION_LEAD, ATTENTION_NODELTA_LEAD) and the tail attention launch
 (ATTENTION_TAIL, ATTENTION_NODELTA_TAIL), with the warp-specialised lead and tail of the
-uncompensated overlap (ATTENTION_WS_NODELTA_LEAD, ATTENTION_WS_NODELTA_TAIL), each
-shipped for sm_120a. A CTA of the overlap waits only on CTAs launched before it in its
-call, so a lazy module load only delays a call. The host module
+uncompensated overlap (ATTENTION_WS_NODELTA_LEAD, ATTENTION_WS_NODELTA_TAIL) and their
+producers (PREPROCESS_HEAD_MAJOR_KA, a plain launch), each shipped for sm_120a. A CTA of
+the overlap waits only on CTAs launched before it in its call, so a lazy module load
+only delays a call. The host module
 ``flashinfer.diffusion_ops.cake_minimax_h3_sm120_nvfp4_varlen_attention`` selects the
 programs, computes the grids and launches them behind
 ``minimax_h3_sm120_varlen_attention_nvfp4`` and
@@ -487,12 +488,12 @@ ATTENTION_WS_NODELTA = cake_program.CakeProgram(
 )
 
 PREPROCESS_HEAD_MAJOR = cake_program.CakeProgram(
-    name="cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789",
+    name="cake_minimax_h3_sm120_nvfp4_varlen_attention_b7747937e84437b2ac99",
     operator_dir="cake_minimax_h3_sm120_nvfp4_varlen_attention",
-    kernel="kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789",
+    kernel="kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_b7747937e84437b2ac99",
     sources=(
-        "cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789_kernel.cu",
-        "cake_minimax_h3_sm120_nvfp4_varlen_attention_d4ed0d7920259003c789_binding.cu",
+        "cake_minimax_h3_sm120_nvfp4_varlen_attention_b7747937e84437b2ac99_kernel.cu",
+        "cake_minimax_h3_sm120_nvfp4_varlen_attention_b7747937e84437b2ac99_binding.cu",
     ),
     targets=("sm_120a",),
     compile_options=(("sm_120a", ()),),
@@ -892,6 +893,76 @@ ATTENTION_WS_NODELTA_TAIL = cake_program.CakeProgram(
     needs_device_linking=False,
 )
 
+PREPROCESS_HEAD_MAJOR_KA = cake_program.CakeProgram(
+    name="cake_minimax_h3_sm120_nvfp4_varlen_attention_e70ba0377df8156f8ac9",
+    operator_dir="cake_minimax_h3_sm120_nvfp4_varlen_attention",
+    kernel="kernel_cake_minimax_h3_sm120_nvfp4_varlen_attention_e70ba0377df8156f8ac9",
+    sources=(
+        "cake_minimax_h3_sm120_nvfp4_varlen_attention_e70ba0377df8156f8ac9_kernel.cu",
+        "cake_minimax_h3_sm120_nvfp4_varlen_attention_e70ba0377df8156f8ac9_binding.cu",
+    ),
+    targets=("sm_120a",),
+    compile_options=(("sm_120a", ()),),
+    args=(
+        "Q",
+        "K",
+        "V",
+        "tile_table",
+        "seg_tile_begin",
+        "tok_seg",
+        "cu_seqlens",
+        "partials",
+        "counters",
+        "mean_k",
+        "q_mean",
+        "q4",
+        "k4",
+        "q_sf",
+        "k_sf",
+        "qm4",
+        "qm_sf",
+        "vt4",
+        "v_sf",
+        "hctr",
+        "num_tiles",
+        "total_tokens",
+        "total_padded",
+        "num_heads",
+        "num_kblocks",
+        "grid_x",
+        "grid_y",
+        "grid_z",
+    ),
+    tensors=(
+        "Q",
+        "K",
+        "V",
+        "tile_table",
+        "seg_tile_begin",
+        "tok_seg",
+        "cu_seqlens",
+        "partials",
+        "counters",
+        "mean_k",
+        "q_mean",
+        "q4",
+        "k4",
+        "q_sf",
+        "k_sf",
+        "qm4",
+        "qm_sf",
+        "vt4",
+        "v_sf",
+        "hctr",
+    ),
+    block=(768, 1, 1),
+    cluster=(1, 1, 1),
+    dynamic_smem_bytes=49536,
+    use_pdl=False,
+    cooperative=False,
+    needs_device_linking=False,
+)
+
 PROGRAMS: tuple[cake_program.CakeProgram, ...] = (
     PREPROCESS,
     STATS,
@@ -908,6 +979,7 @@ PROGRAMS: tuple[cake_program.CakeProgram, ...] = (
     ATTENTION_NODELTA_TAIL,
     ATTENTION_WS_NODELTA_LEAD,
     ATTENTION_WS_NODELTA_TAIL,
+    PREPROCESS_HEAD_MAJOR_KA,
 )
 
 
@@ -932,6 +1004,7 @@ __all__ = [
     "ATTENTION_NODELTA_TAIL",
     "ATTENTION_WS_NODELTA_LEAD",
     "ATTENTION_WS_NODELTA_TAIL",
+    "PREPROCESS_HEAD_MAJOR_KA",
     "PROGRAMS",
     "aot_specs",
 ]
