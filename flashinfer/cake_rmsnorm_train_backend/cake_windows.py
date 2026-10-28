@@ -326,9 +326,10 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (6144, None, "cake_rmsnorm_train_5eef28cd35498e9abfa5"),
         ),
         "fwd_w32_h5120": (
-            (0, 640, "cake_rmsnorm_train_ba28d2c0c2c81a2c714e"),
+            (0, 640, "cake_rmsnorm_train_1defffdf2712cae36784"),
             (640, 6144, "cake_rmsnorm_train_9ecb62c2640d571e50a8"),
-            (6144, None, "cake_rmsnorm_train_1defffdf2712cae36784"),
+            (6144, 16132, "cake_rmsnorm_train_9ecb62c2640d571e50a8"),
+            (16132, None, "cake_rmsnorm_train_1defffdf2712cae36784"),
         ),
         "fwd_h6144": (
             (0, 1024, "cake_rmsnorm_train_bad4db9153cc903b7ace"),
@@ -601,7 +602,11 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_h512": ((1024, "ulp"), (4096, "same"), (16384, "same")),
         "fwd_w32_h512": ((1024, "ulp"), (4096, "same"), (16384, "same")),
         "fwd_h5120": ((640, "unmeasured"), (6144, "unmeasured")),
-        "fwd_w32_h5120": ((640, "unmeasured"), (6144, "unmeasured")),
+        "fwd_w32_h5120": (
+            (640, "unmeasured"),
+            (6144, "unmeasured"),
+            (16132, "unmeasured"),
+        ),
         "fwd_h6144": ((1024, "same"),),
         "fwd_w32_h6144": ((1024, "unmeasured"), (6144, "unmeasured")),
         "fwd_residual_h6144": ((256, "same"), (1024, "ulp")),
@@ -754,6 +759,8 @@ its own windows.
   (4096, 16384] 3d20ab4a = (16384, inf) 3430e5d9
 * ``sm_103a`` ``fwd_h5120``: (0, 640] fd1097c4 ? (640, 6144] b5e173f5 ?
   (6144, inf) 5eef28cd
+* ``sm_103a`` ``fwd_w32_h5120``: (0, 640] 1defffdf ? (640, 6144] 9ecb62c2 ?
+  (6144, 16132] 9ecb62c2 ? (16132, inf) 1defffdf
 * ``sm_103a`` ``fwd_h6144``: (0, 1024] bad4db91 = (1024, inf) 288d7b1d
 * ``sm_103a`` ``fwd_w32_h6144``: (0, 1024] 2763cd5e ? (1024, 6144] 2763cd5e ?
   (6144, inf) 5f89e5fd
