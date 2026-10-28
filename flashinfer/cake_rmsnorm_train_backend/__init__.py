@@ -22,17 +22,20 @@ documentation live in :mod:`flashinfer.cake_rmsnorm_train`; import that module.
 
 from __future__ import annotations
 
+import textwrap
 from typing import Optional
 
 import torch
 
 from . import cake_jit as _loader
+from . import cake_windows as _windows
 from .cake_jit import (
     ARCH_BY_CAPABILITY,
     ARCHES,
     BACKWARD_ALIGNMENT_BYTES,
     FORWARD_ALIGNMENT_BYTES,
     arch_for_capability,
+    program_windows,
     route_applies,
     route_key,
     route_modules,
@@ -714,6 +717,27 @@ def cake_rmsnorm(
     return CakeRMSNormFunction.apply(x, w, eps, residual, deterministic)
 
 
+def _with_program_selection(doc: Optional[str], kind: str) -> str:
+    """``doc`` with the "Program selection by token count" notes of the routes of ``kind`` appended.
+
+    The notes are the exporter's rendering of the registry (``cake_windows``):
+    the row-count windows of every route, the measured outcome at every window
+    edge and the contract of the outputs across the windows, so the documented
+    thresholds are the registry's.  ``program_windows`` returns the windows.
+    """
+
+    section = textwrap.indent(_windows.SECTIONS[kind].strip("\n"), "    ")
+    return f"{(doc or '').rstrip()}\n\n    Notes\n    -----\n{section}\n    "
+
+
+cake_rmsnorm_train_forward.__doc__ = _with_program_selection(
+    cake_rmsnorm_train_forward.__doc__, "fwd"
+)
+cake_rmsnorm_train_backward.__doc__ = _with_program_selection(
+    cake_rmsnorm_train_backward.__doc__, "bwd"
+)
+
+
 __all__ = [
     "ARCHES",
     "SUPPORTED_COMPUTE_CAPABILITIES",
@@ -724,5 +748,6 @@ __all__ = [
     "cake_rmsnorm_train_backward_workspace_bytes",
     "cake_rmsnorm_train_forward",
     "is_cake_rmsnorm_train_supported",
+    "program_windows",
     "route_key",
 ]

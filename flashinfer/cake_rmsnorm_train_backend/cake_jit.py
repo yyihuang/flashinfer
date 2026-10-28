@@ -4615,6 +4615,54 @@ def selected_modules(
     return names
 
 
+def program_windows(
+    arch: str, hidden: int, kind: str, residual: bool
+) -> tuple[tuple[int, Optional[int], str], ...]:
+    """The row-count windows of one route and the program each launches.
+
+    One ``(above, at_most, library)`` per main program of the route (the dw
+    reduce companions share their owner's window), from the smallest row
+    counts up: the call with ``above < rows <= at_most`` (``at_most`` ``None``
+    = unbounded) launches ``library``.  The windows tile every positive row
+    count exactly once; a route whose records do not is refused.  Within one
+    window a row's outputs do not depend on the token count (see the package
+    docstrings); the edges are where they may change.
+    """
+
+    windows: list[tuple[int, Optional[int], str]] = []
+    for name in route_modules(arch, hidden, kind, residual):
+        record = MODULES[name]
+        if record["role"] == "bwd_reduce":
+            continue
+        rule = record["select_rule"]
+        if rule is None:
+            windows.append((0, None, record["library"]))
+            continue
+        if rule["kind"] != "rows_between":
+            raise ValueError(
+                f"unknown Cake RMSNorm training selection rule: {rule['kind']!r}"
+            )
+        at_most = rule["at_most"]
+        windows.append(
+            (
+                int(rule["above"]),
+                None if at_most is None else int(at_most),
+                record["library"],
+            )
+        )
+    windows.sort(key=lambda window: window[0])
+    key = route_key(hidden, kind, residual)
+    above = 0
+    for index, (low, high, _library) in enumerate(windows):
+        last = index == len(windows) - 1
+        if low != above or (high is None) != last or (high is not None and high <= low):
+            raise ValueError(
+                f"the windows of route {key!r} on {arch!r} do not tile the row counts: {windows}"
+            )
+        above = high if high is not None else above
+    return tuple(windows)
+
+
 def _ceil_div(numerator: int, denominator: int) -> int:
     if denominator <= 0:
         raise ValueError("denominator must be positive")
@@ -5042,6 +5090,7 @@ __all__ = [
     "load",
     "n_chunks",
     "partial_capacity",
+    "program_windows",
     "route_applies",
     "route_key",
     "route_modules",

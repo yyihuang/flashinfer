@@ -49,6 +49,7 @@ from tests.test_helpers.cake_package import cake_package
 pkg = cake_package("cake_rmsnorm_train")
 cake_build = cake_package("cake_rmsnorm_train", "cake_build")
 loader = cake_package("cake_rmsnorm_train", "cake_jit")
+windows = cake_package("cake_rmsnorm_train", "cake_windows")
 cake_rmsnorm = pkg.cake_rmsnorm
 cake_rmsnorm_train_backward = pkg.cake_rmsnorm_train_backward
 cake_rmsnorm_train_backward_workspace = pkg.cake_rmsnorm_train_backward_workspace
@@ -72,6 +73,18 @@ CONTRACT_ROWS = {
     1536: (1023, 1025, 4097, 14928, 15566, 16263, 16384, 32769, 65536),
 }
 STRIDE_PADS = (0, 64, "2H")
+# The row count standing in for the open end of a route's last program window.
+OPEN_WINDOW_ROWS = 65536
+# Bounds of the differences a window edge of class ``ulp`` / ``dx`` / ``unmeasured`` may show on the common rows
+# of T = edge and T = edge + 1 (``cake_windows.EDGES``; the measured figures are in the docstring notes): rstd within
+# a few FP32 ulps on at most half of the rows; y and dx within one BF16 ulp of the element -- or within a 2^-14 share
+# of the row's RMS, for the elements a cancellation leaves far below it -- on at most a twentieth of the rows across
+# an edge of class ``dx`` (whose forward is identical) and, across an edge of class ``ulp`` / ``unmeasured``, only on
+# rows whose rstd differs (the residual H = 6144 route moves dx on about a tenth of the rows at its edge 1024).
+EDGE_RSTD_ULPS = 4
+EDGE_RSTD_ROW_SHARE = 0.5
+EDGE_BF16_ROW_SHARE = 0.05
+EDGE_BF16_ROW_FLOOR = 2.0**-14
 SCALES = (1.0, 1e-3, 1e3)
 ATOL = 1e-2
 RTOL = 1e-2
@@ -403,6 +416,247 @@ def test_backward_programs_switch_on_row_count(hidden: int) -> None:
     assert launched == set(names), (
         f"hidden={hidden}: never launched {set(names) - launched}"
     )
+
+
+# --------------------------------------------------------------------------- the program windows
+
+
+def _route_edges(
+    arch: str, hidden: int, kind: str, residual: bool
+) -> list[tuple[int, str]]:
+    """``(edge, class)`` of every window edge a call of the route crosses, the edges from the registry's windows
+    (``program_windows``) and the class from the exporter's measurements (``cake_windows.EDGES``); a backward route
+    crosses the forward's edges inside its windows as well (the backward consumes the forward's rstd) and takes the
+    forward's class there."""
+
+    route = loader.route_key(hidden, kind, residual)
+    classes = dict(windows.EDGES[arch][route])
+    edges = {}
+    for _low, high, _library in loader.program_windows(arch, hidden, kind, residual):
+        if high is not None:
+            edges[high] = classes[high]
+    if kind == "bwd":
+        forward = dict(windows.EDGES[arch][loader.route_key(hidden, "fwd", residual)])
+        for _low, high, _library in loader.program_windows(
+            arch, hidden, "fwd", residual
+        ):
+            if high is not None:
+                edges.setdefault(high, forward[high])
+    return sorted(edges.items())
+
+
+def _window_spans(
+    arch: str, hidden: int, kind: str, residual: bool
+) -> list[tuple[int, int]]:
+    """``(first, last)`` row counts of every window of the route (a backward route's windows cut at the forward's
+    edges too); the open last window ends at ``OPEN_WINDOW_ROWS``."""
+
+    edges = [edge for edge, _cls in _route_edges(arch, hidden, kind, residual)]
+    bounds = [0, *edges, OPEN_WINDOW_ROWS]
+    return [(low + 1, high) for low, high in zip(bounds, bounds[1:], strict=False)]
+
+
+def _base_inputs(
+    hidden: int, rows: int, kind: str, residual: bool
+) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    """One random input of ``rows`` rows whose prefixes the window tests slice, and the weight."""
+
+    generator = _generator(hidden, 61, kind == "bwd", residual)
+    base = {"x": _rows(rows, hidden, generator=generator)}
+    w = _weight(hidden, generator)
+    if residual:
+        base["u"] = _rows(rows, hidden, generator=generator)
+    if kind == "bwd":
+        base["g"] = _rows(rows, hidden, generator=generator)
+        if residual:
+            base["g_h"] = _rows(rows, hidden, generator=generator)
+    return base, w
+
+
+def _route_outputs(
+    kind: str,
+    residual: bool,
+    base: dict[str, torch.Tensor],
+    rows: int,
+    w: torch.Tensor,
+    eps: float,
+) -> dict[str, torch.Tensor]:
+    """The outputs of one call of the route on the first ``rows`` rows of ``base``: y, rstd (and h_new) of the
+    forward, and dx as well for a backward route (dw sums every row and depends on T by definition)."""
+
+    x = base["x"][:rows]
+    u = base["u"][:rows] if residual else None
+    outputs = cake_rmsnorm_train_forward(x, w, eps, residual=u)
+    result = {"y": outputs[0], "rstd": outputs[1]}
+    if residual:
+        result["h_new"] = outputs[2]
+    if kind == "bwd":
+        g_h = base["g_h"][:rows] if residual else None
+        dx, _dw = cake_rmsnorm_train_backward(
+            base["g"][:rows],
+            outputs[2] if residual else x,
+            w,
+            outputs[1],
+            g_residual=g_h,
+        )
+        result["dx"] = dx
+    return result
+
+
+def _ordered_bits(t: torch.Tensor) -> torch.Tensor:
+    """The float bits as an integer key monotone in the value: the key distance of two floats is their distance in
+    ulps of the format."""
+
+    if t.dtype == torch.bfloat16:
+        bits, sign = t.view(torch.int16).to(torch.int64), 1 << 15
+    else:
+        assert t.dtype == torch.float32
+        bits, sign = t.view(torch.int32).to(torch.int64), 1 << 31
+    return torch.where(bits >= 0, bits, -(bits + sign))
+
+
+def _ulps_apart(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    return (_ordered_bits(a) - _ordered_bits(b)).abs()
+
+
+def _differing_rows(a: torch.Tensor, b: torch.Tensor) -> int:
+    differs = a != b
+    if differs.ndim > 1:
+        differs = differs.reshape(differs.shape[0], -1).any(dim=1)
+    return int(differs.sum().item())
+
+
+def _assert_within_a_bf16_ulp(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    label: str,
+    *,
+    row_share: float = EDGE_BF16_ROW_SHARE,
+) -> None:
+    """``a`` and ``b`` (BF16 ``[rows, H]``) agree to one BF16 ulp per element -- or to ``EDGE_BF16_ROW_FLOOR`` of the
+    row's RMS where a cancellation leaves the element far below it -- and differ on at most ``row_share`` of the
+    rows."""
+
+    floor = EDGE_BF16_ROW_FLOOR * a.float().pow(2).mean(dim=1, keepdim=True).sqrt()
+    within = (_ulps_apart(a, b) <= 1) | ((a.float() - b.float()).abs() <= floor)
+    assert within.all(), f"{label}: {int((~within).sum())} elements beyond one BF16 ulp"
+    rows = _differing_rows(a, b)
+    assert rows <= row_share * a.shape[0], (
+        f"{label}: differs on {rows} of {a.shape[0]} rows"
+    )
+
+
+def _assert_edge_class(
+    low: dict[str, torch.Tensor], high: dict[str, torch.Tensor], cls: str, label: str
+) -> None:
+    """The outputs of T = edge (``low``) and T = edge + 1 (``high``) on their common rows behave as the edge's class
+    says: ``same`` -- bitwise identical; ``ulp`` -- rstd differs on some rows by a few FP32 ulps, y and dx by at most
+    one BF16 ulp and only on rows whose rstd differs; ``dx`` -- y and rstd identical, dx differs on a few rows (the
+    base and the bulk-copy backward reduce a row in different orders); ``unmeasured`` -- bounded like ``ulp``."""
+
+    rows = low["rstd"].shape[0]
+    common = {key: value[:rows] for key, value in high.items()}
+    assert set(low) == set(common), label
+    if cls == "same":
+        for key, value in low.items():
+            assert torch.equal(value, common[key]), (
+                f"{label}: {key} differs across an edge of class 'same'"
+            )
+        return
+    assert cls in ("ulp", "dx", "unmeasured"), (label, cls)
+    if "h_new" in low:
+        assert torch.equal(low["h_new"], common["h_new"]), f"{label}: h_new differs"
+    same_rstd = low["rstd"] == common["rstd"]
+    rstd_rows = rows - int(same_rstd.sum().item())
+    if cls == "dx":
+        assert rstd_rows == 0 and torch.equal(low["y"], common["y"]), (
+            f"{label}: the forward differs across an edge of class 'dx' ({rstd_rows} rstd rows)"
+        )
+    else:
+        assert (_ulps_apart(low["rstd"], common["rstd"]) <= EDGE_RSTD_ULPS).all(), (
+            f"{label}: rstd beyond {EDGE_RSTD_ULPS} FP32 ulps"
+        )
+        assert rstd_rows <= EDGE_RSTD_ROW_SHARE * rows, (
+            f"{label}: rstd differs on {rstd_rows} of {rows} rows"
+        )
+        # y and dx move only with rstd (asserted exactly for class 'ulp' below): the rstd share bounds their rows.
+        _assert_within_a_bf16_ulp(
+            low["y"], common["y"], f"{label}: y", row_share=EDGE_RSTD_ROW_SHARE
+        )
+        if cls == "ulp":
+            assert rstd_rows > 0, (
+                f"{label}: rstd is identical across an edge of class 'ulp' (re-measure the edge)"
+            )
+            assert torch.equal(low["y"][same_rstd], common["y"][same_rstd]), (
+                f"{label}: y differs on rows whose rstd agrees"
+            )
+    if "dx" in low:
+        share = EDGE_BF16_ROW_SHARE if cls == "dx" else EDGE_RSTD_ROW_SHARE
+        _assert_within_a_bf16_ulp(
+            low["dx"], common["dx"], f"{label}: dx", row_share=share
+        )
+        if cls == "ulp":
+            assert torch.equal(low["dx"][same_rstd], common["dx"][same_rstd]), (
+                f"{label}: dx differs on rows whose rstd agrees"
+            )
+        elif cls == "dx" and rows >= 4096:
+            assert _differing_rows(low["dx"], common["dx"]) > 0, (
+                f"{label}: dx is identical across an edge of class 'dx' (re-measure the edge)"
+            )
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES)
+@pytest.mark.parametrize("kind", ("fwd", "bwd"))
+@pytest.mark.parametrize("residual", (False, True))
+def test_outputs_are_prefix_invariant_within_windows(
+    hidden: int, kind: str, residual: bool
+) -> None:
+    """Within one program window a row's outputs do not depend on T: for every window of the route (a backward
+    route's windows cut at the forward's edges too) the calls at the window's first and last row count
+    (``OPEN_WINDOW_ROWS`` standing for an open window) return bitwise-identical y, rstd, h_new and dx on their
+    common rows."""
+
+    _skip_unless_route(hidden, residual)
+    arch = loader.arch_for_capability(_capability())
+    label = f"{arch} {loader.route_key(hidden, kind, residual)}"
+    spans = _window_spans(arch, hidden, kind, residual)
+    base, w = _base_inputs(hidden, max(last for _first, last in spans), kind, residual)
+    for first, last in spans:
+        low = _route_outputs(kind, residual, base, first, w, EPS[hidden])
+        high = _route_outputs(kind, residual, base, last, w, EPS[hidden])
+        for key, value in low.items():
+            assert torch.equal(value, high[key][:first]), (
+                f"{label} window [{first}, {last}]: {key} depends on T"
+            )
+
+
+@pytest.mark.parametrize("hidden", HIDDEN_SIZES)
+@pytest.mark.parametrize("kind", ("fwd", "bwd"))
+@pytest.mark.parametrize("residual", (False, True))
+def test_window_edges_match_the_measured_classes(
+    hidden: int, kind: str, residual: bool
+) -> None:
+    """At every window edge of the route the outputs of T = edge and T = edge + 1 behave on their common rows as the
+    exporter measured (``cake_windows.EDGES``, see ``_assert_edge_class``); an unmeasured edge is bounded and named."""
+
+    _skip_unless_route(hidden, residual)
+    arch = loader.arch_for_capability(_capability())
+    route = loader.route_key(hidden, kind, residual)
+    edges = _route_edges(arch, hidden, kind, residual)
+    if not edges:
+        pytest.skip(f"{arch} {route} has one program window")
+    base, w = _base_inputs(hidden, edges[-1][0] + 1, kind, residual)
+    unmeasured = []
+    for edge, cls in edges:
+        low = _route_outputs(kind, residual, base, edge, w, EPS[hidden])
+        high = _route_outputs(kind, residual, base, edge + 1, w, EPS[hidden])
+        _assert_edge_class(low, high, cls, f"{arch} {route} edge {edge} (class {cls})")
+        if cls == "unmeasured":
+            unmeasured.append(edge)
+    if unmeasured:
+        pytest.skip(
+            f"{arch} {route}: edges {unmeasured} are within bounds but unmeasured"
+        )
 
 
 @pytest.mark.parametrize("hidden", HIDDEN_SIZES)

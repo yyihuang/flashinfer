@@ -33,7 +33,10 @@ are accepted when ``stride(1) == 1``, ``stride(0)`` is a multiple of eight
 elements and the storage is aligned (32 bytes for the forward inputs, 16 for
 the backward); outputs are contiguous.  The
 token count ``T`` is a runtime scalar: it may change between calls, ``T == 1``
-is supported and ``T == 0`` returns empty outputs without launching.
+is supported and ``T == 0`` returns empty outputs without launching.  Each
+route selects one of several programs from ``T``; within one program window
+a row's results do not depend on ``T`` (see "Program selection by token
+count" in the forward / backward docstrings and :func:`program_windows`).
 
 Usage::
 
@@ -64,6 +67,7 @@ from .cake_rmsnorm_train_backend import (  # noqa: F401
     cake_rmsnorm_train_backward_workspace,
     cake_rmsnorm_train_backward_workspace_bytes,
     is_cake_rmsnorm_train_supported,
+    program_windows,
     route_key,
 )
 
@@ -149,5 +153,6 @@ __all__ = [
     "cake_rmsnorm_train_backward_workspace_bytes",
     "cake_rmsnorm_train_forward",
     "is_cake_rmsnorm_train_supported",
+    "program_windows",
     "route_key",
 ]

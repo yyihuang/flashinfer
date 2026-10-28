@@ -37,6 +37,7 @@ from flashinfer.cake_rmsnorm_train import (
     cake_rmsnorm_train_backward_workspace_bytes,
     cake_rmsnorm_train_forward,
     is_cake_rmsnorm_train_supported,
+    program_windows,
 )
 from flashinfer.cake_rmsnorm_train_backend import cake_jit as loader
 from flashinfer.jit.env import has_flashinfer_jit_cache
@@ -95,6 +96,7 @@ def test_function_signature_is_exported() -> None:
         is cake_rmsnorm_train_backward_workspace_bytes
     )
     assert flashinfer.CakeRMSNormFunction is CakeRMSNormFunction
+    assert program_windows is backend.program_windows is loader.program_windows
 
 
 @pytest.mark.parametrize("hidden", HIDDEN_SIZES)

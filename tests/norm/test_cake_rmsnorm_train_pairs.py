@@ -25,6 +25,8 @@ exported device.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 import torch
 
@@ -32,16 +34,32 @@ from tests.test_helpers.cake_package import cake_package
 
 pkg = cake_package("cake_rmsnorm_train")
 loader = cake_package("cake_rmsnorm_train", "cake_jit")
+windows = cake_package("cake_rmsnorm_train", "cake_windows")
 
 SUPPORTED_CAPABILITIES = ((10, 0), (10, 3), (10, 7))
 HIDDEN_SIZES = (6144, 4096, 2048, 1536, 512)
 REDUCE_ROLE = "bwd_reduce"
 SHIPPED_SLABS = (16, 32, 64)
-# Row counts of the contract: the small counts, the window edges of every route and the training shapes.
+# Row counts of the contract: the small counts, both sides of every backward window edge of every route
+# (``test_rows_cover_every_backward_window_edge``) and the training shapes.
 ROWS = (
-    1, 2, 7, 63, 64, 65, 127, 128, 129, 255, 257, 1023, 1024, 1025, 3072, 3073, 4096, 4097,
-    12288, 12289, 14928, 15566, 15567, 16231, 16263, 16384, 16385, 32768, 32769, 65536,
+    1, 2, 7, 63, 64, 65, 127, 128, 129, 255, 256, 257, 1023, 1024, 1025, 3072, 3073, 4096, 4097,
+    12288, 12289, 14928, 14929, 15566, 15567, 16231, 16263, 16384, 16385, 32768, 32769, 65536,
 )  # fmt: skip
+# The row count standing in for an unbounded window's upper edge.
+OPEN_WINDOW_ROWS = 65536
+ROUTE_KEY = re.compile(r"^(fwd|bwd)(_residual)?_h(\d+)$")
+
+
+def _route_parts(route: str) -> tuple[int, str, bool]:
+    """``(hidden, kind, residual)`` of a route key (``cake_jit.route_key``)."""
+    match = ROUTE_KEY.fullmatch(route)
+    assert match is not None, route
+    return int(match.group(3)), match.group(1), match.group(2) is not None
+
+
+def _edges(route_windows) -> tuple[int, ...]:
+    return tuple(high for _low, high, _library in route_windows if high is not None)
 
 
 def _owners() -> dict[str, dict]:
@@ -169,6 +187,104 @@ def test_every_backward_route_selects_an_owner_then_its_companion(arch: str) -> 
             assert roles == sorted(roles), (arch, hidden, residual, names)
             checked += 1
     assert checked >= len(HIDDEN_SIZES)
+
+
+# --------------------------------------------------------------------------- the program windows (no device)
+
+
+@pytest.mark.parametrize("arch", sorted(loader.ROUTES))
+def test_program_windows_tile_every_route_and_name_the_selected_program(
+    arch: str,
+) -> None:
+    """``program_windows`` tiles the positive row counts of every route once, from zero to an open last window,
+    and names the program ``selected_modules`` launches at both ends of each window (a backward window's dw reduce
+    companion shares the window)."""
+    for route in loader.ROUTES[arch]:
+        hidden, kind, residual = _route_parts(route)
+        route_windows = loader.program_windows(arch, hidden, kind, residual)
+        assert (
+            route_windows and route_windows[0][0] == 0 and route_windows[-1][1] is None
+        ), (arch, route)
+        for (low, high, _library), (next_low, _next_high, _next) in zip(
+            route_windows, route_windows[1:], strict=False
+        ):
+            assert high is not None and low < high == next_low, (arch, route)
+        for low, high, library in route_windows:
+            top = OPEN_WINDOW_ROWS if high is None else high
+            for rows in sorted({low + 1, top}):
+                selected = loader.selected_modules(
+                    arch, hidden, kind, residual, rows=rows
+                )
+                assert len(selected) == (2 if kind == "bwd" else 1), (
+                    arch,
+                    route,
+                    rows,
+                    selected,
+                )
+                assert loader.MODULES[selected[0]]["library"] == library, (
+                    arch,
+                    route,
+                    rows,
+                )
+                if kind == "bwd":
+                    assert loader.MODULES[selected[1]]["role"] == REDUCE_ROLE
+                    assert (
+                        loader.MODULES[selected[1]]["select_rule"]
+                        == loader.MODULES[selected[0]]["select_rule"]
+                    )
+
+
+def test_rendered_windows_match_the_registry() -> None:
+    """The exporter's ``cake_windows`` module is the registry: its table is ``program_windows`` of every route, its
+    edges are the windows' upper bounds with a known class, and its sections (the docstring notes of the forward and
+    backward) name every route of their kind."""
+    assert set(windows.PROGRAM_WINDOWS) == set(loader.ROUTES) == set(windows.EDGES)
+    assert set(windows.EDGE_CLASSES) == {"same", "ulp", "dx", "unmeasured"}
+    for arch, routes in loader.ROUTES.items():
+        assert (
+            set(windows.PROGRAM_WINDOWS[arch])
+            == set(routes)
+            == set(windows.EDGES[arch])
+        ), arch
+        for route in routes:
+            hidden, kind, residual = _route_parts(route)
+            expected = loader.program_windows(arch, hidden, kind, residual)
+            assert windows.PROGRAM_WINDOWS[arch][route] == expected, (arch, route)
+            edges = windows.EDGES[arch][route]
+            assert tuple(edge for edge, _cls in edges) == _edges(expected), (
+                arch,
+                route,
+            )
+            assert all(cls in windows.EDGE_CLASSES for _edge, cls in edges), (
+                arch,
+                route,
+            )
+            assert f"``{arch}`` ``{route}``:" in windows.SECTIONS[kind], (arch, route)
+    for kind, function in (
+        ("fwd", pkg.cake_rmsnorm_train_forward),
+        ("bwd", pkg.cake_rmsnorm_train_backward),
+    ):
+        section = windows.SECTIONS[kind]
+        assert section.lstrip("\n").startswith("Program selection by token count\n")
+        assert windows.NOTES.strip() in section
+        doc = function.__doc__ or ""
+        assert "    Notes\n    -----\n    Program selection by token count\n" in doc, (
+            kind
+        )
+        for line in section.strip("\n").splitlines():
+            assert line.strip() in doc, (kind, line)
+
+
+def test_rows_cover_every_backward_window_edge() -> None:
+    """``ROWS`` holds both sides of every backward window edge of every architecture, so the route test above
+    launches each program of the registry (the forward edges are covered by the prefix-invariance test)."""
+    for arch, routes in loader.ROUTES.items():
+        for route in routes:
+            hidden, kind, residual = _route_parts(route)
+            if kind != "bwd":
+                continue
+            for edge in _edges(loader.program_windows(arch, hidden, kind, residual)):
+                assert edge in ROWS and edge + 1 in ROWS, (arch, route, edge)
 
 
 # --------------------------------------------------------------------------- the chunk formula (no device)
