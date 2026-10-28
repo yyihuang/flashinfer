@@ -689,10 +689,87 @@ MODULES: dict[str, dict[str, Any]] = {
         },
         "workspace_rule": None,
     },
-    # The FP32-weight twin of cake_rmsnorm_train_288d7b1d51c340236cb7 (the effective weight read at FP32; every other operand and the host plan the owner's).
-    "cake_rmsnorm_train_5f89e5fd2f8a6057997e": {
+    # A window of the re-cut FP32-weight route of sm_100a, between 1024 and 6144 rows: 3d619cd1, the FP32-weight twin of cf1d0554.
+    "cake_rmsnorm_train_3d619cd1e3ae638cce3d__ov100_1024_6144": {
         "arches": [
             "sm_100a",
+        ],
+        "grid_rule": {
+            "grid_limit": 0,
+            "grid_per_sm": 4,
+            "kind": "rows_per_cta",
+            "rows_per_cta": 1,
+        },
+        "hidden": 6144,
+        "kernel": "cake_rmsnorm_train_3d619cd1e3ae638cce3d",
+        "launch": {
+            "cooperative": False,
+            "use_pdl": False,
+        },
+        "library": "cake_rmsnorm_train_3d619cd1e3ae638cce3d",
+        "role": "fwd_mid_w32",
+        "select_rule": {
+            "above": 1024,
+            "at_most": 6144,
+            "kind": "rows_between",
+        },
+        "workspace_rule": None,
+    },
+    # A window of the re-cut FP32-weight route of sm_100a, above 6144 rows: 5f89e5fd, the FP32-weight twin of 288d7b1d.
+    "cake_rmsnorm_train_5f89e5fd2f8a6057997e__ov100_6144_inf": {
+        "arches": [
+            "sm_100a",
+        ],
+        "grid_rule": {
+            "grid_limit": 0,
+            "grid_per_sm": 0,
+            "kind": "rows_per_cta",
+            "rows_per_cta": 1,
+        },
+        "hidden": 6144,
+        "kernel": "cake_rmsnorm_train_5f89e5fd2f8a6057997e",
+        "launch": {
+            "cooperative": False,
+            "use_pdl": False,
+        },
+        "library": "cake_rmsnorm_train_5f89e5fd2f8a6057997e",
+        "role": "fwd_main_w32",
+        "select_rule": {
+            "above": 6144,
+            "at_most": None,
+            "kind": "rows_between",
+        },
+        "workspace_rule": None,
+    },
+    # A window of the re-cut FP32-weight route of sm_103a, between 1024 and 6144 rows: 2763cd5e, the FP32-weight twin of bad4db91.
+    "cake_rmsnorm_train_2763cd5ebcc501c9ddb6__ov103_1024_6144": {
+        "arches": [
+            "sm_103a",
+        ],
+        "grid_rule": {
+            "grid_limit": 0,
+            "grid_per_sm": 4,
+            "kind": "rows_per_cta",
+            "rows_per_cta": 1,
+        },
+        "hidden": 6144,
+        "kernel": "cake_rmsnorm_train_2763cd5ebcc501c9ddb6",
+        "launch": {
+            "cooperative": False,
+            "use_pdl": False,
+        },
+        "library": "cake_rmsnorm_train_2763cd5ebcc501c9ddb6",
+        "role": "fwd_mid_w32",
+        "select_rule": {
+            "above": 1024,
+            "at_most": 6144,
+            "kind": "rows_between",
+        },
+        "workspace_rule": None,
+    },
+    # A window of the re-cut FP32-weight route of sm_103a, above 6144 rows: 5f89e5fd, the FP32-weight twin of 288d7b1d.
+    "cake_rmsnorm_train_5f89e5fd2f8a6057997e__ov103_6144_inf": {
+        "arches": [
             "sm_103a",
         ],
         "grid_rule": {
@@ -710,7 +787,7 @@ MODULES: dict[str, dict[str, Any]] = {
         "library": "cake_rmsnorm_train_5f89e5fd2f8a6057997e",
         "role": "fwd_main_w32",
         "select_rule": {
-            "above": 1024,
+            "above": 6144,
             "at_most": None,
             "kind": "rows_between",
         },
@@ -7244,7 +7321,8 @@ ROUTES: dict[str, dict[str, list[str]]] = {
         "fwd_w32_h6144": [
             "cake_rmsnorm_train_2763cd5ebcc501c9ddb6__100",
             "cake_rmsnorm_train_2763cd5ebcc501c9ddb6__ps5",
-            "cake_rmsnorm_train_5f89e5fd2f8a6057997e",
+            "cake_rmsnorm_train_3d619cd1e3ae638cce3d__ov100_1024_6144",
+            "cake_rmsnorm_train_5f89e5fd2f8a6057997e__ov100_6144_inf",
         ],
         "fwd_residual_h6144": [
             "cake_rmsnorm_train_308da18230017dadc02d",
@@ -7420,7 +7498,8 @@ ROUTES: dict[str, dict[str, list[str]]] = {
         ],
         "fwd_w32_h6144": [
             "cake_rmsnorm_train_2763cd5ebcc501c9ddb6",
-            "cake_rmsnorm_train_5f89e5fd2f8a6057997e",
+            "cake_rmsnorm_train_2763cd5ebcc501c9ddb6__ov103_1024_6144",
+            "cake_rmsnorm_train_5f89e5fd2f8a6057997e__ov103_6144_inf",
         ],
         "fwd_residual_h6144": [
             "cake_rmsnorm_train_308da18230017dadc02d",

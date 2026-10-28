@@ -147,7 +147,8 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
         "fwd_w32_h6144": (
             (0, 768, "cake_rmsnorm_train_2763cd5ebcc501c9ddb6"),
             (768, 1024, "cake_rmsnorm_train_2763cd5ebcc501c9ddb6"),
-            (1024, None, "cake_rmsnorm_train_5f89e5fd2f8a6057997e"),
+            (1024, 6144, "cake_rmsnorm_train_3d619cd1e3ae638cce3d"),
+            (6144, None, "cake_rmsnorm_train_5f89e5fd2f8a6057997e"),
         ),
         "fwd_residual_h6144": (
             (0, 256, "cake_rmsnorm_train_308da18230017dadc02d"),
@@ -279,7 +280,8 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
         ),
         "fwd_w32_h6144": (
             (0, 1024, "cake_rmsnorm_train_2763cd5ebcc501c9ddb6"),
-            (1024, None, "cake_rmsnorm_train_5f89e5fd2f8a6057997e"),
+            (1024, 6144, "cake_rmsnorm_train_2763cd5ebcc501c9ddb6"),
+            (6144, None, "cake_rmsnorm_train_5f89e5fd2f8a6057997e"),
         ),
         "fwd_residual_h6144": (
             (0, 256, "cake_rmsnorm_train_308da18230017dadc02d"),
@@ -444,7 +446,11 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_h512": ((1024, "ulp"), (4096, "same"), (24576, "same")),
         "fwd_w32_h512": ((1024, "ulp"), (4096, "same"), (24576, "same")),
         "fwd_h6144": ((768, "same"), (1024, "same")),
-        "fwd_w32_h6144": ((768, "same"), (1024, "same")),
+        "fwd_w32_h6144": (
+            (768, "unmeasured"),
+            (1024, "unmeasured"),
+            (6144, "unmeasured"),
+        ),
         "fwd_residual_h6144": ((256, "same"), (1024, "ulp")),
         "fwd_w32_residual_h6144": ((256, "same"), (1024, "ulp")),
     },
@@ -516,7 +522,7 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
             (16384, "unmeasured"),
         ),
         "fwd_h6144": ((1024, "unmeasured"),),
-        "fwd_w32_h6144": ((1024, "unmeasured"),),
+        "fwd_w32_h6144": ((1024, "unmeasured"), (6144, "unmeasured")),
         "fwd_residual_h6144": ((256, "unmeasured"), (1024, "unmeasured")),
         "fwd_w32_residual_h6144": ((256, "unmeasured"), (1024, "unmeasured")),
     },
@@ -613,8 +619,9 @@ common rows across it, ``~`` the forward's one-ulp differences, ``dx`` the backw
 kernel switch, ``?`` not yet measured (the tests bound the differences there).
 
 The FP32-weight routes (``fwd_w32_...``) select among the FP32-weight twins of the
-same programs over the same windows, with the same outcome at every edge; they are
-not listed.
+same programs over the same windows, with the same outcome at every edge, and are not
+listed; a route re-cut for the FP32 weight (another twin in a window) is listed with
+its own windows.
 
 * ``sm_100a`` ``fwd_h1536``: (0, 1536] 1ea88523 ~ (1536, 3584] 2fdbab2a =
   (3584, 6144] 7de1e510 = (6144, inf) 2fdbab2a
@@ -626,6 +633,8 @@ not listed.
   (4096, 24576] 3d20ab4a = (24576, inf) 3430e5d9
 * ``sm_100a`` ``fwd_h6144``: (0, 768] bad4db91 = (768, 1024] bad4db91 =
   (1024, inf) 288d7b1d
+* ``sm_100a`` ``fwd_w32_h6144``: (0, 768] 2763cd5e ? (768, 1024] 2763cd5e ?
+  (1024, 6144] 3d619cd1 ? (6144, inf) 5f89e5fd
 * ``sm_100a`` ``fwd_residual_h6144``: (0, 256] 308da182 = (256, 1024] 03bdf566 ~
   (1024, inf) e646bbdb
 * ``sm_103a`` ``fwd_h1536``: (0, 1536] 1ea88523 ? (1536, 3584] 2fdbab2a ?
@@ -637,6 +646,8 @@ not listed.
 * ``sm_103a`` ``fwd_h512``: (0, 1024] 8757f6da ? (1024, 4096] 7673978d ?
   (4096, 16384] 3d20ab4a ? (16384, inf) 3430e5d9
 * ``sm_103a`` ``fwd_h6144``: (0, 1024] bad4db91 ? (1024, inf) 288d7b1d
+* ``sm_103a`` ``fwd_w32_h6144``: (0, 1024] 2763cd5e ? (1024, 6144] 2763cd5e ?
+  (6144, inf) 5f89e5fd
 * ``sm_103a`` ``fwd_residual_h6144``: (0, 256] 308da182 ? (256, 1024] 03bdf566 ?
   (1024, inf) e646bbdb
 * ``sm_107a`` ``fwd_h1536``: (0, 2048] 1ea88523 ~ (2048, 12288] 4cdc4c49 =
@@ -681,8 +692,9 @@ common rows across it, ``~`` the forward's one-ulp differences, ``dx`` the backw
 kernel switch, ``?`` not yet measured (the tests bound the differences there).
 
 The FP32-weight routes (``bwd_w32_...``) select among the FP32-weight twins of the
-same programs over the same windows, with the same outcome at every edge; they are
-not listed.
+same programs over the same windows, with the same outcome at every edge, and are not
+listed; a route re-cut for the FP32 weight (another twin in a window) is listed with
+its own windows.
 
 * ``sm_100a`` ``bwd_h1536``: (0, 1024] 7dc29629 = (1024, 4096] c1a9efdf =
   (4096, 32768] 21c8bb55 = (32768, inf) b457c4d1

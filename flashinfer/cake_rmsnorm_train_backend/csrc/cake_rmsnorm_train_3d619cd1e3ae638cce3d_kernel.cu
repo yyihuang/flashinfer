@@ -52,10 +52,14 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_PARTIALS_OFF 0
 #define SMEM_PARTIALS_STAGE_BYTES 64
 #define SMEM_PARTIALS_STRIDE 64
+#if __CUDA_ARCH__ == 1070
 #define SMEM_W_SM_OFF 128
 #define SMEM_W_SM_STAGE_BYTES 24576
 #define SMEM_W_SM_STRIDE 24576
 #define SMEM_TOTAL 24704
+#else
+#define SMEM_TOTAL 128
+#endif
 #define THREADS 256
 #define ROWS_PER_CTA 1
 #define GROUP_THREADS 256
@@ -87,7 +91,12 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
 
     extern __shared__ __align__(1024) char smem_raw[];
     int smem;
+#if __CUDA_ARCH__ == 1000
+    asm volatile("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }" : "=r"(smem) : "l"(smem_raw));
+    smem = make_warp_uniform(smem);
+#else
     smem = (int)(unsigned long long)__cvta_generic_to_shared(smem_raw);
+#endif
 
     const int bid = blockIdx.x;
     const int num_bids = gridDim.x;
@@ -97,8 +106,10 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
     // Kernel setup ops
     float* partials = reinterpret_cast<float*>(smem_raw + 0);
     const int partials_addr = smem + 0;
+#if __CUDA_ARCH__ == 1070
     float* w_sm = reinterpret_cast<float*>(smem_raw + 128);
     const int w_sm_addr = smem + 128;
+#endif
 
     // === Task calls (declaration order) ===
     int warp_0 = warp;
@@ -128,6 +139,7 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
             }
         }
     }
+#if __CUDA_ARCH__ == 1070
     int staged = 0;
     if (num_bids < T) {
         staged = 1;
@@ -165,6 +177,7 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
         }
         __syncthreads();
     }
+#endif
     #pragma unroll 1
     for (int row0 = bid * ROWS_PER_CTA; row0 < T; row0 += num_bids * ROWS_PER_CTA) {
         int row = row0 + group;
@@ -172,13 +185,26 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
         if (nrow < T) {
             long long nbase = (long long)nrow * x_stride_p0;
             #pragma unroll
+#if __CUDA_ARCH__ == 1070
             for (int v_2 = 0; v_2 < 3; v_2++) {
+#else
+            for (int v_1 = 0; v_1 < 3; v_1++) {
+#endif
                 {
+#if __CUDA_ARCH__ == 1070
                     const uint4* _vptr_2 = reinterpret_cast<const uint4*>(x + (nbase + (long long)(gtid * 8 + v_2 * (GROUP_THREADS * 8))) + 0);
                     uint4* _vdst_2 = reinterpret_cast<uint4*>(&nxt[v_2 * 4]);
+#else
+                    const uint4* _vptr_1 = reinterpret_cast<const uint4*>(x + (nbase + (long long)(gtid * 8 + v_1 * (GROUP_THREADS * 8))) + 0);
+                    uint4* _vdst_1 = reinterpret_cast<uint4*>(&nxt[v_1 * 4]);
+#endif
                     #pragma unroll
                     for (int _blk = 0; _blk < 1; _blk++) {
+#if __CUDA_ARCH__ == 1070
                         _vdst_2[_blk] = _vptr_2[_blk];
+#else
+                        _vdst_1[_blk] = _vptr_1[_blk];
+#endif
                     }
                 }
             }
@@ -186,7 +212,11 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
         float sum_sq = 0.0f;
         #pragma unroll
         for (int i_1 = 0; i_1 < 12; i_1++) {
+#if __CUDA_ARCH__ == 1070
             float _dot_3;
+#else
+            float _dot_2;
+#endif
             asm volatile(
                 "{\n\t"
                 ".reg .b16 a_lo, a_hi, b_lo, b_hi;\n\t"
@@ -195,14 +225,28 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
                 "fma.rn.f32.bf16 %0, a_lo, b_lo, %3;\n\t"
                 "fma.rn.f32.bf16 %0, a_hi, b_hi, %0;\n\t"
                 "}\n"
+#if __CUDA_ARCH__ == 1070
                 : "=f"(_dot_3) : "r"(cur[i_1]), "r"(cur[i_1]), "f"(sum_sq));
             sum_sq = _dot_3;
+#else
+                : "=f"(_dot_2) : "r"(cur[i_1]), "r"(cur[i_1]), "f"(sum_sq));
+            sum_sq = _dot_2;
+#endif
         }
+#if __CUDA_ARCH__ == 1070
         float _warp_reduce_4 = sum_sq;
+#else
+        float _warp_reduce_3 = sum_sq;
+#endif
         #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1)
+#if __CUDA_ARCH__ == 1070
             _warp_reduce_4 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_4, offset);
         sum_sq = _warp_reduce_4;
+#else
+            _warp_reduce_3 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_3, offset);
+        sum_sq = _warp_reduce_3;
+#endif
         int par = (it & 1) * 8;
         if (lane == 0) {
             partials[par + warp_0] = sum_sq;
@@ -215,17 +259,28 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
         }
         it += 1;
         float mean = __fdiv_rn(total, h_f);
+#if __CUDA_ARCH__ == 1070
         float _sqrt_5;
         asm volatile("sqrt.rn.f32 %0, %1;" : "=f"(_sqrt_5) : "f"(mean + eps));
         float rstd = __frcp_rn(_sqrt_5);
+#else
+        float _sqrt_4;
+        asm volatile("sqrt.rn.f32 %0, %1;" : "=f"(_sqrt_4) : "f"(mean + eps));
+        float rstd = __frcp_rn(_sqrt_4);
+#endif
         if (row < T) {
             if (gtid == 0) {
                 r[row] = rstd;
             }
             long long obase = (long long)row * 6144;
             #pragma unroll
+#if __CUDA_ARCH__ == 1070
             for (int v_3 = 0; v_3 < 3; v_3++) {
+#else
+            for (int v_2 = 0; v_2 < 3; v_2++) {
+#endif
                 float wf[8];
+#if __CUDA_ARCH__ == 1070
                 if (staged == 1) {
                     #pragma unroll
                     for (int q_1 = 0; q_1 < 2; q_1++) {
@@ -254,11 +309,36 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
                         wf[0 + 6] = __uint_as_float(_ldv8_6_6);
                         wf[0 + 7] = __uint_as_float(_ldv8_6_7);
                     }
+#else
+                {
+                    unsigned _ldv8_5_0;
+                    unsigned _ldv8_5_1;
+                    unsigned _ldv8_5_2;
+                    unsigned _ldv8_5_3;
+                    unsigned _ldv8_5_4;
+                    unsigned _ldv8_5_5;
+                    unsigned _ldv8_5_6;
+                    unsigned _ldv8_5_7;
+                    asm volatile("ld.global.nc.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
+                        : "=r"(_ldv8_5_0), "=r"(_ldv8_5_1), "=r"(_ldv8_5_2), "=r"(_ldv8_5_3), "=r"(_ldv8_5_4), "=r"(_ldv8_5_5), "=r"(_ldv8_5_6), "=r"(_ldv8_5_7) : "l"((const void*)(w + (gtid * 8 + v_2 * (GROUP_THREADS * 8)) + (0))) : "memory");
+                    wf[0 + 0] = __uint_as_float(_ldv8_5_0);
+                    wf[0 + 1] = __uint_as_float(_ldv8_5_1);
+                    wf[0 + 2] = __uint_as_float(_ldv8_5_2);
+                    wf[0 + 3] = __uint_as_float(_ldv8_5_3);
+                    wf[0 + 4] = __uint_as_float(_ldv8_5_4);
+                    wf[0 + 5] = __uint_as_float(_ldv8_5_5);
+                    wf[0 + 6] = __uint_as_float(_ldv8_5_6);
+                    wf[0 + 7] = __uint_as_float(_ldv8_5_7);
+#endif
                 }
                 float out[8];
                 #pragma unroll
                 for (int k_1 = 0; k_1 < 4; k_1++) {
+#if __CUDA_ARCH__ == 1070
                     float2 _cvt_f32_0 = cake_bf16x2_to_f32x2(__as_bf16x2(cur[v_3 * 4 + k_1]));
+#else
+                    float2 _cvt_f32_0 = cake_bf16x2_to_f32x2(__as_bf16x2(cur[v_2 * 4 + k_1]));
+#endif
                     out[2 * k_1] = _cvt_f32_0.x * rstd * wf[2 * k_1];
                     out[2 * k_1 + 1] = _cvt_f32_0.y * rstd * wf[2 * k_1 + 1];
                 }
@@ -283,7 +363,11 @@ kernel_cake_rmsnorm_train_3d619cd1e3ae638cce3d(__nv_bfloat16* __restrict__ x, __
                     __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out[_lp*2 + 6], out[_lp*2+1 + 6]));
                     _packed_0[_lp + 3] = *(uint32_t*)&_bf2;
                 }
+#if __CUDA_ARCH__ == 1070
                 reinterpret_cast<int4*>(y + (obase + (long long)(gtid * 8 + v_3 * (GROUP_THREADS * 8))))[0] = reinterpret_cast<int4*>(_packed_0)[0];
+#else
+                reinterpret_cast<int4*>(y + (obase + (long long)(gtid * 8 + v_2 * (GROUP_THREADS * 8))))[0] = reinterpret_cast<int4*>(_packed_0)[0];
+#endif
             }
         }
         #pragma unroll

@@ -240,7 +240,7 @@ def test_rendered_windows_match_the_registry() -> None:
     """The exporter's ``cake_windows`` module is the registry: its table is ``program_windows`` of every route, its
     edges are the windows' upper bounds with a known class, and its sections (the docstring notes of the forward and
     backward) name every BF16 route of their kind and cover the FP32-weight routes in one sentence (they select among
-    the twins over the same windows)."""
+    the twins over the same windows), the re-cut ones (``RECUT_FP32_ROUTES``) as lines of their own."""
     assert set(windows.PROGRAM_WINDOWS) == set(loader.ROUTES) == set(windows.EDGES)
     assert set(windows.EDGE_CLASSES) == {"same", "ulp", "dx", "unmeasured"}
     for arch, routes in loader.ROUTES.items():
@@ -264,8 +264,10 @@ def test_rendered_windows_match_the_registry() -> None:
             )
             listed = f"``{arch}`` ``{route}``:" in windows.SECTIONS[kind]
             if w_dtype == "f32":
-                # an FP32-weight route is one sentence of the section; its base route is the line
-                assert not listed, (arch, route)
+                # an FP32-weight route is one sentence of the section, a re-cut one a line of its own; its base
+                # route is a line either way
+                recut = (arch, hidden, kind, residual) in RECUT_FP32_ROUTES
+                assert listed == recut, (arch, route)
                 base = loader.route_key(hidden, kind, residual)
                 assert f"``{arch}`` ``{base}``:" in windows.SECTIONS[kind], (
                     arch,
@@ -306,11 +308,50 @@ def test_rows_cover_every_backward_window_edge() -> None:
                 assert edge in ROWS and edge + 1 in ROWS, (arch, route, edge)
 
 
+# The FP32-weight routes the registry re-cuts, (arch, hidden, kind, residual) -> the windows of the FP32-weight route
+# that replace the BF16 route's windows they tile (``(above, at_most)`` in rows): between 1024 and 6144 rows the packed
+# H = 6144 forward's FP32-weight twin trails its BF16 kernel, a pipelined FP32-weight kernel does not; the packed twin
+# keeps the rows above.  Such a window's record is the twin route's own (this architecture alone, its own grid rule).
+RECUT_FP32_ROUTES: dict[
+    tuple[str, int, str, bool], tuple[tuple[int, int | None], ...]
+] = {
+    ("sm_100a", 6144, "fwd", False): ((1024, 6144), (6144, None)),
+    ("sm_103a", 6144, "fwd", False): ((1024, 6144), (6144, None)),
+}
+
+
+def _window(record) -> tuple[int | None, int | None]:
+    rule = (
+        record["select_rule"] or {}
+    )  # a record selected without a rule spans every row count
+    return (rule.get("above"), rule.get("at_most"))
+
+
+def _overlaps(first: tuple[int, int | None], second: tuple[int, int | None]) -> bool:
+    return (second[1] is None or first[0] < second[1]) and (
+        first[1] is None or second[0] < first[1]
+    )
+
+
+def _recut_windows(
+    windows: list[tuple[int, int | None]], recut
+) -> list[tuple[int, int | None]]:
+    """``windows`` of the BF16 route with the ones ``recut`` tiles replaced by ``recut``; ``recut`` tiles whole
+    windows."""
+    if not recut:
+        return list(windows)
+    span = (recut[0][0], recut[-1][1])
+    replaced = [w for w in windows if _overlaps(w, span)]
+    assert replaced and (replaced[0][0], replaced[-1][1]) == span, (windows, recut)
+    return sorted([w for w in windows if w not in replaced] + list(recut))
+
+
 @pytest.mark.parametrize("arch", sorted(loader.ROUTES))
 def test_fp32_weight_routes_mirror_their_bf16_routes(arch: str) -> None:
     """Every FP32-weight route (``_w32``) is the twin of the BF16 route of its width, kind and residual form: the
-    same windows, companions and host plans, the owners' roles carrying ``_w32`` before ``_residual``; and the BF16
-    routes alone decide ``supported_hidden_sizes``."""
+    same windows, companions and host plans, the owners' roles carrying ``_w32`` before ``_residual`` -- except the
+    windows ``RECUT_FP32_ROUTES`` names, where the route runs another FP32-weight kernel under its own record; and
+    the BF16 routes alone decide ``supported_hidden_sizes``."""
     routes = loader.ROUTES[arch]
     twins = [route for route in routes if _route_parts(route)[3] == "f32"]
     if not twins:
@@ -322,15 +363,16 @@ def test_fp32_weight_routes_mirror_their_bf16_routes(arch: str) -> None:
         assert loader.weight_dtypes(arch, hidden, kind, residual) == ("bf16", "f32")
         mine = loader.program_windows(arch, hidden, kind, residual, "f32")
         theirs = loader.program_windows(arch, hidden, kind, residual)
-        assert [(low, high) for low, high, _l in mine] == [
-            (low, high) for low, high, _l in theirs
-        ], (arch, route)
-        assert all(
-            a != b for (_l, _h, a), (_l2, _h2, b) in zip(mine, theirs, strict=True)
-        ), (
-            arch,
-            route,
-        )
+        recut = RECUT_FP32_ROUTES.get((arch, hidden, kind, residual), ())
+        assert [(low, high) for low, high, _l in mine] == _recut_windows(
+            [(low, high) for low, high, _l in theirs], recut
+        ), (arch, route)
+        for low, high, twin_library in mine:
+            # the BF16 program of the window's first rows: another program (the twin, or the re-cut kernel)
+            base_library = next(
+                l for lo, hi, l in theirs if lo <= low and (hi is None or low < hi)
+            )
+            assert twin_library != base_library, (arch, route, low, high)
         owners = [n for n in routes[route] if loader.MODULES[n]["role"] != REDUCE_ROLE]
         base_owners = [
             n for n in routes[base] if loader.MODULES[n]["role"] != REDUCE_ROLE
@@ -341,23 +383,56 @@ def test_fp32_weight_routes_mirror_their_bf16_routes(arch: str) -> None:
             arch,
             route,
         )
-        assert len(owners) == len(base_owners), (arch, route)
-        for mine_name, theirs_name in zip(owners, base_owners, strict=True):
-            twin, owner = loader.MODULES[mine_name], loader.MODULES[theirs_name]
-            for key in (
-                "arches",
-                "grid_rule",
-                "hidden",
-                "select_rule",
-                "workspace_rule",
-            ):
-                assert twin[key] == owner[key], (arch, route, mine_name, key)
-            expected_role = (
-                owner["role"][: -len("_residual")] + "_w32_residual"
-                if owner["role"].endswith("_residual")
-                else owner["role"] + "_w32"
+        base_windows = [_window(loader.MODULES[n]) for n in base_owners]
+        assert [_window(loader.MODULES[n]) for n in owners] == _recut_windows(
+            base_windows, recut
+        ), (arch, route)
+        by_window = dict(zip(base_windows, base_owners, strict=True))
+        for mine_name in owners:
+            twin = loader.MODULES[mine_name]
+            window = _window(twin)
+            if window in by_window:
+                owner = loader.MODULES[by_window[window]]
+                for key in (
+                    "arches",
+                    "grid_rule",
+                    "hidden",
+                    "select_rule",
+                    "workspace_rule",
+                ):
+                    assert twin[key] == owner[key], (arch, route, mine_name, key)
+                expected_role = (
+                    owner["role"][: -len("_residual")] + "_w32_residual"
+                    if owner["role"].endswith("_residual")
+                    else owner["role"] + "_w32"
+                )
+                assert twin["role"] == expected_role, (arch, route, mine_name)
+                continue
+            # a window of a re-cut route: the twin route's own record, for this architecture alone, with the
+            # BF16 owner's hidden size and workspace and a rows_per_cta grid rule of its own
+            assert window in recut, (arch, route, mine_name)
+            owner = loader.MODULES[
+                next(
+                    n
+                    for n in base_owners
+                    if _overlaps(_window(loader.MODULES[n]), window)
+                )
+            ]
+            assert twin["arches"] == [arch] and arch in owner["arches"], (
+                arch,
+                route,
+                mine_name,
             )
-            assert twin["role"] == expected_role, (arch, route, mine_name)
+            assert (twin["hidden"], twin["workspace_rule"]) == (
+                owner["hidden"],
+                owner["workspace_rule"],
+            ), (arch, route, mine_name)
+            assert twin["grid_rule"]["kind"] == "rows_per_cta", (arch, route, mine_name)
+            assert twin["role"].startswith(kind) and "_w32" in twin["role"], (
+                arch,
+                route,
+                mine_name,
+            )
     assert all(
         _route_parts(loader.route_key(h, "fwd", False))[3] == "bf16"
         for h in loader.supported_hidden_sizes(arch)
