@@ -323,6 +323,16 @@ RECUT_FP32_ROUTES: dict[
         (6144, 16132),
         (16132, None),
     ),
+    # sm_107a: the forward routes W32_ROUTE_OVERRIDES re-cuts there (a window of another twin of the route, the
+    # windows between kept by the route's own twin under override records of its program)
+    ("sm_107a", 2048, "fwd", False): ((12288, 16384),),
+    ("sm_107a", 4096, "fwd", False): (
+        (1024, 4096),
+        (4096, 20480),
+        (20480, 49152),
+        (49152, None),
+    ),
+    ("sm_107a", 5120, "fwd", False): ((49152, None),),
 }
 
 
@@ -399,14 +409,24 @@ def test_fp32_weight_routes_mirror_their_bf16_routes(arch: str) -> None:
             window = _window(twin)
             if window in by_window and "__ov" not in mine_name:
                 owner = loader.MODULES[by_window[window]]
-                # the owner's architectures less the ones RECUT_FP32_ROUTES re-cuts over this window (the
-                # override records take the window there)
+                # the owner's architectures less the ones RECUT_FP32_ROUTES re-cuts over this window on an
+                # architecture whose BF16 route lists this owner record (a window record carries its library's
+                # whole architecture list; the override records take the window there); a re-cut owner's twin
+                # ships only where a route lists the owner
                 recut_arches = {
                     a
                     for (a, h, k, r), ws in RECUT_FP32_ROUTES.items()
                     if (h, k, r) == (hidden, kind, residual)
+                    and by_window[window] in loader.ROUTES.get(a, {}).get(base, ())
                     and any(_overlaps(window, w) for w in ws)
                 }
+                expected_arches = [a for a in owner["arches"] if a not in recut_arches]
+                if recut_arches:
+                    expected_arches = [
+                        a
+                        for a in expected_arches
+                        if by_window[window] in set().union(*loader.ROUTES[a].values())
+                    ]
                 for key in (
                     "arches",
                     "grid_rule",
@@ -414,11 +434,7 @@ def test_fp32_weight_routes_mirror_their_bf16_routes(arch: str) -> None:
                     "select_rule",
                     "workspace_rule",
                 ):
-                    expected = (
-                        [a for a in owner["arches"] if a not in recut_arches]
-                        if key == "arches"
-                        else owner[key]
-                    )
+                    expected = expected_arches if key == "arches" else owner[key]
                     assert twin[key] == expected, (arch, route, mine_name, key)
                 expected_role = (
                     owner["role"][: -len("_residual")] + "_w32_residual"
