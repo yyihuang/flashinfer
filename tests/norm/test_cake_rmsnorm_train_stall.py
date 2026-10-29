@@ -292,7 +292,10 @@ WHOLE_SM_ABOVE = {
 def _skip_if_whole_sm(kind: str, hidden: int, rows: int) -> None:
     above = WHOLE_SM_ABOVE.get((_capability(), kind, hidden))
     if above is not None and rows > above:
-        pytest.skip(f"the {kind} of hidden={hidden} above {above} rows needs a whole SM")
+        pytest.skip(
+            f"the {kind} of hidden={hidden} above {above} rows needs a whole SM"
+        )
+
 
 _SPIN_KERNEL = "cake_rmsnorm_train_stall_spin"
 _SPIN_SOURCE = r"""

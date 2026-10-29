@@ -571,7 +571,7 @@ def cake_rmsnorm_train_forward(
         lead=nd,
     )
     residual_out_user = None
-    results = (y_result, rstd_result)
+    results: tuple[torch.Tensor, ...] = (y_result, rstd_result)
     if has_residual:
         residual_out, h_new_result, residual_out_user = _output_buffer(
             residual_out,
