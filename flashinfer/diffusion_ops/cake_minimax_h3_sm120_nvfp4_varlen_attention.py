@@ -175,7 +175,7 @@ _OVERLAP_LONG_MAX_SEGMENT = {
 # the squared segment lengths over the token count: the attention work per pre-processed token) is short is bound
 # by its producers: it takes the width P of the first ``(bound, P)`` of ``_OVERLAP_LIGHT_WIDTHS[(SM count, delta)]``
 # (rising bounds) whose bound is at least that mean; a plan above every bound keeps ``_OVERLAP_WIDTH``.
-_OVERLAP_LIGHT_WIDTHS = {
+_OVERLAP_LIGHT_WIDTHS: Dict[Tuple[int, bool], Tuple[Tuple[int, int], ...]] = {
     (170, False): ((1280, 64), (1536, 56), (2048, 50)),
     (170, True): ((1280, 64), (1536, 56), (1792, 50)),
     (188, False): ((1280, 80), (1536, 64), (2048, 56)),
@@ -185,7 +185,7 @@ _OVERLAP_LIGHT_WIDTHS = {
 # mean segment length is short takes the width P of the first ``(bound, P)`` of
 # ``_OVERLAP_LONG_LIGHT_WIDTHS[(SM count, delta)]`` (rising bounds) whose bound is at least that mean; a plan above
 # every bound, and an SM count or route without an entry, keeps ``_OVERLAP_WIDTH_LONG``.
-_OVERLAP_LONG_LIGHT_WIDTHS = {
+_OVERLAP_LONG_LIGHT_WIDTHS: Dict[Tuple[int, bool], Tuple[Tuple[int, int], ...]] = {
     (170, False): ((1792, 64), (2560, 48)),
     (170, True): ((1792, 64), (2560, 48)),
 }
