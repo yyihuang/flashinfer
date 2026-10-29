@@ -107,6 +107,10 @@ def test_entry_points_forward_every_keyword(monkeypatch: pytest.MonkeyPatch) -> 
                 "save_mode": "tape",
                 "arena": None,
                 "doc_lengths": None,
+                "use_gate_in_kernel": False,
+                "A_log": None,
+                "dt_bias": None,
+                "lower_bound": None,
             },
         ),
         (
@@ -118,6 +122,10 @@ def test_entry_points_forward_every_keyword(monkeypatch: pytest.MonkeyPatch) -> 
                 "workspace": None,
                 "arena": None,
                 "doc_lengths": None,
+                "use_gate_in_kernel": False,
+                "A_log": None,
+                "dt_bias": None,
+                "lower_bound": None,
             },
         ),
         (
@@ -129,6 +137,10 @@ def test_entry_points_forward_every_keyword(monkeypatch: pytest.MonkeyPatch) -> 
                 "save_mode": None,
                 "arena": None,
                 "doc_lengths": None,
+                "use_gate_in_kernel": False,
+                "A_log": None,
+                "dt_bias": None,
+                "lower_bound": None,
             },
         ),
     ]
