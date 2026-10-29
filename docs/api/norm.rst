@@ -60,6 +60,8 @@ fusion and an autograd wrapper.
     cake_rmsnorm_train_backward
     cake_rmsnorm_train_backward_workspace_bytes
     cake_rmsnorm_train_backward_workspace
+    program_windows
+    weight_dtypes
     CakeRMSNormFunction
 
 Training SiLU-gated RMSNorm (Cake)
