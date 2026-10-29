@@ -44,6 +44,20 @@ route selects one of several programs from ``T``; within one program window
 a row's results do not depend on ``T`` (see "Program selection by token
 count" in the forward / backward docstrings and :func:`program_windows`).
 
+Beside kernels resident on other streams: each backward main kernel needs a
+large part of its SM's shared memory and one CTA slot, and an SM serves it only
+once it can switch to that shared-memory carveout.  A kernel on another stream
+whose CTAs hold every SM with a small carveout (for example a long-running
+kernel with little or no shared memory and the default carveout) therefore
+delays the backward's start until that kernel exits.  Kernels that hold only
+some SMs (communication kernels with 16-32 CTAs) cost the backward no more
+than the SMs they hold.  Setting ``cudaFuncAttributePreferredSharedMemoryCarveout``
+to ``cudaSharedmemCarveoutMaxShared`` on such a resident kernel, or giving it a
+large dynamic shared-memory allocation, lets the backward start beside it.  The
+residual-fused H 6144 backward also needs nearly all of an SM's registers, so
+it waits beside any kernel resident on every SM.  The forward kernels fit any
+carveout and do not wait.
+
 Usage::
 
     y, rstd = cake_rmsnorm_train_forward(x, w, eps)
