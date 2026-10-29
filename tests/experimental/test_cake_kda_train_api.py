@@ -309,6 +309,10 @@ def test_signatures_keep_the_contracts_keywords() -> None:
         "save_mode",
         "arena",
         "doc_lengths",
+        "use_gate_in_kernel",
+        "A_log",
+        "dt_bias",
+        "lower_bound",
     ]
     bwd = inspect.signature(public_api.chunk_kda_bwd).parameters
     assert list(bwd) == [
@@ -324,6 +328,10 @@ def test_signatures_keep_the_contracts_keywords() -> None:
         "workspace",
         "arena",
         "doc_lengths",
+        "use_gate_in_kernel",
+        "A_log",
+        "dt_bias",
+        "lower_bound",
     ]
     for name in (
         "scale",
@@ -332,18 +340,41 @@ def test_signatures_keep_the_contracts_keywords() -> None:
         "save_mode",
         "arena",
         "doc_lengths",
+        "use_gate_in_kernel",
+        "A_log",
+        "dt_bias",
+        "lower_bound",
     ):
         assert fwd[name].kind is inspect.Parameter.KEYWORD_ONLY
-    for name in ("saved", "scale", "workspace", "arena", "doc_lengths"):
+    for name in (
+        "saved",
+        "scale",
+        "workspace",
+        "arena",
+        "doc_lengths",
+        "use_gate_in_kernel",
+        "A_log",
+        "dt_bias",
+        "lower_bound",
+    ):
         assert bwd[name].kind is inspect.Parameter.KEYWORD_ONLY
     autograd = inspect.signature(public_api.chunk_kda).parameters
-    assert list(autograd)[-5:] == [
+    assert list(autograd)[-9:] == [
         "scale",
         "workspace",
         "save_mode",
         "arena",
         "doc_lengths",
+        "use_gate_in_kernel",
+        "A_log",
+        "dt_bias",
+        "lower_bound",
     ]
+    for name in ("use_gate_in_kernel", "A_log", "dt_bias", "lower_bound"):
+        assert autograd[name].kind is inspect.Parameter.KEYWORD_ONLY
+    assert fwd["use_gate_in_kernel"].default is False
+    assert bwd["use_gate_in_kernel"].default is False
+    assert autograd["use_gate_in_kernel"].default is False
     factory = inspect.signature(public_api.kda_train_arena).parameters
     assert list(factory) == [
         "lean",
@@ -352,9 +383,12 @@ def test_signatures_keep_the_contracts_keywords() -> None:
         "max_docs_per_batch",
     ] and all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in factory.values())
     ws = inspect.signature(public_api.kda_train_workspace).parameters
-    assert list(ws)[-2:] == ["arena", "doc_lengths"]
+    assert list(ws)[-3:] == ["arena", "doc_lengths", "use_gate_in_kernel"]
     nbytes = inspect.signature(public_api.kda_train_workspace_bytes).parameters
-    assert list(nbytes)[-2:] == ["arena", "doc_lengths"]
+    assert list(nbytes)[-3:] == ["arena", "doc_lengths", "use_gate_in_kernel"]
+    for params in (ws, nbytes):
+        assert params["use_gate_in_kernel"].kind is inspect.Parameter.KEYWORD_ONLY
+        assert params["use_gate_in_kernel"].default is False
 
 
 def test_public_entries_run_the_backend() -> None:
