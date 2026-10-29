@@ -6180,7 +6180,7 @@ MODULES: dict[str, dict[str, Any]] = {
         ],
         "grid_rule": {
             "grid_limit": 0,
-            "grid_per_sm": 22,
+            "grid_per_sm": 6,
             "kind": "rows_per_cta",
             "rows_per_cta": 1,
         },
