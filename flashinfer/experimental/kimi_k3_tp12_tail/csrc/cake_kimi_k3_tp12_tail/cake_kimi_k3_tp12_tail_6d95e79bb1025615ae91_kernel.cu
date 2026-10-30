@@ -60,7 +60,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 extern "C" {
 
 __global__ __launch_bounds__(448) void
-kernel_cake_kimi_k3_tp12_tail_6810b839a07c32c7d662(__nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ gemm_slice, __nv_bfloat16* __restrict__ out, long long* __restrict__ peer_ptrs, __nv_bfloat16* __restrict__ mcast_ptr, unsigned int* __restrict__ buffer_flags, int num_tokens, int rank, int my_col_begin, int my_cols, int gemm_plane_stride, int num_gemm_splits)
+kernel_cake_kimi_k3_tp12_tail_6d95e79bb1025615ae91(__nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ gemm_slice, __nv_bfloat16* __restrict__ out, long long* __restrict__ peer_ptrs, __nv_bfloat16* __restrict__ mcast_ptr, unsigned int* __restrict__ buffer_flags, int num_tokens, int rank, int my_col_begin, int my_cols, int gemm_plane_stride, int num_gemm_splits)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -332,7 +332,7 @@ kernel_cake_kimi_k3_tp12_tail_6810b839a07c32c7d662(__nv_bfloat16* __restrict__ s
                             #pragma unroll
                             for (int _mtr_pair = 0; _mtr_pair < 4; ++_mtr_pair) _mtr_accum_6[_mtr_pair] = make_float2(0.0f, 0.0f);
                             uint32_t _mtr_rank_6_0[4];
-                            asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mtr_rank_6_0[0]), "=r"(_mtr_rank_6_0[1]), "=r"(_mtr_rank_6_0[2]), "=r"(_mtr_rank_6_0[3]) : "l"(reinterpret_cast<__nv_bfloat16*>(peer_ptrs[rank]) + (current_epoch_elements + (unsigned long long)token_b * 12 * 640 + (unsigned long long)local_col)) : "memory");
+                            asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mtr_rank_6_0[0]), "=r"(_mtr_rank_6_0[1]), "=r"(_mtr_rank_6_0[2]), "=r"(_mtr_rank_6_0[3]) : "l"(reinterpret_cast<__nv_bfloat16*>(peer_ptrs[rank]) + (current_epoch_elements + ((unsigned long long)token_b * 12 + 0) * 640 + (unsigned long long)local_col)) : "memory");
                             bool _mtr_dirty_6_0 = false;
                             _mtr_dirty_6_0 |= (_mtr_rank_6_0[0] == 0x80000000u);
                             _mtr_dirty_6_0 |= (_mtr_rank_6_0[1] == 0x80000000u);

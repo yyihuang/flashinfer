@@ -60,7 +60,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 extern "C" {
 
 __global__ __launch_bounds__(448) void
-kernel_cake_kimi_k3_tp12_tail_9f0863d3ca354fa0676f(__nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ y_out, __nv_bfloat16* __restrict__ gamma, __nv_bfloat16* __restrict__ mcast_ptr, __nv_bfloat16* __restrict__ local_unicast_ptr, unsigned int* __restrict__ buffer_flags, long long* __restrict__ k3_peer_ptrs, __nv_bfloat16* __restrict__ k3_mcast_ptr, unsigned int* __restrict__ k3_flags, int num_tokens, int rank, float epsilon)
+kernel_cake_kimi_k3_tp12_tail_36298b929d8da63de8d0(__nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ y_out, __nv_bfloat16* __restrict__ gamma, __nv_bfloat16* __restrict__ mcast_ptr, __nv_bfloat16* __restrict__ local_unicast_ptr, unsigned int* __restrict__ buffer_flags, long long* __restrict__ k3_peer_ptrs, __nv_bfloat16* __restrict__ k3_mcast_ptr, unsigned int* __restrict__ k3_flags, int num_tokens, int rank, float epsilon)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -120,32 +120,32 @@ kernel_cake_kimi_k3_tp12_tail_9f0863d3ca354fa0676f(__nv_bfloat16* __restrict__ r
     }
     unsigned long long buffer_base = (unsigned long long)_vec_load_0[0] * (unsigned long long)_vec_load_0[2] / 2;
     unsigned long long k3_epoch_elements = (unsigned long long)_vec_load_2[0] * (unsigned long long)_vec_load_2[2] / 2;
-    unsigned int _vec_load_3[4];
+    unsigned int vec_load[4];
     {
         uint4 _uv4_3 = *reinterpret_cast<const uint4*>(routed + input_index + 0);
-        _vec_load_3[0 + 0] = _uv4_3.x;
-        _vec_load_3[0 + 1] = _uv4_3.y;
-        _vec_load_3[0 + 2] = _uv4_3.z;
-        _vec_load_3[0 + 3] = _uv4_3.w;
+        vec_load[0 + 0] = _uv4_3.x;
+        vec_load[0 + 1] = _uv4_3.y;
+        vec_load[0 + 2] = _uv4_3.z;
+        vec_load[0 + 3] = _uv4_3.w;
     }
-    uint32_t _packed16_sanitize_0[4];
+    uint32_t packed16_sanitize[4];
     {
-        uint32_t _p16_word_4_0 = _vec_load_3[0];
+        uint32_t _p16_word_4_0 = vec_load[0];
         if ((_p16_word_4_0 & 0x0000ffffu) == 0x00008000u) _p16_word_4_0 &= 0xffff0000u;
         if ((_p16_word_4_0 & 0xffff0000u) == 0x80000000u) _p16_word_4_0 &= 0x0000ffffu;
-        _packed16_sanitize_0[0] = _p16_word_4_0;
-        uint32_t _p16_word_4_1 = _vec_load_3[1];
+        packed16_sanitize[0] = _p16_word_4_0;
+        uint32_t _p16_word_4_1 = vec_load[1];
         if ((_p16_word_4_1 & 0x0000ffffu) == 0x00008000u) _p16_word_4_1 &= 0xffff0000u;
         if ((_p16_word_4_1 & 0xffff0000u) == 0x80000000u) _p16_word_4_1 &= 0x0000ffffu;
-        _packed16_sanitize_0[1] = _p16_word_4_1;
-        uint32_t _p16_word_4_2 = _vec_load_3[2];
+        packed16_sanitize[1] = _p16_word_4_1;
+        uint32_t _p16_word_4_2 = vec_load[2];
         if ((_p16_word_4_2 & 0x0000ffffu) == 0x00008000u) _p16_word_4_2 &= 0xffff0000u;
         if ((_p16_word_4_2 & 0xffff0000u) == 0x80000000u) _p16_word_4_2 &= 0x0000ffffu;
-        _packed16_sanitize_0[2] = _p16_word_4_2;
-        uint32_t _p16_word_4_3 = _vec_load_3[3];
+        packed16_sanitize[2] = _p16_word_4_2;
+        uint32_t _p16_word_4_3 = vec_load[3];
         if ((_p16_word_4_3 & 0x0000ffffu) == 0x00008000u) _p16_word_4_3 &= 0xffff0000u;
         if ((_p16_word_4_3 & 0xffff0000u) == 0x80000000u) _p16_word_4_3 &= 0x0000ffffu;
-        _packed16_sanitize_0[3] = _p16_word_4_3;
+        packed16_sanitize[3] = _p16_word_4_3;
     }
     unsigned int _vec_load_4[4];
     {
@@ -158,166 +158,166 @@ kernel_cake_kimi_k3_tp12_tail_9f0863d3ca354fa0676f(__nv_bfloat16* __restrict__ r
     int col_a = element;
     int col_b = 3584 + element;
     int shared_row = token * 7168;
-    unsigned int _vec_load_5[4];
+    unsigned int vec_load_0[4];
     {
         uint4 _uv4_6 = *reinterpret_cast<const uint4*>(shared + (shared_row + col_a) + 0);
-        _vec_load_5[0 + 0] = _uv4_6.x;
-        _vec_load_5[0 + 1] = _uv4_6.y;
-        _vec_load_5[0 + 2] = _uv4_6.z;
-        _vec_load_5[0 + 3] = _uv4_6.w;
+        vec_load_0[0 + 0] = _uv4_6.x;
+        vec_load_0[0 + 1] = _uv4_6.y;
+        vec_load_0[0 + 2] = _uv4_6.z;
+        vec_load_0[0 + 3] = _uv4_6.w;
     }
-    uint32_t _packed16_sanitize_1[4];
+    uint32_t packed16_sanitize_0[4];
     {
-        uint32_t _p16_word_7_0 = _vec_load_5[0];
+        uint32_t _p16_word_7_0 = vec_load_0[0];
         if ((_p16_word_7_0 & 0x0000ffffu) == 0x00008000u) _p16_word_7_0 &= 0xffff0000u;
         if ((_p16_word_7_0 & 0xffff0000u) == 0x80000000u) _p16_word_7_0 &= 0x0000ffffu;
-        _packed16_sanitize_1[0] = _p16_word_7_0;
-        uint32_t _p16_word_7_1 = _vec_load_5[1];
+        packed16_sanitize_0[0] = _p16_word_7_0;
+        uint32_t _p16_word_7_1 = vec_load_0[1];
         if ((_p16_word_7_1 & 0x0000ffffu) == 0x00008000u) _p16_word_7_1 &= 0xffff0000u;
         if ((_p16_word_7_1 & 0xffff0000u) == 0x80000000u) _p16_word_7_1 &= 0x0000ffffu;
-        _packed16_sanitize_1[1] = _p16_word_7_1;
-        uint32_t _p16_word_7_2 = _vec_load_5[2];
+        packed16_sanitize_0[1] = _p16_word_7_1;
+        uint32_t _p16_word_7_2 = vec_load_0[2];
         if ((_p16_word_7_2 & 0x0000ffffu) == 0x00008000u) _p16_word_7_2 &= 0xffff0000u;
         if ((_p16_word_7_2 & 0xffff0000u) == 0x80000000u) _p16_word_7_2 &= 0x0000ffffu;
-        _packed16_sanitize_1[2] = _p16_word_7_2;
-        uint32_t _p16_word_7_3 = _vec_load_5[3];
+        packed16_sanitize_0[2] = _p16_word_7_2;
+        uint32_t _p16_word_7_3 = vec_load_0[3];
         if ((_p16_word_7_3 & 0x0000ffffu) == 0x00008000u) _p16_word_7_3 &= 0xffff0000u;
         if ((_p16_word_7_3 & 0xffff0000u) == 0x80000000u) _p16_word_7_3 &= 0x0000ffffu;
-        _packed16_sanitize_1[3] = _p16_word_7_3;
+        packed16_sanitize_0[3] = _p16_word_7_3;
     }
-    unsigned int _vec_load_6[4];
+    unsigned int vec_load_1[4];
     {
         uint4 _uv4_8 = *reinterpret_cast<const uint4*>(shared + (shared_row + col_b) + 0);
-        _vec_load_6[0 + 0] = _uv4_8.x;
-        _vec_load_6[0 + 1] = _uv4_8.y;
-        _vec_load_6[0 + 2] = _uv4_8.z;
-        _vec_load_6[0 + 3] = _uv4_8.w;
+        vec_load_1[0 + 0] = _uv4_8.x;
+        vec_load_1[0 + 1] = _uv4_8.y;
+        vec_load_1[0 + 2] = _uv4_8.z;
+        vec_load_1[0 + 3] = _uv4_8.w;
     }
-    uint32_t _packed16_sanitize_2[4];
+    uint32_t packed16_sanitize_1[4];
     {
-        uint32_t _p16_word_9_0 = _vec_load_6[0];
+        uint32_t _p16_word_9_0 = vec_load_1[0];
         if ((_p16_word_9_0 & 0x0000ffffu) == 0x00008000u) _p16_word_9_0 &= 0xffff0000u;
         if ((_p16_word_9_0 & 0xffff0000u) == 0x80000000u) _p16_word_9_0 &= 0x0000ffffu;
-        _packed16_sanitize_2[0] = _p16_word_9_0;
-        uint32_t _p16_word_9_1 = _vec_load_6[1];
+        packed16_sanitize_1[0] = _p16_word_9_0;
+        uint32_t _p16_word_9_1 = vec_load_1[1];
         if ((_p16_word_9_1 & 0x0000ffffu) == 0x00008000u) _p16_word_9_1 &= 0xffff0000u;
         if ((_p16_word_9_1 & 0xffff0000u) == 0x80000000u) _p16_word_9_1 &= 0x0000ffffu;
-        _packed16_sanitize_2[1] = _p16_word_9_1;
-        uint32_t _p16_word_9_2 = _vec_load_6[2];
+        packed16_sanitize_1[1] = _p16_word_9_1;
+        uint32_t _p16_word_9_2 = vec_load_1[2];
         if ((_p16_word_9_2 & 0x0000ffffu) == 0x00008000u) _p16_word_9_2 &= 0xffff0000u;
         if ((_p16_word_9_2 & 0xffff0000u) == 0x80000000u) _p16_word_9_2 &= 0x0000ffffu;
-        _packed16_sanitize_2[2] = _p16_word_9_2;
-        uint32_t _p16_word_9_3 = _vec_load_6[3];
+        packed16_sanitize_1[2] = _p16_word_9_2;
+        uint32_t _p16_word_9_3 = vec_load_1[3];
         if ((_p16_word_9_3 & 0x0000ffffu) == 0x00008000u) _p16_word_9_3 &= 0xffff0000u;
         if ((_p16_word_9_3 & 0xffff0000u) == 0x80000000u) _p16_word_9_3 &= 0x0000ffffu;
-        _packed16_sanitize_2[3] = _p16_word_9_3;
+        packed16_sanitize_1[3] = _p16_word_9_3;
     }
     unsigned long long rank_u64 = (unsigned long long)rank;
     unsigned long long publish_index = buffer_base + ((unsigned long long)token * 12 + rank_u64) * 3584 + (unsigned long long)element;
-    reinterpret_cast<int4*>(mcast_ptr + publish_index)[0] = reinterpret_cast<int4*>(_packed16_sanitize_0)[0];
-    int owner_a = 0;
-    int owner_a_begin = 0;
+    reinterpret_cast<int4*>(mcast_ptr + publish_index)[0] = reinterpret_cast<int4*>(packed16_sanitize)[0];
+    int owner_0 = 0;
+    int owner_begin_0 = 0;
     if (col_a >= 640) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 640;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 640;
     }
     if (col_a >= 1280) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 1280;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 1280;
     }
     if (col_a >= 1920) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 1920;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 1920;
     }
     if (col_a >= 2560) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 2560;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 2560;
     }
     if (col_a >= 3200) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 3200;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 3200;
     }
     if (col_a >= 3840) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 3840;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 3840;
     }
     if (col_a >= 4480) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 4480;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 4480;
     }
     if (col_a >= 5120) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 5120;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 5120;
     }
     if (col_a >= 5632) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 5632;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 5632;
     }
     if (col_a >= 6144) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 6144;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 6144;
     }
     if (col_a >= 6656) {
-        owner_a = owner_a + 1;
-        owner_a_begin = 6656;
+        owner_0 = owner_0 + 1;
+        owner_begin_0 = 6656;
     }
-    unsigned long long scatter_a = ((unsigned long long)token * 12 + rank_u64) * 640 + (unsigned long long)(col_a - owner_a_begin);
+    unsigned long long scatter_0 = ((unsigned long long)token * 12 + rank_u64) * 640 + (unsigned long long)(col_a - owner_begin_0);
     {
-        auto _gst_10 = reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[owner_a]) + (k3_epoch_elements + scatter_a);
+        auto _gst_10 = reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[owner_0]) + (k3_epoch_elements + scatter_0);
         __builtin_assume(__isGlobal(_gst_10));
-        reinterpret_cast<int4*>(_gst_10)[0] = reinterpret_cast<int4*>(_packed16_sanitize_1)[0];
+        reinterpret_cast<int4*>(_gst_10)[0] = reinterpret_cast<int4*>(packed16_sanitize_0)[0];
     }
-    int owner_b = 0;
-    int owner_b_begin = 0;
+    int owner_1 = 0;
+    int owner_begin_1 = 0;
     if (col_b >= 640) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 640;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 640;
     }
     if (col_b >= 1280) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 1280;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 1280;
     }
     if (col_b >= 1920) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 1920;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 1920;
     }
     if (col_b >= 2560) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 2560;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 2560;
     }
     if (col_b >= 3200) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 3200;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 3200;
     }
     if (col_b >= 3840) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 3840;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 3840;
     }
     if (col_b >= 4480) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 4480;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 4480;
     }
     if (col_b >= 5120) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 5120;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 5120;
     }
     if (col_b >= 5632) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 5632;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 5632;
     }
     if (col_b >= 6144) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 6144;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 6144;
     }
     if (col_b >= 6656) {
-        owner_b = owner_b + 1;
-        owner_b_begin = 6656;
+        owner_1 = owner_1 + 1;
+        owner_begin_1 = 6656;
     }
-    unsigned long long scatter_b = ((unsigned long long)token * 12 + rank_u64) * 640 + (unsigned long long)(col_b - owner_b_begin);
+    unsigned long long scatter_1 = ((unsigned long long)token * 12 + rank_u64) * 640 + (unsigned long long)(col_b - owner_begin_1);
     {
-        auto _gst_11 = reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[owner_b]) + (k3_epoch_elements + scatter_b);
+        auto _gst_11 = reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[owner_1]) + (k3_epoch_elements + scatter_1);
         __builtin_assume(__isGlobal(_gst_11));
-        reinterpret_cast<int4*>(_gst_11)[0] = reinterpret_cast<int4*>(_packed16_sanitize_2)[0];
+        reinterpret_cast<int4*>(_gst_11)[0] = reinterpret_cast<int4*>(packed16_sanitize_1)[0];
     }
     if (warp == 0) {
         asm volatile("barrier.sync 1, 448;" ::: "memory");
@@ -380,194 +380,194 @@ kernel_cake_kimi_k3_tp12_tail_9f0863d3ca354fa0676f(__nv_bfloat16* __restrict__ r
             uint32_t _mor_retry_rank_13_10[4];
             uint32_t _mor_retry_rank_13_11[4];
             if (rank == 0) {
-                _mor_rank_13_0[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_0[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_0[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_0[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_0[0] = packed16_sanitize[0];
+                _mor_rank_13_0[1] = packed16_sanitize[1];
+                _mor_rank_13_0[2] = packed16_sanitize[2];
+                _mor_rank_13_0[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_0[0]), "=r"(_mor_rank_13_0[1]), "=r"(_mor_rank_13_0[2]), "=r"(_mor_rank_13_0[3]) : "l"(local_unicast_ptr + (buffer_base + (unsigned long long)token * 12 * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 1) {
-                _mor_rank_13_1[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_1[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_1[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_1[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_1[0] = packed16_sanitize[0];
+                _mor_rank_13_1[1] = packed16_sanitize[1];
+                _mor_rank_13_1[2] = packed16_sanitize[2];
+                _mor_rank_13_1[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_1[0]), "=r"(_mor_rank_13_1[1]), "=r"(_mor_rank_13_1[2]), "=r"(_mor_rank_13_1[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 1) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 2) {
-                _mor_rank_13_2[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_2[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_2[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_2[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_2[0] = packed16_sanitize[0];
+                _mor_rank_13_2[1] = packed16_sanitize[1];
+                _mor_rank_13_2[2] = packed16_sanitize[2];
+                _mor_rank_13_2[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_2[0]), "=r"(_mor_rank_13_2[1]), "=r"(_mor_rank_13_2[2]), "=r"(_mor_rank_13_2[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 2) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 3) {
-                _mor_rank_13_3[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_3[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_3[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_3[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_3[0] = packed16_sanitize[0];
+                _mor_rank_13_3[1] = packed16_sanitize[1];
+                _mor_rank_13_3[2] = packed16_sanitize[2];
+                _mor_rank_13_3[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_3[0]), "=r"(_mor_rank_13_3[1]), "=r"(_mor_rank_13_3[2]), "=r"(_mor_rank_13_3[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 3) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 4) {
-                _mor_rank_13_4[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_4[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_4[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_4[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_4[0] = packed16_sanitize[0];
+                _mor_rank_13_4[1] = packed16_sanitize[1];
+                _mor_rank_13_4[2] = packed16_sanitize[2];
+                _mor_rank_13_4[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_4[0]), "=r"(_mor_rank_13_4[1]), "=r"(_mor_rank_13_4[2]), "=r"(_mor_rank_13_4[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 4) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 5) {
-                _mor_rank_13_5[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_5[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_5[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_5[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_5[0] = packed16_sanitize[0];
+                _mor_rank_13_5[1] = packed16_sanitize[1];
+                _mor_rank_13_5[2] = packed16_sanitize[2];
+                _mor_rank_13_5[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_5[0]), "=r"(_mor_rank_13_5[1]), "=r"(_mor_rank_13_5[2]), "=r"(_mor_rank_13_5[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 5) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 6) {
-                _mor_rank_13_6[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_6[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_6[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_6[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_6[0] = packed16_sanitize[0];
+                _mor_rank_13_6[1] = packed16_sanitize[1];
+                _mor_rank_13_6[2] = packed16_sanitize[2];
+                _mor_rank_13_6[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_6[0]), "=r"(_mor_rank_13_6[1]), "=r"(_mor_rank_13_6[2]), "=r"(_mor_rank_13_6[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 6) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 7) {
-                _mor_rank_13_7[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_7[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_7[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_7[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_7[0] = packed16_sanitize[0];
+                _mor_rank_13_7[1] = packed16_sanitize[1];
+                _mor_rank_13_7[2] = packed16_sanitize[2];
+                _mor_rank_13_7[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_7[0]), "=r"(_mor_rank_13_7[1]), "=r"(_mor_rank_13_7[2]), "=r"(_mor_rank_13_7[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 7) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 8) {
-                _mor_rank_13_8[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_8[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_8[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_8[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_8[0] = packed16_sanitize[0];
+                _mor_rank_13_8[1] = packed16_sanitize[1];
+                _mor_rank_13_8[2] = packed16_sanitize[2];
+                _mor_rank_13_8[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_8[0]), "=r"(_mor_rank_13_8[1]), "=r"(_mor_rank_13_8[2]), "=r"(_mor_rank_13_8[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 8) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 9) {
-                _mor_rank_13_9[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_9[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_9[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_9[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_9[0] = packed16_sanitize[0];
+                _mor_rank_13_9[1] = packed16_sanitize[1];
+                _mor_rank_13_9[2] = packed16_sanitize[2];
+                _mor_rank_13_9[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_9[0]), "=r"(_mor_rank_13_9[1]), "=r"(_mor_rank_13_9[2]), "=r"(_mor_rank_13_9[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 9) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 10) {
-                _mor_rank_13_10[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_10[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_10[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_10[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_10[0] = packed16_sanitize[0];
+                _mor_rank_13_10[1] = packed16_sanitize[1];
+                _mor_rank_13_10[2] = packed16_sanitize[2];
+                _mor_rank_13_10[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_10[0]), "=r"(_mor_rank_13_10[1]), "=r"(_mor_rank_13_10[2]), "=r"(_mor_rank_13_10[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 10) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 11) {
-                _mor_rank_13_11[0] = _packed16_sanitize_0[0];
-                _mor_rank_13_11[1] = _packed16_sanitize_0[1];
-                _mor_rank_13_11[2] = _packed16_sanitize_0[2];
-                _mor_rank_13_11[3] = _packed16_sanitize_0[3];
+                _mor_rank_13_11[0] = packed16_sanitize[0];
+                _mor_rank_13_11[1] = packed16_sanitize[1];
+                _mor_rank_13_11[2] = packed16_sanitize[2];
+                _mor_rank_13_11[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_rank_13_11[0]), "=r"(_mor_rank_13_11[1]), "=r"(_mor_rank_13_11[2]), "=r"(_mor_rank_13_11[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 11) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 0) {
-                _mor_retry_rank_13_0[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_0[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_0[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_0[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_0[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_0[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_0[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_0[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_0[0]), "=r"(_mor_retry_rank_13_0[1]), "=r"(_mor_retry_rank_13_0[2]), "=r"(_mor_retry_rank_13_0[3]) : "l"(local_unicast_ptr + (buffer_base + (unsigned long long)token * 12 * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 1) {
-                _mor_retry_rank_13_1[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_1[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_1[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_1[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_1[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_1[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_1[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_1[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_1[0]), "=r"(_mor_retry_rank_13_1[1]), "=r"(_mor_retry_rank_13_1[2]), "=r"(_mor_retry_rank_13_1[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 1) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 2) {
-                _mor_retry_rank_13_2[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_2[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_2[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_2[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_2[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_2[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_2[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_2[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_2[0]), "=r"(_mor_retry_rank_13_2[1]), "=r"(_mor_retry_rank_13_2[2]), "=r"(_mor_retry_rank_13_2[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 2) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 3) {
-                _mor_retry_rank_13_3[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_3[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_3[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_3[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_3[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_3[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_3[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_3[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_3[0]), "=r"(_mor_retry_rank_13_3[1]), "=r"(_mor_retry_rank_13_3[2]), "=r"(_mor_retry_rank_13_3[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 3) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 4) {
-                _mor_retry_rank_13_4[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_4[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_4[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_4[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_4[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_4[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_4[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_4[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_4[0]), "=r"(_mor_retry_rank_13_4[1]), "=r"(_mor_retry_rank_13_4[2]), "=r"(_mor_retry_rank_13_4[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 4) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 5) {
-                _mor_retry_rank_13_5[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_5[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_5[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_5[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_5[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_5[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_5[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_5[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_5[0]), "=r"(_mor_retry_rank_13_5[1]), "=r"(_mor_retry_rank_13_5[2]), "=r"(_mor_retry_rank_13_5[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 5) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 6) {
-                _mor_retry_rank_13_6[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_6[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_6[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_6[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_6[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_6[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_6[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_6[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_6[0]), "=r"(_mor_retry_rank_13_6[1]), "=r"(_mor_retry_rank_13_6[2]), "=r"(_mor_retry_rank_13_6[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 6) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 7) {
-                _mor_retry_rank_13_7[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_7[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_7[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_7[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_7[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_7[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_7[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_7[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_7[0]), "=r"(_mor_retry_rank_13_7[1]), "=r"(_mor_retry_rank_13_7[2]), "=r"(_mor_retry_rank_13_7[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 7) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 8) {
-                _mor_retry_rank_13_8[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_8[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_8[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_8[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_8[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_8[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_8[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_8[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_8[0]), "=r"(_mor_retry_rank_13_8[1]), "=r"(_mor_retry_rank_13_8[2]), "=r"(_mor_retry_rank_13_8[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 8) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 9) {
-                _mor_retry_rank_13_9[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_9[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_9[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_9[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_9[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_9[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_9[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_9[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_9[0]), "=r"(_mor_retry_rank_13_9[1]), "=r"(_mor_retry_rank_13_9[2]), "=r"(_mor_retry_rank_13_9[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 9) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 10) {
-                _mor_retry_rank_13_10[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_10[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_10[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_10[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_10[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_10[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_10[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_10[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_10[0]), "=r"(_mor_retry_rank_13_10[1]), "=r"(_mor_retry_rank_13_10[2]), "=r"(_mor_retry_rank_13_10[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 10) * 3584 + (unsigned long long)element)) : "memory");
             }
             if (rank == 11) {
-                _mor_retry_rank_13_11[0] = _packed16_sanitize_0[0];
-                _mor_retry_rank_13_11[1] = _packed16_sanitize_0[1];
-                _mor_retry_rank_13_11[2] = _packed16_sanitize_0[2];
-                _mor_retry_rank_13_11[3] = _packed16_sanitize_0[3];
+                _mor_retry_rank_13_11[0] = packed16_sanitize[0];
+                _mor_retry_rank_13_11[1] = packed16_sanitize[1];
+                _mor_retry_rank_13_11[2] = packed16_sanitize[2];
+                _mor_retry_rank_13_11[3] = packed16_sanitize[3];
             } else {
                 asm volatile("ld.volatile.global.v4.b32 {%0, %1, %2, %3}, [%4];" : "=r"(_mor_retry_rank_13_11[0]), "=r"(_mor_retry_rank_13_11[1]), "=r"(_mor_retry_rank_13_11[2]), "=r"(_mor_retry_rank_13_11[3]) : "l"(local_unicast_ptr + (buffer_base + ((unsigned long long)token * 12 + 11) * 3584 + (unsigned long long)element)) : "memory");
             }
@@ -1128,15 +1128,15 @@ kernel_cake_kimi_k3_tp12_tail_9f0863d3ca354fa0676f(__nv_bfloat16* __restrict__ r
         }
     }
     asm volatile("griddepcontrol.launch_dependents;" ::: "memory");
-    float _unpack_bf16_0[8];
+    float unpack_bf16[8];
     #pragma unroll
     for (int _pair = 0; _pair < 4; _pair++) {
-        (&_unpack_bf16_0[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) << 16);
-        (&_unpack_bf16_0[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) & 0xffff0000u);
+        (&unpack_bf16[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) << 16);
+        (&unpack_bf16[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) & 0xffff0000u);
     }
     float thread_sum = 0.0f;
     for (int lane_1 = 0; lane_1 < 8; lane_1++) {
-        thread_sum = __fmaf_rn(_unpack_bf16_0[lane_1], _unpack_bf16_0[lane_1], thread_sum);
+        thread_sum = __fmaf_rn(unpack_bf16[lane_1], unpack_bf16[lane_1], thread_sum);
     }
     // BlockReduce: threads=448, warps=14, all-thread broadcast
     float _block_reduce_15_accum = thread_sum;
@@ -1158,7 +1158,7 @@ kernel_cake_kimi_k3_tp12_tail_9f0863d3ca354fa0676f(__nv_bfloat16* __restrict__ r
     float rcp_rms = rsqrtf(_block_reduce_14 / 3584.0f + epsilon);
     float xn_f32[8];
     for (int lane_2 = 0; lane_2 < 8; lane_2++) {
-        xn_f32[lane_2] = _unpack_bf16_0[lane_2] * rcp_rms;
+        xn_f32[lane_2] = unpack_bf16[lane_2] * rcp_rms;
     }
     unsigned int xn_f32_bf16[4];
     #pragma unroll
@@ -1166,21 +1166,21 @@ kernel_cake_kimi_k3_tp12_tail_9f0863d3ca354fa0676f(__nv_bfloat16* __restrict__ r
         __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(xn_f32[_lp*2 + 0], xn_f32[_lp*2+1 + 0]));
         xn_f32_bf16[_lp] = *(uint32_t*)&_bf2;
     }
-    float _unpack_bf16_1[8];
+    float unpack_bf16_0[8];
     #pragma unroll
     for (int _pair = 0; _pair < 4; _pair++) {
-        (&_unpack_bf16_1[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) << 16);
-        (&_unpack_bf16_1[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) & 0xffff0000u);
+        (&unpack_bf16_0[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) << 16);
+        (&unpack_bf16_0[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) & 0xffff0000u);
     }
-    float _unpack_bf16_2[8];
+    float unpack_bf16_1[8];
     #pragma unroll
     for (int _pair = 0; _pair < 4; _pair++) {
-        (&_unpack_bf16_2[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vec_load_4[_pair]) << 16);
-        (&_unpack_bf16_2[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vec_load_4[_pair]) & 0xffff0000u);
+        (&unpack_bf16_1[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vec_load_4[_pair]) << 16);
+        (&unpack_bf16_1[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vec_load_4[_pair]) & 0xffff0000u);
     }
     float y_f32[8];
     for (int lane_3 = 0; lane_3 < 8; lane_3++) {
-        y_f32[lane_3] = _unpack_bf16_1[lane_3] * _unpack_bf16_2[lane_3];
+        y_f32[lane_3] = unpack_bf16_0[lane_3] * unpack_bf16_1[lane_3];
     }
     unsigned int y_f32_bf16[4];
     #pragma unroll

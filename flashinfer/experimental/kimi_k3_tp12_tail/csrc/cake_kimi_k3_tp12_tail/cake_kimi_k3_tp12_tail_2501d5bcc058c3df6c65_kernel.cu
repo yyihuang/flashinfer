@@ -53,18 +53,18 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_REDUCE_SCRATCH_STAGE_BYTES 128
 #define SMEM_REDUCE_SCRATCH_STRIDE 128
 #define SMEM_PARTIALS_OFF 0
-#define SMEM_PARTIALS_STAGE_BYTES 3840
-#define SMEM_PARTIALS_STRIDE 3840
-#define SMEM_TOTAL 3840
+#define SMEM_PARTIALS_STAGE_BYTES 1920
+#define SMEM_PARTIALS_STRIDE 1920
+#define SMEM_TOTAL 1920
 #define THREADS 448
-#define K23_CAPACITY 8
+#define K23_CAPACITY 4
 
 #include <math_constants.h>
 
 extern "C" {
 
 __global__ __launch_bounds__(448) void
-kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ shared, __nv_bfloat16* y, __nv_bfloat16* __restrict__ gamma, __nv_bfloat16* __restrict__ w_slice, __nv_bfloat16* __restrict__ out, __nv_bfloat16* __restrict__ mcast_ptr, __nv_bfloat16* __restrict__ local_unicast_ptr, unsigned int* __restrict__ buffer_flags, long long* __restrict__ k3_peer_ptrs, __nv_bfloat16* __restrict__ k3_mcast_ptr, unsigned int* __restrict__ k3_flags, int num_tokens, int rank, int my_col_begin, int k23_ctas, float epsilon)
+kernel_cake_kimi_k3_tp12_tail_2501d5bcc058c3df6c65(__nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ shared, __nv_bfloat16* y, __nv_bfloat16* __restrict__ gamma, __nv_bfloat16* __restrict__ w_slice, __nv_bfloat16* __restrict__ out, __nv_bfloat16* __restrict__ mcast_ptr, __nv_bfloat16* __restrict__ local_unicast_ptr, unsigned int* __restrict__ buffer_flags, long long* __restrict__ k3_peer_ptrs, __nv_bfloat16* __restrict__ k3_mcast_ptr, unsigned int* __restrict__ k3_flags, int num_tokens, int rank, int my_col_begin, int k23_ctas, float epsilon)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -1007,15 +1007,15 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
             }
         }
         asm volatile("griddepcontrol.launch_dependents;" ::: "memory");
-        float _unpack_bf16_0[8];
+        float unpack_bf16[8];
         #pragma unroll
         for (int _pair = 0; _pair < 4; _pair++) {
-            (&_unpack_bf16_0[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) << 16);
-            (&_unpack_bf16_0[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) & 0xffff0000u);
+            (&unpack_bf16[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) << 16);
+            (&unpack_bf16[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_mnnvl_oneshot_reduce_0[_pair]) & 0xffff0000u);
         }
         float thread_sum = 0.0f;
         for (int lane_1 = 0; lane_1 < 8; lane_1++) {
-            thread_sum = __fmaf_rn(_unpack_bf16_0[lane_1], _unpack_bf16_0[lane_1], thread_sum);
+            thread_sum = __fmaf_rn(unpack_bf16[lane_1], unpack_bf16[lane_1], thread_sum);
         }
         // BlockReduce: threads=448, warps=14, all-thread broadcast
         float _block_reduce_11_accum = thread_sum;
@@ -1037,7 +1037,7 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
         float rcp_rms = rsqrtf(_block_reduce_10 / 3584.0f + epsilon);
         float xn_f32[8];
         for (int lane_1_1 = 0; lane_1_1 < 8; lane_1_1++) {
-            xn_f32[lane_1_1] = _unpack_bf16_0[lane_1_1] * rcp_rms;
+            xn_f32[lane_1_1] = unpack_bf16[lane_1_1] * rcp_rms;
         }
         unsigned int xn_f32_bf16[4];
         #pragma unroll
@@ -1045,21 +1045,21 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(xn_f32[_lp*2 + 0], xn_f32[_lp*2+1 + 0]));
             xn_f32_bf16[_lp] = *(uint32_t*)&_bf2;
         }
-        float _unpack_bf16_1[8];
+        float unpack_bf16_0[8];
         #pragma unroll
         for (int _pair = 0; _pair < 4; _pair++) {
-            (&_unpack_bf16_1[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) << 16);
-            (&_unpack_bf16_1[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) & 0xffff0000u);
+            (&unpack_bf16_0[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) << 16);
+            (&unpack_bf16_0[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(xn_f32_bf16[_pair]) & 0xffff0000u);
         }
-        float _unpack_bf16_2[8];
+        float unpack_bf16_1[8];
         #pragma unroll
         for (int _pair = 0; _pair < 4; _pair++) {
-            (&_unpack_bf16_2[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vec_load_6[_pair]) << 16);
-            (&_unpack_bf16_2[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vec_load_6[_pair]) & 0xffff0000u);
+            (&unpack_bf16_1[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vec_load_6[_pair]) << 16);
+            (&unpack_bf16_1[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vec_load_6[_pair]) & 0xffff0000u);
         }
         float y_f32[8];
         for (int lane_1_2 = 0; lane_1_2 < 8; lane_1_2++) {
-            y_f32[lane_1_2] = _unpack_bf16_1[lane_1_2] * _unpack_bf16_2[lane_1_2];
+            y_f32[lane_1_2] = unpack_bf16_0[lane_1_2] * unpack_bf16_1[lane_1_2];
         }
         unsigned int y_f32_bf16[4];
         #pragma unroll
@@ -1077,50 +1077,50 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
             asm volatile("red.async.release.global.gpu.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(k3_flags) + (8))), "r"(static_cast<unsigned int>(1)) : "memory");
         }
         uint8_t* bytes_base_0 = reinterpret_cast<uint8_t*>(reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[rank]));
-        unsigned int dirty_1 = (unsigned int)_vec_load_3[1];
-        unsigned int stage_bytes_2 = (unsigned int)k3_stage_bytes;
-        unsigned int num_stages_3 = (unsigned int)k3_num_stages;
-        unsigned int clear_4[4];
-        clear_4[0] = (unsigned int)_vec_load_4[0];
-        clear_4[1] = (unsigned int)_vec_load_4[1];
-        clear_4[2] = (unsigned int)_vec_load_4[2];
-        clear_4[3] = (unsigned int)_vec_load_4[3];
-        unsigned int block_5 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
-        unsigned int thread_6 = block_5 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
-        unsigned int threads_7 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
-        unsigned int sentinel_8[4] = {2147483648, 2147483648, 2147483648, 2147483648};
-        if (num_stages_3 > 0) {
-            unsigned long long stage_offset_0 = (unsigned long long)((unsigned int)(uint8_t)dirty_1 * num_stages_3 + (unsigned int)0) * (unsigned long long)stage_bytes_2;
-            unsigned int boundary_1 = (clear_4[0] + 15) / 16;
-            for (unsigned int packed_1 = thread_6; packed_1 < boundary_1; packed_1 += threads_7) {
+        unsigned int dirty_0 = (unsigned int)_vec_load_3[1];
+        unsigned int stage_bytes_0 = (unsigned int)k3_stage_bytes;
+        unsigned int num_stages_0 = (unsigned int)k3_num_stages;
+        unsigned int clear_1[4];
+        clear_1[0] = (unsigned int)_vec_load_4[0];
+        clear_1[1] = (unsigned int)_vec_load_4[1];
+        clear_1[2] = (unsigned int)_vec_load_4[2];
+        clear_1[3] = (unsigned int)_vec_load_4[3];
+        unsigned int block_0 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
+        unsigned int thread_0 = block_0 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
+        unsigned int threads_0 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
+        unsigned int sentinel_0[4] = {2147483648, 2147483648, 2147483648, 2147483648};
+        if (num_stages_0 > 0) {
+            unsigned long long stage_offset_0 = (unsigned long long)((unsigned int)(uint8_t)dirty_0 * num_stages_0 + (unsigned int)0) * (unsigned long long)stage_bytes_0;
+            unsigned int boundary_1 = (clear_1[0] + 15) / 16;
+            for (unsigned int packed_1 = thread_0; packed_1 < boundary_1; packed_1 += threads_0) {
                 {
                     auto _gst_12 = reinterpret_cast<unsigned __int128*>(bytes_base_0 + stage_offset_0) + packed_1;
                     __builtin_assume(__isGlobal(_gst_12));
-                    reinterpret_cast<int4*>(_gst_12)[0] = reinterpret_cast<int4*>(sentinel_8)[0];
+                    reinterpret_cast<int4*>(_gst_12)[0] = reinterpret_cast<int4*>(sentinel_0)[0];
                 }
             }
         }
-        uint8_t* bytes_base_9 = reinterpret_cast<uint8_t*>(reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[rank]));
-        unsigned int dirty_10 = (unsigned int)_vec_load_3[1];
-        unsigned int stage_bytes_11 = (unsigned int)k3_stage_bytes;
-        unsigned int num_stages_12 = (unsigned int)k3_num_stages;
-        unsigned int clear_13[4];
-        clear_13[0] = (unsigned int)_vec_load_4[0];
-        clear_13[1] = (unsigned int)_vec_load_4[1];
-        clear_13[2] = (unsigned int)_vec_load_4[2];
-        clear_13[3] = (unsigned int)_vec_load_4[3];
-        unsigned int block_14 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
-        unsigned int thread_15 = block_14 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
-        unsigned int threads_16 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
-        unsigned int sentinel_17[4] = {2147483648, 2147483648, 2147483648, 2147483648};
-        if (num_stages_12 > 1) {
-            unsigned long long stage_offset_0_1 = (unsigned long long)((unsigned int)(uint8_t)dirty_10 * num_stages_12 + (unsigned int)1) * (unsigned long long)stage_bytes_11;
-            unsigned int boundary_1_1 = (clear_13[1] + 15) / 16;
-            for (unsigned int packed_1_1 = thread_15; packed_1_1 < boundary_1_1; packed_1_1 += threads_16) {
+        uint8_t* bytes_base_1 = reinterpret_cast<uint8_t*>(reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[rank]));
+        unsigned int dirty_1 = (unsigned int)_vec_load_3[1];
+        unsigned int stage_bytes_1 = (unsigned int)k3_stage_bytes;
+        unsigned int num_stages_1 = (unsigned int)k3_num_stages;
+        unsigned int clear_2[4];
+        clear_2[0] = (unsigned int)_vec_load_4[0];
+        clear_2[1] = (unsigned int)_vec_load_4[1];
+        clear_2[2] = (unsigned int)_vec_load_4[2];
+        clear_2[3] = (unsigned int)_vec_load_4[3];
+        unsigned int block_1 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
+        unsigned int thread_1 = block_1 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
+        unsigned int threads_1 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
+        unsigned int sentinel_1[4] = {2147483648, 2147483648, 2147483648, 2147483648};
+        if (num_stages_1 > 1) {
+            unsigned long long stage_offset_0_1 = (unsigned long long)((unsigned int)(uint8_t)dirty_1 * num_stages_1 + (unsigned int)1) * (unsigned long long)stage_bytes_1;
+            unsigned int boundary_1_1 = (clear_2[1] + 15) / 16;
+            for (unsigned int packed_1_1 = thread_1; packed_1_1 < boundary_1_1; packed_1_1 += threads_1) {
                 {
-                    auto _gst_13 = reinterpret_cast<unsigned __int128*>(bytes_base_9 + stage_offset_0_1) + packed_1_1;
+                    auto _gst_13 = reinterpret_cast<unsigned __int128*>(bytes_base_1 + stage_offset_0_1) + packed_1_1;
                     __builtin_assume(__isGlobal(_gst_13));
-                    reinterpret_cast<int4*>(_gst_13)[0] = reinterpret_cast<int4*>(sentinel_17)[0];
+                    reinterpret_cast<int4*>(_gst_13)[0] = reinterpret_cast<int4*>(sentinel_1)[0];
                 }
             }
         }
@@ -1157,27 +1157,27 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
         if (tid == 0) {
             asm volatile("red.async.release.global.gpu.add.u32 [%0], %1;" :: "l"((reinterpret_cast<unsigned int*>(buffer_flags) + (8))), "r"(static_cast<unsigned int>(1)) : "memory");
         }
-        uint8_t* bytes_base_1 = reinterpret_cast<uint8_t*>(local_unicast_ptr);
+        uint8_t* bytes_base_2 = reinterpret_cast<uint8_t*>(local_unicast_ptr);
         unsigned int dirty_2 = (unsigned int)_vec_load_1[1];
-        unsigned int stage_bytes_1 = (unsigned int)dirty_stage_bytes;
-        unsigned int num_stages_1 = (unsigned int)dirty_num_stages;
-        unsigned int clear_1[4];
-        clear_1[0] = (unsigned int)_vec_load_2[0];
-        clear_1[1] = (unsigned int)_vec_load_2[1];
-        clear_1[2] = (unsigned int)_vec_load_2[2];
-        clear_1[3] = (unsigned int)_vec_load_2[3];
-        unsigned int block_1 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
-        unsigned int thread_1 = block_1 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
-        unsigned int threads_1 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
-        unsigned int sentinel_1[4] = {2147483648, 2147483648, 2147483648, 2147483648};
-        for (unsigned int stage_1 = 0; stage_1 < num_stages_1; stage_1++) {
-            unsigned long long stage_offset_1 = (unsigned long long)((unsigned int)(uint8_t)dirty_2 * num_stages_1 + (unsigned int)(uint8_t)stage_1) * (unsigned long long)stage_bytes_1;
-            unsigned int boundary_2 = (clear_1[stage_1] + 15) / 16;
-            for (unsigned int packed_2 = thread_1; packed_2 < boundary_2; packed_2 += threads_1) {
+        unsigned int stage_bytes_2 = (unsigned int)dirty_stage_bytes;
+        unsigned int num_stages_2 = (unsigned int)dirty_num_stages;
+        unsigned int clear_3[4];
+        clear_3[0] = (unsigned int)_vec_load_2[0];
+        clear_3[1] = (unsigned int)_vec_load_2[1];
+        clear_3[2] = (unsigned int)_vec_load_2[2];
+        clear_3[3] = (unsigned int)_vec_load_2[3];
+        unsigned int block_2 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
+        unsigned int thread_2 = block_2 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
+        unsigned int threads_2 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
+        unsigned int sentinel_2[4] = {2147483648, 2147483648, 2147483648, 2147483648};
+        for (unsigned int stage_1 = 0; stage_1 < num_stages_2; stage_1++) {
+            unsigned long long stage_offset_1 = (unsigned long long)((unsigned int)(uint8_t)dirty_2 * num_stages_2 + (unsigned int)(uint8_t)stage_1) * (unsigned long long)stage_bytes_2;
+            unsigned int boundary_2 = (clear_3[stage_1] + 15) / 16;
+            for (unsigned int packed_2 = thread_2; packed_2 < boundary_2; packed_2 += threads_2) {
                 {
-                    auto _gst_15 = reinterpret_cast<unsigned __int128*>(bytes_base_1 + stage_offset_1) + packed_2;
+                    auto _gst_15 = reinterpret_cast<unsigned __int128*>(bytes_base_2 + stage_offset_1) + packed_2;
                     __builtin_assume(__isGlobal(_gst_15));
-                    reinterpret_cast<int4*>(_gst_15)[0] = reinterpret_cast<int4*>(sentinel_1)[0];
+                    reinterpret_cast<int4*>(_gst_15)[0] = reinterpret_cast<int4*>(sentinel_2)[0];
                 }
             }
         }
@@ -1185,32 +1185,32 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
         if (p < num_tokens * 896) {
             int s_token = p / 896;
             int s_col = (p - s_token * 896) * 8;
-            unsigned int _vec_load_7[4];
+            unsigned int _vec_load_5_1[4];
             {
                 uint4 _uv4_16 = *reinterpret_cast<const uint4*>(shared + (s_token * 7168 + s_col) + 0);
-                _vec_load_7[0 + 0] = _uv4_16.x;
-                _vec_load_7[0 + 1] = _uv4_16.y;
-                _vec_load_7[0 + 2] = _uv4_16.z;
-                _vec_load_7[0 + 3] = _uv4_16.w;
+                _vec_load_5_1[0 + 0] = _uv4_16.x;
+                _vec_load_5_1[0 + 1] = _uv4_16.y;
+                _vec_load_5_1[0 + 2] = _uv4_16.z;
+                _vec_load_5_1[0 + 3] = _uv4_16.w;
             }
-            uint32_t _packed16_sanitize_1[4];
+            uint32_t _packed16_sanitize_0_1[4];
             {
-                uint32_t _p16_word_17_0 = _vec_load_7[0];
+                uint32_t _p16_word_17_0 = _vec_load_5_1[0];
                 if ((_p16_word_17_0 & 0x0000ffffu) == 0x00008000u) _p16_word_17_0 &= 0xffff0000u;
                 if ((_p16_word_17_0 & 0xffff0000u) == 0x80000000u) _p16_word_17_0 &= 0x0000ffffu;
-                _packed16_sanitize_1[0] = _p16_word_17_0;
-                uint32_t _p16_word_17_1 = _vec_load_7[1];
+                _packed16_sanitize_0_1[0] = _p16_word_17_0;
+                uint32_t _p16_word_17_1 = _vec_load_5_1[1];
                 if ((_p16_word_17_1 & 0x0000ffffu) == 0x00008000u) _p16_word_17_1 &= 0xffff0000u;
                 if ((_p16_word_17_1 & 0xffff0000u) == 0x80000000u) _p16_word_17_1 &= 0x0000ffffu;
-                _packed16_sanitize_1[1] = _p16_word_17_1;
-                uint32_t _p16_word_17_2 = _vec_load_7[2];
+                _packed16_sanitize_0_1[1] = _p16_word_17_1;
+                uint32_t _p16_word_17_2 = _vec_load_5_1[2];
                 if ((_p16_word_17_2 & 0x0000ffffu) == 0x00008000u) _p16_word_17_2 &= 0xffff0000u;
                 if ((_p16_word_17_2 & 0xffff0000u) == 0x80000000u) _p16_word_17_2 &= 0x0000ffffu;
-                _packed16_sanitize_1[2] = _p16_word_17_2;
-                uint32_t _p16_word_17_3 = _vec_load_7[3];
+                _packed16_sanitize_0_1[2] = _p16_word_17_2;
+                uint32_t _p16_word_17_3 = _vec_load_5_1[3];
                 if ((_p16_word_17_3 & 0x0000ffffu) == 0x00008000u) _p16_word_17_3 &= 0xffff0000u;
                 if ((_p16_word_17_3 & 0xffff0000u) == 0x80000000u) _p16_word_17_3 &= 0x0000ffffu;
-                _packed16_sanitize_1[3] = _p16_word_17_3;
+                _packed16_sanitize_0_1[3] = _p16_word_17_3;
             }
             int s_owner = 0;
             int s_owner_begin = 0;
@@ -1262,30 +1262,30 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
             {
                 auto _gst_18 = reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[s_owner]) + (k3_epoch_elements + s_index);
                 __builtin_assume(__isGlobal(_gst_18));
-                reinterpret_cast<int4*>(_gst_18)[0] = reinterpret_cast<int4*>(_packed16_sanitize_1)[0];
+                reinterpret_cast<int4*>(_gst_18)[0] = reinterpret_cast<int4*>(_packed16_sanitize_0_1)[0];
             }
         }
-        uint8_t* bytes_base_0_1 = reinterpret_cast<uint8_t*>(reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[rank]));
-        unsigned int dirty_1_1 = (unsigned int)_vec_load_3[1];
+        uint8_t* bytes_base_2_1 = reinterpret_cast<uint8_t*>(reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[rank]));
+        unsigned int dirty_2_1 = (unsigned int)_vec_load_3[1];
         unsigned int stage_bytes_2_1 = (unsigned int)k3_stage_bytes;
-        unsigned int num_stages_3_1 = (unsigned int)k3_num_stages;
-        unsigned int clear_4_1[4];
-        clear_4_1[0] = (unsigned int)_vec_load_4[0];
-        clear_4_1[1] = (unsigned int)_vec_load_4[1];
-        clear_4_1[2] = (unsigned int)_vec_load_4[2];
-        clear_4_1[3] = (unsigned int)_vec_load_4[3];
-        unsigned int block_5_1 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
-        unsigned int thread_6_1 = block_5_1 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
-        unsigned int threads_7_1 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
-        unsigned int sentinel_8_1[4] = {2147483648, 2147483648, 2147483648, 2147483648};
-        if (num_stages_3_1 > 0) {
-            unsigned long long stage_offset_0_2 = (unsigned long long)((unsigned int)(uint8_t)dirty_1_1 * num_stages_3_1 + (unsigned int)0) * (unsigned long long)stage_bytes_2_1;
-            unsigned int boundary_1_2 = (clear_4_1[0] + 15) / 16;
-            for (unsigned int packed_1_2 = thread_6_1; packed_1_2 < boundary_1_2; packed_1_2 += threads_7_1) {
+        unsigned int num_stages_2_1 = (unsigned int)k3_num_stages;
+        unsigned int clear_3_1[4];
+        clear_3_1[0] = (unsigned int)_vec_load_4[0];
+        clear_3_1[1] = (unsigned int)_vec_load_4[1];
+        clear_3_1[2] = (unsigned int)_vec_load_4[2];
+        clear_3_1[3] = (unsigned int)_vec_load_4[3];
+        unsigned int block_2_1 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
+        unsigned int thread_2_1 = block_2_1 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
+        unsigned int threads_2_1 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
+        unsigned int sentinel_2_1[4] = {2147483648, 2147483648, 2147483648, 2147483648};
+        if (num_stages_2_1 > 0) {
+            unsigned long long stage_offset_0_2 = (unsigned long long)((unsigned int)(uint8_t)dirty_2_1 * num_stages_2_1 + (unsigned int)0) * (unsigned long long)stage_bytes_2_1;
+            unsigned int boundary_1_2 = (clear_3_1[0] + 15) / 16;
+            for (unsigned int packed_1_2 = thread_2_1; packed_1_2 < boundary_1_2; packed_1_2 += threads_2_1) {
                 {
-                    auto _gst_19 = reinterpret_cast<unsigned __int128*>(bytes_base_0_1 + stage_offset_0_2) + packed_1_2;
+                    auto _gst_19 = reinterpret_cast<unsigned __int128*>(bytes_base_2_1 + stage_offset_0_2) + packed_1_2;
                     __builtin_assume(__isGlobal(_gst_19));
-                    reinterpret_cast<int4*>(_gst_19)[0] = reinterpret_cast<int4*>(sentinel_8_1)[0];
+                    reinterpret_cast<int4*>(_gst_19)[0] = reinterpret_cast<int4*>(sentinel_2_1)[0];
                 }
             }
         }
@@ -1789,14 +1789,14 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
                     _mnnvl_twoshot_reduce_0[_mtr_pair] = *reinterpret_cast<uint32_t*>(&_mtr_out);
                 }
             }
-            float _unpack_bf16_3[8];
+            float unpack_bf16_2[8];
             #pragma unroll
             for (int _pair = 0; _pair < 4; _pair++) {
-                (&_unpack_bf16_3[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_mnnvl_twoshot_reduce_0[_pair]) << 16);
-                (&_unpack_bf16_3[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_mnnvl_twoshot_reduce_0[_pair]) & 0xffff0000u);
+                (&unpack_bf16_2[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_mnnvl_twoshot_reduce_0[_pair]) << 16);
+                (&unpack_bf16_2[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_mnnvl_twoshot_reduce_0[_pair]) & 0xffff0000u);
             }
             for (int lane_1_4 = 0; lane_1_4 < 8; lane_1_4++) {
-                shared_sum_f32[lane_1_4] = _unpack_bf16_3[lane_1_4];
+                shared_sum_f32[lane_1_4] = unpack_bf16_2[lane_1_4];
             }
         }
         if (tid == 0) {
@@ -1810,7 +1810,7 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
         asm volatile("barrier.sync 1, 448;" ::: "memory");
         __syncwarp();
         float acc[8];
-        unsigned int ycache[32];
+        unsigned int ycache[16];
         for (int m = 0; m < K23_CAPACITY; m++) {
             if (m < num_tokens) {
                 unsigned int _vec_load_8[4];
@@ -1827,7 +1827,7 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
             }
         }
         float accg[32];
-        for (int g = 0; g < 2; g++) {
+        for (int g = 0; g < 1; g++) {
             int mq = g * 4;
             if (mq + 4 <= num_tokens) {
                 for (int j = 0; j < 4; j++) {
@@ -2301,27 +2301,27 @@ kernel_cake_kimi_k3_tp12_tail_5b5ceb1d68849a0d1565(__nv_bfloat16* __restrict__ r
             }
             reinterpret_cast<int4*>(k3_mcast_ptr + (k3_epoch_elements + k3_stage_elements + (unsigned long long)(tid * 7168 + col)))[0] = reinterpret_cast<int4*>(_packed16_sanitize_2)[0];
         }
-        uint8_t* bytes_base_9_1 = reinterpret_cast<uint8_t*>(reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[rank]));
-        unsigned int dirty_10_1 = (unsigned int)_vec_load_3[1];
-        unsigned int stage_bytes_11_1 = (unsigned int)k3_stage_bytes;
-        unsigned int num_stages_12_1 = (unsigned int)k3_num_stages;
-        unsigned int clear_13_1[4];
-        clear_13_1[0] = (unsigned int)_vec_load_4[0];
-        clear_13_1[1] = (unsigned int)_vec_load_4[1];
-        clear_13_1[2] = (unsigned int)_vec_load_4[2];
-        clear_13_1[3] = (unsigned int)_vec_load_4[3];
-        unsigned int block_14_1 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
-        unsigned int thread_15_1 = block_14_1 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
-        unsigned int threads_16_1 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
-        unsigned int sentinel_17_1[4] = {2147483648, 2147483648, 2147483648, 2147483648};
-        if (num_stages_12_1 > 1) {
-            unsigned long long stage_offset_0_3 = (unsigned long long)((unsigned int)(uint8_t)dirty_10_1 * num_stages_12_1 + (unsigned int)1) * (unsigned long long)stage_bytes_11_1;
-            unsigned int boundary_1_3 = (clear_13_1[1] + 15) / 16;
-            for (unsigned int packed_1_3 = thread_15_1; packed_1_3 < boundary_1_3; packed_1_3 += threads_16_1) {
+        uint8_t* bytes_base_3 = reinterpret_cast<uint8_t*>(reinterpret_cast<__nv_bfloat16*>(k3_peer_ptrs[rank]));
+        unsigned int dirty_3 = (unsigned int)_vec_load_3[1];
+        unsigned int stage_bytes_3 = (unsigned int)k3_stage_bytes;
+        unsigned int num_stages_3 = (unsigned int)k3_num_stages;
+        unsigned int clear_4[4];
+        clear_4[0] = (unsigned int)_vec_load_4[0];
+        clear_4[1] = (unsigned int)_vec_load_4[1];
+        clear_4[2] = (unsigned int)_vec_load_4[2];
+        clear_4[3] = (unsigned int)_vec_load_4[3];
+        unsigned int block_3 = (unsigned int)blockIdx.x * (unsigned int)gridDim.y + (unsigned int)blockIdx.y;
+        unsigned int thread_3 = block_3 * (unsigned int)blockDim.x + (unsigned int)threadIdx.x;
+        unsigned int threads_3 = (unsigned int)gridDim.x * (unsigned int)gridDim.y * (unsigned int)blockDim.x;
+        unsigned int sentinel_3[4] = {2147483648, 2147483648, 2147483648, 2147483648};
+        if (num_stages_3 > 1) {
+            unsigned long long stage_offset_0_3 = (unsigned long long)((unsigned int)(uint8_t)dirty_3 * num_stages_3 + (unsigned int)1) * (unsigned long long)stage_bytes_3;
+            unsigned int boundary_1_3 = (clear_4[1] + 15) / 16;
+            for (unsigned int packed_1_3 = thread_3; packed_1_3 < boundary_1_3; packed_1_3 += threads_3) {
                 {
-                    auto _gst_73 = reinterpret_cast<unsigned __int128*>(bytes_base_9_1 + stage_offset_0_3) + packed_1_3;
+                    auto _gst_73 = reinterpret_cast<unsigned __int128*>(bytes_base_3 + stage_offset_0_3) + packed_1_3;
                     __builtin_assume(__isGlobal(_gst_73));
-                    reinterpret_cast<int4*>(_gst_73)[0] = reinterpret_cast<int4*>(sentinel_17_1)[0];
+                    reinterpret_cast<int4*>(_gst_73)[0] = reinterpret_cast<int4*>(sentinel_3)[0];
                 }
             }
         }
