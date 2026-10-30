@@ -15,7 +15,8 @@ limitations under the License.
 """
 
 import functools
-from collections import OrderedDict
+import heapq
+from collections import OrderedDict, deque
 import math
 import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
@@ -48,6 +49,20 @@ _MAX_SEGMENT_TILES = 1 << 16
 _MAX_ELEMENTS = (1 << 31) - 1
 # Fixed per-unit overhead (Q TMA, pipeline fill, epilogue) in K/V-tile units for the LPT placement.
 _UNIT_OVERHEAD_TILES = 2
+# Drain order of the overlapped form (host only): the last ``_DRAIN_ROUNDS`` x (plan grid) head-major
+# units, the ones the attention CTAs claim as they drain, run longest first (a stable sort by cost)
+# when their costs differ by more than one K/V tile and the counter model (``_drain_gain``) predicts
+# that this shortens the attention by at least ``_DRAIN_MIN_GAIN`` of its span; otherwise the
+# head-major order stays.  (Costs one tile apart come from the key-block alignment of segments of one
+# key-tile count, where the predicted gain is far below the bound.)  The model replays the kernels'
+# counter protocol (a CTA claims ``_DRAIN_CLAIM_DEPTH`` + 1 units at entry and one more at the start
+# of every unit) on the lead and tail CTAs with unit times of K/V tiles + ``_UNIT_OVERHEAD_TILES``;
+# the producers publish head h at s * (h + 1) / heads of a span s and the tail CTAs join at s,
+# averaged over the spans ``_DRAIN_SPANS`` (in units of the mean CTA load).
+_DRAIN_ROUNDS = 4
+_DRAIN_MIN_GAIN = 0.01
+_DRAIN_CLAIM_DEPTH = 2
+_DRAIN_SPANS = (0.5, 1.0)
 _PARTIAL_FLOATS = 2 * MINIMAX_H3_HEAD_DIM
 # The attention kernel exponentiates in the log2 domain: the launch takes ``softmax_scale * log2(e)``,
 # log2(e) spelled as the double the scale is multiplied by before the binding rounds it to float.
@@ -174,6 +189,65 @@ def assign_unit_slots(unit_costs: List[int], num_ctas: int) -> List[int]:
     return slots
 
 
+def _counter_run(
+    state: List[Any],
+    costs: List[int],
+    heads: List[int],
+    ready: List[float],
+    stop: Optional[int],
+) -> None:
+    """Advance the counter model ``state`` (``[events, queues, next unit, makespan]``) over the unit order
+    ``costs`` / ``heads`` until the counter reaches unit ``stop`` (with ``stop`` None, until every unit
+    ends): an event ``(time, kind, cta)`` is a CTA's entry (kind 0) or the start of its next unit (kind
+    1); events run in time order (ties: entries first, then by CTA)."""
+    events, queues, nxt, makespan = state
+    total = len(costs)
+    while events and (stop is None or nxt < stop):
+        time, kind, cta = heapq.heappop(events)
+        queue = queues[cta]
+        claims = _DRAIN_CLAIM_DEPTH + 1 if kind == 0 else 1
+        while claims and nxt < total:
+            queue.append(nxt)
+            nxt += 1
+            claims -= 1
+        if queue:
+            unit = queue.popleft()
+            end = max(time, ready[heads[unit]]) + costs[unit]
+            heapq.heappush(events, (end, 1, cta))
+            makespan = max(makespan, end)
+    state[2], state[3] = nxt, makespan
+
+
+def _drain_gain(
+    costs: List[int], heads: List[int], drain: int, lead: int, tail: int, num_heads: int
+) -> float:
+    """The counter model's mean relative makespan reduction (over ``_DRAIN_SPANS``) when the units
+    ``drain:`` of the head-major order ``costs`` / ``heads`` run longest first, on ``lead`` lead and
+    ``tail`` tail CTAs.  Both orders share the units before ``drain``, so the model runs them once."""
+    drained = sorted(range(drain, len(costs)), key=lambda unit: -costs[unit])
+    drain_costs = costs[:drain] + [costs[unit] for unit in drained]
+    drain_heads = heads[:drain] + [heads[unit] for unit in drained]
+    mean = sum(costs) / (lead + tail)
+    gain = 0.0
+    for span in _DRAIN_SPANS:
+        ready = [span * mean * (head + 1) / num_heads for head in range(num_heads)]
+        events = [(0.0, 0, cta) for cta in range(lead)]
+        events += [(float(span * mean), 0, lead + cta) for cta in range(tail)]
+        heapq.heapify(events)
+        state = [events, [deque() for _ in range(lead + tail)], 0, 0.0]
+        _counter_run(state, costs, heads, ready, drain)
+        shipped = [
+            list(state[0]),
+            [deque(queue) for queue in state[1]],
+            state[2],
+            state[3],
+        ]
+        _counter_run(shipped, costs, heads, ready, None)
+        _counter_run(state, drain_costs, drain_heads, ready, None)
+        gain += 1.0 - state[3] / shipped[3]
+    return gain / len(_DRAIN_SPANS)
+
+
 def _overlap_selected(num_heads: int, work: int, num_sms: int) -> bool:
     """Whether a plan of ``num_heads`` heads and attention work ``work`` (the sum of the squared
     segment lengths) runs the overlapped form on a device of ``num_sms`` SMs."""
@@ -272,7 +346,9 @@ class MiniMaxH3VarlenPlan:
         )
         # The overlapped form's units come from one counter in this order: head by head (the order the
         # producers publish the heads), each head's units longest first (equal costs keep segment and
-        # tile order).
+        # tile order); the last ``_DRAIN_ROUNDS * self.grid`` units then run longest first when their
+        # costs differ by more than one tile and the counter model predicts a gain of at least
+        # ``_DRAIN_MIN_GAIN`` (``_drain_gain``).
         unit_table_head_major: List[int] = []
         if self.overlap:
             per_head = sorted(
@@ -283,9 +359,35 @@ class MiniMaxH3VarlenPlan:
                 ),
                 key=lambda unit: -unit[0],
             )
-            for head in range(num_heads):
-                for _, seg, t in per_head:
-                    unit_table_head_major.extend((seg, (head << 16) | t))
+            order = [
+                (cost, seg, head, t)
+                for head in range(num_heads)
+                for cost, seg, t in per_head
+            ]
+            drain = len(order) - min(len(order), _DRAIN_ROUNDS * self.grid)
+            window = [unit[0] for unit in order[drain:]]
+            if max(window, default=0) - min(window, default=0) > 1:
+                grids = minimax_h3_sm120_quant_varlen_attention_overlap_grids(
+                    int(num_ctas),
+                    num_units=self.num_units,
+                    total_tokens=self.total_tokens,
+                    work=self.work,
+                    padded_tokens=padded_tokens,
+                )
+                assert grids is not None, "an overlap plan has an overlap width"
+                lead, _producers, tail = grids
+                gain = _drain_gain(
+                    [unit[0] for unit in order],
+                    [unit[2] for unit in order],
+                    drain,
+                    lead,
+                    tail,
+                    num_heads,
+                )
+                if gain >= _DRAIN_MIN_GAIN:
+                    order[drain:] = sorted(order[drain:], key=lambda unit: -unit[0])
+            for _, seg, head, t in order:
+                unit_table_head_major.extend((seg, (head << 16) | t))
         self.num_kblocks = max(1, _ceil_div(self.total_tokens, _BLOCK_N))
         self.padded_tokens = self.num_kblocks * _BLOCK_N
         i32 = lambda values: torch.tensor(values, dtype=torch.int32, device=device)  # noqa: E731

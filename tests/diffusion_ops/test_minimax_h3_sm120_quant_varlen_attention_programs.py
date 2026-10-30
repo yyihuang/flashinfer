@@ -20,6 +20,7 @@ host module's grid rules, its choice of the overlapped form and its log2-domain 
 kernels expect."""
 
 import hashlib
+import heapq
 import math
 import re
 
@@ -415,7 +416,9 @@ def test_the_overlapped_form_serves_the_overlap_band(
 
 def test_head_major_unit_table_publishes_heads_in_order() -> None:
     # Every unit once, head by head; within a head the longest units first, equal costs in segment
-    # and tile order.
+    # and tile order; the last 4 x grid units (the ones the CTAs claim as they drain) then run
+    # longest first, equal costs in that order, as the counter model predicts a gain of at least
+    # _DRAIN_MIN_GAIN for this plan.
     bounds = (0, 257, 4567, 4824)
     plan = ops.MiniMaxH3VarlenPlan(bounds, 56, torch.device("cpu"), 170)
     assert plan.overlap
@@ -427,18 +430,110 @@ def test_head_major_unit_table_publishes_heads_in_order() -> None:
         for seg, packed in plan.unit_table.view(-1, 2).tolist()
     )
     per_head = plan.num_units // 56
-    assert [head for _seg, head, _t in units] == [
-        head for head in range(56) for _ in range(per_head)
-    ]
     # segment 1 (4310 tokens, 34 tiles) is the most expensive; segments 0 and 2 (257 tokens, 3
     # tiles each) tie
     first_head = [(seg, t) for seg, _head, t in units[:per_head]]
     assert first_head == [(1, t) for t in range(34)] + [
         (seg, t) for seg in (0, 2) for t in range(3)
     ]
-    for head in range(1, 56):
-        chunk = units[head * per_head : (head + 1) * per_head]
-        assert [(seg, t) for seg, _head, t in chunk] == first_head
+    head_major = [(seg, head, t) for head in range(56) for seg, t in first_head]
+    drain = plan.num_units - 4 * plan.grid
+    assert plan.grid == 170 and drain == 39 * per_head
+    assert units[:drain] == head_major[:drain]
+    assert units[drain:] == [u for u in head_major[drain:] if u[0] == 1] + [
+        u for u in head_major[drain:] if u[0] != 1
+    ]
+
+
+def _replayed_gain(costs, heads, drain, lead, tail, num_heads):
+    # The counter model replayed from the start for both orders (no shared prefix).
+    def makespan(order_costs, order_heads, span):
+        mean = sum(costs) / (lead + tail)
+        ready = [span * mean * (head + 1) / num_heads for head in range(num_heads)]
+        events = [(0.0, 0, cta) for cta in range(lead)]
+        events += [(float(span * mean), 0, lead + cta) for cta in range(tail)]
+        queues = [[] for _ in range(lead + tail)]
+        nxt, end_max = 0, 0.0
+        heapq.heapify(events)
+        while events:
+            time, kind, cta = heapq.heappop(events)
+            for _ in range(3 if kind == 0 else 1):
+                if nxt < len(order_costs):
+                    queues[cta].append(nxt)
+                    nxt += 1
+            if queues[cta]:
+                unit = queues[cta].pop(0)
+                end = max(time, ready[order_heads[unit]]) + order_costs[unit]
+                heapq.heappush(events, (end, 1, cta))
+                end_max = max(end_max, end)
+        return end_max
+
+    drained = sorted(range(drain, len(costs)), key=lambda unit: -costs[unit])
+    drain_costs = costs[:drain] + [costs[unit] for unit in drained]
+    drain_heads = heads[:drain] + [heads[unit] for unit in drained]
+    gains = [
+        1.0 - makespan(drain_costs, drain_heads, span) / makespan(costs, heads, span)
+        for span in ops._DRAIN_SPANS
+    ]
+    return sum(gains) / len(gains)
+
+
+@pytest.mark.parametrize(
+    "bounds, num_sms, applied",
+    [
+        ((0, 257, 4567, 4824), 188, True),
+        ((0, 257, 4567, 4824), 170, True),
+        ((0, 1000, 4000, 6000, 8500, 10000), 188, True),
+        # eight segments of one key-tile count: costs differ only by key-block alignment
+        (tuple(range(0, 33473, 4184)), 188, False),
+        # sixteen segments of 700 to 1400 tokens: six cost classes, a predicted gain below the bound
+        (
+            (0, 1100, 2000, 3300, 4000, 5200, 6200, 7600, 8400, 9650)
+            + (10600, 11750, 12800, 14150, 15000, 16000, 17200),
+            188,
+            False,
+        ),
+    ],
+)
+def test_drain_order_follows_the_counter_model(bounds, num_sms, applied) -> None:
+    # The drain sort applies exactly when the counter model's gain reaches _DRAIN_MIN_GAIN; the
+    # model's shared-prefix replay equals two full replays; the table is the head-major order with
+    # the drain window sorted (stable, longest first) or unchanged.
+    plan = ops.MiniMaxH3VarlenPlan(bounds, 56, torch.device("cpu"), num_sms)
+    assert plan.overlap
+    lead, _producers, tail = ops.minimax_h3_sm120_quant_varlen_attention_overlap_grids(
+        num_sms,
+        num_units=plan.num_units,
+        total_tokens=plan.total_tokens,
+        work=plan.work,
+        padded_tokens=plan.padded_tokens,
+    )
+    units = [
+        (seg, packed >> 16, packed & 0xFFFF)
+        for seg, packed in plan.unit_table_head_major.view(-1, 2).tolist()
+    ]
+    per_head = plan.num_units // 56
+    first = [(seg, t) for seg, head, t in units[:per_head]]
+    head_major = [(seg, head, t) for head in range(56) for seg, t in first]
+
+    def cost(unit):
+        a, b = bounds[unit[0]], bounds[unit[0] + 1]
+        return (b - 1) // 128 - a // 128 + 1 + ops._UNIT_OVERHEAD_TILES
+
+    drain = plan.num_units - ops._DRAIN_ROUNDS * plan.grid
+    costs = [cost(unit) for unit in head_major]
+    heads = [unit[1] for unit in head_major]
+    gain = ops._drain_gain(costs, heads, drain, lead, tail, 56)
+    assert gain == pytest.approx(
+        _replayed_gain(costs, heads, drain, lead, tail, 56), rel=0, abs=1e-12
+    )
+    assert (gain >= ops._DRAIN_MIN_GAIN) is applied
+    if applied:
+        assert units[:drain] == head_major[:drain]
+        assert units[drain:] == sorted(head_major[drain:], key=lambda u: -cost(u))
+        assert units != head_major
+    else:
+        assert units == head_major
 
 
 def test_overlapped_form_warms_up_once_outside_capture(monkeypatch) -> None:
