@@ -182,6 +182,12 @@ ROUTE_TABLE: tuple[tuple[int, str], ...] = (
     (320, "reduce"),
     (K3_PERSIST_MIN_TOKENS, "persist"),
 )
+#: The ESS K1 serving ``K23_MAX_TOKENS < M <= L2_PREWARM_MAX_TOKENS`` is its L2-prewarm form (key suffix ``:pw``): before
+#: its grid-dependency wait every K1 CTA prefetches its share of this rank's weight slice into L2, so the cuBLAS slice
+#: GEMM after K1 reads warm lines.  The prefetch changes no value.  In paired single-GPU A/Bs (a K1 stand-in and the
+#: cuBLAS slice GEMM, CUDA Graph, cold L2) on GB300 the prewarm is 0.6-0.9 us faster from 9 through 64 tokens on both
+#: column widths.
+L2_PREWARM_MAX_TOKENS = 64
 DEFAULT_MAX_TOKENS = 4096
 SUPPORTED_COMPUTE_CAPABILITIES = {(10, 0): "sm_100a", (10, 3): "sm_103a"}
 
@@ -222,13 +228,15 @@ def route_form_for(num_tokens: int) -> str:
 def k1_kernel_key(num_tokens: int, rank: int) -> str:
     """The K1 kernel key: the one-launch program ``k123:c<capacity>`` (K1 and the fused K23 tail in one grid) for
     ``num_tokens <= K23_MAX_TOKENS``, the one-shot early-shared-scatter (ESS) form up to ``ONESHOT_MAX_TOKENS``, then
-    the two-shot ESS form for the ``"ess"`` / ``"reduce"`` routes and the plain two-shot form for ``"persist"``."""
+    the two-shot ESS form for the ``"ess"`` / ``"reduce"`` routes and the plain two-shot form for ``"persist"``; an ESS
+    form up to ``L2_PREWARM_MAX_TOKENS`` is its L2-prewarm program (``:pw``)."""
     if num_tokens <= K23_MAX_TOKENS:
         return f"k123:c{k23_capacity_for(num_tokens)}"
+    prewarm = ":pw" if num_tokens <= L2_PREWARM_MAX_TOKENS else ""
     if num_tokens <= ONESHOT_MAX_TOKENS:
-        return "k1_oneshot_ess"
+        return "k1_oneshot_ess" + prewarm
     if route_form_for(num_tokens) in ("ess", "reduce"):
-        return f"k1_twoshot_ess:{poll_schedule_for(num_tokens)}"
+        return f"k1_twoshot_ess:{poll_schedule_for(num_tokens)}" + prewarm
     return f"k1_twoshot:{poll_schedule_for(num_tokens)}"
 
 
@@ -679,8 +687,12 @@ def _k1_launch_kwargs(
 
     ``k123:c<capacity>`` (``M <= K23_MAX_TOKENS``) is the one-launch program: it also takes the K23 tail's operands
     (``up_weight_slice``, ``out``) and its grid holds the K23 CTAs after the token CTAs.  ``k1_oneshot_ess``
-    (``M <= ONESHOT_MAX_TOKENS``) carries no poll-schedule suffix; the two-shot keys do.
+    (``M <= ONESHOT_MAX_TOKENS``) carries no poll-schedule suffix; the two-shot keys do.  The L2-prewarm forms
+    (``:pw``) also take the weight slice and its element count.
     """
+    prewarm = k1_key.endswith(":pw")
+    if prewarm:
+        k1_key = k1_key[: -len(":pw")]
     if k1_key.startswith("k123:"):
         # one-shot ESS K1 in the first M CTAs, the fused K23 tail in the rest: both workspaces, the weight slice, out
         name = "k1_oneshot"
@@ -756,6 +768,12 @@ def _k1_launch_kwargs(
             rank=rank,
             epsilon=float(RMS_EPS),
             grid=(M, 1, 1),
+        )
+    if prewarm:
+        # the weight slice the cuBLAS GEMM after K1 reads, prefetched into L2 before K1's grid-dependency wait
+        k1_kwargs.update(
+            w_slice=up_weight_slice,
+            w_slice_elems=workspace.my_cols * LATENT,
         )
     return name, k1_kwargs
 
@@ -932,6 +950,7 @@ __all__ = [
     "K23_ROWS",
     "K3_PERSIST_MIN_TOKENS",
     "HIDDEN",
+    "L2_PREWARM_MAX_TOKENS",
     "KERNELS",
     "KimiK3Tp12TailRunner",
     "KimiK3Tp12TailWorkspace",

@@ -491,7 +491,7 @@ def _nvcc_flags(arches: list[str]) -> list[str]:
 
 
 def required_kernel_keys() -> tuple[str, ...]:
-    """Every registered logical kernel: ten keys, the same programs on both arches.
+    """Every registered logical kernel: twelve keys, the same programs on both arches.
 
     ``k1_twoshot:grouped`` and ``k3_persist:grouped`` stay registered, but the current
     token thresholds select neither.
@@ -502,7 +502,9 @@ def required_kernel_keys() -> tuple[str, ...]:
     # the whole persistent range ``M >= 961``).
     return (
         "k1_oneshot_ess",
+        "k1_oneshot_ess:pw",
         "k1_twoshot_ess:grouped",
+        "k1_twoshot_ess:grouped:pw",
         *(f"k1_twoshot:{schedule}" for schedule in POLL_SCHEDULES),
         *(f"k123:c{capacity}" for capacity in K23_CAPACITIES),
         "k3_ess:grouped",

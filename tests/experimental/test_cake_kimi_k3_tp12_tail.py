@@ -80,10 +80,15 @@ def test_route_selection_by_token_count():
     assert cb.k123_grid(8, 0) == (88, 1, 1)
     with pytest.raises(ValueError):
         cb.k123_grid(9, 0)
-    # cuBLAS + K3-ESS regime: the ESS K1 scattered the shared partial, one CTA per token and column half
+    # cuBLAS + K3-ESS regime: the ESS K1 scattered the shared partial, one CTA per token and column half; up to
+    # L2_PREWARM_MAX_TOKENS the ESS K1 is its L2-prewarm form (the weight slice prefetched before its wait)
+    assert cb.L2_PREWARM_MAX_TOKENS == 64
     for M in (9, 12, 16):
         for rank in range(cb.WORLD_SIZE):
-            assert cb.route_kernel_keys(M, rank) == ("k1_oneshot_ess", "k3_ess:grouped")
+            assert cb.route_kernel_keys(M, rank) == (
+                "k1_oneshot_ess:pw",
+                "k3_ess:grouped",
+            )
     # route table above the one-shot rows: (first M, form)
     assert cb.ROUTE_TABLE == (
         (17, "ess"),
@@ -93,8 +98,10 @@ def test_route_selection_by_token_count():
     assert cb.GROUPED_MAX_TOKENS == 960
     assert cb.K3_PERSIST_MIN_TOKENS == cb.BULK_MIN_TOKENS == 961
     expected = {
-        17: ("k1_twoshot_ess:grouped", "k3_ess:grouped"),
-        32: ("k1_twoshot_ess:grouped", "k3_ess:grouped"),
+        17: ("k1_twoshot_ess:grouped:pw", "k3_ess:grouped"),
+        32: ("k1_twoshot_ess:grouped:pw", "k3_ess:grouped"),
+        64: ("k1_twoshot_ess:grouped:pw", "k3_ess:grouped"),
+        65: ("k1_twoshot_ess:grouped", "k3_ess:grouped"),
         128: ("k1_twoshot_ess:grouped", "k3_ess:grouped"),
         255: ("k1_twoshot_ess:grouped", "k3_ess:grouped"),
         256: ("k1_twoshot_ess:grouped", "k3_ess:grouped"),
@@ -123,11 +130,13 @@ def test_route_selection_by_token_count():
     for M in (9, 16):
         with pytest.raises(ValueError):
             cb.route_form_for(M)
-    # the plain grouped two-shot K1 and the plain persistent K3 stay registered, but no token count selects them
+    # the plain grouped two-shot K1, the plain persistent K3 and the one-shot ESS K1 without the L2 prewarm stay
+    # registered, but no token count selects them
     selected = {key for M in range(1, 4097) for key in cb.route_kernel_keys(M, 0)}
     assert selected == set(cake_jit.required_kernel_keys()) - {
         "k1_twoshot:grouped",
         "k3_persist:grouped",
+        "k1_oneshot_ess",
     }
     # K3-ESS: one CTA per token and column half; persistent forms (reduce mode, bulk): min(M, SM count)
     assert cb.k3_grid(9, 152, 0) == (9, 2, 1)
@@ -148,10 +157,12 @@ def test_route_selection_by_token_count():
     assert cb.k3_grid(4096, 152, 3) == (152, 2, 1)
     with pytest.raises(ValueError):
         cb.k3_grid(4096, 0, 3)
-    assert len(cake_jit.required_kernel_keys()) == 10
+    assert len(cake_jit.required_kernel_keys()) == 12
     assert set(cake_jit.required_kernel_keys()) == {
         "k1_oneshot_ess",
+        "k1_oneshot_ess:pw",
         "k1_twoshot_ess:grouped",
+        "k1_twoshot_ess:grouped:pw",
         "k1_twoshot:grouped",
         "k1_twoshot:pinned",
         "k123:c4",
@@ -304,10 +315,12 @@ def test_launch_kwargs_cover_every_generated_argument_plan():
         for M in (1, 4, 5, 8, 9, 16, 17, 128, 255, 256, 300, 319, 320, 960, 961, 1024)
         for rank in (0, 5, 11)
     ]
-    # registered programs no token count selects: the plain grouped two-shot K1 and the plain persistent K3
+    # registered programs no token count selects: the plain grouped two-shot K1 and the plain persistent K3, and the
+    # one-shot ESS K1 without the L2 prewarm (every one-shot ESS row is within L2_PREWARM_MAX_TOKENS)
     cases += [
         (300, rank, ("k1_twoshot:grouped", "k3_persist:grouped")) for rank in (0, 5, 11)
     ]
+    cases += [(12, rank, ("k1_oneshot_ess", "k3_ess:grouped")) for rank in (0, 5, 11)]
     seen: set[str] = set()
     for M, rank, keys in cases:
         k1_key = keys[0]
