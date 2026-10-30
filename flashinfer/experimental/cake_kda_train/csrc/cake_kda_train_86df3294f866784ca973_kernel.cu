@@ -258,18 +258,18 @@ kernel_cake_kda_train_86df3294f866784ca973(float* __restrict__ g, __nv_bfloat16*
             }
             kb[e_9] = (float)(__nv_bfloat16)(k_e * bt) * eg[e_9];
         }
-        unsigned int _packed_0[2];
+        unsigned int packed[2];
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kb[_lp*2 + 0], kb[_lp*2+1 + 0]));
-            _packed_0[_lp] = *(uint32_t*)&_bf2;
+            packed[_lp] = *(uint32_t*)&_bf2;
         }
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kb[_lp*2 + 2], kb[_lp*2+1 + 2]));
-            _packed_0[_lp + 1] = *(uint32_t*)&_bf2;
+            packed[_lp + 1] = *(uint32_t*)&_bf2;
         }
-        reinterpret_cast<int2*>(kb_out + iidx)[0] = reinterpret_cast<int2*>(_packed_0)[0];
+        reinterpret_cast<int2*>(kb_out + iidx)[0] = reinterpret_cast<int2*>(packed)[0];
         float kg[4];
         #pragma unroll
         for (int e_10 = 0; e_10 < 4; e_10++) {
@@ -280,18 +280,18 @@ kernel_cake_kda_train_86df3294f866784ca973(float* __restrict__ g, __nv_bfloat16*
             float _exp2_4 = approx_exp2(gk_n[e_10] - gkt[e_10]);
             kg[e_10] = k_e_1 * _exp2_4;
         }
-        unsigned int _packed_1[2];
+        unsigned int packed_0[2];
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kg[_lp*2 + 0], kg[_lp*2+1 + 0]));
-            _packed_1[_lp] = *(uint32_t*)&_bf2;
+            packed_0[_lp] = *(uint32_t*)&_bf2;
         }
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kg[_lp*2 + 2], kg[_lp*2+1 + 2]));
-            _packed_1[_lp + 1] = *(uint32_t*)&_bf2;
+            packed_0[_lp + 1] = *(uint32_t*)&_bf2;
         }
-        reinterpret_cast<int2*>(kg_out + iidx)[0] = reinterpret_cast<int2*>(_packed_1)[0];
+        reinterpret_cast<int2*>(kg_out + iidx)[0] = reinterpret_cast<int2*>(packed_0)[0];
         float qg[4];
         #pragma unroll
         for (int e_11 = 0; e_11 < 4; e_11++) {
@@ -301,18 +301,18 @@ kernel_cake_kda_train_86df3294f866784ca973(float* __restrict__ g, __nv_bfloat16*
             }
             qg[e_11] = q_e * eg[e_11];
         }
-        unsigned int _packed_2[2];
+        unsigned int packed_1[2];
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(qg[_lp*2 + 0], qg[_lp*2+1 + 0]));
-            _packed_2[_lp] = *(uint32_t*)&_bf2;
+            packed_1[_lp] = *(uint32_t*)&_bf2;
         }
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(qg[_lp*2 + 2], qg[_lp*2+1 + 2]));
-            _packed_2[_lp + 1] = *(uint32_t*)&_bf2;
+            packed_1[_lp + 1] = *(uint32_t*)&_bf2;
         }
-        reinterpret_cast<int2*>(qg_out + iidx)[0] = reinterpret_cast<int2*>(_packed_2)[0];
+        reinterpret_cast<int2*>(qg_out + iidx)[0] = reinterpret_cast<int2*>(packed_1)[0];
         if (lane_1 == 0) {
             beta_int[(int0 + (long long)t_u_2) * (long long)num_heads + (long long)head] = bt;
         }
@@ -414,252 +414,252 @@ kernel_cake_kda_train_86df3294f866784ca973(float* __restrict__ g, __nv_bfloat16*
         uint2* _vdst_12 = reinterpret_cast<uint2*>(&dwa[14]);
         *_vdst_12 = _vld_12;
     }
-    int t_u_23 = warp_0 * 8;
-    long long iidx_d = ibase + (long long)(t_u_23 * rs);
-    float dsel[4];
+    int t_u_d_0 = warp_0 * 8;
+    long long iidx_d_0 = ibase + (long long)(t_u_d_0 * rs);
+    float dsel_0[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[_pair]) << 16);
-        (&dsel[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[_pair]) & 0xffff0000u);
+        (&dsel_0[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[_pair]) << 16);
+        (&dsel_0[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[_pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_12 = 0; e_12 < 4; e_12++) {
-        float d_e = 0.0f;
-        if (t_u_23 < clen) {
-            d_e = dsel[e_12];
+    for (int e_0 = 0; e_0 < 4; e_0++) {
+        float d_e_0 = 0.0f;
+        if (t_u_d_0 < clen) {
+            d_e_0 = dsel_0[e_0];
         }
-        dsel[e_12] = d_e;
+        dsel_0[e_0] = d_e_0;
     }
-    unsigned int _packed_3[2];
+    unsigned int packed_2[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel[_lp*2 + 0], dsel[_lp*2+1 + 0]));
-        _packed_3[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_0[_lp*2 + 0], dsel_0[_lp*2+1 + 0]));
+        packed_2[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel[_lp*2 + 2], dsel[_lp*2+1 + 2]));
-        _packed_3[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_0[_lp*2 + 2], dsel_0[_lp*2+1 + 2]));
+        packed_2[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d)[0] = reinterpret_cast<int2*>(_packed_3)[0];
-    int t_u_24 = warp_0 * 8 + 1;
-    long long iidx_d_25 = ibase + (long long)(t_u_24 * rs);
-    float dsel_26[4];
+    reinterpret_cast<int2*>(do_int + iidx_d_0)[0] = reinterpret_cast<int2*>(packed_2)[0];
+    int t_u_d_1 = warp_0 * 8 + 1;
+    long long iidx_d_1 = ibase + (long long)(t_u_d_1 * rs);
+    float dsel_1[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel_26[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[2 + _pair]) << 16);
-        (&dsel_26[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[2 + _pair]) & 0xffff0000u);
+        (&dsel_1[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[2 + _pair]) << 16);
+        (&dsel_1[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[2 + _pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_13 = 0; e_13 < 4; e_13++) {
+    for (int e_1_1 = 0; e_1_1 < 4; e_1_1++) {
         float d_e_1 = 0.0f;
-        if (t_u_24 < clen) {
-            d_e_1 = dsel_26[e_13];
+        if (t_u_d_1 < clen) {
+            d_e_1 = dsel_1[e_1_1];
         }
-        dsel_26[e_13] = d_e_1;
+        dsel_1[e_1_1] = d_e_1;
     }
-    unsigned int _packed_4[2];
+    unsigned int packed_2_1[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_26[_lp*2 + 0], dsel_26[_lp*2+1 + 0]));
-        _packed_4[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_1[_lp*2 + 0], dsel_1[_lp*2+1 + 0]));
+        packed_2_1[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_26[_lp*2 + 2], dsel_26[_lp*2+1 + 2]));
-        _packed_4[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_1[_lp*2 + 2], dsel_1[_lp*2+1 + 2]));
+        packed_2_1[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d_25)[0] = reinterpret_cast<int2*>(_packed_4)[0];
-    int t_u_27 = warp_0 * 8 + 2;
-    long long iidx_d_28 = ibase + (long long)(t_u_27 * rs);
-    float dsel_29[4];
+    reinterpret_cast<int2*>(do_int + iidx_d_1)[0] = reinterpret_cast<int2*>(packed_2_1)[0];
+    int t_u_d_2 = warp_0 * 8 + 2;
+    long long iidx_d_2 = ibase + (long long)(t_u_d_2 * rs);
+    float dsel_2[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel_29[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[4 + _pair]) << 16);
-        (&dsel_29[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[4 + _pair]) & 0xffff0000u);
+        (&dsel_2[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[4 + _pair]) << 16);
+        (&dsel_2[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[4 + _pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_14 = 0; e_14 < 4; e_14++) {
+    for (int e_2_1 = 0; e_2_1 < 4; e_2_1++) {
         float d_e_2 = 0.0f;
-        if (t_u_27 < clen) {
-            d_e_2 = dsel_29[e_14];
+        if (t_u_d_2 < clen) {
+            d_e_2 = dsel_2[e_2_1];
         }
-        dsel_29[e_14] = d_e_2;
+        dsel_2[e_2_1] = d_e_2;
     }
-    unsigned int _packed_5[2];
+    unsigned int packed_3[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_29[_lp*2 + 0], dsel_29[_lp*2+1 + 0]));
-        _packed_5[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_2[_lp*2 + 0], dsel_2[_lp*2+1 + 0]));
+        packed_3[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_29[_lp*2 + 2], dsel_29[_lp*2+1 + 2]));
-        _packed_5[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_2[_lp*2 + 2], dsel_2[_lp*2+1 + 2]));
+        packed_3[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d_28)[0] = reinterpret_cast<int2*>(_packed_5)[0];
-    int t_u_30 = warp_0 * 8 + 3;
-    long long iidx_d_31 = ibase + (long long)(t_u_30 * rs);
-    float dsel_32[4];
+    reinterpret_cast<int2*>(do_int + iidx_d_2)[0] = reinterpret_cast<int2*>(packed_3)[0];
+    int t_u_d_3 = warp_0 * 8 + 3;
+    long long iidx_d_3 = ibase + (long long)(t_u_d_3 * rs);
+    float dsel_3[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel_32[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[6 + _pair]) << 16);
-        (&dsel_32[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[6 + _pair]) & 0xffff0000u);
+        (&dsel_3[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[6 + _pair]) << 16);
+        (&dsel_3[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[6 + _pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_15 = 0; e_15 < 4; e_15++) {
+    for (int e_3_1 = 0; e_3_1 < 4; e_3_1++) {
         float d_e_3 = 0.0f;
-        if (t_u_30 < clen) {
-            d_e_3 = dsel_32[e_15];
+        if (t_u_d_3 < clen) {
+            d_e_3 = dsel_3[e_3_1];
         }
-        dsel_32[e_15] = d_e_3;
+        dsel_3[e_3_1] = d_e_3;
     }
-    unsigned int _packed_6[2];
+    unsigned int packed_4[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_32[_lp*2 + 0], dsel_32[_lp*2+1 + 0]));
-        _packed_6[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_3[_lp*2 + 0], dsel_3[_lp*2+1 + 0]));
+        packed_4[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_32[_lp*2 + 2], dsel_32[_lp*2+1 + 2]));
-        _packed_6[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_3[_lp*2 + 2], dsel_3[_lp*2+1 + 2]));
+        packed_4[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d_31)[0] = reinterpret_cast<int2*>(_packed_6)[0];
-    int t_u_33 = warp_0 * 8 + 4;
-    long long iidx_d_34 = ibase + (long long)(t_u_33 * rs);
-    float dsel_35[4];
+    reinterpret_cast<int2*>(do_int + iidx_d_3)[0] = reinterpret_cast<int2*>(packed_4)[0];
+    int t_u_d_4 = warp_0 * 8 + 4;
+    long long iidx_d_4 = ibase + (long long)(t_u_d_4 * rs);
+    float dsel_4[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel_35[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[8 + _pair]) << 16);
-        (&dsel_35[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[8 + _pair]) & 0xffff0000u);
+        (&dsel_4[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[8 + _pair]) << 16);
+        (&dsel_4[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[8 + _pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_16 = 0; e_16 < 4; e_16++) {
+    for (int e_4_1 = 0; e_4_1 < 4; e_4_1++) {
         float d_e_4 = 0.0f;
-        if (t_u_33 < clen) {
-            d_e_4 = dsel_35[e_16];
+        if (t_u_d_4 < clen) {
+            d_e_4 = dsel_4[e_4_1];
         }
-        dsel_35[e_16] = d_e_4;
+        dsel_4[e_4_1] = d_e_4;
     }
-    unsigned int _packed_7[2];
+    unsigned int packed_5[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_35[_lp*2 + 0], dsel_35[_lp*2+1 + 0]));
-        _packed_7[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_4[_lp*2 + 0], dsel_4[_lp*2+1 + 0]));
+        packed_5[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_35[_lp*2 + 2], dsel_35[_lp*2+1 + 2]));
-        _packed_7[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_4[_lp*2 + 2], dsel_4[_lp*2+1 + 2]));
+        packed_5[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d_34)[0] = reinterpret_cast<int2*>(_packed_7)[0];
-    int t_u_36 = warp_0 * 8 + 5;
-    long long iidx_d_37 = ibase + (long long)(t_u_36 * rs);
-    float dsel_38[4];
+    reinterpret_cast<int2*>(do_int + iidx_d_4)[0] = reinterpret_cast<int2*>(packed_5)[0];
+    int t_u_d_5 = warp_0 * 8 + 5;
+    long long iidx_d_5 = ibase + (long long)(t_u_d_5 * rs);
+    float dsel_5[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel_38[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[10 + _pair]) << 16);
-        (&dsel_38[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[10 + _pair]) & 0xffff0000u);
+        (&dsel_5[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[10 + _pair]) << 16);
+        (&dsel_5[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[10 + _pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_17 = 0; e_17 < 4; e_17++) {
+    for (int e_5_1 = 0; e_5_1 < 4; e_5_1++) {
         float d_e_5 = 0.0f;
-        if (t_u_36 < clen) {
-            d_e_5 = dsel_38[e_17];
+        if (t_u_d_5 < clen) {
+            d_e_5 = dsel_5[e_5_1];
         }
-        dsel_38[e_17] = d_e_5;
+        dsel_5[e_5_1] = d_e_5;
     }
-    unsigned int _packed_8[2];
+    unsigned int packed_6[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_38[_lp*2 + 0], dsel_38[_lp*2+1 + 0]));
-        _packed_8[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_5[_lp*2 + 0], dsel_5[_lp*2+1 + 0]));
+        packed_6[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_38[_lp*2 + 2], dsel_38[_lp*2+1 + 2]));
-        _packed_8[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_5[_lp*2 + 2], dsel_5[_lp*2+1 + 2]));
+        packed_6[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d_37)[0] = reinterpret_cast<int2*>(_packed_8)[0];
-    int t_u_39 = warp_0 * 8 + 6;
-    long long iidx_d_40 = ibase + (long long)(t_u_39 * rs);
-    float dsel_41[4];
+    reinterpret_cast<int2*>(do_int + iidx_d_5)[0] = reinterpret_cast<int2*>(packed_6)[0];
+    int t_u_d_6 = warp_0 * 8 + 6;
+    long long iidx_d_6 = ibase + (long long)(t_u_d_6 * rs);
+    float dsel_6[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel_41[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[12 + _pair]) << 16);
-        (&dsel_41[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[12 + _pair]) & 0xffff0000u);
+        (&dsel_6[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[12 + _pair]) << 16);
+        (&dsel_6[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[12 + _pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_18 = 0; e_18 < 4; e_18++) {
+    for (int e_6_1 = 0; e_6_1 < 4; e_6_1++) {
         float d_e_6 = 0.0f;
-        if (t_u_39 < clen) {
-            d_e_6 = dsel_41[e_18];
+        if (t_u_d_6 < clen) {
+            d_e_6 = dsel_6[e_6_1];
         }
-        dsel_41[e_18] = d_e_6;
+        dsel_6[e_6_1] = d_e_6;
     }
-    unsigned int _packed_9[2];
+    unsigned int packed_7[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_41[_lp*2 + 0], dsel_41[_lp*2+1 + 0]));
-        _packed_9[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_6[_lp*2 + 0], dsel_6[_lp*2+1 + 0]));
+        packed_7[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_41[_lp*2 + 2], dsel_41[_lp*2+1 + 2]));
-        _packed_9[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_6[_lp*2 + 2], dsel_6[_lp*2+1 + 2]));
+        packed_7[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d_40)[0] = reinterpret_cast<int2*>(_packed_9)[0];
-    int t_u_42 = warp_0 * 8 + 7;
-    long long iidx_d_43 = ibase + (long long)(t_u_42 * rs);
-    float dsel_44[4];
+    reinterpret_cast<int2*>(do_int + iidx_d_6)[0] = reinterpret_cast<int2*>(packed_7)[0];
+    int t_u_d_7 = warp_0 * 8 + 7;
+    long long iidx_d_7 = ibase + (long long)(t_u_d_7 * rs);
+    float dsel_7[4];
     #pragma unroll
     for (int _pair = 0; _pair < 2; _pair++) {
-        (&dsel_44[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[14 + _pair]) << 16);
-        (&dsel_44[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[14 + _pair]) & 0xffff0000u);
+        (&dsel_7[_pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(dwa[14 + _pair]) << 16);
+        (&dsel_7[_pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(dwa[14 + _pair]) & 0xffff0000u);
     }
     #pragma unroll
-    for (int e_19 = 0; e_19 < 4; e_19++) {
+    for (int e_7_1 = 0; e_7_1 < 4; e_7_1++) {
         float d_e_7 = 0.0f;
-        if (t_u_42 < clen) {
-            d_e_7 = dsel_44[e_19];
+        if (t_u_d_7 < clen) {
+            d_e_7 = dsel_7[e_7_1];
         }
-        dsel_44[e_19] = d_e_7;
+        dsel_7[e_7_1] = d_e_7;
     }
-    unsigned int _packed_10[2];
+    unsigned int packed_8[2];
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_44[_lp*2 + 0], dsel_44[_lp*2+1 + 0]));
-        _packed_10[_lp] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_7[_lp*2 + 0], dsel_7[_lp*2+1 + 0]));
+        packed_8[_lp] = *(uint32_t*)&_bf2;
     }
     #pragma unroll
     for (int _lp = 0; _lp < 1; _lp++) {
-        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_44[_lp*2 + 2], dsel_44[_lp*2+1 + 2]));
-        _packed_10[_lp + 1] = *(uint32_t*)&_bf2;
+        __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(dsel_7[_lp*2 + 2], dsel_7[_lp*2+1 + 2]));
+        packed_8[_lp + 1] = *(uint32_t*)&_bf2;
     }
-    reinterpret_cast<int2*>(do_int + iidx_d_43)[0] = reinterpret_cast<int2*>(_packed_10)[0];
+    reinterpret_cast<int2*>(do_int + iidx_d_7)[0] = reinterpret_cast<int2*>(packed_8)[0];
     if (clen == 0) {
         float zq[4];
         #pragma unroll
-        for (int e_20 = 0; e_20 < 4; e_20++) {
-            zq[e_20] = 0.0f;
+        for (int e_12 = 0; e_12 < 4; e_12++) {
+            zq[e_12] = 0.0f;
         }
         #pragma unroll
         for (int u_3 = 0; u_3 < 8; u_3++) {
             int t_z = warp_0 * 8 + u_3;
             long long zidx = ibase + (long long)(t_z * rs);
-            unsigned int _packed_11[2];
+            unsigned int packed_9[2];
             #pragma unroll
             for (int _lp = 0; _lp < 1; _lp++) {
                 __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(zq[_lp*2 + 0], zq[_lp*2+1 + 0]));
-                _packed_11[_lp] = *(uint32_t*)&_bf2;
+                packed_9[_lp] = *(uint32_t*)&_bf2;
             }
             #pragma unroll
             for (int _lp = 0; _lp < 1; _lp++) {
                 __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(zq[_lp*2 + 2], zq[_lp*2+1 + 2]));
-                _packed_11[_lp + 1] = *(uint32_t*)&_bf2;
+                packed_9[_lp + 1] = *(uint32_t*)&_bf2;
             }
-            reinterpret_cast<int2*>(v_new + zidx)[0] = reinterpret_cast<int2*>(_packed_11)[0];
+            reinterpret_cast<int2*>(v_new + zidx)[0] = reinterpret_cast<int2*>(packed_9)[0];
             unsigned int _packed_12[2];
             #pragma unroll
             for (int _lp = 0; _lp < 1; _lp++) {

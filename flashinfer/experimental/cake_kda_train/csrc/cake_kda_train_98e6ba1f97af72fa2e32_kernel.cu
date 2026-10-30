@@ -258,18 +258,18 @@ kernel_cake_kda_train_98e6ba1f97af72fa2e32(float* __restrict__ g, __nv_bfloat16*
             }
             kb[e_9] = (float)(__nv_bfloat16)(k_e * bt) * eg[e_9];
         }
-        unsigned int _packed_0[2];
+        unsigned int packed[2];
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kb[_lp*2 + 0], kb[_lp*2+1 + 0]));
-            _packed_0[_lp] = *(uint32_t*)&_bf2;
+            packed[_lp] = *(uint32_t*)&_bf2;
         }
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kb[_lp*2 + 2], kb[_lp*2+1 + 2]));
-            _packed_0[_lp + 1] = *(uint32_t*)&_bf2;
+            packed[_lp + 1] = *(uint32_t*)&_bf2;
         }
-        reinterpret_cast<int2*>(kb_out + iidx)[0] = reinterpret_cast<int2*>(_packed_0)[0];
+        reinterpret_cast<int2*>(kb_out + iidx)[0] = reinterpret_cast<int2*>(packed)[0];
         float kg[4];
         #pragma unroll
         for (int e_10 = 0; e_10 < 4; e_10++) {
@@ -280,18 +280,18 @@ kernel_cake_kda_train_98e6ba1f97af72fa2e32(float* __restrict__ g, __nv_bfloat16*
             float _exp2_4 = approx_exp2(gk_n[e_10] - gkt[e_10]);
             kg[e_10] = k_e_1 * _exp2_4;
         }
-        unsigned int _packed_1[2];
+        unsigned int packed_0[2];
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kg[_lp*2 + 0], kg[_lp*2+1 + 0]));
-            _packed_1[_lp] = *(uint32_t*)&_bf2;
+            packed_0[_lp] = *(uint32_t*)&_bf2;
         }
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(kg[_lp*2 + 2], kg[_lp*2+1 + 2]));
-            _packed_1[_lp + 1] = *(uint32_t*)&_bf2;
+            packed_0[_lp + 1] = *(uint32_t*)&_bf2;
         }
-        reinterpret_cast<int2*>(kg_out + iidx)[0] = reinterpret_cast<int2*>(_packed_1)[0];
+        reinterpret_cast<int2*>(kg_out + iidx)[0] = reinterpret_cast<int2*>(packed_0)[0];
         float qg[4];
         #pragma unroll
         for (int e_11 = 0; e_11 < 4; e_11++) {
@@ -301,18 +301,18 @@ kernel_cake_kda_train_98e6ba1f97af72fa2e32(float* __restrict__ g, __nv_bfloat16*
             }
             qg[e_11] = q_e * eg[e_11];
         }
-        unsigned int _packed_2[2];
+        unsigned int packed_1[2];
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(qg[_lp*2 + 0], qg[_lp*2+1 + 0]));
-            _packed_2[_lp] = *(uint32_t*)&_bf2;
+            packed_1[_lp] = *(uint32_t*)&_bf2;
         }
         #pragma unroll
         for (int _lp = 0; _lp < 1; _lp++) {
             __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(qg[_lp*2 + 2], qg[_lp*2+1 + 2]));
-            _packed_2[_lp + 1] = *(uint32_t*)&_bf2;
+            packed_1[_lp + 1] = *(uint32_t*)&_bf2;
         }
-        reinterpret_cast<int2*>(qg_out + iidx)[0] = reinterpret_cast<int2*>(_packed_2)[0];
+        reinterpret_cast<int2*>(qg_out + iidx)[0] = reinterpret_cast<int2*>(packed_1)[0];
         if (lane_1 == 0) {
             beta_int[(int0 + (long long)t_u_2) * (long long)num_heads + (long long)head] = bt;
         }
@@ -327,18 +327,18 @@ kernel_cake_kda_train_98e6ba1f97af72fa2e32(float* __restrict__ g, __nv_bfloat16*
         for (int u_3 = 0; u_3 < 8; u_3++) {
             int t_z = warp_0 * 8 + u_3;
             long long zidx = ibase + (long long)(t_z * rs);
-            unsigned int _packed_3[2];
+            unsigned int packed_2[2];
             #pragma unroll
             for (int _lp = 0; _lp < 1; _lp++) {
                 __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(zq[_lp*2 + 0], zq[_lp*2+1 + 0]));
-                _packed_3[_lp] = *(uint32_t*)&_bf2;
+                packed_2[_lp] = *(uint32_t*)&_bf2;
             }
             #pragma unroll
             for (int _lp = 0; _lp < 1; _lp++) {
                 __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(zq[_lp*2 + 2], zq[_lp*2+1 + 2]));
-                _packed_3[_lp + 1] = *(uint32_t*)&_bf2;
+                packed_2[_lp + 1] = *(uint32_t*)&_bf2;
             }
-            reinterpret_cast<int2*>(v_new + zidx)[0] = reinterpret_cast<int2*>(_packed_3)[0];
+            reinterpret_cast<int2*>(v_new + zidx)[0] = reinterpret_cast<int2*>(packed_2)[0];
             unsigned int _packed_4[2];
             #pragma unroll
             for (int _lp = 0; _lp < 1; _lp++) {

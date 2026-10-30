@@ -257,7 +257,7 @@ __device__ __forceinline__ void tcgen05_commit(int mbar_addr) {
 extern "C" {
 
 __global__ __launch_bounds__(256, LAUNCH_MIN_BLOCKS) void
-kernel_cake_kda_train_94c7d1cc6c908d53e8c1(const __grid_constant__ CUtensorMap q, const __grid_constant__ CUtensorMap k, const __grid_constant__ CUtensorMap g, __nv_bfloat16* __restrict__ beta, int* __restrict__ cu_seqlens, int num_seqs, __nv_bfloat16* __restrict__ aqk_ext, __nv_bfloat16* __restrict__ akk_ext, __nv_bfloat16* __restrict__ aqk_int, __nv_bfloat16* __restrict__ akk_int, int num_heads, int num_qk_heads, int group, int write_ext, int write_int, float scale, float* __restrict__ gk_out, __nv_bfloat16* __restrict__ kb_out, __nv_bfloat16* __restrict__ kg_out, __nv_bfloat16* __restrict__ qg_out, __nv_bfloat16* __restrict__ v_new, int write_prep, int* __restrict__ chunk_bos, int* __restrict__ chunk_len, int* __restrict__ seq_chunk_start, int* __restrict__ seq_order, int segments, int proportional, int* __restrict__ seg_table)
+kernel_cake_kda_train_6b9ef9154dd21cce887a(const __grid_constant__ CUtensorMap q, const __grid_constant__ CUtensorMap k, const __grid_constant__ CUtensorMap g, __nv_bfloat16* __restrict__ beta, int* __restrict__ cu_seqlens, int num_seqs, __nv_bfloat16* __restrict__ aqk_ext, __nv_bfloat16* __restrict__ akk_ext, __nv_bfloat16* __restrict__ aqk_int, __nv_bfloat16* __restrict__ akk_int, int num_heads, int num_qk_heads, int group, int write_ext, int write_int, float scale, float* __restrict__ gk_out, __nv_bfloat16* __restrict__ kb_out, __nv_bfloat16* __restrict__ kg_out, __nv_bfloat16* __restrict__ qg_out, __nv_bfloat16* __restrict__ v_new, int write_prep, int* __restrict__ chunk_bos, int* __restrict__ chunk_len, int* __restrict__ seq_chunk_start, int* __restrict__ seq_order, int segments, int proportional, int* __restrict__ seg_table)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -755,7 +755,14 @@ kernel_cake_kda_train_94c7d1cc6c908d53e8c1(const __grid_constant__ CUtensorMap q
                         int du = order_t[ru];
                         int c0u = starts[du];
                         int n_u = starts[du + 1] - c0u;
-                        seg_table[base_t_tb + i_u + ru] = c0u + pu * n_u / segments;
+                        int off_u = pu * n_u / segments;
+                        int tail_u = n_u / (4 * segments);
+                        if (segments >= 2) {
+                            if (tail_u >= 1) {
+                                off_u = pu * (n_u - tail_u) / (segments - 1);
+                            }
+                        }
+                        seg_table[base_t_tb + i_u + ru] = c0u + off_u;
                         if (pu == segments - 1) {
                             seg_table[base_t_tb + i_u + ru + 1] = c0u + n_u;
                         }

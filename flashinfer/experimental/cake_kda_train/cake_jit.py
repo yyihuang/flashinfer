@@ -500,7 +500,7 @@ MODULES: dict[str, dict[str, Any]] = {
         ],
         "ffi_entry": "run",
         "grid_rule": {"kind": "chunk_blocks", "per_cta": 256},
-        "kernel_symbol": "kernel_cake_kda_train_9f69ca35a631ae5e1b4c",
+        "kernel_symbol": "kernel_cake_kda_train_e8521a4caa2130787eeb",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -508,7 +508,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 5376,
             "use_pdl": False,
         },
-        "library": "cake_kda_train_9f69ca35a631ae5e1b4c",
+        "library": "cake_kda_train_e8521a4caa2130787eeb",
         "logical": {
             "chunk_bos": "chunk_bos",
             "chunk_len": "chunk_len",
@@ -547,7 +547,7 @@ MODULES: dict[str, dict[str, Any]] = {
         ],
         "ffi_entry": "run",
         "grid_rule": {"kind": "fixed", "ctas": [1, 1, 1]},
-        "kernel_symbol": "kernel_cake_kda_train_fd4c92787fcc18446b14",
+        "kernel_symbol": "kernel_cake_kda_train_ded4f71746fd0c93799b",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -555,7 +555,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 3200,
             "use_pdl": False,
         },
-        "library": "cake_kda_train_fd4c92787fcc18446b14",
+        "library": "cake_kda_train_ded4f71746fd0c93799b",
         "logical": {
             "num_seqs": "num_seqs",
             "proportional": "proportional",
@@ -686,7 +686,7 @@ MODULES: dict[str, dict[str, Any]] = {
         ],
         "ffi_entry": "run",
         "grid_rule": {"kind": "chunks", "x_factor": 1},
-        "kernel_symbol": "kernel_cake_kda_train_94c7d1cc6c908d53e8c1",
+        "kernel_symbol": "kernel_cake_kda_train_6b9ef9154dd21cce887a",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -694,7 +694,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 76160,
             "use_pdl": False,
         },
-        "library": "cake_kda_train_94c7d1cc6c908d53e8c1",
+        "library": "cake_kda_train_6b9ef9154dd21cce887a",
         "logical": {
             "akk_ext": "akk_ext",
             "akk_int": "akk_int",

@@ -642,11 +642,11 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                         if (kind == 4) {
                             p_2 = (ngrp - 1) * gsize - n_b;
                         }
-                        int s_1_1 = seg0 + p_2;
+                        int s_2_1 = seg0 + p_2;
                         if (reverse == 1) {
-                            s_1_1 = seg0 + nseg - 1 - p_2;
+                            s_2_1 = seg0 + nseg - 1 - p_2;
                         }
-                        s_9 = s_1_1;
+                        s_9 = s_2_1;
                     }
                 }
                 if (s_9 >= 0) {
@@ -738,11 +738,11 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                         }
                     }
                     if (f_2 == 1) {
-                        int s_2_1 = seg0 + 3 * gsize;
+                        int s_3_1 = seg0 + 3 * gsize;
                         if (reverse == 1) {
-                            s_2_1 = seg0 + nseg - 1 - 3 * gsize;
+                            s_3_1 = seg0 + nseg - 1 - 3 * gsize;
                         }
-                        s_10 = s_2_1;
+                        s_10 = s_3_1;
                     } else {
                         int p_3 = 1;
                         if (kind == 2) {
@@ -757,11 +757,11 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                         if (kind == 4) {
                             p_3 = (ngrp - 1) * gsize + 1 - n_b;
                         }
-                        int s_3_1 = seg0 + p_3;
+                        int s_4_1 = seg0 + p_3;
                         if (reverse == 1) {
-                            s_3_1 = seg0 + nseg - 1 - p_3;
+                            s_4_1 = seg0 + nseg - 1 - p_3;
                         }
-                        s_10 = s_3_1;
+                        s_10 = s_4_1;
                     }
                 }
                 if (s_10 >= 0) {
@@ -881,11 +881,11 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                             }
                         }
                         if (f_4 == 1) {
-                            int s_4_1 = seg0 + (step_1 + 2 + 2) * gsize;
+                            int s_5_1 = seg0 + (step_1 + 2 + 2) * gsize;
                             if (reverse == 1) {
-                                s_4_1 = seg0 + nseg - 1 - (step_1 + 2 + 2) * gsize;
+                                s_5_1 = seg0 + nseg - 1 - (step_1 + 2 + 2) * gsize;
                             }
-                            s_11 = s_4_1;
+                            s_11 = s_5_1;
                         } else {
                             int p_4 = step_1 + 2;
                             if (kind == 2) {
@@ -900,11 +900,11 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                             if (kind == 4) {
                                 p_4 = (ngrp - 1) * gsize + (step_1 + 2) - n_b;
                             }
-                            int s_5_1 = seg0 + p_4;
+                            int s_6_1 = seg0 + p_4;
                             if (reverse == 1) {
-                                s_5_1 = seg0 + nseg - 1 - p_4;
+                                s_6_1 = seg0 + nseg - 1 - p_4;
                             }
-                            s_11 = s_5_1;
+                            s_11 = s_6_1;
                         }
                     }
                     if (s_11 >= 0) {
@@ -1026,9 +1026,9 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                 asm volatile("tcgen05.fence::before_thread_sync;");
                 mbarrier_arrive(s_ready_addr + ((int)((unsigned int)gsize % 3)) * 8);
                 if (steps > gsize + 1) {
-                    int s_6_1 = 0;
+                    int s_7_1 = 0;
                     if (kind == 3) {
-                        s_6_1 = -1;
+                        s_7_1 = -1;
                     } else {
                         int f_6 = 0;
                         if (kind == 4) {
@@ -1037,11 +1037,11 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                             }
                         }
                         if (f_6 == 1) {
-                            int s_7_1 = seg0 + (gsize + 1 + 2) * gsize;
+                            int s_8_1 = seg0 + (gsize + 1 + 2) * gsize;
                             if (reverse == 1) {
-                                s_7_1 = seg0 + nseg - 1 - (gsize + 1 + 2) * gsize;
+                                s_8_1 = seg0 + nseg - 1 - (gsize + 1 + 2) * gsize;
                             }
-                            s_6_1 = s_7_1;
+                            s_7_1 = s_8_1;
                         } else {
                             int p_5 = gsize + 1;
                             if (kind == 2) {
@@ -1056,14 +1056,14 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                             if (kind == 4) {
                                 p_5 = (ngrp - 1) * gsize + (gsize + 1) - n_b;
                             }
-                            int s_8_1 = seg0 + p_5;
+                            int s_9_1 = seg0 + p_5;
                             if (reverse == 1) {
-                                s_8_1 = seg0 + nseg - 1 - p_5;
+                                s_9_1 = seg0 + nseg - 1 - p_5;
                             }
-                            s_6_1 = s_8_1;
+                            s_7_1 = s_9_1;
                         }
                     }
-                    if (s_6_1 >= 0) {
+                    if (s_7_1 >= 0) {
                         int f_7 = 0;
                         if (kind == 4) {
                             if (n_b > gsize + 1) {
@@ -1082,7 +1082,7 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                             }
                             __syncwarp();
                             asm volatile("tcgen05.fence::after_thread_sync;");
-                            long long base_0 = ((long long)s_6_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
+                            long long base_0 = ((long long)s_7_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
                             #pragma unroll
                             for (int k_11 = 0; k_11 < 32; k_11++) {
                                 {
@@ -1090,7 +1090,7 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                                 }
                             }
                         } else {
-                            long long base_1_1 = ((long long)s_6_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
+                            long long base_1_1 = ((long long)s_7_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
                             #pragma unroll
                             for (int k_12 = 0; k_12 < 32; k_12++) {
                                 {
@@ -1159,9 +1159,9 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                     asm volatile("tcgen05.fence::before_thread_sync;");
                     mbarrier_arrive(s_ready_addr + (nxt_stage2) * 8);
                     if (steps > step2 + 2) {
-                        int s_9_1 = 0;
+                        int s_10_1 = 0;
                         if (kind == 3) {
-                            s_9_1 = -1;
+                            s_10_1 = -1;
                         } else {
                             int f_8 = 0;
                             if (kind == 4) {
@@ -1170,11 +1170,11 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                                 }
                             }
                             if (f_8 == 1) {
-                                int s_10_1 = seg0 + (step2 + 2 + 2) * gsize;
+                                int s_11_1 = seg0 + (step2 + 2 + 2) * gsize;
                                 if (reverse == 1) {
-                                    s_10_1 = seg0 + nseg - 1 - (step2 + 2 + 2) * gsize;
+                                    s_11_1 = seg0 + nseg - 1 - (step2 + 2 + 2) * gsize;
                                 }
-                                s_9_1 = s_10_1;
+                                s_10_1 = s_11_1;
                             } else {
                                 int p_6 = step2 + 2;
                                 if (kind == 2) {
@@ -1189,14 +1189,14 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                                 if (kind == 4) {
                                     p_6 = (ngrp - 1) * gsize + (step2 + 2) - n_b;
                                 }
-                                int s_11_1 = seg0 + p_6;
+                                int s_12_1 = seg0 + p_6;
                                 if (reverse == 1) {
-                                    s_11_1 = seg0 + nseg - 1 - p_6;
+                                    s_12_1 = seg0 + nseg - 1 - p_6;
                                 }
-                                s_9_1 = s_11_1;
+                                s_10_1 = s_12_1;
                             }
                         }
-                        if (s_9_1 >= 0) {
+                        if (s_10_1 >= 0) {
                             int f_9 = 0;
                             if (kind == 4) {
                                 if (n_b > step2 + 2) {
@@ -1215,7 +1215,7 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                                 }
                                 __syncwarp();
                                 asm volatile("tcgen05.fence::after_thread_sync;");
-                                long long base_2_1 = ((long long)s_9_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
+                                long long base_2_1 = ((long long)s_10_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
                                 #pragma unroll
                                 for (int k_13 = 0; k_13 < 32; k_13++) {
                                     {
@@ -1223,7 +1223,7 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                                     }
                                 }
                             } else {
-                                long long base_3_1 = ((long long)s_9_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
+                                long long base_3_1 = ((long long)s_10_1 * (long long)num_heads + (long long)head) * 16384 + (long long)lane_v_1;
                                 #pragma unroll
                                 for (int k_14 = 0; k_14 < 32; k_14++) {
                                     {
@@ -1287,13 +1287,13 @@ kernel_cake_kda_train_e244f5d7d0e0569a62c1(const __grid_constant__ CUtensorMap m
                         }
                     }
                     int t_1 = 0;
-                    int f_0 = 0;
+                    int f_1_1 = 0;
                     if (kind == 4) {
                         if (n_b > step_2) {
-                            f_0 = 1;
+                            f_1_1 = 1;
                         }
                     }
-                    if (f_0 == 1) {
+                    if (f_1_1 == 1) {
                         int s_13 = seg0 + ((step_2 + 2) * gsize - 1);
                         if (reverse == 1) {
                             s_13 = seg0 + nseg - 1 - ((step_2 + 2) * gsize - 1);
