@@ -48,6 +48,13 @@ _MAX_SEGMENT_TILES = 1 << 16
 _MAX_ELEMENTS = (1 << 31) - 1
 # Fixed per-unit overhead (Q TMA, pipeline fill, epilogue) in K/V-tile units for the LPT placement.
 _UNIT_OVERHEAD_TILES = 2
+# Drain order of the overlapped form (host only): the last ``_DRAIN_ROUNDS`` x (plan grid) head-major
+# units, the ones the attention CTAs claim as they drain, run longest first (a stable sort by cost)
+# when their costs differ by more than one K/V tile and the fluid list bound of the drain
+# (``_drain_gain``) drops by at least ``_DRAIN_MIN_GAIN``; otherwise the head-major order stays.
+# (Costs one tile apart come from the key-block alignment of segments of one key-tile count.)
+_DRAIN_ROUNDS = 4
+_DRAIN_MIN_GAIN = 0.004
 _PARTIAL_FLOATS = 2 * MINIMAX_H3_HEAD_DIM
 # The attention kernel exponentiates in the log2 domain: the launch takes ``softmax_scale * log2(e)``,
 # log2(e) spelled as the double the scale is multiplied by before the binding rounds it to float.
@@ -174,6 +181,51 @@ def assign_unit_slots(unit_costs: List[int], num_ctas: int) -> List[int]:
     return slots
 
 
+def _drain_gain(head_units: Dict[int, int], num_heads: int, grid: int) -> float:
+    """Relative drop of the fluid list bound of the overlapped form's drain when its units run longest
+    first.  ``head_units`` maps each unit cost to a head's units of that cost; the head-major order
+    runs every head's units longest first, so the drain is the last ``_DRAIN_ROUNDS * grid`` units of
+    ``num_heads`` repeats of one head's sequence.  The bound of an order is the largest start + cost
+    over the drain's units, a unit starting once the ``grid`` CTAs have run the work before it (its
+    cost class's last unit gives the largest value); the closed form takes one pass over the classes
+    and one over the drain's classes, in integers scaled by ``grid``.  Returns 0 when the drain's
+    costs differ by at most one tile."""
+    costs = sorted(head_units, reverse=True)
+    per_head = head_work = 0
+    for cost in costs:
+        per_head += head_units[cost]
+        head_work += cost * head_units[cost]
+    drain = min(num_heads * per_head, _DRAIN_ROUNDS * grid)
+    full, part = divmod(drain, per_head)
+    start, slack = per_head - part, grid - 1
+    total = num_heads * head_work
+    shipped = end = drained = 0
+    after = head_work
+    window = []
+    for cost in costs:
+        units = head_units[cost]
+        begin, end = end, end + units
+        after -= cost * units
+        # The class's last unit (in the last head) is in the drain.
+        if end > per_head - drain:
+            value = total - after + cost * slack
+            if value > shipped:
+                shipped = value
+            count = full * units + (
+                end - (begin if begin > start else start) if end > start else 0
+            )
+            window.append((cost, count))
+            drained += cost * count
+    if window[0][0] - window[-1][0] <= 1:
+        return 0.0
+    done, longest = total - drained, 0
+    for cost, count in window:
+        done += cost * count
+        if done + cost * slack > longest:
+            longest = done + cost * slack
+    return (shipped - longest) / shipped
+
+
 def _overlap_selected(num_heads: int, work: int, num_sms: int) -> bool:
     """Whether a plan of ``num_heads`` heads and attention work ``work`` (the sum of the squared
     segment lengths) runs the overlapped form on a device of ``num_sms`` SMs."""
@@ -238,6 +290,7 @@ class MiniMaxH3VarlenPlan:
         seg_tile_begin: List[int] = [0]
         units: List[Tuple[int, int, int]] = []
         costs: List[int] = []
+        head_units: Dict[int, int] = {}
         for seg, (begin, length) in enumerate(zip(begins, lens, strict=True)):
             q_tiles = _ceil_div(length, _BLOCK_M)
             if q_tiles >= _MAX_SEGMENT_TILES:
@@ -258,6 +311,7 @@ class MiniMaxH3VarlenPlan:
                     for t in range(q_tiles):
                         units.append((seg, head, t))
                         costs.append(cost)
+                head_units[cost] = head_units.get(cost, 0) + q_tiles
         self.num_tiles = seg_tile_begin[-1]
         self.num_units = len(units)
         self.grid = max(1, min(int(num_ctas), max(self.num_units, 1)))
@@ -272,7 +326,8 @@ class MiniMaxH3VarlenPlan:
         )
         # The overlapped form's units come from one counter in this order: head by head (the order the
         # producers publish the heads), each head's units longest first (equal costs keep segment and
-        # tile order).
+        # tile order); the last ``_DRAIN_ROUNDS * self.grid`` units then run longest first when
+        # ``_drain_gain`` reaches ``_DRAIN_MIN_GAIN``.
         unit_table_head_major: List[int] = []
         if self.overlap:
             per_head = sorted(
@@ -283,9 +338,29 @@ class MiniMaxH3VarlenPlan:
                 ),
                 key=lambda unit: -unit[0],
             )
-            for head in range(num_heads):
+            # Units [0, head_major) in head-major order, then the drain longest first: each cost's
+            # drain units in head-major order (a stable sort of the drain by cost).
+            head_major = len(per_head) * num_heads
+            if _drain_gain(head_units, num_heads, self.grid) >= _DRAIN_MIN_GAIN:
+                head_major -= min(head_major, _DRAIN_ROUNDS * self.grid)
+            heads, rest = divmod(head_major, len(per_head))
+            for head in range(heads):
                 for _, seg, t in per_head:
                     unit_table_head_major.extend((seg, (head << 16) | t))
+            for _, seg, t in per_head[:rest]:
+                unit_table_head_major.extend((seg, (heads << 16) | t))
+            if heads < num_heads:
+                # Each cost's drain units: those of head ``heads`` from unit ``rest`` on, then all of
+                # them in every later head.
+                end = 0
+                for cost in sorted(head_units, reverse=True):
+                    begin, end = end, end + head_units[cost]
+                    for _, seg, t in per_head[begin if begin > rest else rest : end]:
+                        unit_table_head_major.extend((seg, (heads << 16) | t))
+                    block = per_head[begin:end]
+                    for head in range(heads + 1, num_heads):
+                        for _, seg, t in block:
+                            unit_table_head_major.extend((seg, (head << 16) | t))
         self.num_kblocks = max(1, _ceil_div(self.total_tokens, _BLOCK_N))
         self.padded_tokens = self.num_kblocks * _BLOCK_N
         i32 = lambda values: torch.tensor(values, dtype=torch.int32, device=device)  # noqa: E731
