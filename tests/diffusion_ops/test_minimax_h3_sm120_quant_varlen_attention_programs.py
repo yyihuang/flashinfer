@@ -415,7 +415,8 @@ def test_the_overlapped_form_serves_the_overlap_band(
 
 def test_head_major_unit_table_publishes_heads_in_order() -> None:
     # Every unit once, head by head; within a head the longest units first, equal costs in segment
-    # and tile order.
+    # and tile order; the last 4 x grid units (the ones the CTAs claim as they drain) then run
+    # longest first, equal costs in that order.
     bounds = (0, 257, 4567, 4824)
     plan = ops.MiniMaxH3VarlenPlan(bounds, 56, torch.device("cpu"), 170)
     assert plan.overlap
@@ -427,18 +428,18 @@ def test_head_major_unit_table_publishes_heads_in_order() -> None:
         for seg, packed in plan.unit_table.view(-1, 2).tolist()
     )
     per_head = plan.num_units // 56
-    assert [head for _seg, head, _t in units] == [
-        head for head in range(56) for _ in range(per_head)
-    ]
     # segment 1 (4310 tokens, 34 tiles) is the most expensive; segments 0 and 2 (257 tokens, 3
     # tiles each) tie
-    first_head = [(seg, t) for seg, _head, t in units[:per_head]]
-    assert first_head == [(1, t) for t in range(34)] + [
+    first_head = [(1, t) for t in range(34)] + [
         (seg, t) for seg in (0, 2) for t in range(3)
     ]
-    for head in range(1, 56):
-        chunk = units[head * per_head : (head + 1) * per_head]
-        assert [(seg, t) for seg, _head, t in chunk] == first_head
+    head_major = [(seg, head, t) for head in range(56) for seg, t in first_head]
+    drain = plan.num_units - 4 * plan.grid
+    assert plan.grid == 170 and drain == 39 * per_head
+    assert units[:drain] == head_major[:drain]
+    assert units[drain:] == [u for u in head_major[drain:] if u[0] == 1] + [
+        u for u in head_major[drain:] if u[0] != 1
+    ]
 
 
 def test_overlapped_form_warms_up_once_outside_capture(monkeypatch) -> None:
