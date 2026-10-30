@@ -48,6 +48,8 @@ _MAX_SEGMENT_TILES = 1 << 16
 _MAX_ELEMENTS = (1 << 31) - 1
 # Fixed per-unit overhead (Q TMA, pipeline fill, epilogue) in K/V-tile units for the LPT placement.
 _UNIT_OVERHEAD_TILES = 2
+# The overlapped form's last ``_HEAD_MAJOR_TAIL_ROUNDS`` x (plan grid) head-major units run longest first.
+_HEAD_MAJOR_TAIL_ROUNDS = 4
 _PARTIAL_FLOATS = 2 * MINIMAX_H3_HEAD_DIM
 # The attention kernel exponentiates in the log2 domain: the launch takes ``softmax_scale * log2(e)``,
 # log2(e) spelled as the double the scale is multiplied by before the binding rounds it to float.
@@ -272,7 +274,9 @@ class MiniMaxH3VarlenPlan:
         )
         # The overlapped form's units come from one counter in this order: head by head (the order the
         # producers publish the heads), each head's units longest first (equal costs keep segment and
-        # tile order).
+        # tile order); the last ``_HEAD_MAJOR_TAIL_ROUNDS * self.grid`` units, the ones the CTAs
+        # claim as they drain, then run longest first (a stable sort), so the short units of those
+        # heads fill the end of the schedule instead of leaving long units to start last.
         unit_table_head_major: List[int] = []
         if self.overlap:
             per_head = sorted(
@@ -283,9 +287,15 @@ class MiniMaxH3VarlenPlan:
                 ),
                 key=lambda unit: -unit[0],
             )
-            for head in range(num_heads):
-                for _, seg, t in per_head:
-                    unit_table_head_major.extend((seg, (head << 16) | t))
+            order = [
+                (cost, seg, head, t)
+                for head in range(num_heads)
+                for cost, seg, t in per_head
+            ]
+            drain = len(order) - min(len(order), _HEAD_MAJOR_TAIL_ROUNDS * self.grid)
+            order[drain:] = sorted(order[drain:], key=lambda unit: -unit[0])
+            for _, seg, head, t in order:
+                unit_table_head_major.extend((seg, (head << 16) | t))
         self.num_kblocks = max(1, _ceil_div(self.total_tokens, _BLOCK_N))
         self.padded_tokens = self.num_kblocks * _BLOCK_N
         i32 = lambda values: torch.tensor(values, dtype=torch.int32, device=device)  # noqa: E731
