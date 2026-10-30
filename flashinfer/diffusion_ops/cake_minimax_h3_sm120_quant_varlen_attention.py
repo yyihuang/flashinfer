@@ -48,6 +48,13 @@ _MAX_SEGMENT_TILES = 1 << 16
 _MAX_ELEMENTS = (1 << 31) - 1
 # Fixed per-unit overhead (Q TMA, pipeline fill, epilogue) in K/V-tile units for the LPT placement.
 _UNIT_OVERHEAD_TILES = 2
+# Drain order of the overlapped form (host only): the last ``_DRAIN_ROUNDS`` x (plan grid) head-major
+# units, the ones the attention CTAs claim as they drain, run longest first (a stable sort by cost)
+# when their costs differ by more than one K/V tile and the fluid list bound of the drain
+# (``_drain_gain``) drops by at least ``_DRAIN_MIN_GAIN``; otherwise the head-major order stays.
+# (Costs one tile apart come from the key-block alignment of segments of one key-tile count.)
+_DRAIN_ROUNDS = 4
+_DRAIN_MIN_GAIN = 0.004
 _PARTIAL_FLOATS = 2 * MINIMAX_H3_HEAD_DIM
 # The attention kernel exponentiates in the log2 domain: the launch takes ``softmax_scale * log2(e)``,
 # log2(e) spelled as the double the scale is multiplied by before the binding rounds it to float.
@@ -174,6 +181,44 @@ def assign_unit_slots(unit_costs: List[int], num_ctas: int) -> List[int]:
     return slots
 
 
+def _drain_gain(head_units: Dict[int, int], num_heads: int, grid: int) -> float:
+    """Relative drop of the fluid list bound of the overlapped form's drain when its units run longest
+    first.  ``head_units`` maps each unit cost to a head's units of that cost; the head-major order
+    runs every head's units longest first, so the drain is the last ``_DRAIN_ROUNDS * grid`` units of
+    56 repeats of one head's sequence.  The bound of an order is the largest start + cost over the
+    drain's units, a unit starting once the ``grid`` CTAs have run the work before it (its cost
+    class's last unit gives the largest value); the closed form takes one pass over the classes.
+    Returns 0 when the drain's costs differ by at most one tile."""
+    classes = sorted(head_units.items(), reverse=True)
+    per_head = sum(units for _, units in classes)
+    head_work = sum(cost * units for cost, units in classes)
+    total = num_heads * head_work
+    drain = min(num_heads * per_head, _DRAIN_ROUNDS * grid)
+    full, part = divmod(drain, per_head)
+    shipped = 0.0
+    counts = []
+    begin, after = 0, head_work
+    for cost, units in classes:
+        end = begin + units
+        after -= cost * units
+        if (
+            end > per_head - drain
+        ):  # the class's last unit (in the last head) is in the drain
+            shipped = max(shipped, (total - after - cost) / grid + cost)
+        count = full * units + max(0, end - max(begin, per_head - part))
+        if count:
+            counts.append((cost, count))
+        begin = end
+    if counts[0][0] - counts[-1][0] <= 1:
+        return 0.0
+    done = total - sum(cost * count for cost, count in counts)
+    longest_first = 0.0
+    for cost, count in counts:
+        done += cost * count
+        longest_first = max(longest_first, (done - cost) / grid + cost)
+    return 1.0 - longest_first / shipped
+
+
 def _overlap_selected(num_heads: int, work: int, num_sms: int) -> bool:
     """Whether a plan of ``num_heads`` heads and attention work ``work`` (the sum of the squared
     segment lengths) runs the overlapped form on a device of ``num_sms`` SMs."""
@@ -238,6 +283,7 @@ class MiniMaxH3VarlenPlan:
         seg_tile_begin: List[int] = [0]
         units: List[Tuple[int, int, int]] = []
         costs: List[int] = []
+        head_units: Dict[int, int] = {}
         for seg, (begin, length) in enumerate(zip(begins, lens, strict=True)):
             q_tiles = _ceil_div(length, _BLOCK_M)
             if q_tiles >= _MAX_SEGMENT_TILES:
@@ -258,6 +304,7 @@ class MiniMaxH3VarlenPlan:
                     for t in range(q_tiles):
                         units.append((seg, head, t))
                         costs.append(cost)
+                head_units[cost] = head_units.get(cost, 0) + q_tiles
         self.num_tiles = seg_tile_begin[-1]
         self.num_units = len(units)
         self.grid = max(1, min(int(num_ctas), max(self.num_units, 1)))
@@ -272,7 +319,8 @@ class MiniMaxH3VarlenPlan:
         )
         # The overlapped form's units come from one counter in this order: head by head (the order the
         # producers publish the heads), each head's units longest first (equal costs keep segment and
-        # tile order).
+        # tile order); the last ``_DRAIN_ROUNDS * self.grid`` units then run longest first when
+        # ``_drain_gain`` reaches ``_DRAIN_MIN_GAIN``.
         unit_table_head_major: List[int] = []
         if self.overlap:
             per_head = sorted(
@@ -283,9 +331,24 @@ class MiniMaxH3VarlenPlan:
                 ),
                 key=lambda unit: -unit[0],
             )
-            for head in range(num_heads):
+            # Units [0, head_major) in head-major order, then the drain longest first: each cost's
+            # drain units in head-major order (a stable sort of the drain by cost).
+            head_major = len(per_head) * num_heads
+            if _drain_gain(head_units, num_heads, self.grid) >= _DRAIN_MIN_GAIN:
+                head_major -= min(head_major, _DRAIN_ROUNDS * self.grid)
+            heads, rest = divmod(head_major, len(per_head))
+            for head in range(heads):
                 for _, seg, t in per_head:
                     unit_table_head_major.extend((seg, (head << 16) | t))
+            for _, seg, t in per_head[:rest]:
+                unit_table_head_major.extend((seg, (heads << 16) | t))
+            end = 0
+            for _, count in sorted(head_units.items(), reverse=True):
+                begin, end = end, end + count
+                for head in range(heads, num_heads):
+                    first = max(begin, rest) if head == heads else begin
+                    for _, seg, t in per_head[first:end]:
+                        unit_table_head_major.extend((seg, (head << 16) | t))
         self.num_kblocks = max(1, _ceil_div(self.total_tokens, _BLOCK_N))
         self.padded_tokens = self.num_kblocks * _BLOCK_N
         i32 = lambda values: torch.tensor(values, dtype=torch.int32, device=device)  # noqa: E731
