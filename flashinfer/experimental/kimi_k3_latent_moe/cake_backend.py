@@ -636,20 +636,21 @@ def tail_sb_norm_n_pad(num_tokens: int, tp: int, num_partials: int) -> int:
 # instance (and so of the resident-B instance) for every input.  ``TAIL_SB_SPLIT_ROUTES`` maps a TP to the N_PAD of
 # that instance and, per part (SM count, architecture), per token count the fewest partials it serves there: the cells
 # where it measured faster than the route without it on that part (paired CUDA-graph timing, cold L2, both passes
-# beyond the A/A band), all of them cells whose route without it takes the resident-B arithmetic.  The TP1 rows serve
-# sm_103a parts only, the rows of 3 tokens on the 152-SM part from 9 partials.
+# beyond the A/A band), all of them cells whose route without it takes the resident-B arithmetic.  The TP1 rows take
+# it from 8 partials on every part; the TP8 rows from 2 partials on the sm_100a parts and from 3 on the sm_103a parts.
 TAIL_SB_SPLIT_ROUTES: dict[int, tuple[int, dict[tuple[int, str], dict[int, int]]]] = {
     1: (
         32,
         {
-            (148, "sm_103a"): {t: 8 for t in range(1, 9)},
-            (152, "sm_103a"): {t: 9 if t == 3 else 8 for t in range(1, 9)},
+            (sm_count, arch): {t: 8 for t in range(1, 9)}
+            for sm_count in QUALIFIED_SM_COUNTS
+            for arch in ("sm_100a", "sm_103a")
         },
     ),
     8: (
         8,
         {
-            (sm_count, arch): {t: 3 for t in range(1, 5)}
+            (sm_count, arch): {t: 2 if arch == "sm_100a" else 3 for t in range(1, 5)}
             for sm_count in QUALIFIED_SM_COUNTS
             for arch in ("sm_100a", "sm_103a")
         },
