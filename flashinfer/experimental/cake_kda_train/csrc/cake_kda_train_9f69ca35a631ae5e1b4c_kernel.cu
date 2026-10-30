@@ -293,9 +293,9 @@ kernel_cake_kda_train_9f69ca35a631ae5e1b4c(int* __restrict__ cu_seqlens, int num
                     }
                 }
                 __syncthreads();
-                int excl_1 = warp_tot[warp_2] + incl_0 - base_r;
-                int tile_total_2 = blk[0];
-                int dfix = nseg - tile_total_2;
+                int excl_0 = warp_tot[warp_2] + incl_0 - base_r;
+                int tile_total_0 = blk[0];
+                int dfix = nseg - tile_total_0;
                 if (dfix > 0) {
                     if (tid_0 < num_seqs) {
                         int rank_r = 0;
@@ -335,18 +335,18 @@ kernel_cake_kda_train_9f69ca35a631ae5e1b4c(int* __restrict__ cu_seqlens, int num
                 __syncthreads();
                 int my = nseg_t[tid_0];
                 __syncthreads();
-                int incl_3 = my;
+                int incl_1 = my;
                 {
-                    uint32_t incl_3_scan = (uint32_t)incl_3;
-                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_3_scan, 1, 32); if (lane >= 1) { incl_3_scan += peer; } }
-                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_3_scan, 2, 32); if (lane >= 2) { incl_3_scan += peer; } }
-                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_3_scan, 4, 32); if (lane >= 4) { incl_3_scan += peer; } }
-                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_3_scan, 8, 32); if (lane >= 8) { incl_3_scan += peer; } }
-                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_3_scan, 16, 32); if (lane >= 16) { incl_3_scan += peer; } }
-                    incl_3 = (int)incl_3_scan;
+                    uint32_t incl_1_scan = (uint32_t)incl_1;
+                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_1_scan, 1, 32); if (lane >= 1) { incl_1_scan += peer; } }
+                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_1_scan, 2, 32); if (lane >= 2) { incl_1_scan += peer; } }
+                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_1_scan, 4, 32); if (lane >= 4) { incl_1_scan += peer; } }
+                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_1_scan, 8, 32); if (lane >= 8) { incl_1_scan += peer; } }
+                    { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_1_scan, 16, 32); if (lane >= 16) { incl_1_scan += peer; } }
+                    incl_1 = (int)incl_1_scan;
                 }
                 if (lane_1 == 31) {
-                    warp_tot[warp_2] = incl_3;
+                    warp_tot[warp_2] = incl_1;
                 }
                 __syncthreads();
                 if (warp_2 == 0) {
@@ -375,15 +375,15 @@ kernel_cake_kda_train_9f69ca35a631ae5e1b4c(int* __restrict__ cu_seqlens, int num
                     }
                 }
                 __syncthreads();
-                int excl_4 = warp_tot[warp_2] + incl_3 - my;
-                int tile_total_5 = blk[0];
+                int excl_1 = warp_tot[warp_2] + incl_1 - my;
+                int tile_total_1 = blk[0];
                 if (tid_0 < num_seqs) {
-                    cs_t[tid_0] = excl_4;
-                    seg_table[tid_0] = excl_4;
+                    cs_t[tid_0] = excl_1;
+                    seg_table[tid_0] = excl_1;
                 }
                 if (tid_0 == 0) {
-                    cs_t[num_seqs] = tile_total_5;
-                    seg_table[num_seqs] = tile_total_5;
+                    cs_t[num_seqs] = tile_total_1;
+                    seg_table[num_seqs] = tile_total_1;
                 }
                 __syncthreads();
                 for (int i_s = tid_0; i_s < nseg; i_s += 256) {

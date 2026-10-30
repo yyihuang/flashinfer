@@ -138,18 +138,18 @@ kernel_cake_kda_train_fd4c92787fcc18446b14(int* __restrict__ seq_chunk_start, in
         nseg_t[tid_0] = base_r;
         rem_t[tid_0] = rem;
         __syncthreads();
-        int incl = base_r;
+        int incl_0 = base_r;
         {
-            uint32_t incl_scan = (uint32_t)incl;
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_scan, 1, 32); if (lane >= 1) { incl_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_scan, 2, 32); if (lane >= 2) { incl_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_scan, 4, 32); if (lane >= 4) { incl_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_scan, 8, 32); if (lane >= 8) { incl_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_scan, 16, 32); if (lane >= 16) { incl_scan += peer; } }
-            incl = (int)incl_scan;
+            uint32_t incl_0_scan = (uint32_t)incl_0;
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 1, 32); if (lane >= 1) { incl_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 2, 32); if (lane >= 2) { incl_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 4, 32); if (lane >= 4) { incl_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 8, 32); if (lane >= 8) { incl_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 16, 32); if (lane >= 16) { incl_0_scan += peer; } }
+            incl_0 = (int)incl_0_scan;
         }
         if (lane_1 == 31) {
-            warp_tot[warp_2] = incl;
+            warp_tot[warp_2] = incl_0;
         }
         __syncthreads();
         if (warp_2 == 0) {
@@ -178,9 +178,9 @@ kernel_cake_kda_train_fd4c92787fcc18446b14(int* __restrict__ seq_chunk_start, in
             }
         }
         __syncthreads();
-        int excl = warp_tot[warp_2] + incl - base_r;
-        int tile_total = blk[0];
-        int dfix = total - tile_total;
+        int excl_1 = warp_tot[warp_2] + incl_0 - base_r;
+        int tile_total_2 = blk[0];
+        int dfix = total - tile_total_2;
         if (dfix > 0) {
             if (tid_0 < num_seqs) {
                 int rank = 0;
@@ -220,18 +220,18 @@ kernel_cake_kda_train_fd4c92787fcc18446b14(int* __restrict__ seq_chunk_start, in
         __syncthreads();
         int my = nseg_t[tid_0];
         __syncthreads();
-        int incl_0 = my;
+        int incl_0_0 = my;
         {
-            uint32_t incl_0_scan = (uint32_t)incl_0;
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 1, 32); if (lane >= 1) { incl_0_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 2, 32); if (lane >= 2) { incl_0_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 4, 32); if (lane >= 4) { incl_0_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 8, 32); if (lane >= 8) { incl_0_scan += peer; } }
-            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_scan, 16, 32); if (lane >= 16) { incl_0_scan += peer; } }
-            incl_0 = (int)incl_0_scan;
+            uint32_t incl_0_0_scan = (uint32_t)incl_0_0;
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_0_scan, 1, 32); if (lane >= 1) { incl_0_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_0_scan, 2, 32); if (lane >= 2) { incl_0_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_0_scan, 4, 32); if (lane >= 4) { incl_0_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_0_scan, 8, 32); if (lane >= 8) { incl_0_0_scan += peer; } }
+            { uint32_t peer = __shfl_up_sync(0xFFFFFFFF, incl_0_0_scan, 16, 32); if (lane >= 16) { incl_0_0_scan += peer; } }
+            incl_0_0 = (int)incl_0_0_scan;
         }
         if (lane_1 == 31) {
-            warp_tot[warp_2] = incl_0;
+            warp_tot[warp_2] = incl_0_0;
         }
         __syncthreads();
         if (warp_2 == 0) {
@@ -260,15 +260,15 @@ kernel_cake_kda_train_fd4c92787fcc18446b14(int* __restrict__ seq_chunk_start, in
             }
         }
         __syncthreads();
-        int excl_1 = warp_tot[warp_2] + incl_0 - my;
-        int tile_total_2 = blk[0];
+        int excl_1_0 = warp_tot[warp_2] + incl_0_0 - my;
+        int tile_total_2_0 = blk[0];
         if (tid_0 < num_seqs) {
-            cs_t[tid_0] = excl_1;
-            seg_table[tid_0] = excl_1;
+            cs_t[tid_0] = excl_1_0;
+            seg_table[tid_0] = excl_1_0;
         }
         if (tid_0 == 0) {
-            cs_t[num_seqs] = tile_total_2;
-            seg_table[num_seqs] = tile_total_2;
+            cs_t[num_seqs] = tile_total_2_0;
+            seg_table[num_seqs] = tile_total_2_0;
         }
         __syncthreads();
         for (int i = tid_0; i < total; i += 256) {
