@@ -48,6 +48,7 @@ with that reason (not run).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
@@ -104,7 +105,15 @@ def _cases():
                     if deterministic and w != "bf16":
                         continue
                     for rows in ROWS:
-                        yield (collective, mode, deterministic, hidden, residual, w, rows)
+                        yield (
+                            collective,
+                            mode,
+                            deterministic,
+                            hidden,
+                            residual,
+                            w,
+                            rows,
+                        )
 
 
 CASES = list(_cases())
@@ -133,7 +142,8 @@ def _worker(rank: int, port: int, out_dir: Path) -> int:
     loader = cake_package("cake_rmsnorm_train", "cake_jit")
     arch = loader.arch_for_capability(torch.cuda.get_device_capability(device))
     side = torch.cuda.Stream(device)
-    out = open(out_dir / f"rank{rank}.jsonl", "w")
+    results_path = out_dir / f"rank{rank}.jsonl"
+    results_path.write_text("")
 
     def buffers(mib: int, collective: str):
         n = mib * (1 << 20) // 2
@@ -175,7 +185,10 @@ def _worker(rank: int, port: int, out_dir: Path) -> int:
         )
 
     # cycles of the peer's delay: measured against an event pair once
-    probe_a, probe_b = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    probe_a, probe_b = (
+        torch.cuda.Event(enable_timing=True),
+        torch.cuda.Event(enable_timing=True),
+    )
     probe_a.record()
     torch.cuda._sleep(10_000_000)
     probe_b.record()
@@ -200,7 +213,9 @@ def _worker(rank: int, port: int, out_dir: Path) -> int:
             x = torch.randn(rows, hidden, **kw).to(torch.bfloat16)
             u = torch.randn(rows, hidden, **kw).to(torch.bfloat16) if residual else None
             g = torch.randn(rows, hidden, **kw).to(torch.bfloat16)
-            g_h = torch.randn(rows, hidden, **kw).to(torch.bfloat16) if residual else None
+            g_h = (
+                torch.randn(rows, hidden, **kw).to(torch.bfloat16) if residual else None
+            )
             weight = (1 + 0.1 * torch.randn(hidden, **kw)).to(ref.W_DTYPES[w])
             eps = ref.EPS[hidden]
             ws = pkg.cake_rmsnorm_train_backward_workspace(
@@ -223,8 +238,13 @@ def _worker(rank: int, port: int, out_dir: Path) -> int:
                 )
                 return tuple(t.clone() for t in (*outputs, dx, dw))
 
-            form = "det" if deterministic else ref.form(
-                loader, ref.window_records(loader, arch, hidden, "bwd", residual, w, rows)
+            form = (
+                "det"
+                if deterministic
+                else ref.form(
+                    loader,
+                    ref.window_records(loader, arch, hidden, "bwd", residual, w, rows),
+                )
             )
             record["form"] = form
             for _ in range(WARMUP):
@@ -239,9 +259,19 @@ def _worker(rank: int, port: int, out_dir: Path) -> int:
                 y_ref, rstd_ref, _n = ref.reference_forward(x, weight, eps, residual=u)
                 ref.assert_bf16_close(y, y_ref, "y")
                 assert ref.rel_l2(rstd, rstd_ref) <= ref.RSTD_REL_L2, "rstd"
-                dx_ref, dw_ref = ref.reference_backward(g, normalized, weight, rstd, g_h=g_h)
+                dx_ref, dw_ref = ref.reference_backward(
+                    g, normalized, weight, rstd, g_h=g_h
+                )
                 ref.assert_bf16_close(dx, dx_ref, "dx")
-                ref.assert_dw(dw, dw_ref, g, normalized, rstd, "dw", "pair" if form == "det" else form)
+                ref.assert_dw(
+                    dw,
+                    dw_ref,
+                    g,
+                    normalized,
+                    rstd,
+                    "dw",
+                    "pair" if form == "det" else form,
+                )
             except AssertionError as exc:
                 record["errors"].append(f"fp64: {str(exc)[:400]}")
 
@@ -284,7 +314,9 @@ def _worker(rank: int, port: int, out_dir: Path) -> int:
                     is_dw = i == len(first) - 1
                     if is_dw and form == "single":
                         if ref.rel_l2(a, b) > DW_REL_L2:
-                            record["errors"].append(f"dw moved: rel-L2 {ref.rel_l2(a, b):.3e}")
+                            record["errors"].append(
+                                f"dw moved: rel-L2 {ref.rel_l2(a, b):.3e}"
+                            )
                     elif not torch.equal(a, b):
                         record["errors"].append(f"output {i} differs across calls")
             record.update(
@@ -298,9 +330,8 @@ def _worker(rank: int, port: int, out_dir: Path) -> int:
             record["errors"].append(traceback.format_exc()[-1500:])
             torch.cuda.synchronize()
             dist.barrier(group=cpu)
-        out.write(json.dumps(record) + "\n")
-        out.flush()
-    out.close()
+        with open(results_path, "a") as out:
+            out.write(json.dumps(record) + "\n")
     dist.barrier(group=cpu)
     dist.destroy_process_group()
     return 0
@@ -342,29 +373,37 @@ def nccl_results(tmp_path_factory):
         p for p in (str(REPO_ROOT), env.get("PYTHONPATH", "")) if p
     )
     env.setdefault("NCCL_DEBUG", "WARN")
-    procs, logs = [], []
-    for rank in range(WORLD):
-        log = open(out_dir / f"rank{rank}.log", "w")
-        logs.append(log)
-        procs.append(
-            subprocess.Popen(
-                [sys.executable, __file__, "--worker", str(rank), str(port), str(out_dir)],
-                env=env,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                cwd=str(REPO_ROOT),
+    procs = []
+    with contextlib.ExitStack() as stack:
+        logs = [
+            stack.enter_context(open(out_dir / f"rank{rank}.log", "w"))
+            for rank in range(WORLD)
+        ]
+        for rank in range(WORLD):
+            procs.append(
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        __file__,
+                        "--worker",
+                        str(rank),
+                        str(port),
+                        str(out_dir),
+                    ],
+                    env=env,
+                    stdout=logs[rank],
+                    stderr=subprocess.STDOUT,
+                    cwd=str(REPO_ROOT),
+                )
             )
-        )
-    codes = []
-    for proc in procs:
-        try:
-            codes.append(proc.wait(timeout=WORKER_TIMEOUT_S))
-        except subprocess.TimeoutExpired:
-            for p in procs:
-                p.kill()
-            codes.append("timeout")
-    for log in logs:
-        log.close()
+        codes = []
+        for proc in procs:
+            try:
+                codes.append(proc.wait(timeout=WORKER_TIMEOUT_S))
+            except subprocess.TimeoutExpired:
+                for p in procs:
+                    p.kill()
+                codes.append("timeout")
     tails = {
         rank: (out_dir / f"rank{rank}.log").read_text()[-3000:] for rank in range(WORLD)
     }
@@ -393,7 +432,10 @@ def test_forward_backward_beside_a_resident_nccl_collective(case, nccl_results) 
         alone = statistics.median(record["alone_ms"])
         busy = statistics.median(record["busy_ms"])
         ratio, extra = busy / alone, busy - alone
-        resident = sum(c is not None and c > b for b, c in zip(record["busy_ms"], record["comm_ms"]))
+        resident = sum(
+            c is not None and c > b
+            for b, c in zip(record["busy_ms"], record["comm_ms"], strict=True)
+        )
         print(
             f"NCCL {record['arch']} {case_id} rank={rank} form={record['form']} "
             f"alone_ms={alone:.4f} busy_ms={busy:.4f} ratio={ratio:.3f} extra_ms={extra:.4f} "

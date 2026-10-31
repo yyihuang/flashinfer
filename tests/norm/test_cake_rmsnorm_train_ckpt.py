@@ -235,9 +235,14 @@ def _check_view(view: str, w: str, tokens: int, key: int) -> str:
     del dx_ref
     # the same rows as a contiguous 2-D call: the same program, the same dx bits
     dx2, _dw2 = backward(
-        g.reshape(rows, 256), x.reshape(rows, 256).contiguous(), weight, rstd.reshape(rows)
+        g.reshape(rows, 256),
+        x.reshape(rows, 256).contiguous(),
+        weight,
+        rstd.reshape(rows),
     )
-    assert torch.equal(dx0.reshape(rows, 256), dx2), f"{label}: dx differs from the 2-D call"
+    assert torch.equal(dx0.reshape(rows, 256), dx2), (
+        f"{label}: dx differs from the 2-D call"
+    )
     program = loader.MODULES[expected[0]]["library"].rsplit("_", 1)[1][:8]
     return (
         f"VIEWS {_arch()} view={view} w={w} tokens={tokens} rows={rows} form={form} "
@@ -342,7 +347,11 @@ def _autograd(xs, weight, eps, us, gs, g_hs, checkpointed: bool):
             outs = step(xa, weight, ua)
         torch.autograd.backward(outs, (g, g_h) if u is not None else (g,))
         results.append(
-            (tuple(o.detach() for o in outs), xa.grad, ua.grad if ua is not None else None)
+            (
+                tuple(o.detach() for o in outs),
+                xa.grad,
+                ua.grad if ua is not None else None,
+            )
         )
     return results
 
@@ -370,10 +379,17 @@ def test_checkpoint_replays_views_and_nd_inputs(name: str, w: str, tokens: int) 
         results[checkpointed] = _autograd(
             [x], wa, eps, [u], [g], [g_h], checkpointed=checkpointed
         )[0]
-        assert len(_DW_BUFFERS) == start + 1, f"{label}: {len(_DW_BUFFERS) - start} backward launches"
+        launches = len(_DW_BUFFERS) - start
+        assert launches == len(_records(hidden, residual, w, rows)), (
+            f"{label}: {launches} backward module launches"
+        )
         dw32 = _DW_BUFFERS[-1].clone()
-        ref.assert_dw(dw32, dw_ref, g, normalized, rstd, f"{label} ckpt={checkpointed}", form)
-        assert wa.grad.dtype == weight.dtype and torch.equal(wa.grad, dw32.to(weight.dtype))
+        ref.assert_dw(
+            dw32, dw_ref, g, normalized, rstd, f"{label} ckpt={checkpointed}", form
+        )
+        assert wa.grad.dtype == weight.dtype and torch.equal(
+            wa.grad, dw32.to(weight.dtype)
+        )
         dws[checkpointed] = dw32
     (outs_c, dx_c, du_c), (outs_p, dx_p, du_p) = results[True], results[False]
     assert all(torch.equal(a, b) for a, b in zip(outs_c, outs_p, strict=True)), label
@@ -410,7 +426,7 @@ def test_checkpointed_micro_batches_accumulate_into_existing_grads(
         rows = x.numel() // hidden
         start = len(_DW_BUFFERS)
         (outs, dx, du) = _autograd([x], wa, eps, [u], [g], [g_h], checkpointed=True)[0]
-        assert len(_DW_BUFFERS) == start + 1
+        assert len(_DW_BUFFERS) - start == len(_records(hidden, residual, w, rows))
         dw32 = _DW_BUFFERS[-1].clone()
         outputs = forward(x, weight, eps, residual=u)
         normalized, rstd = (outputs[2] if residual else x), outputs[1]
@@ -419,7 +435,9 @@ def test_checkpointed_micro_batches_accumulate_into_existing_grads(
         ref.assert_dw(dw32, dw_ref, g, normalized, rstd, f"micro-batch {index}", form)
         ref.assert_bf16_close(dx, dx_ref, f"micro-batch {index} dx")
         expected = expected + dw32.to(weight.dtype)
-        assert torch.equal(wa.grad, expected), f"{name} w={w}: w.grad after micro-batch {index}"
+        assert torch.equal(wa.grad, expected), (
+            f"{name} w={w}: w.grad after micro-batch {index}"
+        )
     print(f"CKPT_ACCUM {_arch()} {name} w={w} micro_batches={len(cases)} exact=True")
 
 
@@ -457,7 +475,9 @@ def test_checkpointed_forward_retains_only_its_outputs(name: str, w: str) -> Non
         torch.cuda.synchronize()
         base = torch.cuda.memory_allocated()
         if checkpointed:
-            outs = torch.utils.checkpoint.checkpoint(step, xa, wa, ua, use_reentrant=False)
+            outs = torch.utils.checkpoint.checkpoint(
+                step, xa, wa, ua, use_reentrant=False
+            )
         else:
             outs = step(xa, wa, ua)
         torch.cuda.synchronize()
@@ -474,7 +494,10 @@ def test_checkpointed_forward_retains_only_its_outputs(name: str, w: str) -> Non
         torch.cuda.synchronize()
         grads = [xa.grad, wa.grad] + ([ua.grad] if residual else [])
         grads_bytes = sum(
-            {t.untyped_storage().data_ptr(): t.untyped_storage().nbytes() for t in grads}.values()
+            {
+                t.untyped_storage().data_ptr(): t.untyped_storage().nbytes()
+                for t in grads
+            }.values()
         )
         left = torch.cuda.memory_allocated() - base - grads_bytes
         report[checkpointed] = (held, outputs_bytes, beyond, backward_peak, left)
@@ -492,7 +515,10 @@ def test_checkpointed_forward_retains_only_its_outputs(name: str, w: str) -> Non
         assert left <= ALLOCATOR_SLACK, f"{label}: {left} bytes left after the backward"
         del xa, ua, wa, grads
     mib = 1 / (1 << 20)
-    (c_held, c_out, c_beyond, c_peak, c_left), (p_held, _p_out, p_beyond, p_peak, p_left) = (
+    (
+        (_c_held, c_out, c_beyond, c_peak, c_left),
+        (_p_held, _p_out, p_beyond, p_peak, p_left),
+    ) = (
         report[True],
         report[False],
     )
