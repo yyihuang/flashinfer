@@ -36,7 +36,9 @@ window is in the package's whole-SM list (``cake_windows.WHOLE_SM``, the list
 the facade documents) and the call runs the deterministic package's program (a
 forward or a deterministic-pair backward window whose program id equals the one
 the deterministic package selects at the same token count; an FP32-weight twin
-through its BF16 owner route, same form); the deterministic package's own call
+through its BF16 owner route, same form, or -- in a deterministic-pair twin
+window where the owner runs a single kernel -- through the owner's pair program
+that the twin's program twins); the deterministic package's own call
 beside the same side kernel is measured and printed for reference.  Every other
 call that waits fails: a single kernel, an unlisted window, or a window whose
 program is not the deterministic package's.  Outputs are checked across every call:
@@ -487,11 +489,41 @@ def _main_module(names, modules) -> str:
     return next(n for n in names if modules[n]["role"] != "bwd_reduce")
 
 
+def _owner_pair_program(hidden: int, residual: bool, w: str, twin_main: str):
+    """The BF16 owner route's pair main program that the FP32-weight twin
+    program ``twin_main`` twins: an FP32-weight route selects among the twins of
+    its owner's programs, so in a window where both routes run a pair they run
+    one program.  Read from the windows that overlap a twin window of the same
+    library; ``None`` unless exactly one owner pair program overlaps."""
+    library = loader.MODULES[twin_main]["library"]
+    routes = loader.ROUTES[_arch()]
+
+    def span(name: str):
+        rule = loader.MODULES[name]["select_rule"] or {}
+        return rule.get("above", 0), rule.get("at_most")
+
+    def overlap(a, b) -> bool:
+        return (a[1] is None or a[1] > b[0]) and (b[1] is None or b[1] > a[0])
+
+    found = {
+        _program_id(o)
+        for t in routes[loader.route_key(hidden, "bwd", residual, w)]
+        if loader.MODULES[t]["library"] == library
+        for o in routes[loader.route_key(hidden, "bwd", residual, "bf16")]
+        if loader.MODULES[o]["role"] != "bwd_reduce"
+        and (loader.MODULES[o]["workspace_rule"] or {}).get("kind") == "chunk_partials"
+        and overlap(span(t), span(o))
+    }
+    return found.pop() if len(found) == 1 else None
+
+
 def _runs_det_program(kind: str, hidden: int, residual: bool, w: str, rows: int):
     """``(True / False, note)``: the call runs the program the deterministic
     package selects for the same shape and token count (program id equality of
     the main kernels); an FP32-weight twin through its BF16 owner route (the
-    det package serves BF16 weights only), whose form it must share."""
+    det package serves BF16 weights only), whose form it must share -- or, in a
+    pair twin window where the owner runs a single kernel, through the owner's
+    pair program that the twin's program twins (:func:`_owner_pair_program`)."""
     if det is None:
         return False, "no det package"
     arch = det.cake_jit.arch_for_capability(_capability())
@@ -509,8 +541,19 @@ def _runs_det_program(kind: str, hidden: int, residual: bool, w: str, rows: int)
     note = f"program={_program_id(main)[:8]} det_program={_program_id(det_main)[:8]}"
     if w != "bf16" and kind == "bwd":
         twin = ref.window_records(loader, _arch(), hidden, kind, residual, w, rows)
-        same = same and ref.form(loader, twin) == ref.form(loader, owner)
-        note += f" (via the BF16 owner; twin form {ref.form(loader, twin)})"
+        twin_form, owner_form = ref.form(loader, twin), ref.form(loader, owner)
+        if twin_form == "pair" and owner_form == "single":
+            program = _owner_pair_program(
+                hidden, residual, w, _main_module(twin, loader.MODULES)
+            )
+            same = program is not None and program == _program_id(det_main)
+            note += (
+                f" (the twin's program twins the owner's pair program "
+                f"{(program or 'none')[:8]}; owner form single)"
+            )
+        else:
+            same = same and twin_form == owner_form
+            note += f" (via the BF16 owner; twin form {twin_form})"
     return same, note
 
 
