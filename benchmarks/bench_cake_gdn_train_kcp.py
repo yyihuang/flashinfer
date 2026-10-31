@@ -106,6 +106,7 @@ from flashinfer import cake_causal_conv1d_train as conv_api  # noqa: E402
 
 BASE_ARMS = ("det", "nondet", "nondet_serial")
 TREE_ARM = re.compile(r"^nondet_tree(\d+)$")
+PRULE_ARM = re.compile(r"^nondet_p_(\w+)$")
 BOUNDARIES = ("B1", "B2", "B3", "B3h")
 BOUNDARY_LABELS = {
     "B1": "forward with autograd recording",
@@ -223,7 +224,15 @@ class Route:
             kw["cut_points"] = cut_points
         return self._partition(cu, world, layout, **kw)
 
-    def context(self, part: Any, rank: int, device: torch.device) -> Any:
+    def context(
+        self, part: Any, rank: int, device: torch.device, p_rule: Optional[str] = None
+    ) -> Any:
+        if (
+            p_rule is not None
+        ):  # the package's own context builder: the facade selects no plan rule
+            return self.pkg.cake_kcp_plan.build_context_kcp(
+                part, dist.group.WORLD, rank, device, WIDTH, p_rule=p_rule
+            )
         return self._context(
             part, dist.group.WORLD, rank, device, conv_kernel_size=WIDTH, **self.mode
         )
@@ -297,9 +306,16 @@ def arm_route(arm: str) -> str:
     return "det" if arm == "det" else "nondet"
 
 
+def arm_ctx(arm: str) -> str:
+    """The context an arm runs on: its route's, or (``nondet_p_<rule>``) a non-deterministic context built with the
+    plan rule ``<rule>``."""
+    m = PRULE_ARM.match(arm)
+    return f"nondet:p_rule={m.group(1)}" if m else arm_route(arm)
+
+
 def arm_options(arm: str) -> Optional[dict[str, Any]]:
     """The ``options`` of an arm's GDN calls (``None``: the route's defaults)."""
-    if arm in ("det", "nondet"):
+    if arm in ("det", "nondet") or PRULE_ARM.match(arm):
         return None
     if arm == "nondet_serial":
         return {"test_knobs": {"owner_tree": "off"}}
@@ -495,7 +511,8 @@ def make_problem(
     world: int,
     device: torch.device,
 ) -> dict[str, Any]:
-    """Partition and context of every route (one plan: the fragment tables must agree) and this rank's operands."""
+    """Partition and context of every route (one plan: the fragment tables must agree), the contexts of the
+    ``nondet_p_<rule>`` arms (the non-deterministic partition, plan rule ``<rule>``) and this rank's operands."""
     cu = row.cu
     cu_cpu = torch.tensor(cu, dtype=torch.int64)
     cut = row.cut_points(layout, world)
@@ -506,6 +523,12 @@ def make_problem(
     ctxs = {
         kind: route.context(parts[kind], rank, device) for kind, route in routes.items()
     }
+    for arm in args.arm_list:
+        m = PRULE_ARM.match(arm)
+        if m:
+            ctxs[arm_ctx(arm)] = routes["nondet"].context(
+                parts["nondet"], rank, device, p_rule=m.group(1)
+            )
     tables = {
         kind: [
             [(int(f.doc), int(f.off), int(f.length)) for f in frs]
@@ -811,7 +834,7 @@ def run_config(
     forwards = {
         arm: _forward_fn(
             routes[arm_route(arm)],
-            problem["ctx"][arm_route(arm)],
+            problem["ctx"][arm_ctx(arm)],
             with_conv,
             args.save_mode,
             arm_options(arm),
@@ -1043,12 +1066,18 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--arms",
         default=",".join(BASE_ARMS),
-        help="comma-separated arms among det, nondet, nondet_serial, nondet_tree<b>",
+        help="comma-separated arms among det, nondet, nondet_serial, nondet_tree<b>, nondet_p_<plan rule>",
     )
     parser.add_argument(
         "--tree-blocks",
         default="",
         help="comma-separated forced owner_tree block sizes; adds the arms nondet_tree<b>",
+    )
+    parser.add_argument(
+        "--p-rules",
+        default="",
+        help="comma-separated plan rules of the non-deterministic package; adds the arms nondet_p_<rule> (contexts "
+        "built with that rule)",
     )
     parser.add_argument(
         "--boundaries",
@@ -1142,6 +1171,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         ]
     except ValueError:
         parser.error(f"--tree-blocks takes integers, got {args.tree_blocks!r}")
+    arms += [f"nondet_p_{r}" for r in _csv(args.p_rules) if f"nondet_p_{r}" not in arms]
     args.arm_list = arms
     if not args.row_list or not args.layout_list or not args.boundary_list or not arms:
         parser.error(
@@ -1149,7 +1179,11 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         )
     bad = [x for x in args.layout_list if x not in LAYOUTS]
     bad += [x for x in args.boundary_list if x not in BOUNDARIES]
-    bad += [x for x in arms if x not in BASE_ARMS and not TREE_ARM.match(x)]
+    bad += [
+        x
+        for x in arms
+        if x not in BASE_ARMS and not TREE_ARM.match(x) and not PRULE_ARM.match(x)
+    ]
     if bad:
         parser.error(f"unknown layout / boundary / arm names: {bad}")
     return args
