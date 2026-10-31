@@ -864,11 +864,12 @@ def test_repeated_launches_against_fp64_and_det(
 
 
 # H5120: the token count up to which the backward runs the det pair; above it the
-# FP64-accumulating single kernel runs for dw accuracy.  Per architecture, the det
-# pair's dw keeps within ACCURACY_MARGIN of the per-element budget (worst of the
-# measured inputs of each input family) only up to this count (on B200, over 60
-# inputs of each family: 0.79 of the budget at T 22528, 0.90 at T 24576).
-H5120_ACCURACY_EDGE = {"sm_100a": 22528, "sm_103a": 24576, "sm_107a": 32768}
+# FP64-accumulating single kernel runs for dw accuracy.  Per architecture, the
+# largest count of a 512-row grid such that at every grid count up to it the det
+# pair's dw keeps within ACCURACY_MARGIN of the per-element budget (worst of 60
+# inputs of each input family): on B200 0.750 of the budget at T 21504 and 1.021
+# at T 22016; on GB300 0.654 at T 20480 and 0.859 at T 20992.
+H5120_ACCURACY_EDGE = {"sm_100a": 21504, "sm_103a": 20480, "sm_107a": 32768}
 ACCURACY_MARGIN = 0.85
 ACCURACY_SEEDS = 20
 
