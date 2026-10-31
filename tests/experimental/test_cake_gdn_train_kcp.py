@@ -54,6 +54,9 @@ import threading
 
 import pytest
 import torch
+# torch._dynamo (and sympy) imported once here, single-threaded: the FP64 reference's torch._compile wrappers import it
+# lazily, and a first import racing the rank threads of another test can see a partially initialised sympy (Python 3.14)
+import torch._dynamo  # noqa: F401
 
 from tests.test_helpers import cake_gdn_det_train_kcp_reference as REF
 
