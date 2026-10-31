@@ -2073,7 +2073,9 @@ def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
 
 
 # #7038 / #7548 form: a one-thread sleep kernel resident on a side stream for the whole call; the gate is declared
-# before the run (a stage that waited for every SM, or a whole-device launch, would stretch the call to the sleep)
+# before the run (a stage that waited for every SM, or a whole-device launch, would stretch the call to the sleep).
+# The caller's stream sleeps first, so the host has enqueued the whole call before its first launch runs: the events
+# time the device work, not the launch overhead, which varies with the host's load on a call this short.
 SIDE_STREAM_RATIO_MAX = 1.3
 SIDE_STREAM_ITERS = 9
 
@@ -2098,11 +2100,22 @@ def test_forward_backward_beside_a_resident_side_stream_kernel(heads, device) ->
                                          cu_seqlens_cpu=cu_seqlens_cpu, use_qk_l2norm_in_kernel=True)  # fmt: skip
         torch.autograd.backward(o, inputs["do"])
 
-    def timed() -> float:
+    clock_khz = getattr(
+        torch.cuda.get_device_properties(device), "clock_rate", 1_900_000
+    )
+    side = torch.cuda.Stream(device=device)
+
+    def timed(lead_cycles: int, side_cycles: int = 0) -> float:
+        torch.cuda.synchronize()
+        if side_cycles:
+            with torch.cuda.stream(side):
+                torch.cuda._sleep(side_cycles)
         start, end = (
             torch.cuda.Event(enable_timing=True),
             torch.cuda.Event(enable_timing=True),
         )
+        if lead_cycles:
+            torch.cuda._sleep(lead_cycles)
         start.record()
         step()
         end.record()
@@ -2111,22 +2124,12 @@ def test_forward_backward_beside_a_resident_side_stream_kernel(heads, device) ->
 
     for _ in range(2):
         step()
-    torch.cuda.synchronize()
-    alone = sorted(timed() for _ in range(SIDE_STREAM_ITERS))[SIDE_STREAM_ITERS // 2]
-    clock_khz = getattr(
-        torch.cuda.get_device_properties(device), "clock_rate", 1_900_000
-    )
-    cycles = int(
-        3.0 * alone * clock_khz
-    )  # about three times the call, in SM cycles (ms x kHz)
-    side = torch.cuda.Stream(device=device)
-    beside = []
-    for _ in range(SIDE_STREAM_ITERS):
-        torch.cuda.synchronize()
-        with torch.cuda.stream(side):
-            torch.cuda._sleep(cycles)
-        beside.append(timed())
-        side.synchronize()
+    wall = sorted(timed(0) for _ in range(3))[1]
+    lead = int(4.0 * wall * clock_khz)  # four times the call's wall time, in SM cycles (ms x kHz)
+    alone = sorted(timed(lead) for _ in range(SIDE_STREAM_ITERS))[SIDE_STREAM_ITERS // 2]
+    # the lead and about three times the call
+    side_cycles = lead + int(3.0 * alone * clock_khz)
+    beside = [timed(lead, side_cycles) for _ in range(SIDE_STREAM_ITERS)]
     ratio = sorted(beside)[SIDE_STREAM_ITERS // 2] / alone
     assert ratio <= SIDE_STREAM_RATIO_MAX, (ratio, alone, beside)
 
