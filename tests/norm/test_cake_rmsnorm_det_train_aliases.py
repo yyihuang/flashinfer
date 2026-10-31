@@ -135,12 +135,13 @@ def test_old_package_submodule_is_its_own_module(submodule: str) -> None:
 def test_old_package_is_self_contained() -> None:
     assert sorted(legacy_backend.__all__) == LEGACY_ALL
     assert not hasattr(legacy_backend, "cake_rmsnorm_det_train_forward")
-    # its own registry: the forward programs of the det package renamed, single-kernel backward records
+    # its own registry: the forward programs of the det package renamed, the
+    # backward records of its single kernels and of the det pairs it renders
     modules = legacy_backend.cake_jit.MODULES
     assert modules and all(name.startswith("cake_rmsnorm_train_") for name in modules)
     assert all(
         record["workspace_rule"] is None
-        or record["workspace_rule"]["kind"] == "claim_sum_f64"
+        or record["workspace_rule"]["kind"] in ("claim_sum_f64", "chunk_partials")
         for record in modules.values()
     )
     old_dir = Path(legacy_backend.__file__).parent

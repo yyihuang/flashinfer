@@ -70,13 +70,17 @@ The names the training RMSNorm had before the deterministic package took its
 
 * ``deterministic=True`` runs the deterministic package above and returns its
   bits.
-* ``deterministic=False`` runs this package's backward: one kernel per call
-  computes ``dx`` row by row as the deterministic backward does and adds the
-  ``dw`` sums of its CTAs into FP64 sums in the workspace, in the order the
-  CTAs finish. ``dw`` is not guaranteed bitwise reproducible; ``dx`` is. The
-  backward workspace holds claim counters and one FP64 sum per column
-  (``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``),
-  which the kernel returns to zero.
+* ``deterministic=False`` runs this package's backward, one of two forms per
+  token-count window (the backward's docstring lists the windows). One kernel
+  per call computes ``dx`` row by row as the deterministic backward does and
+  adds the ``dw`` sums of its CTAs into FP64 sums in the workspace, in the
+  order the CTAs finish: ``dw`` is not guaranteed bitwise reproducible; ``dx``
+  is. Where it is faster, the deterministic package's backward pair (main
+  kernel and fixed-order reduce), rendered into this package, runs instead. The backward
+  workspace holds claim counters, the FP64 column sums and, for the pair
+  windows, the partial rows
+  (``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``);
+  the kernels return the counters and the sums to zero.
 * Under ``torch.use_deterministic_algorithms(True)``, ``deterministic=False``
   raises ``RuntimeError``; with ``warn_only=True`` it warns and runs the
   deterministic kernels.

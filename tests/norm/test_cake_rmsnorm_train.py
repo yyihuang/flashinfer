@@ -21,8 +21,9 @@ Every kernel output is compared with an FP64 reference of the same math: BF16
 ``y`` / ``dx`` at ``atol = rtol = 1e-2`` after normalizing both sides to unit
 scale, FP32 ``rstd`` at relative L2 <= 1e-5 and FP32 ``dw`` at relative L2 <=
 1e-4 (every element within ``1e-4`` of the reference relative to the column's
-magnitude where the column cancels).  ``dw`` is added with FP32 atomics in a
-scheduling-dependent order: the suite reports the worst case over 20 repeated
+magnitude where the column cancels).  A window that runs the single kernel adds
+``dw`` in FP64 in a scheduling-dependent order (a window that runs the
+deterministic pair does not): the suite reports the worst case over 20 repeated
 launches and never asks for bitwise equality of ``dw``; ``dx`` has no cross-row
 reduction and must be bitwise identical across launches.  Where the
 deterministic package serves the same call, ``dx`` is compared with its ``dx``
@@ -30,7 +31,7 @@ and ``dw`` with its ``dw``.  The matrix covers token counts from 0 to 65536
 (irregular counts included), row-strided inputs, the residual-add fusion, the
 FP32-weight routes, the ``[..., H]`` views (the per-head ``H = 256`` query and
 key views), a garbage-filled ``dw`` buffer, a workspace reused across shapes
-without a reset (its counters back to zero after every launch), two streams with
+without a reset (its counters and FP64 sums back to zero after every launch), two streams with
 their own workspaces, CUDA Graph capture and replay and the autograd wrapper
 (non-reentrant checkpointing included).
 
@@ -220,9 +221,38 @@ def _assert_bf16_close(actual, reference, label: str) -> None:
     torch.testing.assert_close(a / scale, b / scale, atol=ATOL, rtol=RTOL, msg=label)
 
 
-# (label, kernel dw rel-L2, eager-FP32-path dw rel-L2) of every dw case checked in this process; the paired
-# "not worse than eager FP32" reading is an aggregate over the matrix (the last test of this module).
+# (label, kernel dw rel-L2, eager-FP32-path dw rel-L2) of every dw case of a single-kernel window checked in this
+# process; the paired "not worse than eager FP32" reading is an aggregate over the matrix (the last test of this
+# module).  A det pair window's dw is the deterministic package's, which its own suite holds.
 _DW_ERRORS: list[tuple[str, float, float]] = []
+# The records the backward launched since the last dw check (``record_launches``).
+_LAUNCHED: list[str] = []
+
+
+@pytest.fixture(autouse=True)
+def record_launches(monkeypatch: pytest.MonkeyPatch):
+    run_module = loader.run_module
+
+    def recording(name, values, *, rows, device_index):
+        _LAUNCHED.append(name)
+        return run_module(name, values, rows=rows, device_index=device_index)
+
+    monkeypatch.setattr(loader, "run_module", recording)
+    _LAUNCHED.clear()
+    yield
+
+
+def _workspace_clean(ws: torch.Tensor) -> bool:
+    """The counters and the FP64 sums of a workspace are zero (a det pair's
+    partial rows after them are scratch)."""
+    torch.cuda.synchronize()
+    return not bool(ws[: loader.COUNTERS_BYTES + loader.SUMS_BYTES].any())
+
+
+def _bytes(rows: int, hidden: int, residual: bool = False) -> int:
+    return pkg.cake_rmsnorm_train_backward_workspace_bytes(
+        rows, hidden, _device(), residual=residual, deterministic=False
+    )
 
 
 def _assert_dw(dw, dw_ref, g, x, rstd, label: str) -> float:
@@ -245,7 +275,12 @@ def _assert_dw(dw, dw_ref, g, x, rstd, label: str) -> float:
     eager_fp32 = (
         (g.float() * x.float() * rstd.float().unsqueeze(-1)).reshape(-1, hidden).sum(0)
     )
-    _DW_ERRORS.append((label, error, _rel_l2(eager_fp32, dw_ref)))
+    pair = any(
+        loader.MODULES[name]["role"] == "bwd_reduce" for name in _LAUNCHED
+    )
+    if not pair:
+        _DW_ERRORS.append((label, error, _rel_l2(eager_fp32, dw_ref)))
+    _LAUNCHED.clear()
     return error
 
 
@@ -350,7 +385,7 @@ def test_repeated_launches(hidden: int, rows: int) -> None:
             _assert_dw(dw, dw_ref, g, normalized, rstd, f"repeat h={hidden} T={rows}"),
         )
         spread = max(spread, (dw - dw0).abs().max().item())
-        assert not bool(ws.any()), (
+        assert _workspace_clean(ws), (
             "the workspace (counters, FP64 sums) is not back to zero"
         )
     print(
@@ -401,25 +436,34 @@ def test_garbage_filled_dw_is_overwritten(hidden: int) -> None:
 
 
 def test_workspace_reused_across_shapes_without_reset() -> None:
-    ws = workspace_for(1, max(HIDDEN_SIZES), _device())
-    for hidden, rows in (
-        (512, 7),
-        (4096, 16385),
-        (2048, 1),
-        (6144, 65536),
-        (1536, 257),
-        (512, 4096),
-    ):
-        if not all(_routes(hidden, kind, False) for kind in ("fwd", "bwd")):
-            continue
+    shapes = [
+        (hidden, rows)
+        for hidden, rows in (
+            (512, 7),
+            (4096, 16385),
+            (2048, 1),
+            (6144, 65536),
+            (1536, 257),
+            (512, 4096),
+        )
+        if all(_routes(hidden, kind, False) for kind in ("fwd", "bwd"))
+    ]
+    if not shapes:
+        pytest.skip("no exported route of the shapes here")
+    # one buffer of every shape's size (the largest), zeroed once
+    ws = torch.zeros(
+        max(_bytes(rows, hidden) for hidden, rows in shapes),
+        dtype=torch.uint8,
+        device=_device(),
+    )
+    for hidden, rows in shapes:
         x, _u, g, _g_h, w = _case(hidden, rows)
         _y, rstd = forward(x, w, EPS[hidden])
         dx, dw = backward(g, x, w, rstd, workspace=ws)
         dx_ref, dw_ref = _reference_backward(g, x, w, rstd)
         _assert_bf16_close(dx, dx_ref, f"dx h={hidden} T={rows}")
         _assert_dw(dw, dw_ref, g, x, rstd, f"dw h={hidden} T={rows}")
-        torch.cuda.synchronize()
-        assert not bool(ws.any()), (
+        assert _workspace_clean(ws), (
             f"workspace not back to zero after h={hidden} T={rows}"
         )
 
@@ -433,7 +477,7 @@ def test_two_streams_with_their_own_workspaces() -> None:
         _y, rstd = forward(x, w, EPS[hidden])
         refs.append((x, g, w, rstd, *_reference_backward(g, x, w, rstd)))
     streams = [torch.cuda.Stream() for _ in cases]
-    workspaces = [workspace_for(1, hidden, _device()) for _ in cases]
+    workspaces = [workspace_for(65536, hidden, _device()) for _ in cases]
     torch.cuda.synchronize()
     results = []
     for _round in range(5):
@@ -447,7 +491,7 @@ def test_two_streams_with_their_own_workspaces() -> None:
         x, g, w, rstd, dx_ref, dw_ref = refs[index % len(refs)]
         _assert_bf16_close(dx, dx_ref, f"stream dx {index}")
         _assert_dw(dw, dw_ref, g, x, rstd, f"stream dw {index}")
-    assert not any(bool(ws.any()) for ws in workspaces)
+    assert all(_workspace_clean(ws) for ws in workspaces)
 
 
 @pytest.mark.parametrize("hidden", (512, 6144))
@@ -474,7 +518,7 @@ def test_cuda_graph_capture_and_replay(hidden: int) -> None:
             and torch.equal(out_dx, dx)
         )
         assert _rel_l2(out_dw, dw) <= DW_REL_L2
-        assert not bool(ws.any())
+        assert _workspace_clean(ws)
 
 
 # --------------------------------------------------------------------------- [..., H] views

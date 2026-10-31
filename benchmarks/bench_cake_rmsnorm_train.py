@@ -24,7 +24,11 @@ of the non-deterministic mode over the logical byte volume (forward
 ``4TH + 4T``, backward ``6TH + 4T + 4H``; the residual routes add ``4TH`` /
 ``2TH``, an FP32 weight ``2H`` per read).  Timing uses CUPTI kernel activity
 with a cold L2 (``flashinfer.testing.bench_gpu_time(enable_cupti=True)``); a
-mode that launches several kernels reports the sum of their GPU time.
+mode that launches several kernels reports the sum of their GPU time.  The
+``form`` column names the backward form the non-deterministic call runs for the
+row's token count: ``single`` (one kernel) or ``det pair`` (the deterministic
+package's main kernel and dw reduce, rendered into the non-deterministic
+package).
 
 Example::
 
@@ -47,6 +51,7 @@ from flashinfer.cake_rmsnorm_train import (
     cake_rmsnorm_train_forward,
     is_cake_rmsnorm_train_supported,
 )
+from flashinfer.cake_rmsnorm_train_backend import cake_jit
 from flashinfer.testing import bench_gpu_time
 
 WIDTHS = (
@@ -123,6 +128,22 @@ def _make(x, w, eps, u, *, deterministic: bool):
     return fwd, bwd
 
 
+def _form(device, hidden: int, rows: int, residual: bool, w_dtype: torch.dtype) -> str:
+    """The backward form the non-deterministic call of ``rows`` tokens runs."""
+
+    arch = cake_jit.device_arch(device.index or 0)
+    names = cake_jit.selected_modules(
+        arch,
+        hidden,
+        "bwd",
+        residual,
+        rows=rows,
+        w_dtype="f32" if w_dtype == torch.float32 else "bf16",
+    )
+    reduces = [n for n in names if cake_jit.MODULES[n]["role"] == "bwd_reduce"]
+    return "det pair" if reduces else "single"
+
+
 def bench_row(
     hidden: int, rows: int, *, residual: bool, w_dtype: torch.dtype, device
 ) -> dict:
@@ -146,6 +167,7 @@ def bench_row(
         "residual": residual,
         "w_dtype": str(w_dtype).removeprefix("torch."),
         "eps": eps,
+        "form": _form(device, hidden, rows, residual, w_dtype),
         "modes": {},
     }
     for name, deterministic in MODES:
@@ -194,6 +216,7 @@ def _format(result: dict) -> list[str]:
             + " | ".join(cells)
             + (" |    -  " if ratio is None else f" | {ratio:5.2f}x")
             + ("" if gbps is None else f" | nondet {gbps:7.0f} GB/s")
+            + (f" | {result['form']}" if mode == "bwd" else "")
         )
     return lines
 
@@ -226,7 +249,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         raise SystemExit(
             "cake_rmsnorm_train(deterministic=False) has no exported route on this device"
         )
-    print("columns (us): det | nondet | det/nondet")
+    print("columns (us): det | nondet | det/nondet | nondet GB/s | bwd form")
     plans = [(h, r, False) for h in args.hidden for r in args.rows]
     if args.residual:
         plans += [(6144, r, True) for r in args.rows if 6144 in args.hidden]

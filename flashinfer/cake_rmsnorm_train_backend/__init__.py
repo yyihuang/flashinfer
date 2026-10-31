@@ -24,9 +24,11 @@ deterministic package :mod:`flashinfer.cake_rmsnorm_det_train_backend` with the
 same arguments, so the default call returns that package's bits.
 ``deterministic=False`` runs this package's kernels: the forward programs of
 the deterministic package (rendered here; the forward has no cross-row
-reduction) and one backward kernel whose CTAs add their ``dw`` sums into FP64
-workspace sums in the order they finish, so ``dw`` is not guaranteed bitwise
-reproducible.  The stable,
+reduction) and, per token-count window, one of two backward forms: one kernel
+whose CTAs add their ``dw`` sums into FP64 workspace sums in the order they
+finish, so ``dw`` is not guaranteed bitwise reproducible, or, in the windows
+where it is the faster form, the deterministic package's backward pair (main
+kernel and fixed-order ``dw`` reduce) rendered here.  The stable,
 ``@flashinfer_api``-decorated entry points and the full user-facing
 documentation live in :mod:`flashinfer.cake_rmsnorm_train`; import that module.
 """
@@ -383,27 +385,81 @@ def _copy_back(pairs: list[tuple[torch.Tensor, Optional[torch.Tensor]]]) -> None
             user_buffer.copy_(kernel_buffer.reshape(user_buffer.shape))
 
 
-def _workspace_bytes(hidden: int, device: torch.device) -> int:
-    """Bytes of this package's backward workspace of width ``hidden``: the
-    counter table and the FP64 column sums of the backward record of that width
-    with the most sum replicas on ``device``'s architecture (every route's
-    records declare at most ``cake_jit.COUNTERS_BYTES // 4`` counters)."""
+def _backward_owners(
+    arch: str, hidden: int, residual: bool, rows: int
+) -> list[dict]:
+    """The workspace-owning backward records (single kernels and pair main
+    kernels) of the width's backward routes on ``arch`` -- both weight dtypes --
+    whose window admits a token count of at most ``rows``."""
+
+    owners = []
+    for w_dtype in weight_dtypes(arch, hidden, "bwd", residual):
+        for name in _loader.route_modules(arch, hidden, "bwd", residual, w_dtype):
+            record = _loader.MODULES[name]
+            rule = record["select_rule"]
+            if record["workspace_rule"] is None:
+                continue
+            if rule is None or int(rule["above"]) < rows:
+                owners.append(record)
+    return owners
+
+
+def _capacity_record(
+    owners: list[dict], rows: int, device_index: int
+) -> Optional[dict]:
+    """The pair main record of ``owners`` with the largest partial capacity for
+    ``rows`` tokens (its capacity sizes the partial rows of every pair record of
+    the routes), or ``None`` when no window runs a deterministic pair."""
+
+    pairs = [
+        record
+        for record in owners
+        if record["workspace_rule"]["kind"] == "chunk_partials"
+    ]
+    if not pairs:
+        return None
+    return max(
+        pairs,
+        key=lambda record: (
+            _loader.partial_capacity(record, rows, device_index=device_index),
+            int(record["grid_rule"]["ctas_per_sm"]),
+        ),
+    )
+
+
+def _workspace_bytes(
+    rows: int, hidden: int, device: torch.device, residual: bool
+) -> int:
+    """Bytes of this package's backward workspace of width ``hidden`` for up to
+    ``rows`` tokens on ``device``: the largest layout of the records the
+    width's backward routes (both weight dtypes) run for those token counts."""
 
     arch = _device_arch(device)
-    hidden = int(hidden)
+    hidden, rows = int(hidden), max(int(rows), 1)
     if hidden <= 0:
         raise ValueError("hidden must be positive")
-    replicas = max(
-        (
-            int(record["workspace_rule"].get("replicas", 1))
-            for record in _loader.MODULES.values()
-            if record["workspace_rule"] is not None
-            and int(record["hidden"]) == hidden
-            and arch in record["arches"]
-        ),
-        default=1,
+    if not route_applies(
+        device_capability=tuple(torch.cuda.get_device_capability(device)),
+        hidden=hidden,
+        kind="bwd",
+        residual=residual,
+    ):
+        raise ValueError(
+            "no exported non-deterministic Cake RMSNorm training backward for "
+            f"hidden={hidden} (residual={residual}) on {arch}; supported hidden "
+            f"sizes: {supported_hidden_sizes(arch)}"
+        )
+    device_index = _device_index(device)
+    owners = _backward_owners(arch, hidden, residual, rows)
+    capacity = _capacity_record(owners, rows, device_index)
+    return max(
+        int(
+            _loader.workspace_layout(
+                record, rows, device_index=device_index, capacity_record=capacity
+            )["total_bytes"]
+        )
+        for record in owners
     )
-    return int(_loader.COUNTERS_BYTES + _loader.SUM_BYTES * hidden * replicas)
 
 
 def cake_rmsnorm_train_backward_workspace_bytes(
@@ -422,16 +478,21 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     workspace holds its chunk-claim counters and one FP32 ``dw`` partial row
     per chunk and grows with ``rows``
     (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward_workspace_bytes`).
-    The non-deterministic backward needs its ``uint32`` chunk-claim and
-    completion counters and its FP64 column sums:
-    ``cake_jit.COUNTERS_BYTES + cake_jit.SUM_BYTES * hidden * replicas`` bytes
-    whatever ``rows`` (``replicas``: the sum copies the width's kernel spreads
-    its CTAs over, one unless its workspace rule says more).  The buffer must be zero on first use (allocate with
-    ``torch.zeros`` or use :func:`cake_rmsnorm_train_backward_workspace`); the
-    kernel leaves it zero, so the same buffer is reusable across calls, token
-    counts, widths up to the one it was sized for and CUDA Graph replays
-    without host writes.  Backward calls that may run at the same time (on
-    different streams) need one buffer each.
+    The non-deterministic workspace is the largest layout of the backward
+    records this width runs for up to ``rows`` tokens (both weight dtypes):
+    its ``uint32`` counters (``cake_jit.COUNTERS_BYTES``), then, for a window
+    that runs the single kernel, its FP64 column sums
+    (``cake_jit.SUM_BYTES * hidden * replicas`` bytes whatever ``rows``;
+    ``replicas`` is one unless the record's workspace rule says more) and, for a
+    window that runs the deterministic pair, its FP32 partial rows after the
+    package's widest sums (``cake_jit.SUMS_BYTES``), which grow with ``rows``
+    (``cake_jit.workspace_layout``).  The buffer must be zero on first use
+    (allocate with ``torch.zeros`` or use
+    :func:`cake_rmsnorm_train_backward_workspace`); the kernels leave the
+    counters and the sums zero, so the same buffer is reusable across calls,
+    token counts up to ``rows``, windows and CUDA Graph replays without host
+    writes, and across widths when it holds each width's size.  Backward calls
+    that may run at the same time (on different streams) need one buffer each.
     """
 
     if _resolve_deterministic(
@@ -443,7 +504,7 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     device = torch.device(device)
     if int(rows) < 0:
         raise ValueError("rows must be non-negative")
-    return _workspace_bytes(hidden, device)
+    return _workspace_bytes(rows, hidden, device, residual)
 
 
 def cake_rmsnorm_train_backward_workspace(
@@ -472,10 +533,16 @@ def _workspace_views(
     *,
     rows: int,
     device: torch.device,
+    capacity: Optional[dict],
 ) -> tuple[torch.Tensor, torch.Tensor, dict[str, int]]:
-    """``(the FP64 column sums bound to ``partial``, the counters, the layout)``."""
+    """``(the region bound to ``partial``, the counters, the layout)`` of the
+    launched workspace owner ``record``: the FP64 column sums of a single
+    kernel, the FP32 ``[n_chunks, hidden]`` partial rows of a pair main kernel
+    (``capacity``: the routes' pair record of the largest capacity)."""
 
-    layout = _loader.workspace_layout(record, rows, device_index=_device_index(device))
+    layout = _loader.workspace_layout(
+        record, rows, device_index=_device_index(device), capacity_record=capacity
+    )
     if not isinstance(workspace, torch.Tensor):
         raise TypeError("workspace must be a torch.Tensor")
     if (
@@ -496,7 +563,16 @@ def _workspace_views(
             "(cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False))"
         )
     begin = layout["partial_offset"]
-    partial = workspace[begin : begin + layout["partial_bytes"]].view(torch.float64)
+    if record["workspace_rule"]["kind"] == "claim_sum_f64":
+        partial = workspace[begin : begin + layout["partial_bytes"]].view(
+            torch.float64
+        )
+    else:
+        hidden = int(record["hidden"])
+        partial = workspace[begin : begin + 4 * layout["n_chunks"] * hidden].view(
+            torch.float32
+        )
+        partial = partial.view(layout["n_chunks"], hidden)
     begin = layout["counters_offset"]
     counters = workspace[begin : begin + 4 * max(layout["counters"], 1)].view(
         torch.uint32
@@ -760,26 +836,38 @@ def _backward(
     if rows == 0:
         dw_result.zero_()
         return dx_result, dw_result
+    # The window of ``rows`` runs one workspace owner: a single kernel, or the
+    # main kernel of a deterministic pair followed by its dw reduce record.
     names = selected_modules(
         arch, hidden, "bwd", has_residual, rows=rows, w_dtype=w_dtype
     )
-    if len(names) != 1:
+    owners = [
+        _loader.MODULES[name]
+        for name in names
+        if _loader.MODULES[name]["workspace_rule"] is not None
+    ]
+    if len(owners) != 1:
         raise RuntimeError(
-            f"the exported backward route for hidden={hidden} selects {len(names)} "
-            f"modules for {rows} rows; expected one"
+            f"the exported backward route for hidden={hidden} launches {len(owners)} "
+            f"workspace-owning modules for {rows} rows; expected one"
         )
-    record = _loader.MODULES[names[0]]
+    record = owners[0]
     if workspace is None:
         workspace = torch.zeros(
-            _workspace_bytes(hidden, device), dtype=torch.uint8, device=device
+            _workspace_bytes(rows, hidden, device, has_residual),
+            dtype=torch.uint8,
+            device=device,
         )
-    partial, counters, layout = _workspace_views(
-        workspace, record, rows=rows, device=device
+    capacity = _capacity_record(
+        _backward_owners(arch, hidden, has_residual, rows), rows, _device_index(device)
     )
-    # The plain kernel keeps the residual-gradient parameters in its signature
-    # and never reads them: bind them to ``g`` exactly like the source launcher.
-    # The CTA that finishes last stores all of ``dw`` from the workspace sums, so
-    # a caller's ``dw`` buffer may hold anything.
+    partial, counters, layout = _workspace_views(
+        workspace, record, rows=rows, device=device, capacity=capacity
+    )
+    # The plain kernels keep the residual-gradient parameters in their signature
+    # and never read them: bind them to ``g`` exactly like the source launcher.
+    # The single kernel's last CTA, or the pair's dw reduce, stores all of ``dw``,
+    # so a caller's ``dw`` buffer may hold anything.
     g_h = g_residual if has_residual else g
     values: dict[str, object] = {
         "g": g,
@@ -798,7 +886,9 @@ def _backward(
         "n_chunks": int(layout["n_chunks"]),
         "slots": int(layout["slots"]),
     }
-    _loader.run_module(names[0], values, rows=rows, device_index=_device_index(device))
+    device_index = _device_index(device)
+    for name in names:
+        _loader.run_module(name, values, rows=rows, device_index=device_index)
     _copy_back(copy_backs)
     return dx_result, dw_result
 
@@ -843,11 +933,14 @@ def cake_rmsnorm_train_backward(
         (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward`):
         ``dw`` through a fixed row-chunk partition and a fixed-order reduction,
         bitwise reproducible for a given token count on a given architecture.
-        ``False`` runs one kernel that writes ``dx`` and adds the ``dw`` sums of
-        its CTAs into FP64 sums in the workspace, which the CTA that finishes
-        last rounds into ``dw``: ``dx`` is computed as the deterministic kernel
-        computes it; the order of the FP64 additions depends on scheduling, so
-        ``dw`` is not guaranteed bitwise reproducible.  ``False`` is refused with ``RuntimeError`` while
+        ``False`` runs one of two forms per window of ``T`` (listed below):
+        one kernel that writes ``dx`` and adds the ``dw`` sums of its CTAs into
+        FP64 sums in the workspace, which the CTA that finishes last rounds into
+        ``dw`` (``dx`` is computed as the deterministic kernel computes it; the
+        order of the FP64 additions depends on scheduling, so ``dw`` is not
+        guaranteed bitwise reproducible), or, where it is faster, the
+        deterministic package's backward pair rendered into this package.
+        ``False`` is refused with ``RuntimeError`` while
         ``torch.use_deterministic_algorithms(True)`` is in effect; with
         ``warn_only=True`` it warns and runs the deterministic backward.
     g_residual : torch.Tensor, optional

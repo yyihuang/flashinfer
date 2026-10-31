@@ -17,10 +17,12 @@ Stall regression of the Cake BF16 RMSNorm training backward with the
 non-deterministic weight gradient (``deterministic=False``; issues #7038,
 #7548 item 2, #8066).
 
-The backward is one kernel whose persistent CTAs claim row chunks from a
-counter and add their per-column ``dw`` sums into FP64 workspace sums; the
-CTA that finishes last stores ``dw``.  It never waits for the whole device:
-a CTA that becomes resident late finds the chunk table exhausted.  Beside a
+The backward runs, per token-count window, one kernel whose persistent CTAs
+claim row chunks from a counter and add their per-column ``dw`` sums into FP64
+workspace sums (the CTA that finishes last stores ``dw``), or the deterministic
+package's pair (main kernel and dw reduce) rendered into this package.  Neither
+waits for the whole device: a CTA that becomes resident late finds the chunk
+table exhausted.  Beside a
 long-resident one-thread kernel on another stream the backward must keep its
 speed: per hidden size (the residual route included) and per token count of
 the issue's list, the median of seven event-timed calls with the side kernel
@@ -28,8 +30,9 @@ resident is at most ``MAX_RATIO`` times the median of seven calls alone, or at
 most ``MAX_EXTRA_MS`` above it (the alone and busy calls alternate in pairs).
 ``dx`` is bitwise equal across the alone and busy calls, a fresh-workspace
 call and launch grids other than the production one; ``dw`` stays within the
-package's budget against the first call in every one of them; the workspace
-(counters and FP64 sums) is zero after every call.
+package's budget against the first call in every one of them; the workspace's
+counters and FP64 sums are zero after every call (a det pair's partial rows
+after them are scratch).
 
 Beside a kernel resident on every SM (#7548 item 2): with the side kernel's
 preferred carveout set to the maximum shared memory, the backward starts beside
@@ -159,8 +162,11 @@ def _rel_l2(actual: torch.Tensor, reference: torch.Tensor) -> float:
 
 
 def _workspace_is_zero(workspace: torch.Tensor) -> bool:
+    """The counters and the FP64 sums are zero (the partial rows of a det pair
+    after them are scratch the main kernel overwrites)."""
     torch.cuda.synchronize()
-    return int(torch.count_nonzero(workspace)) == 0
+    clean = loader.COUNTERS_BYTES + loader.SUMS_BYTES
+    return int(torch.count_nonzero(workspace[:clean])) == 0
 
 
 def _timed(

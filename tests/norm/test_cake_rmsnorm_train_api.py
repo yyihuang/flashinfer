@@ -257,7 +257,9 @@ def test_nondeterministic_flag_selects_this_package(
     hidden: int, warmup_jit, no_determinism, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``deterministic=False`` launches this package's modules (and no det
-    module); the forward bits equal the det forward's where the two packages
+    module) -- exactly the records the registry's windows select for the call:
+    one forward, then one single backward kernel or a det pair's main kernel and
+    dw reduce; the forward bits equal the det forward's where the two packages
     select the same program, and ``dx`` equals the det ``dx`` up to the BF16
     rounding of the same formula."""
     _skip_unless_hidden(hidden, False)
@@ -277,8 +279,20 @@ def test_nondeterministic_flag_selects_this_package(
     y, rstd = cake_rmsnorm_train_forward(x, w, eps, deterministic=False)
     dx, dw = cake_rmsnorm_train_backward(g, x, w, rstd, deterministic=False)
     assert launched and all(name in loader.MODULES for name in launched)
-    kinds = [loader.MODULES[name]["workspace_rule"] is not None for name in launched]
-    assert kinds == [False, True], launched
+    arch = loader.device_arch(_device().index or 0)
+    expected = [
+        *loader.selected_modules(arch, hidden, "fwd", False, rows=257),
+        *loader.selected_modules(arch, hidden, "bwd", False, rows=257),
+    ]
+    assert launched == expected, launched
+    owners = [
+        loader.MODULES[name]["workspace_rule"]["kind"]
+        for name in launched
+        if loader.MODULES[name]["workspace_rule"] is not None
+    ]
+    assert len(owners) == 1 and len(launched) == (
+        2 if owners[0] == "claim_sum_f64" else 3
+    ), launched
     y_det, rstd_det = det.cake_rmsnorm_det_train_forward(x, w, eps)
     torch.testing.assert_close(y.float(), y_det.float(), atol=1e-2, rtol=1e-2)
     torch.testing.assert_close(rstd, rstd_det, atol=0, rtol=1e-6)
@@ -291,36 +305,52 @@ def test_nondeterministic_flag_selects_this_package(
 
 
 @requires_device
-def test_nondeterministic_workspace_is_counters_and_column_sums(
+def test_nondeterministic_workspace_serves_every_call_up_to_its_rows(
     no_determinism,
 ) -> None:
+    """The non-deterministic workspace of ``rows`` serves every backward call of
+    at most ``rows`` tokens without a reset (the counters and the FP64 sums back
+    at zero after each); a width whose windows all run the single kernel needs
+    its counters and FP64 column sums whatever ``rows``."""
+
     arch = loader.device_arch(_device().index or 0)
+    sums = loader.COUNTERS_BYTES + loader.SUMS_BYTES
     for hidden in (512, 2048, 6144):
-        nbytes = cake_rmsnorm_train_backward_workspace_bytes(
-            1, hidden, _device(), deterministic=False
-        )
-        replicas = max(
-            (
-                record["workspace_rule"].get("replicas", 1)
-                for record in loader.MODULES.values()
-                if record["workspace_rule"] is not None
-                and record["hidden"] == hidden
-                and arch in record["arches"]
-            ),
-            default=1,
-        )
-        assert nbytes == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden * replicas
-        for rows in (0, 1, 12345, 65536):
-            assert (
-                cake_rmsnorm_train_backward_workspace_bytes(
+        if hidden not in loader.supported_hidden_sizes(arch):
+            continue
+        records = [
+            loader.MODULES[name]
+            for w_dtype in loader.weight_dtypes(arch, hidden, "bwd", False)
+            for name in loader.route_modules(arch, hidden, "bwd", False, w_dtype)
+            if loader.MODULES[name]["workspace_rule"] is not None
+        ]
+        if all(r["workspace_rule"]["kind"] == "claim_sum_f64" for r in records):
+            replicas = max(r["workspace_rule"].get("replicas", 1) for r in records)
+            for rows in (0, 1, 12345, 65536):
+                assert cake_rmsnorm_train_backward_workspace_bytes(
                     rows, hidden, _device(), deterministic=False
-                )
-                == nbytes
+                ) == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden * replicas
+        generator = torch.Generator(device=_device()).manual_seed(SEED + hidden)
+        for rows in (257, 4096):
+            ws = cake_rmsnorm_train_backward_workspace(
+                rows, hidden, _device(), deterministic=False
             )
-    ws = cake_rmsnorm_train_backward_workspace(
-        4096, 4096, _device(), deterministic=False
-    )
-    assert ws.dtype == torch.uint8 and not bool(ws.any())
-    assert ws.numel() == cake_rmsnorm_train_backward_workspace_bytes(
-        1, 4096, _device(), deterministic=False
-    )
+            assert ws.dtype == torch.uint8 and not bool(ws.any())
+            assert ws.numel() == cake_rmsnorm_train_backward_workspace_bytes(
+                rows, hidden, _device(), deterministic=False
+            )
+            for tokens in (1, rows // 2, rows):
+                x = _randn(tokens, hidden, generator=generator)
+                g = _randn(tokens, hidden, generator=generator)
+                w = _randn(hidden, generator=generator)
+                _y, rstd = cake_rmsnorm_train_forward(
+                    x, w, EPS[hidden], deterministic=False
+                )
+                dx, dw = cake_rmsnorm_train_backward(
+                    g, x, w, rstd, deterministic=False, workspace=ws
+                )
+                ref = (g.double() * x.double() * rstd.double().unsqueeze(-1)).sum(0)
+                rel = (dw.double() - ref).norm() / ref.norm().clamp_min(1e-30)
+                assert float(rel) <= 1e-4, (hidden, rows, tokens, float(rel))
+                torch.cuda.synchronize()
+                assert not bool(ws[:sums].any()), (hidden, rows, tokens)
