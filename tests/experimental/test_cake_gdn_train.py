@@ -1681,10 +1681,13 @@ def test_low_level_entries_round_trip_and_refuse_a_det_tape(device) -> None:
 
 # (H, HV), tail pins, whether the backward launches the unordered tail (and so alerts)
 ALERT_CASES = (
-    ((2, 4), {}, True),
-    ((2, 6), {}, True),
-    ((1, 4), {}, True),
-    ((2, 2), {}, False),
+    ((2, 4), {"tail": "tail"}, True),
+    ((2, 6), {"tail": "tail"}, True),
+    ((1, 4), {"tail": "tail"}, True),
+    ((2, 2), {"tail": "tail"}, False),
+    ((2, 4), {}, None),  # None: the rule's dispatch decides
+    ((2, 6), {}, None),
+    ((1, 3), {}, None),
     ((2, 4), {"tail": "tail_g2"}, False),
     ((2, 6), {"tail": "unfused"}, False),
 )
@@ -1693,17 +1696,18 @@ ALERT_CASES = (
 @pytest.mark.parametrize(
     "heads, pins, alerts",
     ALERT_CASES,
-    ids=["g2", "g3", "g4", "g1", "g2-tail-g2", "g3-unfused"],
+    ids=["g2", "g3", "g4", "g1", "rule-g2", "rule-g3", "rule-g3-h1", "g2-tail-g2", "g3-unfused"],
 )
 def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(
     heads, pins, alerts, device
 ) -> None:
+    # the alert follows the dispatched tail: it fires iff the backward launches the unordered one
     seq_lens = (300, 77)
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=251)
-    assert (
-        cake_chain.tail_alerts(cake_chain.tail_form(*heads, pins.get("tail")), *heads)
-        is alerts
-    )
+    dispatched = cake_chain.tail_alerts(cake_chain.tail_form(*heads, pins.get("tail")), *heads)
+    if alerts is None:
+        alerts = dispatched
+    assert dispatched is alerts
     want = _run(inputs, seq_lens, **pins)
     cu = _cu(seq_lens)
     cu_seqlens = torch.tensor(cu, dtype=torch.int64, device=device)
@@ -1855,7 +1859,7 @@ def test_the_tail_serves_every_group_and_leaves_its_workspace_zero(
     launches = _record_tail_launches(monkeypatch, device)
     for host_cache in (True, False):
         launches.clear()
-        got = _run(inputs, seq_lens, host_cache=host_cache)
+        got = _run(inputs, seq_lens, host_cache=host_cache, tail="tail")
         stages = [stage for stage, _grid in launches]
         tail = "tail_bf16" if beta_dtype == torch.bfloat16 else "tail"
         assert tail in stages and not set(DET_TAIL_STAGES) & set(stages), stages
@@ -1870,10 +1874,10 @@ def test_segmented_tail_launches_match_one_launch(tiles, device, monkeypatch) ->
     # a workspace of `tiles` tiles: the chunk table in launches of max(1, tiles // H) chunks, in stream order
     seq_lens, heads = TAIL_LAYOUT, (2, 6)
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=277)
-    whole = _run(inputs, seq_lens)
+    whole = _run(inputs, seq_lens, tail="tail")
     monkeypatch.setattr(cake_chain, "TAIL_WORKSPACE_TILES", tiles)
     launches = _record_tail_launches(monkeypatch, device)
-    got = _run(inputs, seq_lens)
+    got = _run(inputs, seq_lens, tail="tail")
     ranges, ws_tiles = cake_chain.tail_segments(_num_chunks(seq_lens), *heads)
     assert ws_tiles == max(1, tiles // heads[0]) * heads[0] and len(ranges) > 1
     assert [grid for stage, grid in launches if stage == "tail_bf16"] == [
@@ -1925,7 +1929,7 @@ def test_the_tail_keeps_the_deterministic_bits_but_dq_dk(heads, device) -> None:
     # fixed-order tails; dq / dk round once after the FP32 group sum, within the budgets of both
     seq_lens = TAIL_LAYOUT
     inputs = _inputs(seq_lens, heads, torch.float32, device, seed=281)
-    got = _run(inputs, seq_lens)
+    got = _run(inputs, seq_lens, tail="tail")
     det = _run(inputs, seq_lens, det=True)
     pinned = [_run(inputs, seq_lens, tail="unfused")]
     if heads[1] == 2 * heads[0]:
@@ -1948,7 +1952,7 @@ def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=283)
     cake_chain._POOLED.zeroed.clear()
     try:
-        good = _run(inputs, seq_lens, streams=1)
+        good = _run(inputs, seq_lens, streams=1, tail="tail")
         key = (
             cake_chain._device_index(device),
             torch.cuda.current_stream(device).cuda_stream,
@@ -1959,7 +1963,7 @@ def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
         else:
             buffers["tail_ws"].fill_(64.0)
         _poison_workspaces(device)
-        bad = _run(inputs, seq_lens, streams=1)
+        bad = _run(inputs, seq_lens, streams=1, tail="tail")
         if poison == "counter":
             torch.cuda.synchronize()
             # the counters stay nonzero: the check after every launch would catch it
@@ -1970,7 +1974,7 @@ def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
             assert torch.equal(bad[name], good[name]), name
     finally:
         cake_chain._POOLED.zeroed.clear()  # the next call creates zeroed buffers again
-    _assert_within_budget(_run(inputs, seq_lens, streams=1), good, OUTPUT_NAMES)
+    _assert_within_budget(_run(inputs, seq_lens, streams=1, tail="tail"), good, OUTPUT_NAMES)
 
 
 # #7038 / #7548 form: a one-thread sleep kernel resident on a side stream for the whole call; the gate is declared
@@ -2066,15 +2070,16 @@ def test_matches_the_deterministic_package(case, device) -> None:
 REPEATS = 8
 
 
+@pytest.mark.parametrize("pins", [{}, {"tail": "tail"}], ids=["rule", "tail"])
 @pytest.mark.parametrize(
     "heads", [(2, 4), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3", "g1", "g4"]
 )
-def test_worst_case_over_repeated_runs(heads, device) -> None:
-    # the gate holds for the worst of REPEATS runs, per output tensor
+def test_worst_case_over_repeated_runs(heads, pins, device) -> None:
+    # the gate holds for the worst of REPEATS runs, per output tensor (the dispatched tail and the unordered one)
     seq_lens = (2048, 100, 513)
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=223)
     ref = _reference(inputs, seq_lens)
-    runs = [_run(inputs, seq_lens) for _ in range(REPEATS)]
+    runs = [_run(inputs, seq_lens, **pins) for _ in range(REPEATS)]
     worst = {}
     for name in OUTPUT_NAMES:
         metrics = [_metrics(run[name], ref[name]) for run in runs]
@@ -2253,14 +2258,14 @@ def test_concurrent_caller_streams(device) -> None:
         (seq_lens, _inputs(seq_lens, heads, torch.bfloat16, device, seed=seed))
         for seq_lens, heads, seed in problems
     ]
-    want = [_run(inputs, seq_lens) for seq_lens, inputs in data]
+    want = [_run(inputs, seq_lens, tail="tail") for seq_lens, inputs in data]
     streams = [torch.cuda.Stream(device=device) for _ in data]
     for _ in range(3):
         got = []
         for stream, (seq_lens, inputs) in zip(streams, data, strict=True):
             stream.wait_stream(torch.cuda.current_stream(device))
             with torch.cuda.stream(stream):
-                got.append(_run(inputs, seq_lens, sync=False))
+                got.append(_run(inputs, seq_lens, sync=False, tail="tail"))
         torch.cuda.synchronize()
         for result, reference in zip(got, want, strict=True):
             _assert_within_budget(result, reference, OUTPUT_NAMES)
