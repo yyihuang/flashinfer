@@ -588,53 +588,39 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_w32_residual_h6144": ((256, "same"), (1024, "ulp")),
         "bwd_h256": (),
         "bwd_w32_h256": (),
-        "bwd_h512": ((1024, "unmeasured"), (1280, "unmeasured")),
-        "bwd_w32_h512": ((1024, "unmeasured"), (1280, "unmeasured")),
-        "bwd_h1536": (
-            (1024, "unmeasured"),
-            (4096, "unmeasured"),
-            (32768, "unmeasured"),
-            (36864, "unmeasured"),
-        ),
+        "bwd_h512": ((1024, "same"), (1280, "same")),
+        "bwd_w32_h512": ((1024, "same"), (1280, "same")),
+        "bwd_h1536": ((1024, "same"), (4096, "same"), (32768, "same"), (36864, "same")),
         "bwd_w32_h1536": (
-            (1024, "unmeasured"),
-            (4096, "unmeasured"),
-            (32768, "unmeasured"),
-            (36864, "unmeasured"),
+            (1024, "same"),
+            (4096, "same"),
+            (32768, "same"),
+            (36864, "same"),
         ),
         "bwd_h2048": (
-            (336, "unmeasured"),
-            (3072, "unmeasured"),
-            (4096, "unmeasured"),
-            (7168, "unmeasured"),
-            (11264, "unmeasured"),
-            (13608, "unmeasured"),
-            (45056, "unmeasured"),
+            (336, "same"),
+            (3072, "same"),
+            (4096, "same"),
+            (7168, "same"),
+            (11264, "same"),
+            (13608, "same"),
+            (45056, "same"),
         ),
         "bwd_w32_h2048": (
-            (336, "unmeasured"),
-            (3072, "unmeasured"),
-            (4096, "unmeasured"),
-            (15403, "unmeasured"),
-            (45056, "unmeasured"),
+            (336, "same"),
+            (3072, "same"),
+            (4096, "same"),
+            (15403, "same"),
+            (45056, "same"),
         ),
-        "bwd_h4096": (
-            (1152, "unmeasured"),
-            (4096, "unmeasured"),
-            (4608, "unmeasured"),
-            (36864, "unmeasured"),
-        ),
-        "bwd_w32_h4096": (
-            (1792, "unmeasured"),
-            (3584, "unmeasured"),
-            (36864, "unmeasured"),
-        ),
-        "bwd_h5120": ((896, "unmeasured"), (24576, "unmeasured")),
-        "bwd_w32_h5120": ((256, "unmeasured"), (24576, "unmeasured")),
-        "bwd_h6144": ((1152, "unmeasured"), (4096, "unmeasured"), (5632, "unmeasured")),
-        "bwd_residual_h6144": ((1408, "unmeasured"),),
-        "bwd_w32_h6144": ((1408, "unmeasured"), (3584, "unmeasured")),
-        "bwd_w32_residual_h6144": ((1408, "unmeasured"),),
+        "bwd_h4096": ((1152, "same"), (4096, "same"), (4608, "same"), (36864, "same")),
+        "bwd_w32_h4096": ((1792, "same"), (3584, "same"), (36864, "same")),
+        "bwd_h5120": ((896, "same"), (24576, "same")),
+        "bwd_w32_h5120": ((256, "same"), (24576, "same")),
+        "bwd_h6144": ((1152, "same"), (4096, "same"), (5632, "same")),
+        "bwd_residual_h6144": ((1408, "same"),),
+        "bwd_w32_h6144": ((1408, "same"), (3584, "same")),
+        "bwd_w32_residual_h6144": ((1408, "same"),),
     },
     "sm_103a": {
         "fwd_h1536": ((1536, "ulp"), (3584, "same"), (6144, "same")),
@@ -835,7 +821,70 @@ DET_PAIR_ROUTES: dict[str, dict[str, str]] = {
 # board of the architecture (None: it starts beside every measured size on every board); the
 # exporter's ``SMEM_WAITS``, checked by the stall test (no board waits below KB).
 SMEM_SIDE_KB = (100, 132)
-SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]] = {}
+SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]] = {
+    "sm_100a": {
+        "bwd_h1536": (
+            (0, 1024, 132),
+            (1024, 4096, 100),
+            (4096, 32768, 100),
+            (32768, 36864, 132),
+            (36864, None, None),
+        ),
+        "bwd_h2048": (
+            (0, 336, None),
+            (336, 3072, 100),
+            (3072, 4096, 100),
+            (4096, 7168, 100),
+            (7168, 11264, 132),
+            (11264, 13608, 100),
+            (13608, 45056, 132),
+            (45056, None, 100),
+        ),
+        "bwd_h256": ((0, None, None),),
+        "bwd_h4096": (
+            (0, 1152, None),
+            (1152, 4096, 132),
+            (4096, 4608, 132),
+            (4608, 36864, None),
+            (36864, None, 132),
+        ),
+        "bwd_h512": ((0, 1024, None), (1024, 1280, 132), (1280, None, None)),
+        "bwd_h5120": ((0, 896, None), (896, 24576, None), (24576, None, 132)),
+        "bwd_h6144": (
+            (0, 1152, 132),
+            (1152, 4096, 132),
+            (4096, 5632, 132),
+            (5632, None, 100),
+        ),
+        "bwd_residual_h6144": ((0, 1408, 100), (1408, None, 100)),
+        "bwd_w32_h1536": (
+            (0, 1024, 132),
+            (1024, 4096, 100),
+            (4096, 32768, 100),
+            (32768, 36864, 132),
+            (36864, None, None),
+        ),
+        "bwd_w32_h2048": (
+            (0, 336, None),
+            (336, 3072, 100),
+            (3072, 4096, 100),
+            (4096, 15403, 100),
+            (15403, 45056, 132),
+            (45056, None, 100),
+        ),
+        "bwd_w32_h256": ((0, None, None),),
+        "bwd_w32_h4096": (
+            (0, 1792, None),
+            (1792, 3584, 132),
+            (3584, 36864, None),
+            (36864, None, 132),
+        ),
+        "bwd_w32_h512": ((0, 1024, None), (1024, 1280, 132), (1280, None, None)),
+        "bwd_w32_h5120": ((0, 256, None), (256, 24576, None), (24576, None, 132)),
+        "bwd_w32_h6144": ((0, 1408, 132), (1408, 3584, 132), (3584, None, 100)),
+        "bwd_w32_residual_h6144": ((0, 1408, 100), (1408, None, 100)),
+    },
+}
 
 # Per architecture and route: the token-count ranges ``(above, at_most)`` whose program needs a
 # whole SM and waits beside any kernel resident on every SM, whatever its carveout: the
@@ -1017,6 +1066,23 @@ those, leave some SMs free of the resident kernel.  Measured with
 K KB or more, ``-`` that it starts beside every measured size; an architecture or
 route not listed is unmeasured.
 
+* ``sm_100a`` ``bwd_h1536``: (0, 1024] >= 132, (1024, 4096] >= 100, (4096, 32768] >= 100, (32768, 36864] >= 132, (36864, inf) -
+* ``sm_100a`` ``bwd_h2048``: (0, 336] -, (336, 3072] >= 100, (3072, 4096] >= 100, (4096, 7168] >= 100, (7168, 11264] >= 132, (11264, 13608] >= 100, (13608, 45056] >= 132, (45056, inf) >= 100
+* ``sm_100a`` ``bwd_h256``: (0, inf) -
+* ``sm_100a`` ``bwd_h4096``: (0, 1152] -, (1152, 4096] >= 132, (4096, 4608] >= 132, (4608, 36864] -, (36864, inf) >= 132
+* ``sm_100a`` ``bwd_h512``: (0, 1024] -, (1024, 1280] >= 132, (1280, inf) -
+* ``sm_100a`` ``bwd_h5120``: (0, 896] -, (896, 24576] -, (24576, inf) >= 132
+* ``sm_100a`` ``bwd_h6144``: (0, 1152] >= 132, (1152, 4096] >= 132, (4096, 5632] >= 132, (5632, inf) >= 100
+* ``sm_100a`` ``bwd_residual_h6144``: (0, 1408] >= 100, (1408, inf) >= 100
+* ``sm_100a`` ``bwd_w32_h1536``: (0, 1024] >= 132, (1024, 4096] >= 100, (4096, 32768] >= 100, (32768, 36864] >= 132, (36864, inf) -
+* ``sm_100a`` ``bwd_w32_h2048``: (0, 336] -, (336, 3072] >= 100, (3072, 4096] >= 100, (4096, 15403] >= 100, (15403, 45056] >= 132, (45056, inf) >= 100
+* ``sm_100a`` ``bwd_w32_h256``: (0, inf) -
+* ``sm_100a`` ``bwd_w32_h4096``: (0, 1792] -, (1792, 3584] >= 132, (3584, 36864] -, (36864, inf) >= 132
+* ``sm_100a`` ``bwd_w32_h512``: (0, 1024] -, (1024, 1280] >= 132, (1280, inf) -
+* ``sm_100a`` ``bwd_w32_h5120``: (0, 256] -, (256, 24576] -, (24576, inf) >= 132
+* ``sm_100a`` ``bwd_w32_h6144``: (0, 1408] >= 132, (1408, 3584] >= 132, (3584, inf) >= 100
+* ``sm_100a`` ``bwd_w32_residual_h6144``: (0, 1408] >= 100, (1408, inf) >= 100
+
 Programs that need a whole SM wait beside any kernel resident on every SM, whatever
 its carveout: the deterministic package's whole-SM programs where this package runs
 them (``WHOLE_SM``: det-pair windows and forward programs; no single-kernel window).
@@ -1034,23 +1100,23 @@ Beside those, leave some SMs free of the resident kernel.
 * ``sm_107a`` ``bwd_w32_residual_h6144``: (0, inf)
 
 * ``sm_100a`` ``bwd_h256``: (0, inf) 195c4317
-* ``sm_100a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
-  (1024, 1280] 123db0b2 (det pair) ? (1280, inf) d0bde38a
-* ``sm_100a`` ``bwd_h1536``: (0, 1024] 7dc29629 (det pair) ?
-  (1024, 4096] c1a9efdf (det pair) ? (4096, 32768] 21c8bb55 (det pair) ?
-  (32768, 36864] b457c4d1 (det pair) ? (36864, inf) ae610afd
-* ``sm_100a`` ``bwd_h2048``: (0, 336] 64e6aa82 ? (336, 3072] caf6978e (det pair) ?
-  (3072, 4096] 9ac8d21e (det pair) ? (4096, 7168] c73074cf (det pair) ?
-  (7168, 11264] 0fa4f255 ? (11264, 13608] c73074cf (det pair) ? (13608, 45056] 0fa4f255
-  ? (45056, inf) ceeef043 (det pair)
-* ``sm_100a`` ``bwd_h4096``: (0, 1152] 4822793e ? (1152, 4096] 9a830956 (det pair) ?
-  (4096, 4608] 35a0b0ca (det pair) ? (4608, 36864] 15e157d2 ?
+* ``sm_100a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) =
+  (1024, 1280] 123db0b2 (det pair) = (1280, inf) d0bde38a
+* ``sm_100a`` ``bwd_h1536``: (0, 1024] 7dc29629 (det pair) =
+  (1024, 4096] c1a9efdf (det pair) = (4096, 32768] 21c8bb55 (det pair) =
+  (32768, 36864] b457c4d1 (det pair) = (36864, inf) ae610afd
+* ``sm_100a`` ``bwd_h2048``: (0, 336] 64e6aa82 = (336, 3072] caf6978e (det pair) =
+  (3072, 4096] 9ac8d21e (det pair) = (4096, 7168] c73074cf (det pair) =
+  (7168, 11264] 0fa4f255 = (11264, 13608] c73074cf (det pair) = (13608, 45056] 0fa4f255
+  = (45056, inf) ceeef043 (det pair)
+* ``sm_100a`` ``bwd_h4096``: (0, 1152] 4822793e = (1152, 4096] 9a830956 (det pair) =
+  (4096, 4608] 35a0b0ca (det pair) = (4608, 36864] 15e157d2 =
   (36864, inf) 35a0b0ca (det pair)
-* ``sm_100a`` ``bwd_h5120``: (0, 896] 080e0a6c ? (896, 24576] b482c84d (det pair) ?
+* ``sm_100a`` ``bwd_h5120``: (0, 896] 080e0a6c = (896, 24576] b482c84d (det pair) =
   (24576, inf) 2f05000c
-* ``sm_100a`` ``bwd_h6144``: (0, 1152] 44508df7 ? (1152, 4096] 5c804aed (det pair) ?
-  (4096, 5632] b93bf060 (det pair) ? (5632, inf) 9433061d
-* ``sm_100a`` ``bwd_residual_h6144``: (0, 1408] 864e84f3 ? (1408, inf) 3fbfdd75
+* ``sm_100a`` ``bwd_h6144``: (0, 1152] 44508df7 = (1152, 4096] 5c804aed (det pair) =
+  (4096, 5632] b93bf060 (det pair) = (5632, inf) 9433061d
+* ``sm_100a`` ``bwd_residual_h6144``: (0, 1408] 864e84f3 = (1408, inf) 3fbfdd75
 * ``sm_103a`` ``bwd_h256``: (0, 4608] 5450d398 (det pair) ? (4608, inf) 195c4317
 * ``sm_103a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
   (1024, 4096] 8e7f4d81 (det pair) ? (4096, 32768] 274b0055 (det pair) ?
