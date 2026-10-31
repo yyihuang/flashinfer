@@ -125,6 +125,62 @@ GRAPH_DEFAULT = _opt.GRAPH_DEFAULT
 KCP_SAVED_VERSION = 1  # saved set {S_in [, c1 receive tensor, M_seg] [, forward tapes]}
 COLLECTIVES = ("c1", "c2", "b1", "b2")
 COLS_RULE_CHAINS = 24  # by_chains: <= 24 concurrent 128-column state chains -> c8, otherwise c16; map launches stay c16
+# K1 (#8063, a non-deterministic lever: the bits differ from the deterministic package's): the owner chains of the
+# exchange (families ``fwd``, ``adj_b1``, ``adj_c1``; one chain per document and owned head, one element per
+# crossing fragment) run as a blocked scan instead of one serial walk -- (1) the affine maps of every block of ``b``
+# elements composed in map mode (``ncols`` 256: ``[c | M]`` from ``[0 | I]``; one launch for every block of every
+# chain), (2) the blocks' entering states by one short serial chain over the composed maps (state mode,
+# ``transpose_m = 1``: a composed map is stored as a state is), (3) every block re-walked from its entering state,
+# publishing the per-fragment states exactly where the serial chain does (one launch; a block publishes no final
+# state, the next block publishes its entering state).  A chain of ``L`` elements takes about ``2 b + ceil(L / b)``
+# dependent steps instead of ``L``, for ~2.2x the FFMA work and two more launches: a gain only while the merge runs
+# one wave (few long documents: one or two documents per pack at CP 8 / 16).  FP32 FFMA throughout (the
+# composition reassociates FP32 products: the same precision class as the serial chain).
+TREE_FAMILIES = ("fwd", "adj_b1", "adj_c1")
+TREE_MIN_LEN = 6  # no blocked scan for chains shorter than this
+TREE_SLOTS_PER_SM = 2  # co-resident merge CTAs per SM (the merge records' __launch_bounds__(128, 2))
+TREE_CTAS_PER_CHAIN = 16  # c8 state chains (128 / 8 columns) and c16 map chains (256 / 16)
+TREE_MAP_STEP = 1.5  # one map-mode step (twice the FFMA of a state step, the same operator load) in state steps
+TREE_LAUNCH_STEPS = 1.0  # one more stream-ordered launch, in state steps
+TREE_GAIN = 0.85  # engage when the modelled blocked scan is below this fraction of the serial chain
+TREE_BLOCKS = (2, 3, 4, 5, 6, 7, 8, 10, 12, 16)  # the block sizes the rule considers
+
+
+def owner_tree_block(lengths: Sequence[int], sm_count: int, forced: Any = "auto") -> int:
+    """The block size ``b`` of the K1 blocked scan of one owner-chain launch (``0``: the serial chain).  ``lengths``
+    are the chains' element counts.  ``forced``: ``"off"`` -> 0, an int -> that block size (when some chain is longer
+    than it), ``"auto"`` -> the rule: the smallest modelled time over :data:`TREE_BLOCKS` (in state steps, waves of
+    ``TREE_SLOTS_PER_SM x sm_count`` CTAs: map phase ``waves x b x TREE_MAP_STEP``, state chain ``waves x nb``,
+    re-walk ``waves x b``, two launches) when it is below ``TREE_GAIN`` x the serial chain (``waves x L``), the
+    longest chain at least :data:`TREE_MIN_LEN` and an SM count known; pure host arithmetic."""
+    lens = [int(x) for x in lengths]
+    if forced == "off" or not lens:
+        return 0
+    L = max(lens)
+    if not isinstance(forced, str):
+        b = int(forced)
+        return b if L > b >= 2 else 0
+    if L < TREE_MIN_LEN or int(sm_count) < 1:
+        return 0
+    slots = TREE_SLOTS_PER_SM * int(sm_count)
+
+    def waves(chains: int) -> int:
+        return max(1, -(-chains * TREE_CTAS_PER_CHAIN // slots))
+
+    serial = waves(len(lens)) * L
+    best, best_b = None, 0
+    for b in TREE_BLOCKS:
+        if b >= L:
+            break
+        nb = [-(-n // b) for n in lens]
+        p1 = waves(sum(max(0, x - 1) for x in nb)) * b * TREE_MAP_STEP
+        p2 = waves(len(lens)) * max(nb)
+        p3 = waves(sum(max(1, x) for x in nb)) * b
+        cost = p1 + p2 + p3 + 2 * TREE_LAUNCH_STEPS
+        if best is None or cost < best:
+            best, best_b = cost, b
+    return best_b if best is not None and best < TREE_GAIN * serial else 0
+
 
 # Program names of the dispatch table and the device program each one launches.
 PROGRAMS = (
@@ -2040,6 +2096,60 @@ class _Tables:
                 )
         return ch
 
+    def tree_plan(self, family: str, b: int) -> dict[str, Any]:
+        """The three launches of the K1 blocked scan of owner family ``family`` at block size ``b`` (cached per
+        ``(family, b)``): ``map`` (the composed ``[c | M]`` of every block but a chain's last, map mode, into the
+        ``tree_sum`` plane), ``state`` (one chain per original chain over its composed blocks, ``transpose_m = 1``,
+        publishing every block's entering state into the ``tree_x`` plane; a one-block chain copies its initial
+        state) and ``walk`` (one chain per block from its entering state with the original elements, publishing the
+        original per-element states; the last block keeps the original final state, the others publish none).
+        Pool sizes in elements: ``tree_sum`` / ``tree_x``."""
+        key = (str(family), int(b))
+        cache = self.__dict__.setdefault("_tree_cache", {})
+        if key in cache:
+            return cache[key]
+        ch = self.chains[family]
+        cmap, cstate, cwalk = Chains(ncols=2 * D), Chains(ncols=D), Chains(ncols=D)
+        n_sum = n_x = 0
+        for ci in range(ch.n_chains):
+            e0, e1 = ch.chain_start[ci], ch.chain_start[ci + 1]
+            elems = [
+                (ch.elem_m[e], ch.elem_c[e], ch.elem_y[e]) for e in range(e0, e1)
+            ]
+            blocks = [elems[i : i + b] for i in range(0, len(elems), b)] or [[]]
+            xs = list(range(n_x, n_x + len(blocks)))
+            n_x += len(blocks)
+            sums = []
+            for blk in blocks[:-1]:
+                cmap.add([(m, c, -1) for m, c, _ in blk], y_final=n_sum * 2 * TILE)
+                sums.append(n_sum)
+                n_sum += 1
+            cstate.add(
+                [
+                    (s * 2 * TILE + TILE, s * 2 * TILE, xs[j] * TILE)
+                    for j, s in enumerate(sums)
+                ],
+                x0=ch.x0_index[ci],
+                y_final=xs[-1] * TILE,
+            )
+            for j, blk in enumerate(blocks):
+                cwalk.add(
+                    blk,
+                    x0=xs[j] * TILE,
+                    y_final=ch.y_final[ci] if j == len(blocks) - 1 else -1,
+                )
+        for c in (cmap, cstate, cwalk):
+            c.check_alignment()
+        plan = {
+            "map": cmap,
+            "state": cstate,
+            "walk": cwalk,
+            "tree_sum": n_sum * 2 * TILE,
+            "tree_x": n_x * TILE,
+        }
+        cache[key] = plan
+        return plan
+
     # -- device tables (built on the CPU once at first use, device-resident on the head plan, cached by content)
     def dev(
         self,
@@ -2553,6 +2663,7 @@ class CallKcp:
         self.merge_log: list[
             tuple[str, int, int, int | None]
         ] = []  # (family, ncols, n_chains, explicit cols)
+        self.tree_log: list[tuple[str, int]] = []  # K1: (owner family, block size) per blocked scan
         self.scratch: dict[str, Any] = {}
         self.bufs: dict[str, torch.Tensor] = {}
         self.tapes: dict[
@@ -2790,6 +2901,18 @@ class CallKcp:
         ch = self.tb.chains[family] if chains is None else chains
         if ch.n_chains == 0:
             return
+        if chains is None and family in TREE_FAMILIES:
+            lengths = [
+                ch.chain_start[i + 1] - ch.chain_start[i] for i in range(ch.n_chains)
+            ]
+            b = owner_tree_block(
+                lengths,
+                int(getattr(self.ctx, "sm_count", 0) or 0),
+                self.opts.knob("owner_tree"),
+            )
+            if b:
+                self._merge_tree(family, b)
+                return
         spec = _Tables.FAMILIES[family] if spec is None else spec
         cols = merge_cols_per_cta(ch.ncols, ch.n_chains, self.cols_rule)
         self.merge_log.append((str(family), int(ch.ncols), int(ch.n_chains), cols))
@@ -2831,6 +2954,37 @@ class CallKcp:
             write_states=int(spec["ws"]),
             cols_per_cta=cols,
         )
+
+    def _merge_tree(self, family: str, b: int) -> None:
+        """The K1 blocked scan of owner family ``family`` at block size ``b`` (:meth:`_Tables.tree_plan`): three
+        merge launches over two per-call planes (``tree_sum``: composed ``[c | M]`` pairs, ``tree_x``: the blocks'
+        entering states), dropped right after the last launch."""
+        plan = self.tb.tree_plan(family, b)
+        spec = _Tables.FAMILIES[family]
+        sizes = self.tb.sizes
+        sizes["tree_sum"] = max(int(sizes.get("tree_sum", 0)), plan["tree_sum"], 1)
+        sizes["tree_x"] = max(int(sizes.get("tree_x", 0)), plan["tree_x"], 1)
+        self.fresh("tree_sum")
+        self.fresh("tree_x")
+        self.tree_log.append((str(family), int(b)))
+        if plan["map"].n_chains:
+            self.merge(
+                f"{family}:tree_map",
+                chains=plan["map"],
+                spec={"m": spec["m"], "c": spec["c"], "x0": None, "y": "tree_sum", "tm": spec["tm"], "ws": 0},
+            )
+        self.merge(
+            f"{family}:tree_state",
+            chains=plan["state"],
+            spec={"m": "tree_sum", "c": "tree_sum", "x0": spec["x0"], "y": "tree_x", "tm": 1, "ws": 1},
+        )
+        self.merge(
+            f"{family}:tree_walk",
+            chains=plan["walk"],
+            spec={"m": spec["m"], "c": spec["c"], "x0": "tree_x", "y": spec["y"], "tm": spec["tm"], "ws": spec["ws"]},
+        )
+        self.drop_bound("tree_sum")
+        self.drop_bound("tree_x")
 
     def transpose_tiles(
         self, src: str, src_tiles, dst: str, dst_tiles, *, scratch: str | None = None
@@ -3122,6 +3276,7 @@ def _record(kind: str, call: CallKcp) -> None:
         "fused_walks": call.tb.fused_walks,
         "cols_rule": call.cols_rule,
         "merges": list(call.merge_log),
+        "owner_tree": list(call.tree_log),
         "graph": call.opts.graph,
         "graph_event": "eager",
         "graph_key": None,
@@ -5048,6 +5203,10 @@ __all__ = [
     "RING_MAX_HOPS",
     "SAVE_MODES",
     "SCALE",
+    "TREE_BLOCKS",
+    "TREE_FAMILIES",
+    "TREE_GAIN",
+    "TREE_MIN_LEN",
     "SUMMARY_TILE",
     "VH64_SUFFIX",
     "TART_MODULE_OF",
@@ -5083,6 +5242,7 @@ __all__ = [
     "kept_registry_size",
     "make_options",
     "merge_cols_per_cta",
+    "owner_tree_block",
     "resolve_launch",
     "saved_states",
     "saved_tapes",

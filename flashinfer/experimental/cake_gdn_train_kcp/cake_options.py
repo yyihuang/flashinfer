@@ -124,6 +124,8 @@ SCHEDULES = ("wait_first", "overlap")
 SCHEDULE_DEFAULT = "wait_first"
 COLS_RULES = ("fixed", "by_chains")
 COLS_RULE_DEFAULT = "fixed"
+OWNER_TREE_VALUES = ("auto", "off", 2, 3, 4, 5, 6, 7, 8, 10, 12, 16)
+OWNER_TREE_DEFAULT = "auto"
 TEST_KNOBS: dict[str, tuple[Any, ...] | None] = {
     "schedule": SCHEDULES,
     "fused_walks": (0, 1),
@@ -143,6 +145,9 @@ TEST_KNOBS: dict[str, tuple[Any, ...] | None] = {
         64,
         128,
     ),  # force the #7 form (rule otherwise: 64 iff n_walk * HV * 2 <= 4 * sm_count)
+    # K1 blocked scan of the owner chains (cake_kcp.owner_tree_block): "auto" = the rule, "off" = the serial chain,
+    # an int = that block size
+    "owner_tree": OWNER_TREE_VALUES,
 }
 TEST_KNOB_DEFAULTS: dict[str, Any] = {
     "schedule": SCHEDULE_DEFAULT,
@@ -154,6 +159,7 @@ TEST_KNOB_DEFAULTS: dict[str, Any] = {
     "precision_mode": PRECISION_MODE_DEFAULT,
     "fwdh_vh": None,
     "dhu_vh": None,
+    "owner_tree": OWNER_TREE_DEFAULT,
 }
 
 
@@ -396,6 +402,8 @@ __all__ = [
     "OFFSET_CLASSES",
     "OFFSET_CLASS_DEFAULT",
     "OPTION_NAMES",
+    "OWNER_TREE_DEFAULT",
+    "OWNER_TREE_VALUES",
     "PRECISION_MODES",
     "PRECISION_MODES_TEST_ONLY",
     "PRECISION_MODE_DEFAULT",
