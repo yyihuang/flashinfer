@@ -32,6 +32,7 @@ o, final_state = chunk_gated_delta_rule(
     cu_seqlens=cu_seqlens,               # packed batch (B == 1): int32 / int64 offsets on the device
     cu_seqlens_cpu=cu_seqlens_cpu,       # the same offsets on the host: host-table route; None: device route
     use_qk_l2norm_in_kernel=True,
+    deterministic=False,                 # required: this package is the non-deterministic route
 )
 ```
 
@@ -51,6 +52,42 @@ at 0, not decreasing and ending at the tokens of `q` (an empty sequence is
 allowed).  These checks read tensor metadata only; the host offsets are
 checked when their layout is first planned.  The device route trusts the values
 of `cu_seqlens`, since reading them would synchronize the device.
+
+## Deterministic and non-deterministic routes
+
+Packed GDN training has four Cake packages, one per (mode, parallelism):
+
+| mode | one rank (this API, FLA signature) | context parallel (KCP) |
+|---|---|---|
+| deterministic (bitwise run to run) | `flashinfer.experimental.cake_gdn_det_train` (`chunk_gated_delta_rule_det`) | `flashinfer.experimental.cake_gdn_det_train_kcp` (`chunk_gdn_det_kcp`) |
+| non-deterministic (within the det budgets) | `flashinfer.experimental.cake.cake_gdn_train` (`chunk_gated_delta_rule(..., deterministic=False)`) | `flashinfer.experimental.cake_gdn_train_kcp` |
+
+Each package is standalone: it imports nothing else from `flashinfer` and
+ships its own copy of every kernel it shares with another.  Nothing selects a
+package implicitly.  Every entry of this package (`chunk_gated_delta_rule`,
+`ChunkGatedDeltaRuleFunction.apply`, `gdn_chunk_forward`,
+`gdn_chunk_backward`) takes `deterministic: bool = True` and raises
+`ValueError` unless it is `False`, so a call that does not ask for the
+non-deterministic route fails instead of running it.  The autograd function
+records the forward's mode, and `gdn_chunk_backward` refuses (`ValueError`) a
+forward tape of the other mode, such as one of the deterministic package.
+The KCP facade `flashinfer.cake_gdn_train_kcp` is the entry that dispatches on
+`deterministic` (`True`: the deterministic package; `False`: the
+non-deterministic one).
+
+With PyTorch's deterministic algorithms enabled
+(`torch.use_deterministic_algorithms(True)`), a call with
+`deterministic=False` reports itself through
+`torch._C._alert_not_deterministic`: it raises `RuntimeError`, or warns with
+`warn_only=True`.  With the flag off nothing changes.  The deterministic
+packages, their names, defaults and aliases are unchanged.
+
+| name | what it is now |
+|---|---|
+| `flashinfer.experimental.cake_gdn_det_train` and its aliases `chunk_gated_delta_rule`, `ChunkGatedDeltaRuleFunction`, `gdn_chunk_forward`, `gdn_chunk_backward` | unchanged: the deterministic one-rank package |
+| `flashinfer.experimental.cake_gdn_train` (the KCP package of FlashInfer v0.7.3rc1) | unchanged: a legacy alias of the deterministic KCP package `flashinfer.experimental.cake_gdn_det_train_kcp` |
+| `flashinfer.gdn_train`, `flashinfer.cake_gdn_det_train_kcp` | unchanged: deterministic KCP entry points |
+| `flashinfer.experimental.cake.cake_gdn_train` | new: this non-deterministic one-rank package |
 
 ## Chain
 
@@ -75,9 +112,9 @@ sequences by chunk count, longest first (ties in the caller's order); every
 chunk keeps its token offset, the initial-state rows are gathered into that
 order and the final state and the initial-state gradient come back in the
 caller's order.  The forward scan also walks its segments longest first.  Each
-CTA computes what it computes in the caller's order, so the outputs and the
-gradients are bitwise the same with `lpt=False`.  The device route keeps the
-caller's order.
+CTA computes what it computes in the caller's order, so `lpt=False` changes
+the order of the work, not the results beyond the accumulation order of the
+non-deterministic stages.  The device route keeps the caller's order.
 
 A serial scan runs one CTA per (sequence, value head) with one CTA per SM, so
 its last round can leave SMs idle.  On the host-table route such a scan can
@@ -95,7 +132,7 @@ stream is a stream of PyTorch's pool with the device's greatest priority, one
 per caller stream; it is forked from the caller's stream with events and joined
 before the stage returns (also when a launch raises), so the call can be
 captured in a CUDA graph (warm it up first, like any captured call).
-`streams=1` keeps every launch on the caller's stream; the bits are the same.
+`streams=1` keeps every launch on the caller's stream.
 
 ## Plan pins (keyword-only)
 
@@ -109,8 +146,8 @@ captured in a CUDA graph (warm it up first, like any captured call).
 | `prep` | rule | forward prep: `"plain"` or `"tma"` (`prep_tma`; Q or K not 16-byte aligned still take the plain prep) |
 | `save_state` | `True` | keep the forward's `w`, `u`, `h`, `v_new` for the backward; `False` recomputes them |
 | `host_cache` | `True` | keep the chunk tables, the `dhu_tc2` selections and the per-stream workspaces between calls |
-| `lpt` | `True` | host-table route: dispatch the sequences and the forward segments longest first; `False` keeps the caller's order (the same bits) |
-| `streams` | `2` | host-table route: `2` lets a serial scan run as two sequence groups on two streams where the rule above splits it; `1` keeps one stream (the same bits) |
+| `lpt` | `True` | host-table route: dispatch the sequences and the forward segments longest first; `False` keeps the caller's order |
+| `streams` | `2` | host-table route: `2` lets a serial scan run as two sequence groups on two streams where the rule above splits it; `1` keeps one stream |
 
 ## Limitations
 

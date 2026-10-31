@@ -113,6 +113,24 @@ PRESCAN_CONFIGS: tuple[tuple[int, int], ...] = ((32, 2), (64, 1))
 SCAN_KINDS = ("fwd_h", "dhu")
 STITCH_VSPLIT = 4  # CTAs per (sequence, value head) of the stitch launch
 
+# What ``chunk_gated_delta_rule`` passes to ``ChunkGatedDeltaRuleFunction.apply`` as ``deterministic``: the mode was
+# checked and reported by the entry, so the Function does not report it a second time.
+_MODE_CHECKED = object()
+
+
+def _require_nondeterministic(deterministic: Any, entry: str) -> None:
+    """The mode contract of every entry: the package computes non-deterministically, so an entry takes
+    ``deterministic=False`` and raises ``ValueError`` for any other value (the deterministic package is
+    ``flashinfer.experimental.cake_gdn_det_train``).  With PyTorch's deterministic algorithms enabled the call is
+    reported through ``torch._C._alert_not_deterministic(entry)``: a ``RuntimeError``, or a warning under
+    ``torch.use_deterministic_algorithms(True, warn_only=True)``."""
+    if deterministic is not False:
+        raise ValueError(f"{entry} computes non-deterministically and takes deterministic=False (got "
+                         f"{deterministic!r}); flashinfer.experimental.cake_gdn_det_train is the deterministic "
+                         "package")  # fmt: skip
+    if torch.are_deterministic_algorithms_enabled():
+        torch._C._alert_not_deterministic(entry)
+
 # Kernel parameter names of every stage in call-site order; a delivered record whose parameters are these names in
 # another order is launched with the values reordered.
 _PREP_ARGS = ("q", "k", "g", "beta", "beta32_out", "qn", "kn", "rstd_q", "rstd_k", "g_cs", "chunk_start", "chunk_len",
@@ -1489,9 +1507,19 @@ def _launch_fwd_ho(arch, qn, kn, w, u, g_cs, initial_state, meta, num_heads, num
 
 
 def gdn_chunk_forward(q, k, v, g, beta, *, meta, arch, scale=None, initial_state=None, output_final_state=False,
-                      normalize_qk=True, options: ChainOptions | None = None) -> dict[str, Any]:  # fmt: skip
+                      normalize_qk=True, options: ChainOptions | None = None,
+                      deterministic: bool = True) -> dict[str, Any]:  # fmt: skip
     """The forward chain over flattened ``[T, H, 128]`` / ``[T, HV, 128]`` inputs and one chunk table; returns the
-    output and the tape the backward reads."""
+    output and the tape the backward reads (the tape records ``deterministic=False``).  ``deterministic`` must be
+    ``False`` (``ValueError`` otherwise); see :func:`chunk_gated_delta_rule` for PyTorch's deterministic mode."""
+    _require_nondeterministic(deterministic, "gdn_chunk_forward")
+    return _forward(q, k, v, g, beta, meta=meta, arch=arch, scale=scale, initial_state=initial_state,
+                    output_final_state=output_final_state, normalize_qk=normalize_qk, options=options)  # fmt: skip
+
+
+def _forward(q, k, v, g, beta, *, meta, arch, scale=None, initial_state=None, output_final_state=False,
+             normalize_qk=True, options: ChainOptions | None = None) -> dict[str, Any]:  # fmt: skip
+    """:func:`gdn_chunk_forward` after its mode check."""
     options = options or ChainOptions()
     num_heads, key_dim = q.shape[-2], q.shape[-1]
     num_v_heads, value_dim = v.shape[-2], v.shape[-1]
@@ -1556,7 +1584,7 @@ def gdn_chunk_forward(q, k, v, g, beta, *, meta, arch, scale=None, initial_state
         "total_tokens": total_tokens, "qn": qn, "kn": kn, "rstd_q": rstd_q, "rstd_k": rstd_k, "g_cs": g_cs, "A": A,
         "w": w, "u": u, "v": v, "beta32": beta32, "meta": meta, "scale": float(scale), "output": o,
         "final_state": final_state if output_final_state else None, "initial_state": initial_state, "h": h,
-        "v_new": v_new, "options": options,
+        "v_new": v_new, "options": options, "deterministic": False,
     }  # fmt: skip
 
 
@@ -1564,10 +1592,26 @@ def gdn_chunk_forward(q, k, v, g, beta, *, meta, arch, scale=None, initial_state
 # backward
 # --------------------------------------------------------------------------- #
 def gdn_chunk_backward(
-    forward, do, dht=None, *, initial_state=None, dbeta_dtype=None
+    forward,
+    do,
+    dht=None,
+    *,
+    initial_state=None,
+    dbeta_dtype=None,
+    deterministic: bool = True,
 ) -> dict[str, Any]:
-    """The backward chain over one forward tape; returns ``dq``, ``dk``, ``dv``, ``dg``, ``dbeta`` and
-    ``dinitial_state``."""
+    """The backward chain over one forward tape of :func:`gdn_chunk_forward`; returns ``dq``, ``dk``, ``dv``, ``dg``,
+    ``dbeta`` and ``dinitial_state``.  ``deterministic`` must be ``False``, and so must the mode the tape records
+    (``ValueError`` otherwise: a tape of the deterministic package is refused)."""
+    _require_nondeterministic(deterministic, "gdn_chunk_backward")
+    return _backward(forward, do, dht, initial_state=initial_state, dbeta_dtype=dbeta_dtype)
+
+
+def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None) -> dict[str, Any]:
+    """:func:`gdn_chunk_backward` after its mode check: the tape must be of this package's mode."""
+    if forward.get("deterministic", True) is not False:
+        raise ValueError("gdn_chunk_backward reads the tape of a non-deterministic forward (deterministic=False); "
+                         "this tape records the deterministic mode")  # fmt: skip
     arch = forward["arch"]
     meta = forward["meta"]
     options = forward.get("options") or ChainOptions()
@@ -1929,7 +1973,9 @@ def _chunk_meta(
 class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens, cu_seqlens_cpu,
-                use_qk_l2norm_in_kernel, options):  # fmt: skip
+                use_qk_l2norm_in_kernel, options, deterministic=True):  # fmt: skip
+        if deterministic is not _MODE_CHECKED:
+            _require_nondeterministic(deterministic, "ChunkGatedDeltaRuleFunction")
         batch, seq_len, num_heads, key_dim = q.shape
         num_v_heads = v.shape[2]
         index = _tensor_index(q)
@@ -1937,9 +1983,9 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
         meta = _chunk_meta(
             cu_seqlens, cu_seqlens_cpu, batch, seq_len, index, num_v_heads, options
         )
-        fwd = gdn_chunk_forward(q, k, v, g, beta, meta=meta, arch=arch, scale=scale, initial_state=initial_state,
-                                output_final_state=output_final_state, normalize_qk=use_qk_l2norm_in_kernel,
-                                options=options)  # fmt: skip
+        fwd = _forward(q, k, v, g, beta, meta=meta, arch=arch, scale=scale, initial_state=initial_state,
+                       output_final_state=output_final_state, normalize_qk=use_qk_l2norm_in_kernel,
+                       options=options)  # fmt: skip
         state_tensors = (
             (fwd["w"], fwd["u"], fwd["h"], fwd["v_new"]) if options.save_state else ()
         )
@@ -1952,6 +1998,7 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
         ctx.has_initial_state_input = initial_state is not None
         ctx.dtypes = (g.dtype, beta.dtype)
         ctx.options = options
+        ctx.deterministic = fwd["deterministic"]  # the forward's mode; the backward reads only a tape of its own
         output = fwd["output"]
         if output.dtype != q.dtype:
             output = output.to(q.dtype)
@@ -1966,10 +2013,11 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
         g_dtype, beta_dtype = ctx.dtypes
         tape = {"arch": ctx.arch, "qn": qn, "kn": kn, "rstd_q": rstd_q, "rstd_k": rstd_k, "v": v_flat, "g_cs": g_cs,
                 "beta32": beta32, "A": A, "meta": ctx.meta, "scale": ctx.scale, "normalize_qk": ctx.normalize_qk,
-                "g_shape": g_shape, "beta_shape": beta_shape, "options": ctx.options}  # fmt: skip
+                "g_shape": g_shape, "beta_shape": beta_shape, "options": ctx.options,
+                "deterministic": ctx.deterministic}  # fmt: skip
         if ctx.saved_state_tensors:
             tape["w"], tape["u"], tape["h"], tape["v_new"] = state_tensors
-        grads = gdn_chunk_backward(
+        grads = _backward(
             tape,
             do.contiguous(),
             dht,
@@ -1991,6 +2039,7 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
             dbeta,
             None,
             dh0,
+            None,
             None,
             None,
             None,
@@ -2022,6 +2071,7 @@ def chunk_gated_delta_rule(
     prep: str | None = None,
     lpt: bool = True,
     streams: int = 2,
+    deterministic: bool = True,
 ):
     """Non-deterministic chunked gated delta rule with FLA's signature (head dimension 128, ``HV`` a multiple of ``H``).
 
@@ -2037,7 +2087,13 @@ def chunk_gated_delta_rule(
     128, 128]``, ``cu_seqlens`` 1-D int32 / int64 with a batch of 1, ``cu_seqlens_cpu`` as many offsets, from 0, not
     decreasing, to the tokens of ``q``.  The device route trusts the values of ``cu_seqlens`` (reading them would
     synchronize): the same contract, unchecked.
+
+    ``deterministic`` must be ``False``: the package computes non-deterministically (the outputs and gradients match
+    the deterministic package within its accuracy budgets, not bitwise), and any other value raises ``ValueError``.
+    With PyTorch's deterministic algorithms enabled (``torch.use_deterministic_algorithms(True)``) a call reports
+    itself through ``torch._C._alert_not_deterministic``: ``RuntimeError``, or a warning with ``warn_only=True``.
     """
+    _require_nondeterministic(deterministic, "chunk_gated_delta_rule")
     if (
         q.dtype != torch.bfloat16
         or k.dtype != torch.bfloat16
@@ -2053,5 +2109,6 @@ def chunk_gated_delta_rule(
     if scale is None:
         scale = 1.0 / math.sqrt(q.shape[-1])
     return ChunkGatedDeltaRuleFunction.apply(q, k, v, g, beta, float(scale), initial_state, output_final_state,
-                                             cu_seqlens, cu_seqlens_cpu, use_qk_l2norm_in_kernel, options)  # fmt: skip
+                                             cu_seqlens, cu_seqlens_cpu, use_qk_l2norm_in_kernel, options,
+                                             _MODE_CHECKED)  # fmt: skip
 
