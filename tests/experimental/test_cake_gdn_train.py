@@ -1284,7 +1284,11 @@ def test_staggered_form_matches_one_launch(heads, device, monkeypatch) -> None:
         monkeypatch.setattr(cake_chain, "STAGGER", on)
         start = len(launches)
         runs.append(_run(inputs, seq_lens, initial_state=h0, output_final_state=True, dht=dht, **STREAM_PINS))
-        bwd = [(stage, stream) for stage, stream in launches[start:] if stage.startswith(("dhu", "tail"))]
+        bwd = [
+            (stage.removesuffix("_bf16"), stream)
+            for stage, stream in launches[start:]
+            if stage.startswith(("dhu", "tail"))
+        ]
         if on:
             assert [stage for stage, _ in bwd] == ["dhu_tc2"] * 3 + [tail] * 3, bwd
             assert sum(stream != main for _, stream in bwd) == 4, bwd
