@@ -35,7 +35,8 @@ mode the benchmark records:
   retained ``torch.cuda.memory_allocated`` deltas of a default call (no output
   buffers, no workspace), of a call with preallocated outputs and workspace,
   and of the autograd wrapper (what its forward keeps for the backward, and the
-  backward's peak).
+  backward's peak); and what a ``torch.utils.checkpoint(use_reentrant=False)``
+  forward of the autograd wrapper keeps beyond its outputs.
 
 Each sample set is summarized as median, p10 and p90.  ``--jsonl`` appends one
 JSON object per (shape, mode) with the raw per-replay samples; run the
@@ -64,6 +65,7 @@ import time
 from typing import Callable, Optional
 
 import torch
+import torch.utils.checkpoint
 
 from flashinfer.cake_rmsnorm_train import (
     cake_rmsnorm,
@@ -393,6 +395,29 @@ def bench_mode(
     tensors = outputs if residual else (outputs,)
     grads = (g, g_h) if residual else (g,)
     ag_peak, _ag_kept = _memory(lambda: torch.autograd.backward(tensors, grads))
+    del outputs, tensors
+    # What a ``torch.utils.checkpoint(use_reentrant=False)`` forward keeps beyond its
+    # outputs (expected 0: the checkpoint saves its inputs, which the caller holds).
+    xc = x.clone().requires_grad_(True)
+    wc = w.clone().requires_grad_(True)
+    uc = u.clone().requires_grad_(True) if residual else None
+    torch.cuda.synchronize()
+    base = torch.cuda.memory_allocated()
+    checkpointed = torch.utils.checkpoint.checkpoint(
+        lambda a, b, c: cake_rmsnorm(a, b, eps, residual=c, **kw),
+        xc,
+        wc,
+        uc,
+        use_reentrant=False,
+    )
+    torch.cuda.synchronize()
+    checkpointed = checkpointed if residual else (checkpointed,)
+    checkpoint_retained = (
+        torch.cuda.memory_allocated()
+        - base
+        - sum(t.numel() * t.element_size() for t in checkpointed)
+    )
+    del checkpointed
     entry["memory"] = {
         "workspace_bytes": int(workspace_bytes),
         "fwd_default_peak_bytes": fwd_peak,
@@ -403,6 +428,7 @@ def bench_mode(
         "bwd_prealloc_peak_bytes": pre_peak,
         "autograd_saved_bytes": int(saved),
         "autograd_backward_peak_bytes": ag_peak,
+        "checkpoint_retained_bytes": int(checkpoint_retained),
     }
     logical = _logical_bytes(
         rows, hidden, residual=residual, w_bytes=W_DTYPES[w_token].itemsize
@@ -506,7 +532,8 @@ def report(paths: list[str]) -> tuple[list[dict], str]:
         "bwd us nondet | bwd det/nondet | 2xfwd+bwd us det | 2xfwd+bwd us nondet | "
         "step det/nondet | bwd nondet per session | bwd kernels nondet | "
         "host bwd us det / nondet | workspace KiB det / nondet | "
-        "bwd temp KiB det / nondet | autograd saved KiB nondet |"
+        "bwd temp KiB det / nondet | autograd saved KiB nondet | "
+        "checkpoint retained KiB det / nondet |"
     )
     lines = [header, "|" + "|".join("---" for _ in range(header.count("|") - 1)) + "|"]
     for row in rows:
@@ -517,8 +544,8 @@ def report(paths: list[str]) -> tuple[list[dict], str]:
             return "-" if value is None else f"{value:.2f}x"
 
         def kib(entry, key):
-            memory = entry.get("memory")
-            return "-" if not memory else f"{memory[key] / 1024:.1f}"
+            value = (entry.get("memory") or {}).get(key)
+            return "-" if value is None else f"{value / 1024:.1f}"
 
         def host(entry):
             summary = entry.get("host_bwd")
@@ -541,7 +568,9 @@ def report(paths: list[str]) -> tuple[list[dict], str]:
             f"{kib(det, 'workspace_bytes')} / {kib(nondet, 'workspace_bytes')} | "
             f"{kib(det, 'bwd_default_temporary_bytes')} / "
             f"{kib(nondet, 'bwd_default_temporary_bytes')} | "
-            f"{kib(nondet, 'autograd_saved_bytes')} |"
+            f"{kib(nondet, 'autograd_saved_bytes')} | "
+            f"{kib(det, 'checkpoint_retained_bytes')} / "
+            f"{kib(nondet, 'checkpoint_retained_bytes')} |"
         )
     caption = (
         f"GPU us: median (p10-p90) of the CUPTI span of CUDA-graph replays with a "

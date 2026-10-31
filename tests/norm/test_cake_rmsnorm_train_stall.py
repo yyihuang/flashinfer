@@ -38,8 +38,12 @@ Beside a kernel resident on every SM (#7548 item 2): with the side kernel's
 preferred carveout set to the maximum shared memory, the backward starts beside
 it and costs at most ``MAX_ALL_SM_EXTRA_MS`` more than alone, far below the side
 kernel's ``ALL_SM_SPIN_MS`` lifetime.  Every side CTA records its SM, and a run
-counts only when the side kernel holds every SM.  The forward programs are the
-deterministic package's, whose stall test covers them.
+counts only when the side kernel holds every SM.  A token count in a
+``cake_windows.WHOLE_SM`` range (the deterministic package's whole-SM programs,
+which this package runs in some det-pair windows) is not measured
+(det-inherited): the test checks that the call runs the deterministic package's
+program and that the docstrings list the range with the remedy, then skips.  The
+forward programs are the deterministic package's, whose stall test covers them.
 
 Beside a kernel holding shared memory on every SM (review R3, C3): one CTA per
 SM with each of ``cake_windows.SMEM_SIDE_KB`` KB of dynamic shared memory
@@ -66,6 +70,7 @@ from tests.test_helpers.cake_package import cake_package
 
 pkg = cake_package("cake_rmsnorm_train")
 loader = cake_package("cake_rmsnorm_train", "cake_jit")
+windows = cake_package("cake_rmsnorm_train", "cake_windows")
 backward = functools.partial(pkg.cake_rmsnorm_train_backward, deterministic=False)
 workspace_for = functools.partial(
     pkg.cake_rmsnorm_train_backward_workspace, deterministic=False
@@ -311,25 +316,78 @@ MAX_ALL_SM_EXTRA_MS = 1.0
 # cudaSharedmemCarveoutMaxShared
 CARVEOUT_MAX_SHARED = 100
 # Programs that need a whole SM wait beside a kernel resident on every SM
-# whatever its carveout: (capability, kind, hidden) -> the token counts above
-# which the call does.  The list :mod:`flashinfer.cake_rmsnorm_train` documents:
-# on sm_107a the deterministic pair's whole-SM programs (the det package's
-# WHOLE_SM_ABOVE; this package runs the det pair in those windows, FP32-weight
-# twins included) and the det forward; no single-kernel window.
-WHOLE_SM_ABOVE: dict[tuple[tuple[int, int], str, int], int] = {
-    ((10, 7), "bwd", 1536): 1024,
-    ((10, 7), "bwd", 2048): 256,
-    ((10, 7), "bwd", 4096): 1024,
-    ((10, 7), "fwd", 6144): 4096,
-}
+# whatever its carveout: ``cake_windows.WHOLE_SM`` lists, per architecture and
+# route, the token-count ranges where this package runs the deterministic
+# package's whole-SM programs (its det-pair windows and forward); the backward
+# sections of the docstrings list them with the deterministic facade's remedy
+# (``cake_windows.WHOLE_SM_REMEDY``).  A call there is not measured
+# (det-inherited): the test checks that the call runs the deterministic
+# package's program and that the docstrings list the range, then skips.
 
 
-def _skip_if_whole_sm(kind: str, hidden: int, rows: int) -> None:
-    above = WHOLE_SM_ABOVE.get((_capability(), kind, hidden))
-    if above is not None and rows > above:
-        pytest.skip(
-            f"the {kind} of hidden={hidden} above {above} rows needs a whole SM"
-        )
+def _program_id(name: str) -> str:
+    """The program part of a module name (the digits after the package prefix,
+    without the ``__<above>_<at_most>`` window suffix of a record that splits a
+    det window)."""
+    return name.split("__", 1)[0].rsplit("_", 1)[1]
+
+
+def _skip_det_inherited_whole_sm(
+    kind: str, hidden: int, residual: bool, rows: int
+) -> None:
+    """Skip as not measured (det-inherited) when the call's token count is in a
+    ``WHOLE_SM`` range of its route, after checking that the call runs the
+    deterministic package's program (program-id equality of the main module) and
+    that the docstring section of ``kind`` lists the range with the remedy."""
+    arch = loader.arch_for_capability(_capability())
+    route = loader.route_key(hidden, kind, residual)
+    span = next(
+        (
+            (above, at_most)
+            for above, at_most in windows.WHOLE_SM.get(arch, {}).get(route, ())
+            if rows > above and (at_most is None or rows <= at_most)
+        ),
+        None,
+    )
+    if span is None:
+        return
+    det = _det_backend()
+    assert det is not None, (
+        f"{route} at {rows} rows is listed in WHOLE_SM: checking that it runs the "
+        "deterministic package's program needs that package"
+    )
+    mine = [
+        n
+        for n in loader.selected_modules(arch, hidden, kind, residual, rows=rows)
+        if loader.MODULES[n]["role"] != "bwd_reduce"
+    ]
+    theirs = [
+        n
+        for n in det.cake_jit.selected_modules(arch, hidden, kind, residual, rows=rows)
+        if det.cake_jit.MODULES[n]["role"] != "bwd_reduce"
+    ]
+    assert [_program_id(n) for n in mine] == [_program_id(n) for n in theirs], (
+        f"{route} at {rows} rows is listed in WHOLE_SM but runs {mine}, not the "
+        f"deterministic package's {theirs}"
+    )
+    section = " ".join(windows.SECTIONS[kind].split())
+    cells = ", ".join(
+        f"({low}, {'inf)' if high is None else f'{high}]'}"
+        for low, high in windows.WHOLE_SM[arch][route]
+    )
+    assert windows.WHOLE_SM_REMEDY in section, "the remedy is not documented"
+    assert f"* ``{arch}`` ``{route}``: {cells}" in section, (
+        f"the {kind} docstring section does not list {arch} {route} {cells}"
+    )
+    print(
+        f"ALL_SM_NOT_MEASURED det-inherited {arch} {route} rows={rows} "
+        f"range={span} program={_program_id(mine[0])}"
+    )
+    pytest.skip(
+        f"not measured (det-inherited): {arch} {route} at {rows} rows runs the "
+        f"deterministic package's whole-SM program {_program_id(mine[0])} "
+        f"(WHOLE_SM {span})"
+    )
 
 
 _SPIN_KERNEL = "cake_rmsnorm_train_stall_spin"
@@ -492,7 +550,7 @@ def test_backward_starts_beside_an_all_sm_kernel_with_the_max_shared_carveout(
     hidden: int, residual: bool, rows: int
 ) -> None:
     _skip_unless_route(hidden, residual)
-    _skip_if_whole_sm("bwd", hidden, rows)
+    _skip_det_inherited_whole_sm("bwd", hidden, residual, rows)
     x, w, g, g_h, rstd = _inputs(rows, hidden, residual)
     workspace = workspace_for(rows, hidden, _device(), residual=residual)
 
@@ -523,7 +581,6 @@ def test_backward_starts_beside_an_all_sm_kernel_with_the_max_shared_carveout(
 # R3 C3: side kernels holding shared memory on every SM (one CTA per SM, the
 # max-shared carveout), KB of dynamic shared memory per CTA: the sizes of the
 # package's measured list (``cake_windows.SMEM_SIDE_KB`` / ``SMEM_WAITS``).
-windows = cake_package("cake_rmsnorm_train", "cake_windows")
 
 
 def _instances() -> list[tuple[str, int, bool, str, int, int | None, int, str]]:

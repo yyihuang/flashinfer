@@ -119,8 +119,11 @@ def test_old_facade_is_its_own_module() -> None:
             "cake_rmsnorm_train_backward",
             "cake_rmsnorm_train_forward",
         ), name
-    # the det names live in the det facade only
-    assert not hasattr(legacy_facade, "cake_rmsnorm_det_train_forward")
+    # the det names of the previous module (the det facade itself) resolve to the
+    # det facade's objects, outside ``__all__``
+    for _old, det_name in PAIRS:
+        assert det_name not in legacy_facade.__all__, det_name
+        assert getattr(legacy_facade, det_name) is getattr(facade, det_name), det_name
 
 
 @pytest.mark.parametrize("submodule", SUBMODULES)
@@ -134,7 +137,11 @@ def test_old_package_submodule_is_its_own_module(submodule: str) -> None:
 
 def test_old_package_is_self_contained() -> None:
     assert sorted(legacy_backend.__all__) == LEGACY_ALL
-    assert not hasattr(legacy_backend, "cake_rmsnorm_det_train_forward")
+    # the det names of the previous package (an alias of the det backend) resolve to
+    # the det backend's objects, outside ``__all__``
+    for _old, det_name in PAIRS:
+        assert det_name not in legacy_backend.__all__, det_name
+        assert getattr(legacy_backend, det_name) is getattr(backend, det_name), det_name
     # its own registry: the forward programs of the det package renamed, the
     # backward records of its single kernels and of the det pairs it renders
     modules = legacy_backend.cake_jit.MODULES

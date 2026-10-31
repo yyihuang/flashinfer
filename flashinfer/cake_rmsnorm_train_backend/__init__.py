@@ -31,6 +31,13 @@ guaranteed bitwise reproducible; in the others, the deterministic package's
 backward pair (main kernel and fixed-order ``dw`` reduce) rendered here.  The stable,
 ``@flashinfer_api``-decorated entry points and the full user-facing
 documentation live in :mod:`flashinfer.cake_rmsnorm_train`; import that module.
+
+Vendoring: this package imports and runs ``deterministic=False`` on its own.
+``deterministic=True`` (the default) needs the deterministic package as its
+sibling: vendor ``cake_rmsnorm_det_train_backend`` next to this package under
+the same parent package (it is imported as ``..cake_rmsnorm_det_train_backend``
+on the first deterministic call); without it a deterministic call raises
+``RuntimeError`` naming the missing package.
 """
 
 from __future__ import annotations
@@ -110,6 +117,38 @@ def _det_package():
             "to run this package's kernels"
         ) from exc
     return det
+
+
+# The deterministic names of the previous ``flashinfer.cake_rmsnorm_train_backend``
+# (before this package it resolved every attribute on the deterministic backend).
+# Each resolves on first access to the deterministic package's object of that name
+# (:func:`__getattr__`; not in ``__all__``), so this package still imports without
+# the deterministic package.
+_PREVIOUS_DET_NAMES = frozenset(
+    (
+        "CakeRMSNormDetFunction",
+        "cake_rmsnorm_det",
+        "cake_rmsnorm_det_train_backward",
+        "cake_rmsnorm_det_train_backward_workspace",
+        "cake_rmsnorm_det_train_backward_workspace_bytes",
+        "cake_rmsnorm_det_train_forward",
+        "is_cake_rmsnorm_det_train_supported",
+    )
+)
+
+
+def __getattr__(name: str):
+    """A deterministic name of the previous package (:data:`_PREVIOUS_DET_NAMES`): the
+    deterministic package's object of that name."""
+    if name in _PREVIOUS_DET_NAMES:
+        try:
+            det = _det_package()
+        except RuntimeError as exc:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}: {exc}"
+            ) from exc
+        return getattr(det, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _check_flag(deterministic: bool, api: str) -> None:

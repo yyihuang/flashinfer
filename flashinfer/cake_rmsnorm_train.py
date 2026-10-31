@@ -93,20 +93,23 @@ that hold only some SMs cost it no more than the SMs they hold.  Setting
 ``cudaSharedmemCarveoutMaxShared`` on such a resident kernel lets the backward
 start beside it.  The windows that run the deterministic pair start and wait
 exactly as the deterministic backward does, including its whole-SM programs
-(see :mod:`flashinfer.cake_rmsnorm_det_train`).  Programs that need a whole SM
-wait beside any kernel resident on every SM, whatever its carveout: on R200
-(``sm_107a``) the backward of hidden 1536 and 4096 above 1024 tokens and of
-hidden 2048 above 256 tokens (deterministic-pair windows, FP32-weight twins
-included) and the forward of hidden 6144 above 4096 tokens; no single-kernel
-window of this package needs a whole SM at the token counts measured (256 to
-16384).  A resident kernel that
-holds a large dynamic shared-memory allocation on every SM delays the windows
-whose programs need more shared memory than it leaves, deterministic-pair
-windows included: ``cake_windows.SMEM_WAITS`` and the backward's notes list,
-per architecture, route and window, the measured allocation from which the
-window waits (``cake_windows.SMEM_SIDE_KB``: the sizes measured).
-Beside those, leave some SMs free of the resident kernel.  The forward programs
-are the deterministic package's; see :mod:`flashinfer.cake_rmsnorm_det_train`.
+(see :mod:`flashinfer.cake_rmsnorm_det_train`).  A resident kernel that holds a
+large dynamic shared-memory allocation on every SM delays the windows whose
+programs need more shared memory than it leaves, deterministic-pair windows
+included: ``cake_windows.SMEM_WAITS`` and the backward's notes list, per
+architecture, route and window, the measured allocation from which the window
+waits (``cake_windows.SMEM_SIDE_KB``: the sizes measured).  Programs that need a
+whole SM wait beside any kernel resident on every SM, whatever its carveout: the
+deterministic package's whole-SM programs where this package runs them -- the
+residual-fused hidden 6144 backward in its deterministic-pair windows, and on
+R200 (``sm_107a``) the backward of hidden 1536 and 4096 above 1024 tokens and of
+hidden 2048 above 256 tokens in deterministic-pair windows (FP32-weight twins
+included) and the forward of hidden 6144 above 4096 tokens.
+``cake_windows.WHOLE_SM`` and the notes of the forward and backward list them per
+architecture, route and token range; no single-kernel window of this package
+needs a whole SM at the token counts measured (256 to 16384).  Beside those,
+leave some SMs free of the resident kernel.  The forward programs are the
+deterministic package's; see :mod:`flashinfer.cake_rmsnorm_det_train`.
 
 Usage::
 
@@ -126,6 +129,7 @@ Usage::
 
 from __future__ import annotations
 
+import importlib
 from typing import Optional
 
 import torch
@@ -220,6 +224,31 @@ def cake_rmsnorm(
 cake_rmsnorm_train_forward.__doc__ = _backend.cake_rmsnorm_train_forward.__doc__
 cake_rmsnorm_train_backward.__doc__ = _backend.cake_rmsnorm_train_backward.__doc__
 cake_rmsnorm.__doc__ = _backend.cake_rmsnorm.__doc__
+
+
+# The deterministic names of the previous ``flashinfer.cake_rmsnorm_train`` (before
+# this package it was the deterministic facade itself): each resolves on first
+# access to the deterministic facade's object of that name (not in ``__all__``).
+_PREVIOUS_DET_NAMES = frozenset(
+    (
+        "CakeRMSNormDetFunction",
+        "cake_rmsnorm_det",
+        "cake_rmsnorm_det_train_backward",
+        "cake_rmsnorm_det_train_backward_workspace",
+        "cake_rmsnorm_det_train_backward_workspace_bytes",
+        "cake_rmsnorm_det_train_forward",
+        "is_cake_rmsnorm_det_train_supported",
+    )
+)
+
+
+def __getattr__(name: str):
+    """A deterministic name of the previous module (:data:`_PREVIOUS_DET_NAMES`): the
+    deterministic facade's object of that name."""
+    if name in _PREVIOUS_DET_NAMES:
+        det = importlib.import_module(f"{__package__}.cake_rmsnorm_det_train")
+        return getattr(det, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
