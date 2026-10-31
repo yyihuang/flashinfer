@@ -3,9 +3,12 @@
 Experimental backend for the forward and backward of packed GDN (scalar-gated
 DeltaNet) layers in training: head dimension 128, chunk 64, grouped Q/K heads
 (`HV` a multiple of `H`), no context parallelism.  This package makes no
-run-to-run bitwise promise: its outputs and gradients match the deterministic
-package `flashinfer.experimental.cake_gdn_det_train` within that package's
-accuracy budgets.
+run-to-run bitwise promise.  For `HV > H` its backward sums the `dq` / `dk`
+partials of the value heads of a key head in the arrival order of their CTAs,
+so `dq` and `dk` match the deterministic package
+`flashinfer.experimental.cake_gdn_det_train` within that package's accuracy
+budgets, not bitwise.  The output, `dv`, `dg`, `dbeta`, the final state and
+the initial-state gradient have the deterministic package's bits.
 
 Both the API and the backend are experimental: no compatibility guarantee.
 SM100 (B200 / GB200), SM103 (B300 / GB300) and SM107 (R200) are the supported
@@ -76,10 +79,16 @@ The KCP facade `flashinfer.cake_gdn_train_kcp` is the entry that dispatches on
 non-deterministic one).
 
 With PyTorch's deterministic algorithms enabled
-(`torch.use_deterministic_algorithms(True)`), a call with
-`deterministic=False` raises PyTorch's alert for an operation without a
-deterministic implementation: `RuntimeError`, or a `UserWarning` with
-`warn_only=True`.  With the flag off nothing changes.  The deterministic
+(`torch.use_deterministic_algorithms(True)`), only a call that launches an
+unordered reduction raises PyTorch's alert for an operation without a
+deterministic implementation (`RuntimeError`, or one `UserWarning` per call
+with `warn_only=True`): the backward of `chunk_gated_delta_rule` /
+`ChunkGatedDeltaRuleFunction` (named `ChunkGatedDeltaRuleFunction.backward`)
+and `gdn_chunk_backward`, when their tail is the default tail of a value-head
+group of two or more.  The alert comes before the backward's first launch.
+The forward entries, a value-head group of one and the pinned fixed-order
+tails (`tail="tail_g2"` / `"unfused"`) run fixed-order programs and do not
+alert.  With the flag off nothing changes.  The deterministic
 packages, their names, defaults and aliases are unchanged.
 
 | name | what it is now |
@@ -102,10 +111,30 @@ for Q or K not 16-byte aligned.  Both preps give the same bits.  A long sequence
 split into segments: a pre-scan and a stitch then give every segment its start
 state.  The backward runs the adjoint scan, either `dv_local` plus a register
 scan or, on a serial plan, the tcgen05 scan with `dv_local` fused (`dhu_tc2`),
-which a host-side cost rule selects on the host-table route.  For a value-head
-group of two (`HV == 2 * H`) one fused tcgen05 kernel then computes `dq`, `dk`,
-`dv`, `dg` and `dbeta`; other groups run `dqkwg`, the WY pullback and the
-finalize.
+which a host-side cost rule selects on the host-table route.  Then the tail,
+one tcgen05 kernel with one CTA per (chunk, value head), computes `dq`, `dk`,
+`dv`, `dg` and `dbeta` for every value-head group.
+
+The tail keeps one rounding contract for every group: each CTA keeps its
+`dq` / `dk` partials in FP32 and, for `HV > H`, adds them into the FP32 tile
+of its (chunk, key head) with unordered reductions.  The last CTA of the group
+to arrive runs the L2-norm pullback in FP32 and rounds `dq` / `dk` to BF16
+once.  The deterministic package rounds each value head's partials to BF16
+before their sum, so `dq` / `dk` differ from it within the accuracy budgets;
+`dv`, `dg` and `dbeta` have one writer each and the same bits.
+
+The tail's workspace holds one 64 KiB FP32 tile and one 32-bit arrival
+counter per (chunk, key head) of a launch.  The workspace is created zero
+(`torch.zeros` on the launching stream) and every launch leaves it zero, so a
+later launch needs no memset.  The chain keeps one workspace per (device,
+stream of the launch) with `host_cache=True` (a fresh zeroed one per call
+otherwise), and launches the chunk table in segments of at most
+`TAIL_WORKSPACE_TILES // H` chunks (1024 tiles, 64 MiB; at least one chunk),
+in stream order.  Calls on different streams take different workspaces.  A
+CUDA graph captured on its own stream takes a workspace of that stream (zeroed
+inside the capture when the capture creates it); replay one captured graph at
+a time, not concurrently with itself or with eager calls on its capture
+stream.  A value-head group of one uses no workspace.
 
 On the host-table route the long sequences start first.  The tables list the
 sequences by chunk count, longest first (ties in the caller's order); every
@@ -131,7 +160,8 @@ that `wy_tc` is done, the caller's stream runs those of the last `k`.  The side
 stream is a stream of PyTorch's pool with the device's greatest priority, one
 per caller stream; it is forked from the caller's stream with events and joined
 before the stage returns (also when a launch raises), so the call can be
-captured in a CUDA graph (warm it up first, like any captured call).
+captured in a CUDA graph (warm it up first, like any captured call).  Every
+tail runs on the caller's stream.
 `streams=1` keeps every launch on the caller's stream.
 
 ## Plan pins (keyword-only)
@@ -140,7 +170,7 @@ captured in a CUDA graph (warm it up first, like any captured call).
 |---|---|---|
 | `scan_config` | planner | register-scan `(value block, key split)` of both scans: `(32, 2)`, `(32, 1)` or `(64, 1)` |
 | `segment_chunks` | planner | segment length in chunks of the segment-parallel scans; `0` forces the serial scan; lengths above 128 (the chunks one pre-scan CTA covers) are not supported: a call whose plan then splits a sequence raises `ValueError` |
-| `finalize` | by size | finalize of the unfused tail (`HV != 2 * H`): `"finalize"` or `"finalize_mlp"` (the latter needs `HV == 3 * H`) |
+| `finalize` | by size | finalize of the `tail="unfused"` form: `"finalize"` or `"finalize_mlp"` (the latter needs `HV == 3 * H`) |
 | `warmup_log2` | `-10 / ln 2` | warm-up threshold of the pre-scans |
 | `dhu_scan` | rule | adjoint scan of a serial plan: `"reg"` (`dv_local` + register scan) or `"tc"` (`dhu_tc2`) |
 | `prep` | rule | forward prep: `"plain"` or `"tma"` (`prep_tma`; Q or K not 16-byte aligned still take the plain prep) |
@@ -148,6 +178,7 @@ captured in a CUDA graph (warm it up first, like any captured call).
 | `host_cache` | `True` | keep the chunk tables, the `dhu_tc2` selections and the per-stream workspaces between calls |
 | `lpt` | `True` | host-table route: dispatch the sequences and the forward segments longest first; `False` keeps the caller's order |
 | `streams` | `2` | host-table route: `2` lets a serial scan run as two sequence groups on two streams where the rule above splits it; `1` keeps one stream |
+| `tail` | `"tail"` | backward tail: `"tail"` for every value-head group; the deterministic package's fixed-order tails `"tail_g2"` (one cluster kernel, `HV == 2 * H` only) and `"unfused"` (`dqkwg`, the WY pullback and the finalize), which round each value head's `dq` / `dk` partials to BF16 before their sum and give the deterministic package's bits |
 
 ## Limitations
 
