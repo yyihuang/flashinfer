@@ -754,7 +754,7 @@ def _dx_bitwise_claimed(
     cross-row reduction), or a single kernel whose record names that det program
     (:data:`DX_BITWISE_WITH`).  ``same_source``: the two kernel sources are equal once
     the package prefixes are replaced (reported only: the det package and this
-    package may render the same program from different det flour revisions)."""
+    package may render the same program from different source revisions)."""
     main = next(n for n in records if loader.MODULES[n]["role"] != "bwd_reduce")
     det_main = next(
         n for n in det_records if det_loader.MODULES[n]["role"] != "bwd_reduce"
