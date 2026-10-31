@@ -35,6 +35,7 @@ documentation live in :mod:`flashinfer.cake_rmsnorm_train`; import that module.
 
 from __future__ import annotations
 
+import functools
 import math
 import textwrap
 import warnings
@@ -184,7 +185,7 @@ def _det_gap(
         return f"{w.dtype} weights"
     if x.device.type != "cuda" or x.ndim != 2:
         return None
-    capability = tuple(torch.cuda.get_device_capability(x.device))
+    capability = _device_capability(x.device)
     hidden = int(x.shape[1])
     if not _det_package().cake_jit.route_applies(
         device_capability=capability, hidden=hidden, kind=kind, residual=residual
@@ -201,10 +202,22 @@ def _device_index(device: torch.device) -> int:
     return device.index if device.index is not None else torch.cuda.current_device()
 
 
+@functools.cache
+def _capability(device_index: int) -> tuple[int, int]:
+    """The compute capability of a CUDA device (fixed for the process)."""
+
+    major, minor = torch.cuda.get_device_capability(device_index)
+    return int(major), int(minor)
+
+
+def _device_capability(device: torch.device) -> tuple[int, int]:
+    return _capability(_device_index(device))
+
+
 def _device_arch(device: torch.device) -> str:
     if device.type != "cuda":
         raise ValueError(f"Cake RMSNorm training requires CUDA tensors, got {device}")
-    capability = tuple(torch.cuda.get_device_capability(device))
+    capability = _device_capability(device)
     arch = arch_for_capability(capability)
     if arch is None:
         raise ValueError(
@@ -231,7 +244,7 @@ def is_cake_rmsnorm_train_supported(
     device = torch.device(device)
     if device.type != "cuda":
         return False
-    arch = arch_for_capability(tuple(torch.cuda.get_device_capability(device)))
+    arch = arch_for_capability(_device_capability(device))
     if arch is None:
         return False
     if hidden is None:
@@ -493,6 +506,26 @@ def _copy_back(pairs: list[tuple[torch.Tensor, Optional[torch.Tensor]]]) -> None
             user_buffer.copy_(kernel_buffer.reshape(user_buffer.shape))
 
 
+# Entries of each host-path memo (``_backward_plan``, ``_workspace_bytes_of``):
+# one per (device, width, residual flag, weight dtype, token count) a process
+# calls with; a training run repeats a handful.
+_PLAN_CACHE_SIZE = 256
+
+
+def _registry_token() -> tuple:
+    """The registry objects a memoised host plan reads (part of its key): a
+    plan computed against a replaced registry table or SM-count function is
+    never served for another."""
+
+    return (
+        id(_loader.MODULES),
+        id(_loader.ROUTES),
+        _loader.sm_count,
+        _loader.SUMS_BYTES,
+        _loader.PAIR_ROWS_OFFSET,
+    )
+
+
 def _backward_owners(arch: str, hidden: int, residual: bool, rows: int) -> list[dict]:
     """The workspace-owning backward records (single kernels and pair main
     kernels) of the width's backward routes on ``arch`` -- both weight dtypes --
@@ -545,8 +578,25 @@ def _workspace_bytes(
     hidden, rows = int(hidden), max(int(rows), 1)
     if hidden <= 0:
         raise ValueError("hidden must be positive")
+    return _workspace_bytes_of(
+        _device_index(device), arch, hidden, bool(residual), rows, _registry_token()
+    )
+
+
+@functools.lru_cache(maxsize=_PLAN_CACHE_SIZE)
+def _workspace_bytes_of(
+    device_index: int,
+    arch: str,
+    hidden: int,
+    residual: bool,
+    rows: int,
+    registry: tuple,
+) -> int:
+    """:func:`_workspace_bytes` for one device, memoised (registry constants and
+    the device's SM count only; an error is raised again on every call)."""
+
     if not route_applies(
-        device_capability=tuple(torch.cuda.get_device_capability(device)),
+        device_capability=_capability(device_index),
         hidden=hidden,
         kind="bwd",
         residual=residual,
@@ -556,7 +606,6 @@ def _workspace_bytes(
             f"hidden={hidden} (residual={residual}) on {arch}; supported hidden "
             f"sizes: {supported_hidden_sizes(arch)}"
         )
-    device_index = _device_index(device)
     owners = _backward_owners(arch, hidden, residual, rows)
     capacity = _capacity_record(owners, rows, device_index)
     return max(
@@ -659,24 +708,17 @@ def _workspace_views(
     workspace: torch.Tensor,
     record: dict,
     *,
-    rows: int,
+    layout: dict[str, int],
     device: torch.device,
-    capacity: Optional[dict],
-) -> tuple[torch.Tensor, torch.Tensor, dict[str, int]]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """``(the region bound to ``partial``, the counters, the layout)`` of the
     launched workspace owner ``record``: the FP64 column sums of a single
     kernel (its workspace rule's ``sum_bytes``, the kernel's
     ``workspace_bytes``), the FP32 ``[n_chunks, hidden]`` partial rows of a pair
     main kernel (``capacity``: the routes' pair record of the largest
-    capacity).  The region is checked against the kernel's requirement before
-    the launch."""
+    capacity; ``layout``: its ``cake_jit.workspace_layout``).  The region is
+    checked against the kernel's requirement before the launch."""
 
-    layout = _loader.workspace_layout(
-        record,
-        rows,
-        device_index=_device_index(device),
-        capacity_record=capacity,
-    )
     if not isinstance(workspace, torch.Tensor):
         raise TypeError("workspace must be a torch.Tensor")
     if (
@@ -716,7 +758,48 @@ def _workspace_views(
     counters = workspace[begin : begin + 4 * max(layout["counters"], 1)].view(
         torch.uint32
     )
-    return partial, counters, layout
+    return partial, counters
+
+
+@functools.lru_cache(maxsize=_PLAN_CACHE_SIZE)
+def _backward_plan(
+    device_index: int,
+    arch: str,
+    hidden: int,
+    residual: bool,
+    w_dtype: str,
+    rows: int,
+    registry: tuple,
+) -> tuple[tuple[str, ...], dict, dict[str, int]]:
+    """``(module names, workspace owner record, its workspace layout)`` of the
+    backward call of ``rows`` tokens: the window of ``rows`` runs one workspace
+    owner, a single kernel or the main kernel of a deterministic pair followed
+    by its dw reduce record.  Memoised per device, width, residual flag, weight
+    dtype and token count: it reads only registry constants and the device's SM
+    count (no tensor, pointer or stream); an error is raised again on every
+    call.  The layout is shared: callers read it only."""
+
+    names = tuple(
+        selected_modules(arch, hidden, "bwd", residual, rows=rows, w_dtype=w_dtype)
+    )
+    owners = [
+        _loader.MODULES[name]
+        for name in names
+        if _loader.MODULES[name]["workspace_rule"] is not None
+    ]
+    if len(owners) != 1:
+        raise RuntimeError(
+            f"the exported backward route for hidden={hidden} launches {len(owners)} "
+            f"workspace-owning modules for {rows} rows; expected one"
+        )
+    record = owners[0]
+    capacity = _capacity_record(
+        _backward_owners(arch, hidden, residual, rows), rows, device_index
+    )
+    layout = _loader.workspace_layout(
+        record, rows, device_index=device_index, capacity_record=capacity
+    )
+    return names, record, layout
 
 
 def _forward(
@@ -759,7 +842,7 @@ def _forward(
             alignment=align,
         )
     if not route_applies(
-        device_capability=tuple(torch.cuda.get_device_capability(device)),
+        device_capability=_device_capability(device),
         hidden=hidden,
         kind="fwd",
         residual=has_residual,
@@ -959,7 +1042,7 @@ def _backward(
             alignment=align,
         )
     if not route_applies(
-        device_capability=tuple(torch.cuda.get_device_capability(device)),
+        device_capability=_device_capability(device),
         hidden=hidden,
         kind="bwd",
         residual=has_residual,
@@ -982,37 +1065,18 @@ def _backward(
     if rows == 0:
         dw_result.zero_()
         return dx_result, dw_result
-    # The window of ``rows`` runs one workspace owner: a single kernel, or the
-    # main kernel of a deterministic pair followed by its dw reduce record.
-    names = selected_modules(
-        arch, hidden, "bwd", has_residual, rows=rows, w_dtype=w_dtype
+    device_index = _device_index(device)
+    names, record, layout = _backward_plan(
+        device_index, arch, hidden, has_residual, w_dtype, rows, _registry_token()
     )
-    owners = [
-        _loader.MODULES[name]
-        for name in names
-        if _loader.MODULES[name]["workspace_rule"] is not None
-    ]
-    if len(owners) != 1:
-        raise RuntimeError(
-            f"the exported backward route for hidden={hidden} launches {len(owners)} "
-            f"workspace-owning modules for {rows} rows; expected one"
-        )
-    record = owners[0]
     if workspace is None:
         workspace = torch.zeros(
             _workspace_bytes(rows, hidden, device, has_residual),
             dtype=torch.uint8,
             device=device,
         )
-    capacity = _capacity_record(
-        _backward_owners(arch, hidden, has_residual, rows), rows, _device_index(device)
-    )
-    partial, counters, layout = _workspace_views(
-        workspace,
-        record,
-        rows=rows,
-        device=device,
-        capacity=capacity,
+    partial, counters = _workspace_views(
+        workspace, record, layout=layout, device=device
     )
     # The plain kernels keep the residual-gradient parameters in their signature
     # and never read them: bind them to ``g`` exactly like the source launcher.
@@ -1036,7 +1100,6 @@ def _backward(
         "n_chunks": int(layout["n_chunks"]),
         "slots": int(layout["slots"]),
     }
-    device_index = _device_index(device)
     for name in names:
         _loader.run_module(name, values, rows=rows, device_index=device_index)
     _copy_back(copy_backs)
