@@ -133,6 +133,7 @@ P_RULES = (
     "rank_lpt",
     "fill_down",
     "small_one",
+    "fill_small",
 )  # P rules.  Per-rank rules (kcp_plan): "wave_fill1" = "wave" + the one-wave
 # fill on one-fragment ranks below the chain cap (the shipped default before "row_cost"); "wave" = the earlier rule (lever
 # L-C); "occ" = the design note §7.2 rule; "wave_fill" = the fill on every rank with n_frag <= 3 (implemented, not adopted);
@@ -168,12 +169,14 @@ ROW_COST_MARGIN_PCT = {"occ": 2, "one": 0}
 # (otherwise the whole row keeps that vector bitwise).  An unsegmented rank (delivered P = 1: no compose chain, the 64-wide
 # fwdh / dhu kernels) never enters the LPT replacement and keeps P = 1 -- the walk-step model does not carry the per-segment
 # work the first products add.  Selectable through `p_rule`; P_RULE_DEFAULT names the shipped rule.
-ROW_RULES = ("row_cost", "row_cost_lpt", "rank_lpt", "fill_down", "small_one")
-# "fill_down" (#8063 candidate): every rank takes the smaller of its "row_cost_lpt" P and its "wave_fill" P (the one-wave
-# fill on ranks with n_frag <= WAVE_N_FRAG_MAX below the chain cap), so two-fragment ranks drop to the one-wave P without
-# the fill's raises.  "small_one" (#8063 candidate): at HV <= SMALL_ONE_HV_MAX, when no fragment of any rank exceeds
-# SMALL_ONE_NC_MAX chunks, every rank runs P = 1 (no segment merges, compose chain or staging planes); every other row
-# keeps "row_cost_lpt".  Both never raise a rank's P.
+ROW_RULES = ("row_cost", "row_cost_lpt", "rank_lpt", "fill_down", "small_one", "fill_small")
+# "fill_down" (#8063 candidate): every rank BELOW THE CHAIN CAP (0 < NC_max_frag < WAVE_MIN_NC_MAX_FRAG) takes the smaller
+# of its "row_cost_lpt" P and its "wave_fill" P (the one-wave fill, floor(SM / (n_frag HV)), on ranks with n_frag <=
+# WAVE_N_FRAG_MAX), so two-fragment ranks drop to the one-wave P without the fill's raises; ranks above the cap keep the
+# shipped P (lowering them lengthens the slowest walk: wave_fill +4..+8 % B3 on (16,48) CP4 Z).  "small_one" (#8063
+# candidate): at HV <= SMALL_ONE_HV_MAX, when no fragment of any rank exceeds SMALL_ONE_NC_MAX chunks, every rank runs
+# P = 1 (no segment merges, compose chain or staging planes); every other row keeps "row_cost_lpt".  "fill_small":
+# "small_one" on its rows, "fill_down" on every other row.  None of them raises a rank's P.
 SMALL_ONE_HV_MAX = 12
 SMALL_ONE_NC_MAX = 160
 # "rank_lpt" (this package's faster schedule, #8063): every rank takes the smaller of its "row_cost_lpt" P and the LPT
@@ -1018,12 +1021,12 @@ def kcp_plan_row(
                 )
             )
         return tuple(out)
-    if p_rule in ("fill_down", "small_one"):
+    if p_rule in ("fill_down", "small_one", "fill_small"):
         shipped = kcp_plan_row(tables, HV, sm_count, P_bal=P_bal, p_rule="row_cost_lpt")
-        if p_rule == "small_one":
-            one = HV <= SMALL_ONE_HV_MAX and all(
-                nc <= SMALL_ONE_NC_MAX for table in tables for nc, _ in table
-            )
+        one = HV <= SMALL_ONE_HV_MAX and all(
+            nc <= SMALL_ONE_NC_MAX for table in tables for nc, _ in table
+        )
+        if p_rule == "small_one" or (p_rule == "fill_small" and one):
             return tuple(
                 dataclasses.replace(
                     seg,
@@ -1035,15 +1038,12 @@ def kcp_plan_row(
             )
         out = []
         for seg, table in zip(shipped, tables, strict=True):
+            nc_max = max((nc for nc, _ in table), default=0)
             fill = kcp_plan(
-                len(table),
-                max((nc for nc, _ in table), default=0),
-                HV,
-                sm_count,
-                P_bal=P_bal,
-                p_rule="wave_fill",
+                len(table), nc_max, HV, sm_count, P_bal=P_bal, p_rule="wave_fill"
             )
-            P_new = min(seg.P, fill.P) if table else seg.P
+            below_cap = 0 < nc_max < WAVE_MIN_NC_MAX_FRAG
+            P_new = min(seg.P, fill.P) if below_cap else seg.P
             out.append(
                 dataclasses.replace(
                     seg, P=P_new, NSEG=seg.n_frag * P_new, p_rule=p_rule
