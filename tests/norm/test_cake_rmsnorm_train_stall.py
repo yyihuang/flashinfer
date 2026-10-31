@@ -666,7 +666,8 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory() -> None:
                 else "n/a"
             )
         )
-    print("\n" + "\n".join(report))  # own line: pytest -s prints progress dots before it
+    # a leading newline: under pytest -s the progress dots precede the first line
+    print("\n" + "\n".join(report))
     for key, listed_kb, level in looser:
         print(
             f"SMEM_WAITS_LOOSER {arch} {key[0]} ({key[1]}, {key[2]}) "
