@@ -1045,8 +1045,9 @@ and at a forward edge between programs of different per-row thread groups ``rstd
 moves by at most two FP32 ulps and ``y`` by at most one BF16 ulp, on up to about 30 %
 of the rows (measured on B200, GB300 and R200).  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
-by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
-FP64 column sums in a scheduling-dependent order: its ``dw`` is
+by row (bitwise reproducible, within one BF16 ulp of max(|dx|, rms(dx)) of the
+deterministic backward's ``dx``, not always bitwise equal to it) and adds the ``dw``
+sums of its CTAs into FP64 column sums in a scheduling-dependent order: its ``dw`` is
 not bitwise reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs
 the deterministic package's main kernel and fixed-order dw reduce, rendered into this
 package, where that pair is the faster form.
@@ -1064,8 +1065,9 @@ and at a forward edge between programs of different per-row thread groups ``rstd
 moves by at most two FP32 ulps and ``y`` by at most one BF16 ulp, on up to about 30 %
 of the rows (measured on B200, GB300 and R200).  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
-by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
-FP64 column sums in a scheduling-dependent order: its ``dw`` is
+by row (bitwise reproducible, within one BF16 ulp of max(|dx|, rms(dx)) of the
+deterministic backward's ``dx``, not always bitwise equal to it) and adds the ``dw``
+sums of its CTAs into FP64 column sums in a scheduling-dependent order: its ``dw`` is
 not bitwise reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs
 the deterministic package's main kernel and fixed-order dw reduce, rendered into this
 package, where that pair is the faster form.
@@ -1164,8 +1166,9 @@ and at a forward edge between programs of different per-row thread groups ``rstd
 moves by at most two FP32 ulps and ``y`` by at most one BF16 ulp, on up to about 30 %
 of the rows (measured on B200, GB300 and R200).  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
-by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
-FP64 column sums in a scheduling-dependent order: its ``dw`` is
+by row (bitwise reproducible, within one BF16 ulp of max(|dx|, rms(dx)) of the
+deterministic backward's ``dx``, not always bitwise equal to it) and adds the ``dw``
+sums of its CTAs into FP64 column sums in a scheduling-dependent order: its ``dw`` is
 not bitwise reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs
 the deterministic package's main kernel and fixed-order dw reduce, rendered into this
 package, where that pair is the faster form.
