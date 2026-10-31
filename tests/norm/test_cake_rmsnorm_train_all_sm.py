@@ -167,8 +167,8 @@ def _whole_sm_above() -> dict[tuple[str, str, str], int]:
     """The package's whole-SM list as ``(arch, kind, route key) -> rows above
     which the call needs a whole SM``: ``cake_windows.WHOLE_SM_ABOVE`` (``{arch:
     {route key: above}}``) when the package exports it, else the backend stall
-    suite's ``WHOLE_SM_ABOVE`` (``{(capability, kind, hidden): above}``, every
-    residual flag and weight dtype of that width), read from its source."""
+    suite's ``WHOLE_SM_ABOVE`` (``{(capability, kind, hidden[, residual]): above}``,
+    every weight dtype; without the residual flag both), read from its source."""
     table = getattr(windows_table, "WHOLE_SM_ABOVE", None)
     out: dict[tuple[str, str, str], int] = {}
     if table is not None:
@@ -194,11 +194,12 @@ def _whole_sm_above() -> dict[tuple[str, str, str], int]:
             and target.id == "WHOLE_SM_ABOVE"
             and node.value
         ):
-            for (capability, kind, hidden), above in ast.literal_eval(
-                node.value
-            ).items():
+            for entry, above in ast.literal_eval(node.value).items():
+                # (capability, kind, hidden) covers both residual flags;
+                # (capability, kind, hidden, residual) one of them
+                capability, kind, hidden, *flag = entry
                 arch = loader.arch_for_capability(capability)
-                for residual in (False, True):
+                for residual in (bool(flag[0]),) if flag else (False, True):
                     for w in ("bf16", "f32"):
                         key = loader.route_key(int(hidden), kind, residual, w)
                         out[(arch, kind, key)] = int(above)
