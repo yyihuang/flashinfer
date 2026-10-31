@@ -1458,7 +1458,8 @@ def _sdt_selected(meta: ChunkMeta, segs: SegmentTable, num_v_heads: int, device_
 # stitch terms x ``t_unit`` + the ``dv_local`` tiles of the pre-scan's warm-up window.  The planner's table is priced
 # in the form its rules run (tcgen05, or the register pass with ``dv_local``), and the cheapest candidate replaces it
 # when it saves at least ``TC_PLAN_MIN_SAVING`` us and a fraction ``1 - TC_PLAN_GAIN``; the backward then runs the
-# candidate on ``dhu_tc2``.  Another table moves the warm-up truncation and the stitch points, so the bits follow the
+# candidate on ``dhu_tc2``.  A serial planner table that the two-stream rule groups (:func:`two_stream_split`) keeps
+# its form: its scan overlaps the tail (the R form), which the pricing does not credit.  Another table moves the warm-up truncation and the stitch points, so the bits follow the
 # plan: plan pins keep the planner's table.
 TC_PLAN = False
 TC_PLAN_GAIN = 0.95
@@ -2414,8 +2415,16 @@ def _chunk_meta(
     bwd_tc = False
     if TC_PLAN and options.pins == (None, None) and options.dhu_scan is None:
         chunks = tuple(-(-int(n) // CHUNK) for n in seq_lens)
-        priced = tc_plan_pricing(chunks, int(num_v_heads), int(index), plans[1])
-        if priced["select"]:
+        bwd = plans[1]
+        # a serial planner table that the two-stream rule groups keeps its form (the R form overlaps its scan with the
+        # tail, which the pricing does not credit)
+        grouped = (
+            options.streams == 2
+            and (bwd.segment_len <= 0 or max(chunks) <= bwd.segment_len)
+            and two_stream_split(len(chunks), int(num_v_heads), _device_props(int(index))[0]) is not None
+        )
+        priced = None if grouped else tc_plan_pricing(chunks, int(num_v_heads), int(index), bwd)
+        if priced is not None and priced["select"]:
             plans, bwd_tc = (plans[0], ScanPlan(SDT_CONFIG, priced["segment_len"])), True
     meta = _host_chunk_meta(seq_lens, plans, int(index), options.lpt)
     if bwd_tc:
