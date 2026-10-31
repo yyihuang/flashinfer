@@ -1137,9 +1137,9 @@ def test_two_streams_match_one_stream(
                          lpt=lpt, save_state=save_state, **STREAM_PINS))  # fmt: skip
         side = [stage for stage, stream in launches[start:] if stream != main]
         # the side stream: wy_tc and fwd_ho of the forward's group A, dhu_tc2 of the adjoint's group B (the fused
-        # tail of a value-head group of two only)
+        # tail of a value-head group of two or three: R_FORM_GROUPS)
         expected = ["wy_tc", "fwd_ho"] + (
-            ["dhu_tc2"] if heads[1] == 2 * heads[0] else []
+            ["dhu_tc2"] if heads[1] // heads[0] in cake_chain.R_FORM_GROUPS else []
         )
         assert side == (expected if streams == 2 else []), (streams, launches[start:])
     _assert_within_budget(runs[0], runs[1], names)
@@ -1247,6 +1247,12 @@ def _stagger_rule(monkeypatch, on: bool = True) -> None:
     monkeypatch.setattr(cake_chain, "STAGGER_MIN_GAP", 3)
     monkeypatch.setattr(cake_chain, "STAGGER_MIN_SAVING", 0.0)
     monkeypatch.setattr(cake_chain, "STAGGER_MIN_TILES", 0)
+
+
+def test_backward_forms_default_on() -> None:
+    # the R form serves value-head groups of two and three (tail_g2 / tail_g3); the staggered form is on
+    assert cake_chain.R_FORM_GROUPS == (2, 3)
+    assert cake_chain.STAGGER is True
 
 
 def test_stagger_classes_rule() -> None:

@@ -759,18 +759,20 @@ CLUSTER_TAILS: dict[str, dict[int, str]] = {
 }
 TAIL_DEFAULT = "tail"
 # The value-head groups whose adjoint dhu_tc2 scan runs as two sequence groups (two streams) feeding the fused tail
-# (the R form) where :func:`sequence_groups` splits it.
-R_FORM_GROUPS: tuple[int, ...] = (2,)
+# (the R form) where :func:`sequence_groups` splits it: tail_g2 (G = 2) and tail_g3 (G = 3; 64 x 4096 (2, 6) on B200:
+# backward span 2111 -> 2070 us, the tail of group A beside group B's partial round).
+R_FORM_GROUPS: tuple[int, ...] = (2, 3)
 CLUSTER_TAIL_STAGES = ("tail_g2", "tail_g3")
 # The staggered form of a one-round serial adjoint scan (every sequence's dhu_tc2 CTAs resident at once, sequences of
 # unequal length): the table's sequence-length classes (:func:`stagger_groups`) scan on their own streams and each
 # class's cluster tail follows its scan on that stream, so the tails of the shorter sequences fill the SMs that their
-# finished scan CTAs free while the longer sequences still scan.  The same programs and bits as one launch each.
+# finished scan CTAs free while the longer sequences still scan.  The same programs and bits as one launch each
+# ((16, 48) docs 11000 / 12000 / 9768 on B200: backward span 2115 -> 2070 us).
 # STAGGER_STEP_US prices a dhu_tc2 chunk step (2.35-2.4 us measured on B200 and GB300), STAGGER_TAIL_SM_US a cluster
 # tail CTA (SM-us: tail_g3 at (16, 48), B200), STAGGER_MIN_SAVING is the estimated filled time below which the rule
 # keeps the two launches, and STAGGER_MIN_TILES the (chunk, value head) tiles below which it never engages (the extra
 # launches cost host time, which small backward calls cannot hide).
-STAGGER: bool = False
+STAGGER: bool = True
 STAGGER_MAX_GROUPS = 3
 STAGGER_MIN_GAP = 8
 STAGGER_STEP_US = 2.4

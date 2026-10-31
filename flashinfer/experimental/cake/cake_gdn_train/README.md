@@ -189,15 +189,31 @@ idle slots of `c` CTAs; `k` in `[1, n)` minimizes `idle(k x HV)` (ties to the
 larger `k`).  The scan is split only if `idle(k x HV) < idle(n x HV)`; a scan
 with `n < 2` or `n x HV <= SMs` is never split.  The groups follow the table
 order (longest first unless `lpt=False`).  The adjoint `dhu_tc2` scan of a
-value-head group of two runs the first `k` sequences on the caller's stream,
-then their fused tail while a side stream scans the rest.  The forward runs
+value-head group of two or three runs the first `k` sequences on the caller's
+stream, then their fused tail (`tail_g2` / `tail_g3`) while a side stream scans
+the rest.  The forward runs
 `wy_tc` and `fwd_ho` of the first `n - k` sequences on the side stream; once
 that `wy_tc` is done, the caller's stream runs those of the last `k`.  The side
 stream is a stream of PyTorch's pool with the device's greatest priority, one
 per caller stream; it is forked from the caller's stream with events and joined
 before the stage returns (also when a launch raises), so the call can be
-captured in a CUDA graph (warm it up first, like any captured call).  Every
-tail runs on the caller's stream.
+captured in a CUDA graph (warm it up first, like any captured call).  In this
+form every tail runs on the caller's stream.
+
+A serial adjoint scan of one round (`n x HV <= SMs`: every `dhu_tc2` CTA is
+resident at once) over sequences of unequal length leaves SMs idle from the end
+of its shortest sequences to the end of its longest one.  The staggered form
+fills them: the table's sequences, when it lists them longest first (`lpt=True`),
+form at most three classes,
+a new class where the chunk count is at least 8 below its class's first; each
+shorter class scans on its own side stream, the longest one on the caller's
+stream, and each class's cluster tail (`tail_g2` / `tail_g3`) follows its scan
+on that stream, so a class's tail runs beside the longer scans.  The rule
+estimates the filled time as `2.4 us x` the chunks between each class's end and
+the longest one's end `x` the SMs then free, capped by those classes' tail work,
+and takes the form when the estimate is at least 20 us and the table has at
+least 8192 (chunk, value head) tiles (the extra launches cost host time).  Every
+class computes what the one-launch form computes for its rows: the same bits.
 `streams=1` keeps every launch on the caller's stream.
 
 ## Speed against the deterministic package
