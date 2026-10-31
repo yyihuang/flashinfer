@@ -159,7 +159,7 @@ def _previous_object(name: str):
 def test_previous_public_attribute_is_reachable(namespace: str, name: str) -> None:
     """Every public attribute of the previous module / package resolves on the
     new one (``getattr``), as it did before; a deterministic-named attribute
-    resolves to the deterministic object itself (parent ruling R7.2: lazy
+    resolves to the deterministic object itself (lazy
     re-exports of the deterministic sibling)."""
     module = _namespace(namespace)
     assert hasattr(module, name), (

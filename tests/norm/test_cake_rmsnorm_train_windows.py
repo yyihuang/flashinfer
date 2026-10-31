@@ -226,8 +226,8 @@ def _edges(hidden: int, residual: bool, w: str, kind: str) -> dict[int, str]:
     return dict(windows_table.EDGES.get(_arch(), {}).get(key, ()))
 
 
-# The ``ulp`` edge class of a forward edge (parent ruling R7.1, the package notes
-# to match): ``rstd`` moves by at most two FP32 ulps (a different reduction order
+# The ``ulp`` edge class of a forward edge (the package notes match it):
+# ``rstd`` moves by at most two FP32 ulps (a different reduction order
 # on each side; measured on up to ~30 % of the common rows) and ``y`` by
 # at most one BF16 ulp.  Each edge reports its largest moves and the fraction of
 # the common rows that moved (``EDGE_FWD ... rows_moved=``).
@@ -487,7 +487,7 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
     rows are the same bits at both ends and the middle; per edge: the class
     (``same`` / ``ulp`` / beyond: ``y<k>/rstd<m>``) holds against
     ``cake_windows.EDGES`` (``ulp``: ``FWD_EDGE_Y_ULPS`` BF16 ulps of ``y``,
-    ``FWD_EDGE_RSTD_ULPS`` FP32 ulps of ``rstd``: parent ruling R7.1); each
+    ``FWD_EDGE_RSTD_ULPS`` FP32 ulps of ``rstd``); each
     edge reports its largest moves and the fraction of rows that moved."""
     _skip_unless_route(hidden, residual, w, "fwd")
     route_windows = ref.windows(loader, _arch(), hidden, "fwd", residual, w)

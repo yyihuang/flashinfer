@@ -30,7 +30,7 @@ residual route) does not cover (issues #7038, #7548 item 2, #8066):
 
 Beside the all-SM kernel a call starts when it costs at most
 ``MAX_ALL_SM_EXTRA_MS`` more than alone (the side kernel lives
-``ALL_SM_SPIN_MS``).  A call that waits is not a pass (parent ruling R6.2): it
+``ALL_SM_SPIN_MS``).  A call that waits is not a pass: it
 is reported as "not measured (det-inherited)" -- a pytest skip -- only when its
 window is in the package's whole-SM list (``cake_windows.WHOLE_SM``, the list
 the facade documents) and the call runs the deterministic package's program (a
