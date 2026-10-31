@@ -72,8 +72,11 @@ Protocol: per (row, layout, boundary), one untimed call per arm (JIT builds, fir
 arm (peak memory per phase, the routed package's ``LAST_CALL`` records), then ``--groups`` groups (at least 3); in
 every group the arms run in the palindromic pattern ``[a1 .. an, an .. a1] x k`` (ABBA for two arms); every call
 takes ``--samples`` timed iterations (at least 8) after ``--warmup`` untimed ones, each after an L2 flush (unless
-``--no-l2-flush``), a device synchronize and a barrier.  Every rank times every iteration with CUDA events; the
-slowest rank's time is the iteration's.  Steady samples as in the deterministic benchmark (every sample when
+``--no-l2-flush``), a device synchronize and a barrier; ``--cool-s`` idles every rank that many seconds before each
+call (the cool-down of a sustained, power-capped protocol: long ``--samples`` blocks).  Every rank times every
+iteration with CUDA events; the slowest rank's time is the iteration's.  Each call records its wall-clock window
+(``t_unix``, rank 0) for joining with GPU power / clock telemetry, and each arm its per-call (block) medians.
+Steady samples as in the deterministic benchmark (every sample when
 ``--warmup`` > 0).  Per arm: the median, p10 and p90 of the slowest rank's steady samples, the group medians and
 their drift, the per-rank medians, tokens per second; on every rank the peak memory of the probe call
 (``torch.cuda.max_memory_allocated`` minus the allocation before the call: forward phase, backward phase, bytes
@@ -1196,9 +1199,15 @@ def _measure(
     for group in range(args.groups):
         previous: Optional[str] = None
         for index, arm in enumerate(pattern):
+            if args.cool_s > 0:
+                torch.cuda.synchronize(device)
+                time.sleep(args.cool_s)
+                dist.barrier()
+            t0 = time.time()
             per_rank = _time_block(
                 steps[arm], args.samples, args.warmup, flush, device, world
             )
+            t1 = time.time()
             slowest = [max(col) for col in zip(*per_rank, strict=True)]
             steady_all = previous == arm or (
                 previous is None and group == 0 and index == 0
@@ -1211,6 +1220,7 @@ def _measure(
                     "steady_from": 0 if steady_all or args.warmup > 0 else 1,
                     "slowest_ms": slowest,
                     "per_rank_ms": per_rank,
+                    "t_unix": [t0, t1],
                 }
             )
             previous = arm
@@ -1249,6 +1259,9 @@ def _summarise(
         "max_ms": max(steady),
         "n_steady": len(steady),
         "group_medians_ms": group_medians,
+        "block_medians_ms": [
+            statistics.median(c["slowest_ms"][c["steady_from"] :]) for c in calls
+        ],
         "median_of_group_medians_ms": median_of_groups,
         "drift": abs(group_medians[-1] - group_medians[0]) / median_of_groups,
         "per_rank_median_ms": rank_medians,
@@ -1442,6 +1455,7 @@ def run_config(
             "repeat": args.repeat,
             "samples": args.samples,
             "warmup": args.warmup,
+            "cool_s": args.cool_s,
             "l2_flush": flush is not None,
             "l2_flush_bytes": L2_FLUSH_BYTES if flush is not None else 0,
             "seed": args.seed,
@@ -1741,6 +1755,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-l2-flush", action="store_true", help="no L2 flush before an iteration"
     )
+    parser.add_argument(
+        "--cool-s",
+        type=float,
+        default=0.0,
+        help="idle seconds before every call (sustained protocol cool-down; 0 = none)",
+    )
     parser.add_argument("--seed", type=int, default=20261023)
     parser.add_argument(
         "--max-drift",
@@ -1756,8 +1776,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.groups < 3 or args.samples < 8:
         parser.error("the protocol takes at least 3 groups and 8 samples per call")
-    if args.repeat < 1 or args.warmup < 0:
-        parser.error("--repeat must be >= 1 and --warmup >= 0")
+    if args.repeat < 1 or args.warmup < 0 or args.cool_s < 0:
+        parser.error("--repeat must be >= 1, --warmup >= 0 and --cool-s >= 0")
     if args.v_heads % args.qk_heads:
         parser.error("--v-heads must be a multiple of --qk-heads")
     args.heads = None if not args.heads else tuple(int(x) for x in _csv(args.heads))
