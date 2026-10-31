@@ -1442,7 +1442,9 @@ def _sdt_selected(meta: ChunkMeta, segs: SegmentTable, num_v_heads: int, device_
 # plan: plan pins keep the planner's table.
 TC_PLAN = True
 TC_PLAN_GAIN = 0.95
-TC_PLAN_MIN_SAVING = 10.0
+# A priced saving below this did not show on B200: the (1, 3) head pair of 3 x 11k tokens, priced 19 us, measured
+# 0.2-0.7 % (1-4 us) faster than the deterministic package's table in the backward.
+TC_PLAN_MIN_SAVING = 20.0
 # The dhu_tc2 step time (microseconds) at low and full residency that prices these tables, measured (CUPTI kernel
 # durations of L = 64 tables, 3 to 288 CTAs: B200 2.32-2.44, GB300 2.15-2.26 per step); an architecture not listed takes
 # the dhu_tc2 record's t_lat / t_full.

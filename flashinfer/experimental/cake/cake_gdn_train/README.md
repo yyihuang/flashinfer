@@ -117,7 +117,7 @@ table (priced for the register scans) by the table priced for `dhu_tc2`
 itself: the serial table or a `(64, 1)` split table of any segment length,
 priced as the makespan of one CTA per (segment, value head) times the
 `dhu_tc2` step time plus the pre-scan and stitch terms.  It takes that table
-when it saves at least 10 us and 5 % of the priced adjoint pass, and runs it
+when it saves at least 20 us and 5 % of the priced adjoint pass, and runs it
 on `dhu_tc2`; a serial table that the two-stream rule groups keeps its form.
 The forward is unchanged.  A different adjoint table changes the bits of the
 backward outputs (other segment boundaries), so the deterministic package's

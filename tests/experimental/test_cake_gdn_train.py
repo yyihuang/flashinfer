@@ -2216,20 +2216,23 @@ def test_group_of_three_tail_matches_the_unfused_tail(
     _assert_same_bits(runs[""], runs["finalize_mlp"], names)
 
 
-# the tc-priced adjoint table (TC_PLAN): (row, seq_lens, HV, replaced on sm_103a, 152 SMs; measured faster there)
+# the tc-priced adjoint table (TC_PLAN): (row, seq_lens, HV, the architectures that replace the planner's table
+# there: B200 148 SMs, GB300 152 SMs; measured faster where replaced, (1, 3) a tie on B200 below the saving floor)
+_TC_BOTH = ("sm_100a", "sm_103a")
 TC_PLAN_ROWS = (
-    ("r01", (4096,) * 4, 16, True),
-    ("r02", _REAL_3, 16, True),
-    ("r03", (4096,) * 8, 16, False),
-    ("r04", _REAL_7, 16, False),
-    ("r07", (16384,), 16, True),
-    ("r08", (4096,) * 4, 32, False),
-    ("r10", (16384,), 32, True),
-    ("issue", (131071, 87531, 43385), 6, True),
-    ("P3", (128147, 131027), 6, True),
-    ("P1", (126565, 32714, 33696, 15081, 22979, 10782), 6, True),
-    ("A16", (11000, 12000, 9768), 48, False),
-    ("64x4096", (4096,) * 64, 6, False),
+    ("r01", (4096,) * 4, 16, _TC_BOTH),
+    ("r02", _REAL_3, 16, _TC_BOTH),
+    ("r03", (4096,) * 8, 16, ()),
+    ("r04", _REAL_7, 16, ("sm_100a",)),
+    ("r07", (16384,), 16, _TC_BOTH),
+    ("r08", (4096,) * 4, 32, ()),
+    ("r10", (16384,), 32, _TC_BOTH),
+    ("issue", (131071, 87531, 43385), 6, _TC_BOTH),
+    ("P3", (128147, 131027), 6, _TC_BOTH),
+    ("P1", (126565, 32714, 33696, 15081, 22979, 10782), 6, _TC_BOTH),
+    ("A16", (11000, 12000, 9768), 48, ()),
+    ("64x4096", (4096,) * 64, 6, ()),
+    ("h1_hv3", (11000, 12000, 9768), 3, ()),
 )
 
 
@@ -2239,7 +2242,7 @@ def test_tc_plan_rule(arch, monkeypatch) -> None:
     monkeypatch.setattr(cake_chain, "_device_props", lambda _index: props)
     monkeypatch.setattr(cake_backend, "device_arch", lambda _index: arch)
     cap = cake_chain._prescan_capacity("dhu", cake_chain.SDT_CONFIG)
-    for row, seq_lens, num_v_heads, replaced in TC_PLAN_ROWS:
+    for row, seq_lens, num_v_heads, replaced_on in TC_PLAN_ROWS:
         chunks = tuple(-(-n // 64) for n in seq_lens)
         _fwd, bwd = cake_chain.scan_plans(
             sum(seq_lens), len(seq_lens), num_v_heads, 0, seq_lens
@@ -2255,8 +2258,8 @@ def test_tc_plan_rule(arch, monkeypatch) -> None:
                 0 <= rec["segment_len"] <= cap
                 and tuple(bwd.config) == cake_chain.SDT_CONFIG
             ), (row, rec)
-        if arch == "sm_103a":
-            assert rec["select"] is replaced, (row, rec)
+        if arch in _TC_BOTH:
+            assert rec["select"] is (arch in replaced_on), (row, rec)
 
 
 @pytest.mark.parametrize("heads", [(8, 16), (8, 24)], ids=["g2", "g3"])
