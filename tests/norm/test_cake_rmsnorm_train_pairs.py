@@ -115,7 +115,10 @@ def test_chunk_tables_cover_the_rows(sms: int, monkeypatch: pytest.MonkeyPatch) 
             assert table[0][0] == 0 and table[-1][1] == rows
             assert all(a[1] == b[0] for a, b in zip(table, table[1:], strict=False))
             replicas = record["workspace_rule"].get("replicas", 1)
-            assert layout["partial_bytes"] == loader.SUM_BYTES * record["hidden"] * replicas
+            assert (
+                layout["partial_bytes"]
+                == loader.SUM_BYTES * record["hidden"] * replicas
+            )
             assert (
                 layout["total_bytes"] == loader.COUNTERS_BYTES + layout["partial_bytes"]
             )
