@@ -41,9 +41,10 @@ registry), both eps values where the contract names both, 1e-3 / 1e3 scales,
 zero inputs and an extreme row, row-strided inputs, the residual-add fusion
 and the FP32-weight routes (also combined), the ``[..., H]`` per-head views,
 repeated launches (worst case over 20, ``dx`` bitwise stable) compared with the
-deterministic package where it serves the call, one workspace reused across
-every layout with its documented rest state checked after every call, two
-streams, CUDA Graph capture and replay, the autograd wrapper (gradient
+deterministic package where it serves the call, a workspace reused across token
+counts, windows and weight dtypes with its documented rest state checked after
+every call that reuses one, two streams, CUDA Graph capture and replay, the
+autograd wrapper (gradient
 accumulation, saved tensors, non-reentrant checkpointing, the mode resolved
 again when the backward runs) and argument validation.  The build manifest's
 per-architecture CUDA floors and flags are checked without a device.
@@ -265,28 +266,13 @@ def _run_backward(*args, **kwargs):
     return result, list(_LAUNCHED[start:])
 
 
-@functools.cache
-def _state_bytes(arch: str) -> int:
-    """The front bytes of every non-deterministic workspace that carry kernel
-    state between calls -- the pair counters and the widest single-kernel state
-    regions of any family of ``arch`` -- which the documented rest state holds at
-    zero, so a buffer serves the next call of any layout.  The pair partial rows
-    after them are scratch."""
-    families = set()
-    for key in loader.ROUTES[arch]:
-        if key.startswith("bwd"):
-            families.add((int(key.rsplit("_h", 1)[1]), "residual" in key.split("_")))
-    widest = max(
-        (loader.single_bytes(arch, hidden, residual) for hidden, residual in families),
-        default=0,
-    )
-    return loader.COUNTERS_BYTES + widest
-
-
 def _workspace_at_rest(ws: torch.Tensor) -> bool:
+    """The documented rest state after every call of any layout: every byte
+    before the pair partial rows (``PAIR_ROWS_OFFSET``: the pair counters, the
+    single kernel's counters and FP64 sums) is zero, so the buffer serves the
+    next call of any layout; the pair partial rows are scratch."""
     torch.cuda.synchronize()
-    end = min(_state_bytes(_arch()), ws.numel())
-    return not bool(ws[:end].any())
+    return not bool(ws[: min(loader.PAIR_ROWS_OFFSET, ws.numel())].any())
 
 
 def _bytes(rows: int, hidden: int, residual: bool = False) -> int:
@@ -870,26 +856,11 @@ def test_garbage_filled_dw_is_overwritten(hidden: int, w: str) -> None:
         _assert_dw(dw, case.dw_ref, case.g, case.x, case.rstd, f"dw fill={fill}", case.form)
 
 
-# (hidden, residual, w dtype, rows) of the cross-layout sequence: widths, the
-# residual flag, both weight dtypes and both backward forms change from call to
-# call (every window at small counts and the large-count windows).
-LAYOUT_SEQUENCE = (
-    (6144, True, "bf16", 4096),
-    (256, False, "bf16", 1000),
-    (2048, False, "f32", 257),
-    (6144, False, "bf16", 16385),
-    (6144, True, "f32", 7),
-    (512, False, "bf16", 65536),
-    (5120, False, "f32", 64),
-    (6144, True, "bf16", 65536),
-    (256, False, "f32", 64),
-    (4096, False, "bf16", 1),
-    (6144, True, "bf16", 129),
-)
-
-
-def _sequence_call(ws, hidden, residual, w, rows, key):
+def _reuse_call(ws, hidden, residual, w, rows, key):
+    """One forward and backward on the caller's workspace ``ws``, its pair
+    partial rows poisoned (NaN) first: the call rewrites every row it reads."""
     eps = EPS[hidden]
+    ws[loader.PAIR_ROWS_OFFSET :].fill_(0xFF)
     x, u, g, g_h, weight = _case_inputs(
         hidden, rows, residual=residual, w_dtype=W_DTYPES[w], key=key
     )
@@ -908,64 +879,19 @@ def _sequence_call(ws, hidden, residual, w, rows, key):
     return label, _form(expected)
 
 
-def _sequence(ws: torch.Tensor, key: int) -> list[str]:
-    done = []
-    for hidden, residual, w, rows in LAYOUT_SEQUENCE:
-        if not all(_routes(hidden, kind, residual, w) for kind in ("fwd", "bwd")):
-            continue
-        label, form = _sequence_call(ws, hidden, residual, w, rows, key)
-        assert _workspace_at_rest(ws), f"workspace not at rest after {label}"
-        done.append(f"{label}:{form}")
-    return done
-
-
-def _sequence_bytes() -> int:
-    return max(
-        _bytes(rows, hidden, residual)
-        for hidden, residual, w, rows in LAYOUT_SEQUENCE
-        if _routes(hidden, "bwd", residual, w)
-    )
-
-
-def test_one_workspace_serves_every_layout_in_turn() -> None:
-    """One buffer, zeroed once, serves a sequence of calls that changes the
-    width, the residual flag, the weight dtype, the sum replicas and the
-    backward form from call to call, with no host write between them: every
-    ``dw`` matches FP64 and the buffer is at its documented rest state after
-    every call."""
-    ws = torch.zeros(_sequence_bytes(), dtype=torch.uint8, device=_device())
-    done = _sequence(ws, key=17)
-    assert done, "no layout of the sequence is exported here"
-    print("LAYOUT_SEQUENCE " + " ".join(done))
-
-
-def test_stale_workspace_is_correct_after_the_documented_fresh_form() -> None:
-    """A buffer holding another layout's leftovers -- every byte random, as after
-    an interrupted call or foreign use -- serves the whole sequence after the
-    documented re-initialisation (zeroing the buffer once); the pair partial
-    rows poisoned with NaN before a call are rewritten by the call."""
-    ws = torch.empty(_sequence_bytes(), dtype=torch.uint8, device=_device())
-    ws.random_(0, 256, generator=_generator(31))
-    ws.zero_()  # the documented fresh form of a buffer of unknown content
-    done = _sequence(ws, key=19)
-    assert done
-    ws[_state_bytes(_arch()) :].view(torch.uint8).fill_(0xFF)  # NaN partial rows
-    again = _sequence(ws, key=23)
-    assert again == done
-
-
 @pytest.mark.parametrize("hidden", (512, 2048, 6144))
 def test_workspace_reused_across_token_counts_and_weight_dtypes(hidden: int) -> None:
-    """One buffer of a width serves its calls of every token count up to its
-    rows, every window and both weight dtypes without a host write; at rest
-    after every call."""
+    """One buffer serves a width's calls of every token count up to its rows,
+    every window and both weight dtypes with no host write but NaN poison in its
+    pair partial rows before each call; at rest after every call.  (Reuse across
+    widths, residual flags and stale bytes: ``test_cake_rmsnorm_train_api.py``.)"""
     _skip_unless_route(hidden)
     ws = torch.zeros(_bytes(65536, hidden), dtype=torch.uint8, device=_device())
     w_dtypes = ["bf16"] + (["f32"] if _routes(hidden, "bwd", False, "f32") else [])
     forms = []
     for index, rows in enumerate((7, 65536, 1, 257, 16385, 4096, 2)):
         w = w_dtypes[index % len(w_dtypes)]
-        _label, form = _sequence_call(ws, hidden, False, w, rows, key=29)
+        _label, form = _reuse_call(ws, hidden, False, w, rows, key=29)
         assert _workspace_at_rest(ws), f"workspace state after h={hidden} T={rows}"
         forms.append(f"{rows}:{w}:{form}")
     print(f"REUSE h={hidden} " + " ".join(forms))
@@ -1292,18 +1218,20 @@ def _backward_launches(fn) -> list[str]:
 
 @pytest.mark.parametrize("w", tuple(W_DTYPES))
 def test_backward_resolves_the_mode_again_when_it_runs(w: str) -> None:
-    """The autograd backward resolves ``deterministic=False`` again when it runs:
-    determinism switched on between forward and backward refuses it
-    (``RuntimeError``); with ``warn_only`` it warns and runs the det package's
-    backward (BF16 weight: the det bits, no module of this package) or, for a
-    call the det package cannot serve (FP32 weight), raises one
-    ``RuntimeError``; a forward resolved under ``warn_only`` and a backward
-    resolved with determinism off runs this package's backward."""
+    """The autograd backward resolves ``deterministic=False`` again when it runs.
+    Determinism switched on between forward and backward refuses it
+    (``RuntimeError``, nothing launched).  ``warn_only`` switched on there warns
+    and runs the det package's backward (BF16 weight: the det bits, no module of
+    this package), or raises one ``RuntimeError`` naming what the det package
+    lacks (FP32 weight).  A forward resolved under ``warn_only`` (BF16: warns
+    and runs this package's forward programs; FP32: refused before any work)
+    followed by a backward with determinism off runs this package's backward."""
     hidden, rows = 512, 257
     _skip_unless_route(hidden, w_dtype=w)
     eps = EPS[hidden]
     x, _u, g, _g_h, weight = _case_inputs(hidden, rows, w_dtype=W_DTYPES[w], key=67)
     expected = _window_records(hidden, "bwd", False, w, rows)
+    rstd = forward(x, weight, eps)[1]
 
     def graph():
         xa = x.clone().requires_grad_(True)
@@ -1321,34 +1249,40 @@ def test_backward_resolves_the_mode_again_when_it_runs(w: str) -> None:
 
     # warn_only at backward time
     xa, wa, y = graph()
-    rstd = forward(x, weight, eps)[1]
     torch.use_deterministic_algorithms(True, warn_only=True)
+    start = len(_LAUNCHED)
     if w == "bf16":
-        with pytest.warns(UserWarning, match="running the deterministic kernels"):
-            launched = _backward_launches(lambda: y.backward(g))
-        assert launched == []
-        dx_det, dw_det = det.cake_rmsnorm_det_train_backward(g, x, weight, rstd)
-        assert torch.equal(xa.grad, dx_det) and torch.equal(wa.grad, dw_det.to(wa.dtype))
-    else:
-        # the det package has no FP32-weight program: one RuntimeError naming it
-        with pytest.raises(RuntimeError, match="deterministic"):
+        with pytest.warns(UserWarning, match="deterministic package's backward"):
             y.backward(g)
+        assert _LAUNCHED[start:] == [], "the det fallback launched this package"
+        dx_det, dw_det = det.cake_rmsnorm_det_train_backward(g, x, weight, rstd)
+        assert torch.equal(xa.grad, dx_det)
+        assert torch.equal(wa.grad, dw_det.to(wa.dtype))
+    else:
+        with pytest.raises(RuntimeError, match="only deterministic=False serves"):
+            y.backward(g)
+        assert _LAUNCHED[start:] == []
     torch.use_deterministic_algorithms(False)
 
-    # warn_only at forward time (the det forward, or this package's own
-    # deterministic forward where the det package has no program), determinism
-    # off at backward time
+    # warn_only at forward time, determinism off at backward time
     torch.use_deterministic_algorithms(True, warn_only=True)
-    with pytest.warns(UserWarning):
+    if w == "f32":
+        start = len(_LAUNCHED)
+        with pytest.raises(RuntimeError, match="only deterministic=False serves"):
+            graph()
+        assert _LAUNCHED[start:] == []
+        torch.use_deterministic_algorithms(False)
+        return
+    with pytest.warns(UserWarning, match="this package's forward programs"):
         xa, wa, y = graph()
     torch.use_deterministic_algorithms(False)
     launched = _backward_launches(lambda: y.backward(g))
     assert launched == expected, launched
-    if w == "bf16":
-        rstd = det.cake_rmsnorm_det_train_forward(x, weight, eps)[1]
     dx_ref, dw_ref = _reference_backward(g, x, weight, rstd)
     _assert_bf16_close(xa.grad, dx_ref, "re-resolved dx")
-    _assert_autograd_dw(wa.grad, weight, dw_ref, g, x, rstd, "re-resolved dw", _form(expected))
+    _assert_autograd_dw(
+        wa.grad, weight, dw_ref, g, x, rstd, "re-resolved dw", _form(expected)
+    )
 
 
 # --------------------------------------------------------------------------- argument validation
@@ -1366,8 +1300,8 @@ def _refused(error: type, call, why: str) -> None:
 def test_argument_validation(hidden: int) -> None:
     """Wrong dtypes, shapes, devices, layouts, output buffers and workspaces
     (too small for the call, wrong dtype, on the CPU, misaligned, 2-D) are
-    refused with ``ValueError`` before any launch; ``deterministic`` accepts a
-    bool only (``TypeError``)."""
+    refused with ``ValueError`` before any launch (the ``deterministic`` flag's
+    type: ``test_cake_rmsnorm_train_api.py``)."""
     _skip_unless_route(hidden)
     eps = EPS[hidden]
     rows = 4096
@@ -1425,21 +1359,6 @@ def test_argument_validation(hidden: int) -> None:
     for ws, why in workspaces:
         _refused(
             ValueError, lambda ws=ws: backward(g, x, weight, rstd, workspace=ws), why
-        )
-    for flag in (None, 0, 1, "False", "no"):
-        _refused(
-            TypeError,
-            lambda flag=flag: pkg.cake_rmsnorm_train_forward(
-                x, weight, eps, deterministic=flag
-            ),
-            f"forward deterministic={flag!r}",
-        )
-        _refused(
-            TypeError,
-            lambda flag=flag: pkg.cake_rmsnorm_train_backward(
-                g, x, weight, rstd, deterministic=flag
-            ),
-            f"backward deterministic={flag!r}",
         )
 
 
