@@ -24,7 +24,10 @@ explicit ``deterministic=False`` on every entry and the backward's refusal of a 
 with PyTorch's deterministic algorithms, the det package's names left out, the launches served by this package's
 records, the five source head pairs, strided packed QKV views, non-reentrant checkpointing and its zero retained bytes,
 gradient accumulation into a nonzero ``.grad``, changed shapes over poisoned reused workspaces, the worst case over
-repeated runs, two concurrent caller streams and the same-input comparison with the deterministic package.
+repeated runs, two concurrent caller streams, a resident side-stream kernel and the same-input comparison with the
+deterministic package.  The tail's own contract: it serves every value-head group, leaves its workspace and counters
+zero after every launch, launches in segments that match one launch, keeps the deterministic bits of ``o``, ``dv``,
+``dg`` and ``dbeta``, and protocol controls (stale counters, a stale workspace) that must break ``dq`` / ``dk``.
 
 The suite names its packages through the shared alias helper and imports nothing else from flashinfer.
 """
@@ -1967,6 +1970,55 @@ def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
     finally:
         cake_chain._POOLED.zeroed.clear()  # the next call creates zeroed buffers again
     _assert_within_budget(_run(inputs, seq_lens, streams=1), good, OUTPUT_NAMES)
+
+
+# #7038 / #7548 form: a one-thread sleep kernel resident on a side stream for the whole call; the gate is declared
+# before the run (a stage that waited for every SM, or a whole-device launch, would stretch the call to the sleep)
+SIDE_STREAM_RATIO_MAX = 1.3
+SIDE_STREAM_ITERS = 9
+
+
+@pytest.mark.parametrize("heads", [(2, 4), (2, 6)], ids=["g2", "g3"])
+def test_forward_backward_beside_a_resident_side_stream_kernel(heads, device) -> None:
+    seq_lens = (4096,) * 4
+    inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=287)
+    cu = _cu(seq_lens)
+    cu_seqlens = torch.tensor(cu, dtype=torch.int64, device=device)
+    cu_seqlens_cpu = torch.tensor(cu, dtype=torch.int64)
+    leaves = {n: inputs[n].detach().clone().requires_grad_(True) for n in ("q", "k", "v", "g", "beta")}
+
+    def step() -> None:
+        for leaf in leaves.values():
+            leaf.grad = None
+        o, _ = chunk_gated_delta_rule_nd(leaves["q"], leaves["k"], leaves["v"], leaves["g"], leaves["beta"],
+                                         scale=1.0 / math.sqrt(HEAD_DIM), cu_seqlens=cu_seqlens,
+                                         cu_seqlens_cpu=cu_seqlens_cpu, use_qk_l2norm_in_kernel=True)  # fmt: skip
+        torch.autograd.backward(o, inputs["do"])
+
+    def timed() -> float:
+        start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        start.record()
+        step()
+        end.record()
+        torch.cuda.synchronize()
+        return float(start.elapsed_time(end))
+
+    for _ in range(2):
+        step()
+    torch.cuda.synchronize()
+    alone = sorted(timed() for _ in range(SIDE_STREAM_ITERS))[SIDE_STREAM_ITERS // 2]
+    clock_khz = getattr(torch.cuda.get_device_properties(device), "clock_rate", 1_900_000)
+    cycles = int(3.0 * alone * clock_khz)  # about three times the call, in SM cycles (ms x kHz)
+    side = torch.cuda.Stream(device=device)
+    beside = []
+    for _ in range(SIDE_STREAM_ITERS):
+        torch.cuda.synchronize()
+        with torch.cuda.stream(side):
+            torch.cuda._sleep(cycles)
+        beside.append(timed())
+        side.synchronize()
+    ratio = sorted(beside)[SIDE_STREAM_ITERS // 2] / alone
+    assert ratio <= SIDE_STREAM_RATIO_MAX, (ratio, alone, beside)
 
 
 # The five head pairs of the source issue (#7074), on one layout of partial, full and multi-chunk sequences.
