@@ -326,12 +326,12 @@ def _skip_if_whole_sm(kind: str, hidden: int, rows: int) -> None:
 _SPIN_KERNEL = "cake_rmsnorm_train_stall_spin"
 _SPIN_SOURCE = r"""
 extern "C" __global__ void cake_rmsnorm_train_stall_spin(unsigned long long ns, int* smids) {
-    extern __shared__ volatile int hold[];  // the launch's dynamic shared memory, held for the lifetime
+    // The launch's dynamic shared memory (possibly none) is held for the CTA's
+    // lifetime without being touched.
     if (threadIdx.x == 0) {
         unsigned int smid;
         asm volatile("mov.u32 %0, %%smid;" : "=r"(smid));
         smids[blockIdx.x] = (int)smid;
-        hold[0] = (int)smid;
     }
     unsigned long long t0, t;
     asm volatile("mov.u64 %0, %%globaltimer;" : "=l"(t0));
