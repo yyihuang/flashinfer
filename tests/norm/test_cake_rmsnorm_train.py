@@ -59,6 +59,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import statistics
+from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -72,6 +73,7 @@ loader = cake_package("cake_rmsnorm_train", "cake_jit")
 cake_build = cake_package("cake_rmsnorm_train", "cake_build")
 det = cake_package("cake_rmsnorm_det_train")
 det_loader = cake_package("cake_rmsnorm_det_train", "cake_jit")
+det_build = cake_package("cake_rmsnorm_det_train", "cake_build")
 forward = functools.partial(pkg.cake_rmsnorm_train_forward, deterministic=False)
 backward = functools.partial(pkg.cake_rmsnorm_train_backward, deterministic=False)
 workspace_for = functools.partial(
@@ -683,22 +685,30 @@ def _det_records(hidden: int, residual: bool, w: str, rows: int) -> Optional[lis
     return list(det_loader.selected_modules(arch, hidden, "bwd", residual, rows=rows))
 
 
-def _digits(name: str) -> str:
-    return name.rsplit("_", 1)[1]
+@functools.cache
+def _kernel_text(build, library: str, prefix: str) -> str:
+    """A library's kernel source with its package prefix replaced by a marker."""
+    path = Path(build.__file__).parent / "csrc" / f"{library}_kernel.cu"
+    return path.read_text().replace(prefix, "@prefix@")
 
 
 def _dx_bitwise_claimed(records: list[str], det_records: list[str]) -> bool:
     """Whether the window's main program computes the det package's ``dx`` bits
-    for this call: the same program (a det pair renders the det programs under
-    this package's prefix, same digits), or a single kernel whose record names
-    the det main program it reproduces (``dx_bitwise_with``)."""
+    for this call: the det package's selected main program itself (a det pair
+    window renders the det programs under this package's prefix: the kernel
+    sources are identical once the prefixes are replaced), or a single kernel
+    whose record names that det program (``dx_bitwise_with``)."""
     main = next(n for n in records if loader.MODULES[n]["role"] != "bwd_reduce")
     det_main = next(
         n for n in det_records if det_loader.MODULES[n]["role"] != "bwd_reduce"
     )
     claim = loader.MODULES[main].get("dx_bitwise_with")
-    return _digits(main) == _digits(det_main) or (
-        claim is not None and _digits(claim) == _digits(det_main)
+    if claim is not None:
+        return claim == det_main
+    return _kernel_text(
+        cake_build, loader.MODULES[main]["library"], "cake_rmsnorm_train_"
+    ) == _kernel_text(
+        det_build, det_loader.MODULES[det_main]["library"], "cake_rmsnorm_det_train_"
     )
 
 
