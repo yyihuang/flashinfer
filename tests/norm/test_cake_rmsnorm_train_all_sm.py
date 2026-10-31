@@ -30,14 +30,16 @@ residual route) does not cover (issues #7038, #7548 item 2, #8066):
 
 Beside the all-SM kernel a call starts when it costs at most
 ``MAX_ALL_SM_EXTRA_MS`` more than alone (the side kernel lives
-``ALL_SM_SPIN_MS``).  A call that waits passes only when the package documents
-it: its window is in the package's whole-SM list (``WHOLE_SM_ABOVE``), or it runs
-a deterministic program (a forward, or a deterministic-pair backward window)
-that waits exactly as the deterministic package's program does at the same call
-(measured beside the same side kernel; an FP32-weight twin against its BF16
-owner's program; equal = pass).  A single-kernel window that waits and is not
-listed fails, as does a deterministic program that waits where the
-deterministic package's does not.  Outputs are checked across every call:
+``ALL_SM_SPIN_MS``).  A call that waits is not a pass (parent ruling R6.2): it
+is reported as "not measured (det-inherited)" -- a pytest skip -- only when its
+window is in the package's whole-SM list (``WHOLE_SM_ABOVE``, the list the
+facade documents) and the call runs the deterministic package's program (a
+forward or a deterministic-pair backward window whose program id equals the one
+the deterministic package selects at the same token count; an FP32-weight twin
+through its BF16 owner route, same form); the deterministic package's own call
+beside the same side kernel is measured and printed for reference.  Every other
+call that waits fails: a single kernel, an unlisted window, or a window whose
+program is not the deterministic package's.  Outputs are checked across every call:
 ``dx`` / ``y`` / ``rstd`` bitwise, ``dw`` within ``DW_REL_L2`` of the first call
 alone (bitwise for a deterministic pair), the workspace at rest.
 """
@@ -503,27 +505,78 @@ def _all_sm(call) -> tuple[float, float, list]:
     )
 
 
-def _judge(kind: str, key: str, rows: int, form: Optional[str], extra: float, det_call):
-    """``(verdict, note)``: ``starts`` / ``listed`` / ``det_inherited`` pass,
-    ``waits`` fails (see the module docstring)."""
+def _program_id(name: str) -> str:
+    """The program part of a module name (the hex digits after the package
+    prefix, without a ``__<above>_<at_most>`` window suffix)."""
+    return name.split("__", 1)[0].rsplit("_", 1)[1]
+
+
+def _main_module(names, modules) -> str:
+    return next(n for n in names if modules[n]["role"] != "bwd_reduce")
+
+
+def _runs_det_program(kind: str, hidden: int, residual: bool, w: str, rows: int):
+    """``(True / False, note)``: the call runs the program the deterministic
+    package selects for the same shape and token count (program id equality of
+    the main kernels); an FP32-weight twin through its BF16 owner route (the
+    det package serves BF16 weights only), whose form it must share."""
+    if det is None:
+        return False, "no det package"
+    arch = det.cake_jit.arch_for_capability(_capability())
+    if det.cake_jit.route_key(hidden, kind, residual) not in det.cake_jit.ROUTES.get(
+        arch, {}
+    ):
+        return False, "the det package does not serve this shape"
+    det_main = _main_module(
+        list(det.cake_jit.selected_modules(arch, hidden, kind, residual, rows=rows)),
+        det.cake_jit.MODULES,
+    )
+    owner = ref.window_records(loader, _arch(), hidden, kind, residual, "bf16", rows)
+    main = _main_module(owner, loader.MODULES)
+    same = _program_id(main) == _program_id(det_main)
+    note = f"program={_program_id(main)[:8]} det_program={_program_id(det_main)[:8]}"
+    if w != "bf16" and kind == "bwd":
+        twin = ref.window_records(loader, _arch(), hidden, kind, residual, w, rows)
+        same = same and ref.form(loader, twin) == ref.form(loader, owner)
+        note += f" (via the BF16 owner; twin form {ref.form(loader, twin)})"
+    return same, note
+
+
+def _judge(
+    kind: str,
+    hidden: int,
+    residual: bool,
+    w: str,
+    rows: int,
+    form: Optional[str],
+    extra: float,
+    det_call,
+):
+    """``(verdict, note)``: ``starts`` passes; ``det_inherited`` (listed and the
+    det package's program) is reported as not measured; ``waits`` fails (see
+    the module docstring)."""
     if extra <= MAX_ALL_SM_EXTRA_MS:
         return "starts", ""
+    key = loader.route_key(hidden, kind, residual, w)
     above = _listed_whole_sm(kind, key, rows)
-    if above is not None:
-        return "listed", f"whole_sm_above={above}"
-    deterministic_program = kind == "fwd" or form == "pair"
-    if not deterministic_program:
-        return "waits", "single kernel, not in the whole-SM list"
-    if det_call is None:
-        return (
-            "waits",
-            "det program copy; the det package does not serve this call and it is not listed",
+    if kind == "fwd" or form == "pair":
+        det_program, note = _runs_det_program(kind, hidden, residual, w, rows)
+    else:
+        det_program, note = False, "single kernel"
+    if det_call is not None:
+        det_alone, det_busy, _outs = _all_sm(det_call)
+        note += f" det_extra_ms={det_busy - det_alone:.4f}"
+    if above is not None and det_program:
+        return "det_inherited", f"whole_sm_above={above} {note}"
+    return "waits", f"listed={above is not None} det_program={det_program} {note}"
+
+
+def _report_waiting(verdict: str, label: str, note: str) -> None:
+    if verdict == "det_inherited":
+        pytest.skip(
+            f"not measured (det-inherited): {label} runs the det package's program, "
+            f"which needs a whole SM, and the facade's whole-SM list names it: {note}"
         )
-    det_alone, det_busy, _outs = _all_sm(det_call)
-    det_extra = det_busy - det_alone
-    if det_extra > MAX_ALL_SM_EXTRA_MS:
-        return "det_inherited", f"det_extra_ms={det_extra:.4f}"
-    return "waits", f"the det package's program starts (det_extra_ms={det_extra:.4f})"
 
 
 @pytest.mark.parametrize("rows", ALL_SM_TOKENS)
@@ -540,12 +593,13 @@ def test_backward_beside_an_all_sm_kernel_with_the_max_shared_carveout(
     _check_outputs(outputs, "bwd", form, label)
     assert ref.workspace_at_rest(loader, ws), f"{label}: workspace not at rest"
     extra = busy_ms - alone_ms
-    verdict, note = _judge("bwd", key, rows, form, extra, det_call)
+    verdict, note = _judge("bwd", hidden, residual, w, rows, form, extra, det_call)
     print(
         f"ALL_SM {_arch()} {key} T={rows} form={form} alone_ms={alone_ms:.4f} "
         f"busy_ms={busy_ms:.4f} extra_ms={extra:.4f} verdict={verdict} {note}"
     )
-    assert verdict != "waits", (
+    _report_waiting(verdict, label, note)
+    assert verdict == "starts", (
         f"{label} ({form}): alone {alone_ms:.4f} ms, beside an all-SM kernel with the "
         f"max-shared carveout {busy_ms:.4f} ms (at most {MAX_ALL_SM_EXTRA_MS} ms more; the side "
         f"kernel lives {ALL_SM_SPIN_MS} ms): {note}"
@@ -571,13 +625,14 @@ def test_forward_beside_an_all_sm_kernel_with_the_max_shared_carveout(route, row
     label = f"{key} T={rows}"
     _check_outputs(outputs, "fwd", None, label)
     extra = busy_ms - alone_ms
-    verdict, note = _judge("fwd", key, rows, None, extra, det_call)
+    verdict, note = _judge("fwd", hidden, residual, w, rows, None, extra, det_call)
     program = ref.window_records(loader, _arch(), hidden, "fwd", residual, w, rows)
     print(
         f"ALL_SM_FWD {_arch()} {key} T={rows} program={program[0].rsplit('_', 1)[1][:8]} "
         f"alone_ms={alone_ms:.4f} busy_ms={busy_ms:.4f} extra_ms={extra:.4f} verdict={verdict} {note}"
     )
-    assert verdict != "waits", (
+    _report_waiting(verdict, label, note)
+    assert verdict == "starts", (
         f"{label}: forward alone {alone_ms:.4f} ms, beside an all-SM kernel with the "
         f"max-shared carveout {busy_ms:.4f} ms (at most {MAX_ALL_SM_EXTRA_MS} ms more): {note}"
     )
