@@ -122,12 +122,14 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
         "bwd_h256": ((0, None, "cake_rmsnorm_train_195c4317b51bb4ea1137"),),
         "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_8de0131445eed6eeabb7"),),
         "bwd_h512": (
-            (0, 4096, "cake_rmsnorm_train_d0bde38aa443d42a5f04"),
+            (0, 1024, "cake_rmsnorm_train_09601d42628de24f6f87"),
+            (1024, 4096, "cake_rmsnorm_train_123db0b2f7fb38cfab03"),
             (4096, 32768, "cake_rmsnorm_train_ad1a5a3c5f88e3d10036"),
             (32768, None, "cake_rmsnorm_train_8877322a3002e3a4fefd"),
         ),
         "bwd_w32_h512": (
-            (0, 4096, "cake_rmsnorm_train_fd08c6f436eb6071fa22"),
+            (0, 1024, "cake_rmsnorm_train_9f07cea1d13b923ed91e"),
+            (1024, 4096, "cake_rmsnorm_train_632ca6ff01848a71f9f2"),
             (4096, 32768, "cake_rmsnorm_train_1f628cf4fd17b4ea9441"),
             (32768, None, "cake_rmsnorm_train_659bfc53e5372850ae2e"),
         ),
@@ -184,9 +186,7 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
         "bwd_h6144": (
             (0, 256, "cake_rmsnorm_train_b93bf060d4d3defc8150"),
             (256, 4096, "cake_rmsnorm_train_5c804aed7ad14b99e1d0"),
-            (4096, 14927, "cake_rmsnorm_train_b93bf060d4d3defc8150"),
-            (14927, 32768, "cake_rmsnorm_train_bfb0c70d41655fe9d932"),
-            (32768, None, "cake_rmsnorm_train_b93bf060d4d3defc8150"),
+            (4096, None, "cake_rmsnorm_train_b93bf060d4d3defc8150"),
         ),
         "bwd_residual_h6144": (
             (0, 1023, "cake_rmsnorm_train_0dcdc563be377247044e"),
@@ -195,9 +195,7 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
         "bwd_w32_h6144": (
             (0, 256, "cake_rmsnorm_train_62beb52fa50cc8624c9f"),
             (256, 4096, "cake_rmsnorm_train_41b80b6af97974feb181"),
-            (4096, 14927, "cake_rmsnorm_train_62beb52fa50cc8624c9f"),
-            (14927, 32768, "cake_rmsnorm_train_e1f29af58ae1c73791ef"),
-            (32768, None, "cake_rmsnorm_train_62beb52fa50cc8624c9f"),
+            (4096, None, "cake_rmsnorm_train_62beb52fa50cc8624c9f"),
         ),
         "bwd_w32_residual_h6144": (
             (0, 1023, "cake_rmsnorm_train_56f988dde54db37f09d9"),
@@ -573,8 +571,12 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_w32_residual_h6144": ((256, "same"), (1024, "ulp")),
         "bwd_h256": (),
         "bwd_w32_h256": (),
-        "bwd_h512": ((4096, "unmeasured"), (32768, "unmeasured")),
-        "bwd_w32_h512": ((4096, "unmeasured"), (32768, "unmeasured")),
+        "bwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (32768, "unmeasured")),
+        "bwd_w32_h512": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (32768, "unmeasured"),
+        ),
         "bwd_h1536": (
             (1024, "unmeasured"),
             (4096, "unmeasured"),
@@ -611,19 +613,9 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         ),
         "bwd_h5120": ((256, "unmeasured"), (32768, "unmeasured")),
         "bwd_w32_h5120": ((256, "unmeasured"), (32768, "unmeasured")),
-        "bwd_h6144": (
-            (256, "unmeasured"),
-            (4096, "unmeasured"),
-            (14927, "unmeasured"),
-            (32768, "unmeasured"),
-        ),
+        "bwd_h6144": ((256, "unmeasured"), (4096, "unmeasured")),
         "bwd_residual_h6144": ((1023, "unmeasured"),),
-        "bwd_w32_h6144": (
-            (256, "unmeasured"),
-            (4096, "unmeasured"),
-            (14927, "unmeasured"),
-            (32768, "unmeasured"),
-        ),
+        "bwd_w32_h6144": ((256, "unmeasured"), (4096, "unmeasured")),
         "bwd_w32_residual_h6144": ((1023, "unmeasured"),),
     },
     "sm_103a": {
@@ -780,6 +772,10 @@ DET_PAIR_ROUTES: dict[str, dict[str, str]] = {
     "sm_100a": {
         "bwd_h1536": "B200 (lane K g046, 9ebc0c13): the single kernel takes 1.07-1.35x (register ring) / 1.07-1.54x (bulk ring) the det pair's time at every measured T (provisional, under bisect)",
         "bwd_w32_h1536": "B200 (lane K g046, 9ebc0c13): the single kernel takes 1.07-1.35x (register ring) / 1.07-1.54x (bulk ring) the det pair's time at every measured T (provisional, under bisect)",
+        "bwd_h512": "FI bench ratio >= 1 at 9d9e34a2 (B200 single/det backward time: T256 5.76/5.54 us, T1024 6.14/5.82 us), results/E/perfcmp1-fi-1031T054201",
+        "bwd_w32_h512": "FI bench ratio >= 1 at 9d9e34a2 (B200 single/det backward time: T256 5.76/5.54 us, T1024 6.14/5.82 us), results/E/perfcmp1-fi-1031T054201",
+        "bwd_h6144": "FI bench ratio >= 1 at 9d9e34a2 (B200 single/det backward time: T16384 112.13/102.62 us), results/E/perfcmp1-fi-1031T054201",
+        "bwd_w32_h6144": "FI bench ratio >= 1 at 9d9e34a2 (B200 single/det backward time: T16384 112.13/102.62 us), results/E/perfcmp1-fi-1031T054201",
     },
     "sm_103a": {
         "bwd_h2048": "GB300 (lane Q k004, 914fc74c): the det pair is faster or tied at every measured T (provisional)",
@@ -835,15 +831,7 @@ SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]]
             (14927, 16384, 132),
             (16384, None, 132),
         ),
-        "bwd_h512": ((0, 4096, None), (4096, 32768, None), (32768, None, 132)),
         "bwd_h5120": ((0, 256, None), (256, 32768, None), (32768, None, 132)),
-        "bwd_h6144": (
-            (0, 256, 132),
-            (256, 4096, 132),
-            (4096, 14927, 132),
-            (14927, 32768, 100),
-            (32768, None, 132),
-        ),
         "bwd_residual_h6144": ((0, 1023, 100), (1023, None, 100)),
         "bwd_w32_h1536": (
             (0, 1024, 132),
@@ -866,15 +854,7 @@ SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]]
             (14927, 16384, 132),
             (16384, None, 132),
         ),
-        "bwd_w32_h512": ((0, 4096, None), (4096, 32768, None), (32768, None, 132)),
         "bwd_w32_h5120": ((0, 256, None), (256, 32768, None), (32768, None, 132)),
-        "bwd_w32_h6144": (
-            (0, 256, 132),
-            (256, 4096, 132),
-            (4096, 14927, 132),
-            (14927, 32768, 100),
-            (32768, None, 132),
-        ),
         "bwd_w32_residual_h6144": ((0, 1023, 100), (1023, None, 100)),
     },
 }
@@ -1027,21 +1007,18 @@ route not listed is unmeasured.
 * ``sm_100a`` ``bwd_h2048``: (0, 2048] >= 100, (2048, 8192] -, (8192, 16384] >= 100, (16384, inf) >= 100
 * ``sm_100a`` ``bwd_h256``: (0, inf) -
 * ``sm_100a`` ``bwd_h4096``: (0, 256] -, (256, 1024] -, (1024, 4096] >= 132, (4096, 14927] >= 132, (14927, 16384] >= 132, (16384, inf) >= 132
-* ``sm_100a`` ``bwd_h512``: (0, 4096] -, (4096, 32768] -, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_h5120``: (0, 256] -, (256, 32768] -, (32768, inf) >= 132
-* ``sm_100a`` ``bwd_h6144``: (0, 256] >= 132, (256, 4096] >= 132, (4096, 14927] >= 132, (14927, 32768] >= 100, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_residual_h6144``: (0, 1023] >= 100, (1023, inf) >= 100
 * ``sm_100a`` ``bwd_w32_h1536``: (0, 1024] >= 132, (1024, 4096] >= 100, (4096, 32768] >= 100, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_w32_h2048``: (0, 2048] >= 100, (2048, 8192] -, (8192, 16384] >= 100, (16384, inf) >= 100
 * ``sm_100a`` ``bwd_w32_h256``: (0, inf) -
 * ``sm_100a`` ``bwd_w32_h4096``: (0, 256] -, (256, 1024] -, (1024, 4096] >= 132, (4096, 14927] >= 132, (14927, 16384] >= 132, (16384, inf) >= 132
-* ``sm_100a`` ``bwd_w32_h512``: (0, 4096] -, (4096, 32768] -, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_w32_h5120``: (0, 256] -, (256, 32768] -, (32768, inf) >= 132
-* ``sm_100a`` ``bwd_w32_h6144``: (0, 256] >= 132, (256, 4096] >= 132, (4096, 14927] >= 132, (14927, 32768] >= 100, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_w32_residual_h6144``: (0, 1023] >= 100, (1023, inf) >= 100
 
 * ``sm_100a`` ``bwd_h256``: (0, inf) 195c4317
-* ``sm_100a`` ``bwd_h512``: (0, 4096] d0bde38a ? (4096, 32768] ad1a5a3c (det pair) ?
+* ``sm_100a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
+  (1024, 4096] 123db0b2 (det pair) ? (4096, 32768] ad1a5a3c (det pair) ?
   (32768, inf) 8877322a (det pair)
 * ``sm_100a`` ``bwd_h1536``: (0, 1024] 7dc29629 (det pair) ?
   (1024, 4096] c1a9efdf (det pair) ? (4096, 32768] 21c8bb55 (det pair) ?
@@ -1055,8 +1032,7 @@ route not listed is unmeasured.
 * ``sm_100a`` ``bwd_h5120``: (0, 256] db01cec1 (det pair) ?
   (256, 32768] b482c84d (det pair) ? (32768, inf) 2f05000c
 * ``sm_100a`` ``bwd_h6144``: (0, 256] b93bf060 (det pair) ?
-  (256, 4096] 5c804aed (det pair) ? (4096, 14927] b93bf060 (det pair) ?
-  (14927, 32768] bfb0c70d ? (32768, inf) b93bf060 (det pair)
+  (256, 4096] 5c804aed (det pair) ? (4096, inf) b93bf060 (det pair)
 * ``sm_100a`` ``bwd_residual_h6144``: (0, 1023] 0dcdc563 (det pair) ?
   (1023, inf) 87d2866c
 * ``sm_103a`` ``bwd_h256``: (0, inf) 195c4317
