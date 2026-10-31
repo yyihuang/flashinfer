@@ -249,14 +249,23 @@ def test_windows_module_is_the_registry() -> None:
         ), (arch, route)
     assert set(windows.SECTIONS) == {"fwd", "bwd"}
     assert "not bitwise reproducible" in windows.NOTES
-    # the windows that run a det pair are marked in the backward section
+    # the windows that run a det pair are marked on the backward section's route
+    # lines (the BF16 routes; the FP32-weight routes share their windows)
     pairs = sum(
         1
         for arch, route in _routes()
         for _a, _b, names in _launches(arch, route)
-        if len(names) == 2 and not _parse(route)[3] == "f32"
+        if len(names) == 2 and _parse(route)[3] != "f32"
     )
-    assert ("(det pair)" in windows.SECTIONS["bwd"]) == (pairs > 0)
+    marked = {
+        kind: sum(
+            line.count("(det pair)")
+            for line in windows.SECTIONS[kind].splitlines()
+            if line.startswith(("* ``", "  "))
+        )
+        for kind in ("fwd", "bwd")
+    }
+    assert marked == {"fwd": 0, "bwd": pairs}, (marked, pairs)
 
 
 def test_build_manifest_builds_every_library() -> None:

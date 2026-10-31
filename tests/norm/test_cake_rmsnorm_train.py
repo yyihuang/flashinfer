@@ -275,9 +275,7 @@ def _assert_dw(dw, dw_ref, g, x, rstd, label: str) -> float:
     eager_fp32 = (
         (g.float() * x.float() * rstd.float().unsqueeze(-1)).reshape(-1, hidden).sum(0)
     )
-    pair = any(
-        loader.MODULES[name]["role"] == "bwd_reduce" for name in _LAUNCHED
-    )
+    pair = any(loader.MODULES[name]["role"] == "bwd_reduce" for name in _LAUNCHED)
     if not pair:
         _DW_ERRORS.append((label, error, _rel_l2(eager_fp32, dw_ref)))
     _LAUNCHED.clear()

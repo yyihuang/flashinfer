@@ -385,9 +385,7 @@ def _copy_back(pairs: list[tuple[torch.Tensor, Optional[torch.Tensor]]]) -> None
             user_buffer.copy_(kernel_buffer.reshape(user_buffer.shape))
 
 
-def _backward_owners(
-    arch: str, hidden: int, residual: bool, rows: int
-) -> list[dict]:
+def _backward_owners(arch: str, hidden: int, residual: bool, rows: int) -> list[dict]:
     """The workspace-owning backward records (single kernels and pair main
     kernels) of the width's backward routes on ``arch`` -- both weight dtypes --
     whose window admits a token count of at most ``rows``."""
@@ -564,9 +562,7 @@ def _workspace_views(
         )
     begin = layout["partial_offset"]
     if record["workspace_rule"]["kind"] == "claim_sum_f64":
-        partial = workspace[begin : begin + layout["partial_bytes"]].view(
-            torch.float64
-        )
+        partial = workspace[begin : begin + layout["partial_bytes"]].view(torch.float64)
     else:
         hidden = int(record["hidden"])
         partial = workspace[begin : begin + 4 * layout["n_chunks"] * hidden].view(

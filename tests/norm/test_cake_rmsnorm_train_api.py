@@ -327,9 +327,12 @@ def test_nondeterministic_workspace_serves_every_call_up_to_its_rows(
         if all(r["workspace_rule"]["kind"] == "claim_sum_f64" for r in records):
             replicas = max(r["workspace_rule"].get("replicas", 1) for r in records)
             for rows in (0, 1, 12345, 65536):
-                assert cake_rmsnorm_train_backward_workspace_bytes(
-                    rows, hidden, _device(), deterministic=False
-                ) == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden * replicas
+                assert (
+                    cake_rmsnorm_train_backward_workspace_bytes(
+                        rows, hidden, _device(), deterministic=False
+                    )
+                    == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden * replicas
+                )
         generator = torch.Generator(device=_device()).manual_seed(SEED + hidden)
         for rows in (257, 4096):
             ws = cake_rmsnorm_train_backward_workspace(
