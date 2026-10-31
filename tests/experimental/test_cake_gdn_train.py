@@ -1962,7 +1962,8 @@ def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
         bad = _run(inputs, seq_lens, streams=1)
         if poison == "counter":
             torch.cuda.synchronize()
-            assert not _bits_zero(buffers["tail_count"])  # the check after every launch would catch it
+            # the counters stay nonzero: the check after every launch would catch it
+            assert not _bits_zero(buffers["tail_count"])
         with pytest.raises(AssertionError):
             _assert_within_budget(bad, good, ("dq", "dk"))
         for name in ("o", "dv", "dg", "dbeta"):
