@@ -97,7 +97,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 HEAD_DIM = 128
 L2_FLUSH_BYTES = 256 << 20
 MIB = float(1 << 20)
-ARMS = ("det", "nondet", "control", "det_dir", "tail_g2", "tail_g3", "unfused", "tail_red", "tail_bulk", "tail_ordered")
+ARMS = (
+    "det",
+    "nondet",
+    "control",
+    "det_dir",
+    "tail_g2",
+    "tail_g3",
+    "unfused",
+    "tail_red",
+    "tail_bulk",
+    "tail_ordered",
+)
 # the pinned-tail arms and their pins; a cluster tail serves its value-head group only
 PIN_ARMS = {
     "tail_g2": {"tail": "tail_g2"},

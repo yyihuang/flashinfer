@@ -762,7 +762,13 @@ TAIL_DEFAULT = "tail"
 R_FORM_GROUPS: tuple[int, ...] = (2,)
 
 
-def tail_form(num_heads: int, num_v_heads: int, forced: str | None = None, *, num_chunks: int | None = None) -> str:
+def tail_form(
+    num_heads: int,
+    num_v_heads: int,
+    forced: str | None = None,
+    *,
+    num_chunks: int | None = None,
+) -> str:
     """The backward tail of one call over ``num_chunks`` chunks (``None``: a large call): ``forced`` when given
     (``"tail_g2"`` / ``"tail_g3"`` serve a value-head group of two / three), else the fastest tail measured for the
     call's value-head group ``G = num_v_heads / num_heads`` and size (``benchmarks/bench_cake_gdn_train.py`` on B200
@@ -2051,14 +2057,25 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
             stage = form + ("_bf16" if dbeta_bf16 else "")
             # "tail_ordered": a slot per (chunk, value head), left written (a buffer of its own); the unordered merges
             # share the zero-kept tiles
-            slots, role = (num_v_heads // num_heads, "tail_ws_ordered") if form == "tail_ordered" else (1, "tail_ws")
+            slots, role = (
+                (num_v_heads // num_heads, "tail_ws_ordered")
+                if form == "tail_ordered"
+                else (1, "tail_ws")
+            )
 
             def tail(c0, c1):
                 # the workspace of the stream that launches (every tail runs on the caller's stream), and launches of
                 # at most its rows in stream order
-                ranges, tiles = tail_segments(c1 - c0, num_heads, num_v_heads, slots=slots)
+                ranges, tiles = tail_segments(
+                    c1 - c0, num_heads, num_v_heads, slots=slots
+                )
                 ws = workspaces.take_zeroed(
-                    index, role, max(tiles * slots, 1), (TAIL_TILE_FLOATS,), torch.float32, device
+                    index,
+                    role,
+                    max(tiles * slots, 1),
+                    (TAIL_TILE_FLOATS,),
+                    torch.float32,
+                    device,
                 )
                 ws_count = workspaces.take_zeroed(
                     index, "tail_count", max(tiles, 1), (), torch.uint32, device
