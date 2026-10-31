@@ -41,8 +41,8 @@ from ``--seed``:
 * ``tail_g2`` / ``tail_g3`` / ``unfused``: the non-deterministic package with the fixed-order tail pinned
   (``tail="tail_g2"`` / ``"tail_g3"``, value-head groups of two / three only: the arm is left out of other shapes;
   ``tail="unfused"``), the same forward as ``nondet``;
-* ``tail_red`` / ``tail_bulk`` / ``tail_ordered``: the non-deterministic package with its own tail pinned in one merge
-  (``tail="tail"`` / ``"tail_bulk"`` / ``"tail_ordered"``), the same forward as ``nondet``.
+* ``tail``: the non-deterministic package with its own tail pinned (``tail="tail"``), the same forward as
+  ``nondet``.
 
 Per shape, one untimed forward + backward of ``nondet`` with the package's launches recorded prints the stages its
 backward runs (``stages nondet bwd``: the tail form, the adjoint table and its scan); at the end the bench lists every
@@ -109,18 +109,14 @@ ARMS = (
     "tail_g2",
     "tail_g3",
     "unfused",
-    "tail_red",
-    "tail_bulk",
-    "tail_ordered",
+    "tail",
 )
 # the pinned-tail arms and their pins; a cluster tail serves its value-head group only
 PIN_ARMS = {
     "tail_g2": {"tail": "tail_g2"},
     "tail_g3": {"tail": "tail_g3"},
     "unfused": {"tail": "unfused"},
-    "tail_red": {"tail": "tail"},
-    "tail_bulk": {"tail": "tail_bulk"},
-    "tail_ordered": {"tail": "tail_ordered"},
+    "tail": {"tail": "tail"},
 }
 GROUP_ARMS = {"tail_g2": 2, "tail_g3": 3}
 BASES = ("det", "control")

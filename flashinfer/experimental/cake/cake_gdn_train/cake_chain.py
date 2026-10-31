@@ -33,16 +33,16 @@ states when its rule (:func:`sdt_pricing`) prices that pass 2 below the
 register one, and then launches no ``dv_local``: its pre-scan
 (``dhu_pre_dvl_r64k1``) computes the ``dv_local`` tiles of the chunks it scans
 (the same bits); then the tail :func:`tail_form` dispatches: the package's
-tail, one tcgen05 kernel per (chunk, value head) whose value heads merge their
-FP32 ``dq`` / ``dk`` partials in a workspace tile of their (chunk, key head),
-the last arriving CTA running the finalize and rounding ``dq`` / ``dk`` to
-BF16 once (:func:`tail_segments` bounds the workspace), in one of three merges
-(``"tail"``: unordered ``red.global.add``; ``"tail_bulk"``: unordered
-``cp.reduce.async.bulk``; ``"tail_ordered"``: a slot per value head summed in
-value-head order), or one of the deterministic package's fixed-order tails
-where it measures faster (``tail_g2`` / ``tail_g3`` for a value-head group of
-two / three; ``dqkwg``, the WY pullback and the finalize, "unfused", for other
-groups below ``TAIL_MIN_CTAS`` (chunk, value head) CTAs).  A host-built table lists the sequences longest first
+tail, one tcgen05 kernel per (chunk, value head) whose value heads write their
+FP32 ``dq`` / ``dk`` partials to a workspace slot each, the last arriving CTA
+of a (chunk, key head) summing the slots in value-head order, running the
+finalize and rounding ``dq`` / ``dk`` to BF16 once (:func:`tail_segments`
+bounds the workspace), or one of the deterministic package's fixed-order tails
+where it measures faster (``tail_g2`` for a value-head group of two,
+``tail_g3`` for three on ``sm_103a`` and ``sm_107a``, and on ``sm_100a``
+below ``TAIL_MIN_CTAS`` (chunk, value head) CTAs; ``dqkwg``, the WY pullback
+and the finalize, "unfused", for other groups below ``TAIL_MIN_CTAS``).
+Every launch is fixed-order.  A host-built table lists the sequences longest first
 (:func:`lpt_sequence_order`; every chunk keeps its token offset, the state rows
 are gathered into that order and the final state and its gradient scattered
 back) and ``fwd_ho`` walks the forward segments longest first
@@ -63,11 +63,12 @@ the chunks one pre-scan CTA covers) are the records' ``scan`` constants; the
 ``prep_tma`` dispatch window are those
 records' ``select`` tables.
 
-The chain makes no run-to-run bitwise promise: the tail of a value-head group
-of two or more sums the group's ``dq`` / ``dk`` partials in the arrival order
-of its CTAs, so those two gradients agree with the deterministic package
+Every launch is fixed-order: two runs of one call on one device give the same
+bits.  The results agree with the deterministic package
 (``flashinfer.experimental.cake_gdn_det_train``) to its accuracy budgets, not
-bitwise; the forward and the other gradients run fixed-order programs.
+bitwise: the package tail of a value-head group of two or more sums the group's
+FP32 ``dq`` / ``dk`` partials before one BF16 rounding, and the adjoint table
+priced for ``dhu_tc2`` splits the sequences at other segment boundaries.
 The plan pins that tests and tuning use are explicit keyword arguments of
 :func:`chunk_gated_delta_rule` (``scan_config``, ``segment_chunks``,
 ``finalize``, ``warmup_log2``, ``dhu_scan``, ``prep``, ``lpt``, ``streams``,
@@ -96,10 +97,8 @@ __all__ = [
     "REG_SCAN_CONFIGS",
     "R_FORM_GROUPS",
     "CLUSTER_TAILS",
-    "PACKAGE_TAILS",
     "TAIL_DEFAULT",
     "TAIL_FORMS",
-    "UNORDERED_TAILS",
     "TAIL_MIN_CTAS",
     "TAIL_TILE_FLOATS",
     "TAIL_WORKSPACE_TILES",
@@ -130,7 +129,6 @@ __all__ = [
     "tc_plan_pricing",
     "sequence_groups",
     "stage_set",
-    "tail_alerts",
     "tail_form",
     "tail_segments",
     "two_stream_split",
@@ -153,32 +151,14 @@ _MODE_CHECKED = object()
 
 
 def _require_nondeterministic(deterministic: Any, entry: str) -> None:
-    """The mode contract of every entry: the package computes non-deterministically, so an entry takes
+    """The mode contract of every entry: the package is the non-deterministic route (its results match the
+    deterministic package within that package's accuracy budgets, not bitwise), so an entry takes
     ``deterministic=False`` and raises ``ValueError`` for any other value (the deterministic package is
     ``flashinfer.experimental.cake_gdn_det_train``)."""
     if deterministic is not False:
-        raise ValueError(f"{entry} computes non-deterministically and takes deterministic=False (got "
+        raise ValueError(f"{entry} is the non-deterministic route and takes deterministic=False (got "
                          f"{deterministic!r}); flashinfer.experimental.cake_gdn_det_train is the deterministic "
                          "package")  # fmt: skip
-
-
-def _alert_nondeterministic(entry: str) -> None:
-    """PyTorch's alert for an operation without a deterministic implementation, raised by ``entry`` before it
-    launches an unordered reduction while PyTorch's deterministic algorithms are enabled: a ``RuntimeError``, or a
-    ``UserWarning`` under ``torch.use_deterministic_algorithms(True, warn_only=True)`` (the alert of PyTorch's own
-    operators; PyTorch exposes no public Python entry for it).  Fixed-order launches do not alert."""
-    if not torch.are_deterministic_algorithms_enabled():
-        return
-    if torch.is_deterministic_algorithms_warn_only_enabled():
-        warnings.warn(f"{entry} does not have a deterministic implementation, but you set "
-                      "'torch.use_deterministic_algorithms(True, warn_only=True)'; "
-                      "flashinfer.experimental.cake_gdn_det_train is the deterministic package",
-                      stacklevel=4)  # fmt: skip
-        return
-    raise RuntimeError(f"{entry} does not have a deterministic implementation, but you set "
-                       "'torch.use_deterministic_algorithms(True)'; flashinfer.experimental.cake_gdn_det_train is "
-                       "the deterministic package, or use the 'warn_only=True' option if that is acceptable for your "
-                       "application")  # fmt: skip
 
 
 # Kernel parameter names of every stage in call-site order; a delivered record whose parameters are these names in
@@ -221,7 +201,7 @@ _TAIL_ARGS = ("qn", "kn", "rstd_q", "rstd_k", "v_new", "do", "dv2", "h", "dh", "
               "dk_out", "dg_out", "dv_out", "dbeta_out", "chunk_start", "chunk_len", "num_heads", "num_v_heads", "scale",
               "normalize_qk")  # fmt: skip
 # the tail of any value-head group: the operands of tail_g2, then the workspace, its arrival counters and its tiles
-_TAIL_RED_ARGS = (*_TAIL_ARGS[:18], "ws", "ws_count", *_TAIL_ARGS[18:], "ws_tiles")
+_TAIL_WS_ARGS = (*_TAIL_ARGS[:18], "ws", "ws_count", *_TAIL_ARGS[18:], "ws_tiles")
 _META_ARGS = ("cu_seqlens", "chunk_start", "chunk_len", "seq_chunk_start", "fwd_seg_chunk_start", "fwd_seg_seq",
               "fwd_seq_seg_start", "bwd_seg_chunk_start", "bwd_seg_seq", "bwd_seq_seg_start", "num_seqs",
               "num_chunks_max", "total_tokens", "fwd_segment_len", "bwd_segment_len", "fwd_num_segments_max",
@@ -247,12 +227,8 @@ LAUNCH_ARGS: dict[str, tuple[str, ...]] = {
     "tail_g3": _TAIL_ARGS,
     "tail_g3_bf16": _TAIL_ARGS,
     "dhu_pre_dvl_r64k1": _DHU_PRE_DVL_ARGS,
-    "tail": _TAIL_RED_ARGS,
-    "tail_bf16": _TAIL_RED_ARGS,
-    "tail_bulk": _TAIL_RED_ARGS,
-    "tail_bulk_bf16": _TAIL_RED_ARGS,
-    "tail_ordered": _TAIL_RED_ARGS,
-    "tail_ordered_bf16": _TAIL_RED_ARGS,
+    "tail": _TAIL_WS_ARGS,
+    "tail_bf16": _TAIL_WS_ARGS,
     **{f"fwd_h_r{vb}k{ks}": _FWD_H_ARGS for vb, ks in REG_SCAN_CONFIGS},
     **{f"fwd_h_r{vb}k{ks}_split": _FWD_H_SPLIT_ARGS for vb, ks in PRESCAN_CONFIGS},
     **{f"fwd_h_pre_r{vb}k{ks}": _FWD_H_PRE_ARGS for vb, ks in PRESCAN_CONFIGS},
@@ -319,10 +295,7 @@ FINALIZE_STAGES = ("finalize", "finalize_mlp")
 DHU_SCANS = ("reg", "tc")
 PREP_FORMS = ("plain", "tma")
 STREAM_COUNTS = (1, 2)
-TAIL_FORMS = ("tail", "tail_bulk", "tail_ordered", "tail_g2", "tail_g3", "unfused")
-# the package tail's forms (its build keyword ``merge``: red, bulk, ordered) and the ones that merge in arrival order
-PACKAGE_TAILS = ("tail", "tail_bulk", "tail_ordered")
-UNORDERED_TAILS = ("tail", "tail_bulk")
+TAIL_FORMS = ("tail", "tail_g2", "tail_g3", "unfused")
 
 
 @dataclass(frozen=True)
@@ -344,8 +317,7 @@ class ChainOptions:
     ``2`` to let a host-built table's serial scans run as two sequence groups on the caller's stream and a side stream
     where their rule (:func:`two_stream_split`) fills the last round (the same bits), ``1`` to keep every launch on
     the caller's stream; ``tail`` forces the backward tail (``None``: the rule of :func:`tail_form`): the package's
-    tails ``"tail"`` (unordered ``red.global.add``), ``"tail_bulk"`` (unordered ``cp.reduce.async.bulk``) and
-    ``"tail_ordered"`` (value-head order), which sum the FP32 ``dq`` / ``dk`` partials, or the deterministic
+    tail ``"tail"``, which sums the FP32 ``dq`` / ``dk`` partials in value-head order, or the deterministic
     package's fixed-order tails ``"tail_g2"`` / ``"tail_g3"`` (a value-head group of two / three) and ``"unfused"``
     (``dqkwg``, the WY pullback and the finalize), which round each value head's ``dq`` / ``dk`` partials to BF16
     before their sum (``dv``, ``dg`` and ``dbeta`` are the same bits in every form).
@@ -750,20 +722,25 @@ def finalize_stage(
 
 
 # The package tail's workspace (a value-head group of two or more), per (device, stream of the launch): FP32 rows of
-# 64 ``dq`` rows then 64 ``dk`` rows (65,536 bytes each), one per (chunk, key head) tile for the unordered merges (zero
-# when created and left zero by every launch), one per (chunk, value head) slot for ``"tail_ordered"`` (written before
-# it is read, a buffer of its own), and one u32 arrival counter per tile (zero when created, left zero by every
-# launch).  A backward launches its chunk table in segments of at most ``TAIL_WORKSPACE_TILES`` rows (at least one
-# chunk), so a workspace holds at most ``max(TAIL_WORKSPACE_TILES, num_v_heads)`` rows.
+# 64 ``dq`` rows then 64 ``dk`` rows (65,536 bytes each), one slot per (chunk, value head) (written before it is
+# read), and one u32 arrival counter per (chunk, key head) tile (zero when created, left zero by every launch).  A
+# backward launches its chunk table in segments of at most ``TAIL_WORKSPACE_TILES`` slots (at least one chunk), so a
+# workspace holds at most ``max(TAIL_WORKSPACE_TILES, num_v_heads)`` slots.
 TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
 TAIL_WORKSPACE_TILES = 4096
 # Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail (value-head groups other
-# than two): where the unordered tail's fused per-CTA chain is latency-bound it measured slower (GB300 crossovers:
+# than two): where the package tail's fused per-CTA chain is latency-bound it measured slower (GB300 crossovers:
 # G = 1 between 1024 and 2048 CTAs, G = 3 between 1536 and 2304, G = 4 between 512 and 1024).
 TAIL_MIN_CTAS = 2048
-# The fixed-order cluster tail the rule takes per value-head group, and the package tail (its merge) it takes elsewhere
-# from TAIL_MIN_CTAS CTAs on.
-CLUSTER_TAILS: dict[int, str] = {2: "tail_g2", 3: "tail_g3"}
+# The fixed-order cluster tail the rule takes per architecture and value-head group, and the package tail it takes
+# elsewhere from TAIL_MIN_CTAS CTAs on: tail_g2 measured 13-16 % faster than the package tail at G = 2 on B200 and
+# GB300; at G = 3 the package tail measured 1.0-2.3 % faster than tail_g3 on B200 and 0.8-1.0 % slower on GB300
+# (sm_107a keeps tail_g3 until it is measured there).
+CLUSTER_TAILS: dict[str, dict[int, str]] = {
+    "sm_100a": {2: "tail_g2"},
+    "sm_103a": {2: "tail_g2", 3: "tail_g3"},
+    "sm_107a": {2: "tail_g2", 3: "tail_g3"},
+}
 TAIL_DEFAULT = "tail"
 # The value-head groups whose adjoint dhu_tc2 scan runs as two sequence groups (two streams) feeding the fused tail
 # (the R form) where :func:`sequence_groups` splits it.
@@ -775,23 +752,27 @@ def tail_form(
     num_v_heads: int,
     forced: str | None = None,
     *,
+    arch: str,
     num_chunks: int | None = None,
 ) -> str:
-    """The backward tail of one call over ``num_chunks`` chunks (``None``: a large call): ``forced`` when given
-    (``"tail_g2"`` / ``"tail_g3"`` serve a value-head group of two / three), else the fastest tail measured for the
-    call's value-head group ``G = num_v_heads / num_heads`` and size (``benchmarks/bench_cake_gdn_train.py`` on B200
-    and GB300): the fixed-order cluster tail of ``CLUSTER_TAILS`` for its group; otherwise the package tail
-    ``TAIL_DEFAULT`` from ``TAIL_MIN_CTAS`` (chunk, value head) CTAs on, the fixed-order ``"unfused"`` tail below."""
+    """The backward tail of one call on ``arch`` over ``num_chunks`` chunks (``None``: a large call): ``forced`` when
+    given (``"tail_g2"`` / ``"tail_g3"`` serve a value-head group of two / three), else the fastest tail measured for
+    the call's architecture, value-head group ``G = num_v_heads / num_heads`` and size
+    (``benchmarks/bench_cake_gdn_train.py`` on B200 and GB300): the fixed-order cluster tail of
+    ``CLUSTER_TAILS[arch]`` for its group; otherwise the package tail ``TAIL_DEFAULT`` from ``TAIL_MIN_CTAS``
+    (chunk, value head) CTAs on, and below them the fixed-order ``"tail_g3"`` for a group of three, ``"unfused"`` for
+    the others."""
     if num_heads <= 0 or num_v_heads % num_heads != 0:
         raise ValueError(
             f"num_v_heads={num_v_heads} must be a positive multiple of num_heads={num_heads}"
         )
     group = num_v_heads // num_heads
     if forced is None:
-        if group in CLUSTER_TAILS:
-            return CLUSTER_TAILS[group]
+        cluster = CLUSTER_TAILS[arch]
+        if group in cluster:
+            return cluster[group]
         if num_chunks is not None and int(num_chunks) * num_v_heads < TAIL_MIN_CTAS:
-            return "unfused"
+            return "tail_g3" if group == 3 else "unfused"
         return TAIL_DEFAULT
     if forced not in TAIL_FORMS:
         raise ValueError(f"tail={forced!r}")
@@ -802,26 +783,19 @@ def tail_form(
     return forced
 
 
-def tail_alerts(form: str, num_heads: int, num_v_heads: int) -> bool:
-    """Whether a backward with the tail ``form`` launches an unordered reduction, and so raises PyTorch's
-    determinism alert: the unordered package tails (``"tail"``, ``"tail_bulk"``) of a value-head group of two or more
-    (a group of one sums nothing across CTAs, and the other forms are fixed-order)."""
-    return form in UNORDERED_TAILS and num_v_heads > num_heads
-
-
-def tail_segments(num_chunks: int, num_heads: int, num_v_heads: int, tiles: int | None = None, *,
-                  slots: int = 1) -> tuple[tuple[tuple[int, int], ...], int]:  # fmt: skip
-    """The chunk ranges ``[c0, c1)`` a package tail launches in stream order over a chunk table of ``num_chunks``
-    chunks, and the workspace tiles a launch may index: one launch and no tile at a value-head group of one, else
-    ranges of ``max(1, tiles // (num_heads * slots))`` chunks (``tiles``: the workspace rows, default
-    ``TAIL_WORKSPACE_TILES``; ``slots``: the rows of a tile, the group for ``"tail_ordered"``, else 1)."""
+def tail_segments(num_chunks: int, num_heads: int, num_v_heads: int,
+                  slots: int | None = None) -> tuple[tuple[tuple[int, int], ...], int]:  # fmt: skip
+    """The chunk ranges ``[c0, c1)`` the package tail launches in stream order over a chunk table of ``num_chunks``
+    chunks, and the (chunk, key head) tiles a launch may index (a tile is the group's ``num_v_heads // num_heads``
+    workspace slots and one arrival counter): one launch and no tile at a value-head group of one, else ranges of
+    ``max(1, slots // num_v_heads)`` chunks (``slots``: the workspace slots, default ``TAIL_WORKSPACE_TILES``)."""
     num_chunks, num_heads = int(num_chunks), int(num_heads)
     if num_chunks <= 0:
         return (), 0
     if int(num_v_heads) == num_heads:
         return ((0, num_chunks),), 0
-    cap = TAIL_WORKSPACE_TILES if tiles is None else int(tiles)
-    per = min(num_chunks, max(1, cap // (num_heads * int(slots))))
+    cap = TAIL_WORKSPACE_TILES if slots is None else int(slots)
+    per = min(num_chunks, max(1, cap // int(num_v_heads)))
     return tuple(
         (c, min(c + per, num_chunks)) for c in range(0, num_chunks, per)
     ), per * num_heads
@@ -2031,18 +2005,15 @@ def gdn_chunk_backward(
     """The backward chain over one forward tape of :func:`gdn_chunk_forward`; returns ``dq``, ``dk``, ``dv``, ``dg``,
     ``dbeta`` and ``dinitial_state``.  ``deterministic`` must be ``False``, and so must the mode the tape records
     (``ValueError`` otherwise: a tape of the deterministic package is refused).  With PyTorch's deterministic
-    algorithms enabled, a backward whose tail sums ``dq`` / ``dk`` partials in arrival order (:func:`tail_alerts`)
-    raises PyTorch's alert before its first launch: ``RuntimeError``, or a ``UserWarning`` with ``warn_only=True``."""
+    algorithms enabled it runs as usual: every launch is fixed-order."""
     _require_nondeterministic(deterministic, "gdn_chunk_backward")
     return _backward(
         forward, do, dht, initial_state=initial_state, dbeta_dtype=dbeta_dtype
     )
 
 
-def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
-              entry: str = "gdn_chunk_backward") -> dict[str, Any]:  # fmt: skip
-    """:func:`gdn_chunk_backward` after its mode check: the tape must be of this package's mode.  ``entry`` names the
-    caller in PyTorch's determinism alert, raised before the first launch when the tail is an unordered one."""
+def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None) -> dict[str, Any]:
+    """:func:`gdn_chunk_backward` after its mode check: the tape must be of this package's mode."""
     if forward.get("deterministic", True) is not False:
         raise ValueError("gdn_chunk_backward reads the tape of a non-deterministic forward (deterministic=False); "
                          "this tape records the deterministic mode")  # fmt: skip
@@ -2054,9 +2025,7 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
     scale = float(forward["scale"])
     v, beta32 = forward["v"], forward["beta32"]
     num_heads, num_v_heads = qn.shape[-2], v.shape[-2]
-    form = tail_form(num_heads, num_v_heads, options.tail, num_chunks=meta.num_chunks)
-    if tail_alerts(form, num_heads, num_v_heads):
-        _alert_nondeterministic(entry)
+    form = tail_form(num_heads, num_v_heads, options.tail, arch=arch, num_chunks=meta.num_chunks)
     total_tokens = qn.numel() // (num_heads * qn.shape[-1])
     device = qn.device
     index = _tensor_index(qn)
@@ -2213,24 +2182,16 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
 
         else:
             stage = form + ("_bf16" if dbeta_bf16 else "")
-            # "tail_ordered": a slot per (chunk, value head), left written (a buffer of its own); the unordered merges
-            # share the zero-kept tiles
-            slots, role = (
-                (num_v_heads // num_heads, "tail_ws_ordered")
-                if form == "tail_ordered"
-                else (1, "tail_ws")
-            )
+            group = num_v_heads // num_heads
 
             def tail(c0, c1):
                 # the workspace of the stream that launches (every tail runs on the caller's stream), and launches of
                 # at most its rows in stream order
-                ranges, tiles = tail_segments(
-                    c1 - c0, num_heads, num_v_heads, slots=slots
-                )
+                ranges, tiles = tail_segments(c1 - c0, num_heads, num_v_heads)
                 ws = workspaces.take_zeroed(
                     index,
-                    role,
-                    max(tiles * slots, 1),
+                    "tail_ws",
+                    max(tiles * group, 1),
                     (TAIL_TILE_FLOATS,),
                     torch.float32,
                     device,
@@ -2550,8 +2511,7 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
                 "deterministic": ctx.deterministic}  # fmt: skip
         if ctx.saved_state_tensors:
             tape["w"], tape["u"], tape["h"], tape["v_new"] = state_tensors
-        grads = _backward(tape, do.contiguous(), dht, initial_state=saved_state, dbeta_dtype=beta_dtype,
-                          entry="ChunkGatedDeltaRuleFunction.backward")  # fmt: skip
+        grads = _backward(tape, do.contiguous(), dht, initial_state=saved_state, dbeta_dtype=beta_dtype)
         dg = grads["dg"]
         if dg.dtype != g_dtype:
             dg = dg.to(g_dtype)
@@ -2617,13 +2577,10 @@ def chunk_gated_delta_rule(
     decreasing, to the tokens of ``q``.  The device route trusts the values of ``cu_seqlens`` (reading them would
     synchronize): the same contract, unchecked.
 
-    ``deterministic`` must be ``False``: the package computes non-deterministically (the outputs and gradients match
+    ``deterministic`` must be ``False``: the package is the non-deterministic route (the outputs and gradients match
     the deterministic package within its accuracy budgets, not bitwise), and any other value raises ``ValueError``.
-    With PyTorch's deterministic algorithms enabled (``torch.use_deterministic_algorithms(True)``) the forward runs
-    as usual (fixed-order programs), and a backward that sums the ``dq`` / ``dk`` partials of a value-head group in
-    arrival order (the unordered package tails at ``HV > H``; :func:`tail_alerts`) raises PyTorch's alert for an operation
-    without a deterministic implementation, named ``ChunkGatedDeltaRuleFunction.backward``: ``RuntimeError``, or a
-    ``UserWarning`` with ``warn_only=True``.  ``tail`` pins the backward tail (:class:`ChainOptions`).
+    Every launch is fixed-order, so PyTorch's deterministic algorithms (``torch.use_deterministic_algorithms(True)``)
+    change nothing.  ``tail`` pins the backward tail (:class:`ChainOptions`).
     """
     _require_nondeterministic(deterministic, "chunk_gated_delta_rule")
     if (
