@@ -719,7 +719,7 @@ def finalize_stage(
 # ``TAIL_WORKSPACE_TILES // num_heads`` chunks (at least one), so a workspace holds at most
 # ``max(TAIL_WORKSPACE_TILES, num_heads)`` tiles.
 TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
-TAIL_WORKSPACE_TILES = 1024
+TAIL_WORKSPACE_TILES = 4096
 # Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail (value-head groups other
 # than two): where the unordered tail's fused per-CTA chain is latency-bound it measured slower (GB300 crossovers:
 # G = 1 between 1024 and 2048 CTAs, G = 3 between 1536 and 2304, G = 4 between 512 and 1024).

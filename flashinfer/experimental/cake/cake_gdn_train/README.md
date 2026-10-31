@@ -133,7 +133,7 @@ counter per (chunk, key head) of a launch.  The workspace is created zero
 later launch needs no memset.  The chain keeps one workspace per (device,
 stream of the launch) with `host_cache=True` (a fresh zeroed one per call
 otherwise), and launches the chunk table in segments of at most
-`TAIL_WORKSPACE_TILES // H` chunks (1024 tiles, 64 MiB; at least one chunk),
+`TAIL_WORKSPACE_TILES // H` chunks (4096 tiles, 256 MiB; at least one chunk),
 in stream order.  Calls on different streams take different workspaces.  A
 CUDA graph captured on its own stream takes a workspace of that stream (zeroed
 inside the capture when the capture creates it); replay one captured graph at
