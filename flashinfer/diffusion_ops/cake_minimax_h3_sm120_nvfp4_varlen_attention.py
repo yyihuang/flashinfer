@@ -59,6 +59,7 @@ from .cake_minimax_h3_sm120_quant_varlen_attention import (
     _BLOCK_N,
     _MAX_HEADS,
     _MAX_PLANS,
+    _WORKSPACES,
     MINIMAX_H3_HEAD_DIM,
     MINIMAX_H3_NUM_HEADS,
     _capturing,
@@ -1013,38 +1014,72 @@ def _nvfp4_entry(target: str, slot: int) -> Any:
     return entry
 
 
+# A plan below the fused pre-processing (fewer than ``_PREPROCESS_MIN_TOKENS`` padded tokens: the statistics and
+# K / V quantizer launches) runs on the owner's main buffers until a plan of at least that size has grown them;
+# from then on it takes a small set of its own (names prefixed ``small_``, grown by such plans alone) instead of
+# the leading slices of buffers a long plan grows to gigabytes.  The tiny plans are latency-bound: on the RTX
+# 5090 a 500-token plan ran up to 6 % slower on the leading slices of a set a 110k-token plan had grown, in some
+# processes, and not on buffers of its own size.
+_SMALL_SET = "small_"
+
+
+def _nvfp4_set(plan, owner: Tuple[int, ...]) -> str:
+    """The buffer-name prefix of the workspace set a call of ``plan`` by workspace owner ``owner`` uses:
+    ``_SMALL_SET`` for a plan below the fused pre-processing once the owner's main ``q4`` buffer holds a plan
+    of ``_PREPROCESS_MIN_TOKENS`` tokens, else none (the main set)."""
+    if plan.padded_tokens >= _PREPROCESS_MIN_TOKENS:
+        return ""
+    q4 = _WORKSPACES.get(owner, {}).get("q4")
+    grown = _PREPROCESS_MIN_TOKENS * plan.num_heads * _ROW_BYTES4
+    return _SMALL_SET if q4 is not None and q4.numel() >= grown else ""
+
+
 def _nvfp4_buffers(
-    plan, num_stats_tiles: int, owner: Tuple[int, ...]
+    plan, num_stats_tiles: int, owner: Tuple[int, ...], prefix: str = ""
 ) -> Tuple[torch.Tensor, ...]:
     """The grow-only workspace buffers a call of ``plan`` needs from the sets of its workspace owner
-    ``owner`` (``_owner``): the quantized operands, scales and statistics (``_workspace``), then the
-    arrival counters, the grid-barrier word and the overlapped form's head-control words
-    (``_zero_stream_workspace``), which start zeroed and are reset by the kernels."""
+    ``owner`` (``_owner``), named with ``prefix`` (``_nvfp4_set``): the quantized operands, scales and
+    statistics (``_workspace``), then the arrival counters, the grid-barrier word and the overlapped form's
+    head-control words (``_zero_stream_workspace``), which start zeroed and are reset by the kernels."""
     tokens, heads, hd = plan.total_tokens, plan.num_heads, MINIMAX_H3_HEAD_DIM
     qtiles = max(1, plan.num_tiles)
     n_rows4 = tokens * heads * _ROW_BYTES4
     n_sf = heads * plan.num_kblocks * _SCALE_TILE_BYTES
     return (
-        _workspace(owner, "q4", n_rows4, torch.uint8),
-        _workspace(owner, "k4", n_rows4, torch.uint8),
-        _workspace(owner, "q_sf", tokens * heads * _BLOCKS_PER_ROW, torch.uint8),
-        _workspace(owner, "k_sf", n_sf, torch.uint8),
-        _workspace(owner, "qm4", qtiles * heads * _ROW_BYTES4, torch.uint8),
-        _workspace(owner, "qm_sf", qtiles * heads * _BLOCKS_PER_ROW, torch.uint8),
-        _workspace(owner, "vt4", heads * hd * (plan.padded_tokens // 2), torch.uint8),
-        _workspace(owner, "v_sf", n_sf, torch.uint8),
-        _workspace(owner, "q_mean", qtiles * heads * hd, torch.float32),
-        _workspace(owner, "mean_k", plan.num_segments * heads * hd, torch.float32),
+        _workspace(owner, prefix + "q4", n_rows4, torch.uint8),
+        _workspace(owner, prefix + "k4", n_rows4, torch.uint8),
         _workspace(
-            owner, "partials", max(1, num_stats_tiles * heads * hd), torch.float32
+            owner, prefix + "q_sf", tokens * heads * _BLOCKS_PER_ROW, torch.uint8
         ),
-        _zero_stream_workspace(
-            owner, "counters", max(1, plan.num_segments) * heads, torch.uint32
+        _workspace(owner, prefix + "k_sf", n_sf, torch.uint8),
+        _workspace(owner, prefix + "qm4", qtiles * heads * _ROW_BYTES4, torch.uint8),
+        _workspace(
+            owner, prefix + "qm_sf", qtiles * heads * _BLOCKS_PER_ROW, torch.uint8
         ),
-        _zero_stream_workspace(owner, "barrier", 4, torch.uint32),
+        _workspace(
+            owner, prefix + "vt4", heads * hd * (plan.padded_tokens // 2), torch.uint8
+        ),
+        _workspace(owner, prefix + "v_sf", n_sf, torch.uint8),
+        _workspace(owner, prefix + "q_mean", qtiles * heads * hd, torch.float32),
+        _workspace(
+            owner, prefix + "mean_k", plan.num_segments * heads * hd, torch.float32
+        ),
+        _workspace(
+            owner,
+            prefix + "partials",
+            max(1, num_stats_tiles * heads * hd),
+            torch.float32,
+        ),
         _zero_stream_workspace(
             owner,
-            "hctr",
+            prefix + "counters",
+            max(1, plan.num_segments) * heads,
+            torch.uint32,
+        ),
+        _zero_stream_workspace(owner, prefix + "barrier", 4, torch.uint32),
+        _zero_stream_workspace(
+            owner,
+            prefix + "hctr",
             _HCTR_WORDS_PER_HEAD * heads + _HCTR_TAIL_WORDS,
             torch.uint32,
         ),
@@ -1200,11 +1235,12 @@ class _Nvfp4Launch:
         )
 
 
-# Per workspace owner (``_owner``): the workspace buffers the cached launches slice (the launches hold views of
-# that owner's buffers) and the launches per (plan, route).  A grown buffer (of this route or of
-# ``pv_mode="fp8"``, which shares the names) or a re-created set drops every launch of the owner; the most
-# recent ``_MAX_WORKSPACE_SETS`` owners and ``_MAX_PLANS`` launches per owner are kept.
-_NVFP4_LAUNCHES: "OrderedDict[Tuple[int, ...], Tuple[Tuple[torch.Tensor, ...], OrderedDict]]" = OrderedDict()
+# Per workspace owner (``_owner``) and buffer set (``_nvfp4_set``): the workspace buffers the cached launches
+# slice (the launches hold views of that owner's buffers) and the launches per (plan, route).  A grown buffer
+# of the set (of this route or, for the main set, of ``pv_mode="fp8"``, which shares the names) or a
+# re-created set drops every launch of that set; the most recent ``_MAX_WORKSPACE_SETS`` owners and
+# ``_MAX_PLANS`` launches per set are kept.
+_NVFP4_LAUNCHES: "OrderedDict[Tuple[int, ...], Dict[str, Tuple[Tuple[torch.Tensor, ...], OrderedDict]]]" = OrderedDict()
 
 
 def _nvfp4_launch(
@@ -1212,10 +1248,14 @@ def _nvfp4_launch(
 ) -> _Nvfp4Launch:
     index = owner[0]
     _, num_stats_tiles, _ = _plan_rows(plan, torch.device("cuda", index))
-    buffers = _nvfp4_buffers(plan, num_stats_tiles, owner)
-    cached = _owner_entry(_NVFP4_LAUNCHES, owner, lambda: (buffers, OrderedDict()))
-    if any(a is not b for a, b in zip(cached[0], buffers, strict=True)):
-        cached = _NVFP4_LAUNCHES[owner] = (buffers, OrderedDict())
+    prefix = _nvfp4_set(plan, owner)
+    buffers = _nvfp4_buffers(plan, num_stats_tiles, owner, prefix)
+    sets = _owner_entry(_NVFP4_LAUNCHES, owner, dict)
+    cached = sets.get(prefix)
+    if cached is None or any(
+        a is not b for a, b in zip(cached[0], buffers, strict=True)
+    ):
+        cached = sets[prefix] = (buffers, OrderedDict())
     launches = cached[1]
     launch_key = (plan.key, delta)
     launch = launches.get(launch_key)
