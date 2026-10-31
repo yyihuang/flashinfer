@@ -1604,10 +1604,14 @@ def gdn_chunk_backward(
     ``dbeta`` and ``dinitial_state``.  ``deterministic`` must be ``False``, and so must the mode the tape records
     (``ValueError`` otherwise: a tape of the deterministic package is refused)."""
     _require_nondeterministic(deterministic, "gdn_chunk_backward")
-    return _backward(forward, do, dht, initial_state=initial_state, dbeta_dtype=dbeta_dtype)
+    return _backward(
+        forward, do, dht, initial_state=initial_state, dbeta_dtype=dbeta_dtype
+    )
 
 
-def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None) -> dict[str, Any]:
+def _backward(
+    forward, do, dht=None, *, initial_state=None, dbeta_dtype=None
+) -> dict[str, Any]:
     """:func:`gdn_chunk_backward` after its mode check: the tape must be of this package's mode."""
     if forward.get("deterministic", True) is not False:
         raise ValueError("gdn_chunk_backward reads the tape of a non-deterministic forward (deterministic=False); "
