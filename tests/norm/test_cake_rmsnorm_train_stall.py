@@ -45,9 +45,10 @@ Beside a kernel holding shared memory on every SM (review R3, C3): one CTA per
 SM with ``ALL_SM_SMEM_KB`` of dynamic shared memory (max-shared carveout).
 Every shipped backward instance -- each window of every route, residual and
 FP32-weight routes included -- co-resides with it at least as well as the
-deterministic program at the same call (where that package serves the call),
-or waits for it and is listed in ``SMEM_WAIT_ABOVE``; the list matches the
-measurement exactly.
+deterministic program it replaces at the same call (for an FP32-weight twin:
+the deterministic program of its BF16 owner, called with the BF16 weight; where
+that package serves the width and residual flag), or waits for it and is listed
+in ``SMEM_WAIT_ABOVE``; the list matches the measurement exactly.
 """
 
 from __future__ import annotations
@@ -556,10 +557,9 @@ def _det_backend():
         return None
 
 
-def _det_serves(det, hidden: int, residual: bool, token: str) -> bool:
+def _det_serves(det, hidden: int, residual: bool) -> bool:
     return (
         det is not None
-        and token == "bf16"
         and det.cake_jit.route_applies(
             device_capability=_capability(), hidden=hidden, kind="bwd", residual=residual
         )
@@ -597,7 +597,10 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) ->
         extra = busy_ms - alone_ms
         waited = extra > MAX_ALL_SM_EXTRA_MS
         det_extra = None
-        if _det_serves(det, hidden, residual, token):
+        if _det_serves(det, hidden, residual):
+            # the det program the instance replaces: an FP32-weight twin's is its
+            # BF16 owner's, called with the BF16 weight
+            w_det = w.to(torch.bfloat16)
             det_ws = det.cake_rmsnorm_det_train_backward_workspace(
                 rows, hidden, _device(), residual=residual
             )
@@ -606,7 +609,7 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) ->
                 kwargs["g_residual"] = g_h
 
             def det_call():
-                out = det.cake_rmsnorm_det_train_backward(g, x, w, rstd, **kwargs)
+                out = det.cake_rmsnorm_det_train_backward(g, x, w_det, rstd, **kwargs)
                 return tuple(t.clone() for t in out)
 
             det_alone, det_busy, _a, _b = _all_sm_medians(
