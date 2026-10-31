@@ -1459,9 +1459,9 @@ TC_PLAN = True
 TC_PLAN_GAIN = 0.95
 TC_PLAN_MIN_SAVING = 10.0
 # The dhu_tc2 step time (microseconds) at low and full residency that prices these tables, measured (CUPTI kernel
-# durations of L = 64 tables, 3 to 288 CTAs: B200 2.32-2.44, GB300 2.15-2.26 per step); an architecture not listed takes
-# the dhu_tc2 record's t_lat / t_full.
-TC_PLAN_STEP = {"sm_100a": (2.35, 2.44), "sm_103a": (2.17, 2.25)}
+# durations of L = 64 tables, 3 to 288 CTAs: B200 2.32-2.44, GB300 2.15-2.26, R200 1.64-2.06 per step; R200 takes the
+# least-squares fit of t(n) over those tables); an architecture not listed takes the dhu_tc2 record's t_lat / t_full.
+TC_PLAN_STEP = {"sm_100a": (2.35, 2.44), "sm_103a": (2.17, 2.25), "sm_107a": (1.68, 1.89)}
 
 
 def _tc_table_price(
