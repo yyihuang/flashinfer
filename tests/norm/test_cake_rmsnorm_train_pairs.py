@@ -47,7 +47,12 @@ def _routes():
 def _parse(route: str) -> tuple[str, int, bool, str]:
     kind, _, rest = route.partition("_")
     hidden = int(route.rsplit("_h", 1)[1])
-    return kind, hidden, "residual" in rest.split("_"), "f32" if "w32" in rest.split("_") else "bf16"
+    return (
+        kind,
+        hidden,
+        "residual" in rest.split("_"),
+        "f32" if "w32" in rest.split("_") else "bf16",
+    )
 
 
 def test_every_route_tiles_the_token_counts() -> None:
@@ -73,7 +78,9 @@ def test_backward_records_are_single_chunk_claiming_kernels() -> None:
                 assert record["workspace_rule"] is None
                 continue
             assert record["workspace_rule"]["kind"] == "claim_sum_f64"
-            assert 2 <= record["workspace_rule"]["counters"] <= loader.COUNTERS_BYTES // 4
+            assert (
+                2 <= record["workspace_rule"]["counters"] <= loader.COUNTERS_BYTES // 4
+            )
             rule = record["grid_rule"]
             assert rule["kind"] == "claimed_chunks"
             assert rule["ctas_per_sm"] == min(
@@ -89,7 +96,7 @@ def test_backward_records_are_single_chunk_claiming_kernels() -> None:
 def test_chunk_tables_cover_the_rows(sms: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(loader, "sm_count", lambda device_index: sms)
     seen = set()
-    for name, record in loader.MODULES.items():
+    for record in loader.MODULES.values():
         if record["workspace_rule"] is None:
             continue
         rule = record["grid_rule"]
@@ -108,10 +115,14 @@ def test_chunk_tables_cover_the_rows(sms: int, monkeypatch: pytest.MonkeyPatch) 
             assert table[0][0] == 0 and table[-1][1] == rows
             assert all(a[1] == b[0] for a, b in zip(table, table[1:], strict=False))
             assert layout["partial_bytes"] == loader.SUM_BYTES * record["hidden"]
-            assert layout["total_bytes"] == loader.COUNTERS_BYTES + layout["partial_bytes"]
+            assert (
+                layout["total_bytes"] == loader.COUNTERS_BYTES + layout["partial_bytes"]
+            )
             assert layout["counters_offset"] == 0
             assert layout["partial_offset"] == loader.COUNTERS_BYTES
-            assert layout["partial_offset"] % 256 == 0  # bulk-reduction destination alignment
+            assert (
+                layout["partial_offset"] % 256 == 0
+            )  # bulk-reduction destination alignment
             grid = loader.launch_grid(record, rows, device_index=0)
             assert grid == (min(slots, len(table)), 1, 1)
 
@@ -127,9 +138,7 @@ def test_windows_module_is_the_registry() -> None:
 
 
 def test_build_manifest_builds_every_library() -> None:
-    manifest = json.loads(
-        (Path(loader.__file__).parent / "build.json").read_text()
-    )
+    manifest = json.loads((Path(loader.__file__).parent / "build.json").read_text())
     built = {entry["name"] for entry in manifest["libraries"]}
     wanted = {
         loader.library_name(name, arch)

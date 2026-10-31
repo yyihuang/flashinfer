@@ -112,7 +112,9 @@ def test_old_facade_is_its_own_module() -> None:
     assert Path(legacy_facade.__file__).name == "cake_rmsnorm_train.py"
     assert sorted(legacy_facade.__all__) == LEGACY_ALL
     for name in legacy_facade.__all__:
-        assert getattr(legacy_facade, name) is getattr(legacy_backend, name) or name in (
+        assert getattr(legacy_facade, name) is getattr(
+            legacy_backend, name
+        ) or name in (
             "cake_rmsnorm",
             "cake_rmsnorm_train_backward",
             "cake_rmsnorm_train_forward",

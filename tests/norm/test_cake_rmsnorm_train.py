@@ -162,7 +162,11 @@ def _rows(
 ) -> torch.Tensor:
     """BF16 ``[rows, hidden]`` view with ``stride(0) == hidden + pad``."""
     base = torch.randn(
-        max(rows, 1), hidden + pad, dtype=torch.float32, device=_device(), generator=generator
+        max(rows, 1),
+        hidden + pad,
+        dtype=torch.float32,
+        device=_device(),
+        generator=generator,
     ).to(torch.bfloat16)
     return base[:rows, :hidden]
 
@@ -238,7 +242,9 @@ def _assert_dw(dw, dw_ref, g, x, rstd, label: str) -> float:
             f"(worst column {at}: {float(dw[at]):.9g} vs {float(dw_ref[at]):.9g})"
         )
     hidden = x.shape[-1]
-    eager_fp32 = (g.float() * x.float() * rstd.float().unsqueeze(-1)).reshape(-1, hidden).sum(0)
+    eager_fp32 = (
+        (g.float() * x.float() * rstd.float().unsqueeze(-1)).reshape(-1, hidden).sum(0)
+    )
     _DW_ERRORS.append((label, error, _rel_l2(eager_fp32, dw_ref)))
     return error
 
@@ -311,7 +317,9 @@ def test_fp32_weight_routes(hidden: int, rows: int) -> None:
 def test_zero_rows_launch_nothing(hidden: int, monkeypatch: pytest.MonkeyPatch) -> None:
     _skip_unless_route(hidden)
     launched: list[str] = []
-    monkeypatch.setattr(loader, "run_module", lambda name, *a, **k: launched.append(name))
+    monkeypatch.setattr(
+        loader, "run_module", lambda name, *a, **k: launched.append(name)
+    )
     x = torch.empty(0, hidden, dtype=torch.bfloat16, device=_device())
     w = torch.ones(hidden, dtype=torch.bfloat16, device=_device())
     y, rstd = forward(x, w, EPS[hidden])
@@ -337,10 +345,17 @@ def test_repeated_launches(hidden: int, rows: int) -> None:
     for _ in range(REPEATS):
         dx, dw = backward(g, normalized, w, rstd, workspace=ws)
         assert torch.equal(dx, dx0), "dx changed between launches"
-        worst = max(worst, _assert_dw(dw, dw_ref, g, normalized, rstd, f"repeat h={hidden} T={rows}"))
+        worst = max(
+            worst,
+            _assert_dw(dw, dw_ref, g, normalized, rstd, f"repeat h={hidden} T={rows}"),
+        )
         spread = max(spread, (dw - dw0).abs().max().item())
-        assert not bool(ws.any()), "the workspace (counters, FP64 sums) is not back to zero"
-    print(f"DW_WORST hidden={hidden} rows={rows} rel_l2={worst:.3e} max_abs_spread={spread:.3e}")
+        assert not bool(ws.any()), (
+            "the workspace (counters, FP64 sums) is not back to zero"
+        )
+    print(
+        f"DW_WORST hidden={hidden} rows={rows} rel_l2={worst:.3e} max_abs_spread={spread:.3e}"
+    )
 
 
 @pytest.mark.parametrize("hidden", HIDDEN_SIZES)
@@ -354,8 +369,12 @@ def test_against_the_det_package(hidden: int, rows: int) -> None:
     x, _u, g, _g_h, w, rstd, normalized, dx, dw = _check(hidden, rows)
     dx_det, dw_det = det.cake_rmsnorm_det_train_backward(g, normalized, w, rstd)
     differing = int((dx.view(torch.int16) != dx_det.view(torch.int16)).sum().item())
-    ulps = (dx.view(torch.int16).int() - dx_det.view(torch.int16).int()).abs().max().item()
-    print(f"DX_VS_DET hidden={hidden} rows={rows} differing={differing} max_ulps={ulps}")
+    ulps = (
+        (dx.view(torch.int16).int() - dx_det.view(torch.int16).int()).abs().max().item()
+    )
+    print(
+        f"DX_VS_DET hidden={hidden} rows={rows} differing={differing} max_ulps={ulps}"
+    )
     assert ulps <= 1, f"dx differs from the det dx by {ulps} BF16 ulps"
     assert _rel_l2(dw, dw_det) <= DW_REL_L2
 
@@ -378,7 +397,14 @@ def test_garbage_filled_dw_is_overwritten(hidden: int) -> None:
 
 def test_workspace_reused_across_shapes_without_reset() -> None:
     ws = workspace_for(1, max(HIDDEN_SIZES), _device())
-    for hidden, rows in ((512, 7), (4096, 16385), (2048, 1), (6144, 65536), (1536, 257), (512, 4096)):
+    for hidden, rows in (
+        (512, 7),
+        (4096, 16385),
+        (2048, 1),
+        (6144, 65536),
+        (1536, 257),
+        (512, 4096),
+    ):
         if not all(_routes(hidden, kind, False) for kind in ("fwd", "bwd")):
             continue
         x, _u, g, _g_h, w = _case(hidden, rows)
@@ -388,7 +414,9 @@ def test_workspace_reused_across_shapes_without_reset() -> None:
         _assert_bf16_close(dx, dx_ref, f"dx h={hidden} T={rows}")
         _assert_dw(dw, dw_ref, g, x, rstd, f"dw h={hidden} T={rows}")
         torch.cuda.synchronize()
-        assert not bool(ws.any()), f"workspace not back to zero after h={hidden} T={rows}"
+        assert not bool(ws.any()), (
+            f"workspace not back to zero after h={hidden} T={rows}"
+        )
 
 
 def test_two_streams_with_their_own_workspaces() -> None:
@@ -404,7 +432,9 @@ def test_two_streams_with_their_own_workspaces() -> None:
     torch.cuda.synchronize()
     results = []
     for _round in range(5):
-        for stream, ws, (x, g, w, rstd, _dx_ref, _dw_ref) in zip(streams, workspaces, refs, strict=True):
+        for stream, ws, (x, g, w, rstd, _dx_ref, _dw_ref) in zip(
+            streams, workspaces, refs, strict=True
+        ):
             with torch.cuda.stream(stream):
                 results.append(backward(g, x, w, rstd, workspace=ws))
     torch.cuda.synchronize()
@@ -433,7 +463,11 @@ def test_cuda_graph_capture_and_replay(hidden: int) -> None:
         out_dw.fill_(float("nan"))
         graph.replay()
         torch.cuda.synchronize()
-        assert torch.equal(out_y, y) and torch.equal(out_rstd, rstd) and torch.equal(out_dx, dx)
+        assert (
+            torch.equal(out_y, y)
+            and torch.equal(out_rstd, rstd)
+            and torch.equal(out_dx, dx)
+        )
         assert _rel_l2(out_dw, dw) <= DW_REL_L2
         assert not bool(ws.any())
 
@@ -447,13 +481,19 @@ def test_per_head_256_query_and_key_views() -> None:
     _skip_unless_route(256)
     rows = 1000
     generator = _generator(256, rows, 24)
-    buffer = torch.randn(rows, 24, 512, device=_device(), generator=generator).to(torch.bfloat16)
+    buffer = torch.randn(rows, 24, 512, device=_device(), generator=generator).to(
+        torch.bfloat16
+    )
     query = buffer[:, :, :256]
     assert query.stride() == (12288, 512, 1)
-    key = torch.randn(rows, 4, 256, device=_device(), generator=generator).to(torch.bfloat16)
+    key = torch.randn(rows, 4, 256, device=_device(), generator=generator).to(
+        torch.bfloat16
+    )
     w = _weight(256, generator)
     for name, x in (("query", query), ("key", key)):
-        g = torch.randn(x.shape, device=_device(), generator=generator).to(torch.bfloat16)
+        g = torch.randn(x.shape, device=_device(), generator=generator).to(
+            torch.bfloat16
+        )
         y, rstd = forward(x, w, EPS[256])
         assert y.shape == x.shape and y.is_contiguous() and rstd.shape == x.shape[:-1]
         y_ref, rstd_ref, _n = _reference_forward(x, w, EPS[256])
@@ -465,7 +505,9 @@ def test_per_head_256_query_and_key_views() -> None:
         _assert_bf16_close(dx, dx_ref, f"dx {name}")
         _assert_dw(dw, dw_ref, g, x, rstd, f"dw {name}")
         # the 2-D call on the collapsed rows gives the same dx
-        dx2, _dw2 = backward(g.reshape(-1, 256), x.reshape(-1, 256), w, rstd.reshape(-1))
+        dx2, _dw2 = backward(
+            g.reshape(-1, 256), x.reshape(-1, 256), w, rstd.reshape(-1)
+        )
         assert torch.equal(dx.reshape(-1, 256), dx2)
 
 
@@ -503,7 +545,9 @@ def test_checkpoint_replays_the_same_forward() -> None:
     hidden = 4096
     _skip_unless_route(hidden)
     x, _u, g, _g_h, w = _case(hidden, 1000)
-    w32 = w.float().requires_grad_(True) if _routes(hidden, "fwd", False, "f32") else None
+    w32 = (
+        w.float().requires_grad_(True) if _routes(hidden, "fwd", False, "f32") else None
+    )
 
     def run(weight):
         xa = x.clone().requires_grad_(True)
@@ -533,10 +577,15 @@ def test_dw_not_worse_than_eager_fp32_over_the_matrix() -> None:
     when the module's dw cases did not run in this process (``-k`` selection)."""
     if len(_DW_ERRORS) < 8:
         pytest.skip("needs the dw cases of this module in the same process")
-    ratios = [(k / e) if e > 0 else (0.0 if k == 0 else float("inf")) for _label, k, e in _DW_ERRORS]
+    ratios = [
+        (k / e) if e > 0 else (0.0 if k == 0 else float("inf"))
+        for _label, k, e in _DW_ERRORS
+    ]
     median = statistics.median(ratios)
     worst = max(_DW_ERRORS, key=lambda item: item[1])
-    print(f"DW_VS_EAGER cases={len(ratios)} median_ratio={median:.3f} worst={worst[1]:.3e} at {worst[0]}")
+    print(
+        f"DW_VS_EAGER cases={len(ratios)} median_ratio={median:.3f} worst={worst[1]:.3e} at {worst[0]}"
+    )
     assert median <= 1.0, (
         f"median dw error ratio kernel/eager-FP32 {median:.3f} > 1 over {len(ratios)} cases "
         f"(worst kernel rel-L2 {worst[1]:.3e} at {worst[0]})"

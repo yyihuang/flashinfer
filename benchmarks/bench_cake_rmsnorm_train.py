@@ -71,9 +71,7 @@ def _time(fn: Callable[[], object]) -> float:
     )
 
 
-def _bytes(
-    mode: str, rows: int, hidden: int, *, residual: bool, w_bytes: int
-) -> int:
+def _bytes(mode: str, rows: int, hidden: int, *, residual: bool, w_bytes: int) -> int:
     fwd = 4 * rows * hidden + 4 * rows + w_bytes * hidden
     fwd += 4 * rows * hidden if residual else 0
     bwd = 6 * rows * hidden + 4 * rows + (w_bytes + 4) * hidden
@@ -185,7 +183,9 @@ def _format(result: dict) -> list[str]:
             entry = result["modes"].get(name, {})
             value = entry.get(f"{mode}_ms")
             cells.append(
-                f"{entry.get('error', '-')[:24]:>9s}" if value is None else f"{value * 1e3:9.2f}"
+                f"{entry.get('error', '-')[:24]:>9s}"
+                if value is None
+                else f"{value * 1e3:9.2f}"
             )
         ratio = result.get(f"{mode}_det_over_nondet")
         gbps = result["modes"].get("nondet", {}).get(f"{mode}_gbps")
