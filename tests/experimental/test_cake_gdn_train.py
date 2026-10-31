@@ -163,7 +163,11 @@ def _run(inputs, seq_lens, *, route="host", initial_state=None, output_final_sta
         kwargs["cu_seqlens_cpu"] = (
             torch.tensor(cu, dtype=torch.int64) if route == "host" else None
         )
-    entry = cake_gdn_det_train.chunk_gated_delta_rule_det if det else chunk_gated_delta_rule_nd
+    entry = (
+        cake_gdn_det_train.chunk_gated_delta_rule_det
+        if det
+        else chunk_gated_delta_rule_nd
+    )
     o, final = entry(
         leaves["q"],
         leaves["k"],
@@ -987,7 +991,9 @@ def test_lpt_order_matches_the_caller_order(pins, device) -> None:
         )
         for lpt in (True, False)
     }
-    _assert_within_budget(runs[True], runs[False], OUTPUT_NAMES + ("final_state", "dh0"))
+    _assert_within_budget(
+        runs[True], runs[False], OUTPUT_NAMES + ("final_state", "dh0")
+    )
 
 
 def test_device_route_keeps_the_caller_order(device) -> None:
@@ -1506,7 +1512,12 @@ def test_device_route_does_not_synchronize(device) -> None:
 
 # --------------------------------------------------------------------------- the mode contract (no device)
 
-ENTRY_NAMES = ("chunk_gated_delta_rule", "ChunkGatedDeltaRuleFunction", "gdn_chunk_forward", "gdn_chunk_backward")
+ENTRY_NAMES = (
+    "chunk_gated_delta_rule",
+    "ChunkGatedDeltaRuleFunction",
+    "gdn_chunk_forward",
+    "gdn_chunk_backward",
+)
 DET_NAMES = ("chunk_gated_delta_rule_det", "ChunkGatedDeltaRuleDetFunction", "gdn_chunk_det_forward",
              "gdn_chunk_det_backward")  # fmt: skip
 _ALERT = "does not have a deterministic implementation"
@@ -1515,13 +1526,21 @@ _ALERT = "does not have a deterministic implementation"
 def test_the_package_exports_the_det_free_names_only() -> None:
     for name in ENTRY_NAMES:
         for module in (cake_gdn_train, cake_chain):
-            assert name in module.__all__ and getattr(module, name) is getattr(cake_chain, name), name
+            assert name in module.__all__ and getattr(module, name) is getattr(
+                cake_chain, name
+            ), name
     for name in DET_NAMES:
         for module in (cake_gdn_train, cake_chain):
             assert not hasattr(module, name) and name not in module.__all__, name
     # the deterministic package keeps its names and its aliases, distinct objects from this package's entries
-    assert cake_gdn_det_train.chunk_gated_delta_rule is cake_gdn_det_train.chunk_gated_delta_rule_det
-    assert cake_gdn_train.chunk_gated_delta_rule is not cake_gdn_det_train.chunk_gated_delta_rule
+    assert (
+        cake_gdn_det_train.chunk_gated_delta_rule
+        is cake_gdn_det_train.chunk_gated_delta_rule_det
+    )
+    assert (
+        cake_gdn_train.chunk_gated_delta_rule
+        is not cake_gdn_det_train.chunk_gated_delta_rule
+    )
     assert cake_jit.PACKAGE == "flashinfer.experimental.cake.cake_gdn_train"
     assert cake_jit.LIBRARY_PREFIX == "cake_gdn_train"
 
@@ -1532,18 +1551,43 @@ def _entry_calls(**mode) -> dict:
     v = torch.zeros(1, 64, 2, HEAD_DIM, dtype=torch.bfloat16)
     g, beta = torch.zeros(1, 64, 2), torch.zeros(1, 64, 2)
     options = cake_chain.make_options()
-    apply_args = (q, q, v, g, beta, 1.0, None, False, None, None, True, options, *mode.values())
+    apply_args = (
+        q,
+        q,
+        v,
+        g,
+        beta,
+        1.0,
+        None,
+        False,
+        None,
+        None,
+        True,
+        options,
+        *mode.values(),
+    )
     return {
-        "chunk_gated_delta_rule": lambda: cake_gdn_train.chunk_gated_delta_rule(q, q, v, g, beta, **mode),
-        "ChunkGatedDeltaRuleFunction": lambda: cake_gdn_train.ChunkGatedDeltaRuleFunction.apply(*apply_args),
-        "gdn_chunk_forward": lambda: cake_chain.gdn_chunk_forward(q, q, v, g, beta, meta=None, arch=None, **mode),
-        "gdn_chunk_backward": lambda: cake_chain.gdn_chunk_backward({"deterministic": False}, None, **mode),
+        "chunk_gated_delta_rule": lambda: cake_gdn_train.chunk_gated_delta_rule(
+            q, q, v, g, beta, **mode
+        ),
+        "ChunkGatedDeltaRuleFunction": lambda: cake_gdn_train.ChunkGatedDeltaRuleFunction.apply(
+            *apply_args
+        ),
+        "gdn_chunk_forward": lambda: cake_chain.gdn_chunk_forward(
+            q, q, v, g, beta, meta=None, arch=None, **mode
+        ),
+        "gdn_chunk_backward": lambda: cake_chain.gdn_chunk_backward(
+            {"deterministic": False}, None, **mode
+        ),
     }
 
 
 @contextlib.contextmanager
 def _deterministic_algorithms(mode: bool, *, warn_only: bool = False):
-    previous = (torch.are_deterministic_algorithms_enabled(), torch.is_deterministic_algorithms_warn_only_enabled())
+    previous = (
+        torch.are_deterministic_algorithms_enabled(),
+        torch.is_deterministic_algorithms_warn_only_enabled(),
+    )
     torch.use_deterministic_algorithms(mode, warn_only=warn_only)
     try:
         yield
@@ -1555,12 +1599,17 @@ def _deterministic_algorithms(mode: bool, *, warn_only: bool = False):
                          ids=["default", "true", "none", "zero"])  # fmt: skip
 def test_every_entry_requires_deterministic_false(mode) -> None:
     for name, call in _entry_calls(**mode).items():
-        with pytest.raises(ValueError, match=f"^{name} computes non-deterministically and takes deterministic=False"):
+        with pytest.raises(
+            ValueError,
+            match=f"^{name} computes non-deterministically and takes deterministic=False",
+        ):
             call()
     # the refusal comes first, also with PyTorch's deterministic algorithms on
     with _deterministic_algorithms(True):
         for name, call in _entry_calls(**mode).items():
-            with pytest.raises(ValueError, match=f"^{name} computes non-deterministically"):
+            with pytest.raises(
+                ValueError, match=f"^{name} computes non-deterministically"
+            ):
                 call()
 
 
@@ -1570,13 +1619,18 @@ def test_torch_deterministic_algorithms_alert_every_entry() -> None:
             with pytest.raises(RuntimeError, match=f"^{name} {_ALERT}"):
                 call()
     # warn_only: one warning, then the call proceeds (to the device check of the host operands here)
-    with _deterministic_algorithms(True, warn_only=True), warnings.catch_warnings(record=True) as caught:
+    with (
+        _deterministic_algorithms(True, warn_only=True),
+        warnings.catch_warnings(record=True) as caught,
+    ):
         warnings.simplefilter("always")
         with pytest.raises(ValueError, match="q must be a CUDA tensor"):
             _entry_calls(deterministic=False)["chunk_gated_delta_rule"]()
-    assert [str(w.message).split(f" {_ALERT}")[0] for w in caught if _ALERT in str(w.message)] == [
-        "chunk_gated_delta_rule"
-    ]
+    assert [
+        str(w.message).split(f" {_ALERT}")[0]
+        for w in caught
+        if _ALERT in str(w.message)
+    ] == ["chunk_gated_delta_rule"]
     # the flag off: no alert at all
     with _deterministic_algorithms(False), warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -1584,10 +1638,16 @@ def test_torch_deterministic_algorithms_alert_every_entry() -> None:
             _entry_calls(deterministic=False)["chunk_gated_delta_rule"]()
 
 
-@pytest.mark.parametrize("tape", [{}, {"deterministic": True}, {"deterministic": None}], ids=["det-tape", "true", "none"])
+@pytest.mark.parametrize(
+    "tape",
+    [{}, {"deterministic": True}, {"deterministic": None}],
+    ids=["det-tape", "true", "none"],
+)
 def test_backward_refuses_a_tape_of_the_other_mode(tape) -> None:
     with pytest.raises(ValueError, match="this tape records the deterministic mode"):
-        cake_chain.gdn_chunk_backward({"arch": ARCHES[0], **tape}, None, deterministic=False)
+        cake_chain.gdn_chunk_backward(
+            {"arch": ARCHES[0], **tape}, None, deterministic=False
+        )
 
 
 # --------------------------------------------------------------------------- the non-deterministic contract (device)
@@ -1602,14 +1662,20 @@ def test_low_level_entries_round_trip_and_refuse_a_det_tape(device) -> None:
     q, k, v, g, beta, do = (inputs[n] for n in ("q", "k", "v", "g", "beta", "do"))
 
     def meta_of(chain):
-        plans = chain.scan_plans(sum(seq_lens), len(seq_lens), heads[1], index, seq_lens)
+        plans = chain.scan_plans(
+            sum(seq_lens), len(seq_lens), heads[1], index, seq_lens
+        )
         return chain.build_chunk_meta(seq_lens, device, scan_plans=plans)
 
-    tape = cake_chain.gdn_chunk_forward(q, k, v, g, beta, meta=meta_of(cake_chain), arch=arch, deterministic=False)
+    tape = cake_chain.gdn_chunk_forward(
+        q, k, v, g, beta, meta=meta_of(cake_chain), arch=arch, deterministic=False
+    )
     assert tape["deterministic"] is False
     grads = cake_chain.gdn_chunk_backward(tape, do, deterministic=False)
     assert all(bool(torch.isfinite(grads[n]).all()) for n in GRAD_NAMES)
-    det_tape = det_chain.gdn_chunk_det_forward(q, k, v, g, beta, meta=meta_of(det_chain), arch=arch)
+    det_tape = det_chain.gdn_chunk_det_forward(
+        q, k, v, g, beta, meta=meta_of(det_chain), arch=arch
+    )
     with pytest.raises(ValueError, match="this tape records the deterministic mode"):
         cake_chain.gdn_chunk_backward(det_tape, do, deterministic=False)
 
@@ -1618,11 +1684,20 @@ def test_one_alert_per_call_under_warn_only(device) -> None:
     seq_lens = (300, 77)
     inputs = _inputs(seq_lens, (2, 4), torch.bfloat16, device, seed=251)
     want = _run(inputs, seq_lens)
-    with _deterministic_algorithms(True, warn_only=True), warnings.catch_warnings(record=True) as caught:
+    with (
+        _deterministic_algorithms(True, warn_only=True),
+        warnings.catch_warnings(record=True) as caught,
+    ):
         warnings.simplefilter("always")
         got = _run(inputs, seq_lens)
-    callers = [str(w.message).split(f" {_ALERT}")[0] for w in caught if _ALERT in str(w.message)]
-    assert [c for c in callers if c in ENTRY_NAMES] == ["chunk_gated_delta_rule"], callers
+    callers = [
+        str(w.message).split(f" {_ALERT}")[0]
+        for w in caught
+        if _ALERT in str(w.message)
+    ]
+    assert [c for c in callers if c in ENTRY_NAMES] == ["chunk_gated_delta_rule"], (
+        callers
+    )
     _assert_within_budget(got, want, OUTPUT_NAMES)
 
 
@@ -1637,8 +1712,14 @@ def test_launches_are_this_packages_records(device, monkeypatch) -> None:
     for heads in ((2, 4), (2, 6), (1, 1)):
         stages.clear()
         _run(_inputs(seq_lens, heads, torch.bfloat16, device, seed=257), seq_lens)
-        libraries = {cake_jit.MODULES[cake_backend.stage_record(stage, arch)]["library"] for stage in stages}
-        assert stages and all(lib.startswith("cake_gdn_train_") for lib in libraries), (heads, libraries)
+        libraries = {
+            cake_jit.MODULES[cake_backend.stage_record(stage, arch)]["library"]
+            for stage in stages
+        }
+        assert stages and all(lib.startswith("cake_gdn_train_") for lib in libraries), (
+            heads,
+            libraries,
+        )
 
 
 # The five head pairs of the source issue (#7074), on one layout of partial, full and multi-chunk sequences.
@@ -1646,7 +1727,9 @@ HEAD_PAIRS = ((16, 48), (8, 24), (4, 12), (2, 6), (1, 3))
 PAIR_LAYOUT = (63, 130, 257)
 
 
-@pytest.mark.parametrize("heads", HEAD_PAIRS, ids=[f"h{h}-hv{hv}" for h, hv in HEAD_PAIRS])
+@pytest.mark.parametrize(
+    "heads", HEAD_PAIRS, ids=[f"h{h}-hv{hv}" for h, hv in HEAD_PAIRS]
+)
 def test_source_head_pairs_match_the_fp64_recurrence(heads, device) -> None:
     inputs = _inputs(PAIR_LAYOUT, heads, torch.float32, device, seed=211)
     got = _run(inputs, PAIR_LAYOUT)
@@ -1664,7 +1747,9 @@ def test_matches_the_deterministic_package(case, device) -> None:
     # same inputs, one process, the bounds declared above; both packages also against the FP64 recurrence
     _id, seq_lens, heads, beta_dtype, route, pins, l2norm = case
     inputs = _inputs(seq_lens, heads, beta_dtype, device, normalized_qk=not l2norm)
-    det = _run(inputs, seq_lens, route=route, use_qk_l2norm_in_kernel=l2norm, det=True, **pins)
+    det = _run(
+        inputs, seq_lens, route=route, use_qk_l2norm_in_kernel=l2norm, det=True, **pins
+    )
     got = _run(inputs, seq_lens, route=route, use_qk_l2norm_in_kernel=l2norm, **pins)
     _assert_within_budget(got, det, OUTPUT_NAMES)
     ref = _reference(inputs, seq_lens, normalize=l2norm)
@@ -1675,7 +1760,9 @@ def test_matches_the_deterministic_package(case, device) -> None:
 REPEATS = 8
 
 
-@pytest.mark.parametrize("heads", [(2, 4), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3", "g1", "g4"])
+@pytest.mark.parametrize(
+    "heads", [(2, 4), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3", "g1", "g4"]
+)
 def test_worst_case_over_repeated_runs(heads, device) -> None:
     # the gate holds for the worst of REPEATS runs, per output tensor
     seq_lens = (2048, 100, 513)
@@ -1690,11 +1777,16 @@ def test_worst_case_over_repeated_runs(heads, device) -> None:
             "max_abs": max(m["max_abs"] for m in metrics),
             "max_ref": metrics[0]["max_ref"],
             "finite": all(m["finite"] for m in metrics),
-            "run_spread": max(float((run[name].double() - runs[0][name].double()).abs().max()) for run in runs),
+            "run_spread": max(
+                float((run[name].double() - runs[0][name].double()).abs().max())
+                for run in runs
+            ),
         }
     failed = [name for name, m in worst.items()
               if not (m["finite"] and m["rel_rms"] <= REL_RMS_MAX and m["max_abs"] <= MAX_ABS_REL * m["max_ref"])]  # fmt: skip
-    assert not failed, f"worst of {REPEATS} runs outside the accuracy gate: {failed}; {worst}"
+    assert not failed, (
+        f"worst of {REPEATS} runs outside the accuracy gate: {failed}; {worst}"
+    )
 
 
 def test_strided_packed_qkv_views(device) -> None:
@@ -1715,8 +1807,17 @@ def test_strided_packed_qkv_views(device) -> None:
                                      use_qk_l2norm_in_kernel=True)  # fmt: skip
     (o.float() * inputs["do"].float()).sum().backward()
     torch.cuda.synchronize()
-    dq, dk, dv = (part.unflatten(-1, (-1, HEAD_DIM)) for part in packed.grad.split(widths, -1))
-    got = {"o": o.detach(), "dq": dq, "dk": dk, "dv": dv, "dg": g.grad, "dbeta": beta.grad}
+    dq, dk, dv = (
+        part.unflatten(-1, (-1, HEAD_DIM)) for part in packed.grad.split(widths, -1)
+    )
+    got = {
+        "o": o.detach(),
+        "dq": dq,
+        "dk": dk,
+        "dv": dv,
+        "dg": g.grad,
+        "dbeta": beta.grad,
+    }
     _assert_within_budget(got, _run(inputs, seq_lens), OUTPUT_NAMES)
     _assert_close_to_reference(got, _reference(inputs, seq_lens), OUTPUT_NAMES)
 
@@ -1735,7 +1836,10 @@ def test_checkpoint_matches_and_retains_no_bytes(device) -> None:
     cu = _cu(seq_lens)
     cu_seqlens = torch.tensor(cu, dtype=torch.int64, device=device)
     cu_seqlens_cpu = torch.tensor(cu, dtype=torch.int64)
-    leaves = {n: inputs[n].detach().clone().requires_grad_(True) for n in ("q", "k", "v", "g", "beta")}
+    leaves = {
+        n: inputs[n].detach().clone().requires_grad_(True)
+        for n in ("q", "k", "v", "g", "beta")
+    }
 
     def layer(q, k, v, g, beta):
         o, _ = chunk_gated_delta_rule_nd(q, k, v, g, beta, scale=1.0 / math.sqrt(HEAD_DIM), cu_seqlens=cu_seqlens,
@@ -1755,10 +1859,15 @@ def test_checkpoint_matches_and_retains_no_bytes(device) -> None:
     o = checkpoint(layer, *leaves.values(), use_reentrant=False)
     torch.cuda.synchronize()
     retained = torch.cuda.memory_allocated(device) - before - _storage_bytes(o)
-    assert retained == 0, f"a checkpointed forward retains {retained} bytes beyond its output"
+    assert retained == 0, (
+        f"a checkpointed forward retains {retained} bytes beyond its output"
+    )
     (o.float() * inputs["do"].float()).sum().backward()
     torch.cuda.synchronize()
-    got = {"o": o.detach(), **{"d" + n: leaves[n].grad for n in ("q", "k", "v", "g", "beta")}}
+    got = {
+        "o": o.detach(),
+        **{"d" + n: leaves[n].grad for n in ("q", "k", "v", "g", "beta")},
+    }
     _assert_within_budget(got, eager, OUTPUT_NAMES)
 
 
@@ -1768,7 +1877,10 @@ def test_gradients_accumulate_into_nonzero_grad(device) -> None:
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=231)
     ref = _reference(inputs, seq_lens)
     cu = _cu(seq_lens)
-    leaves = {n: inputs[n].detach().clone().requires_grad_(True) for n in ("q", "k", "v", "g", "beta")}
+    leaves = {
+        n: inputs[n].detach().clone().requires_grad_(True)
+        for n in ("q", "k", "v", "g", "beta")
+    }
     for _ in range(2):
         o, _ = chunk_gated_delta_rule_nd(leaves["q"], leaves["k"], leaves["v"], leaves["g"], leaves["beta"],
                                          scale=1.0 / math.sqrt(HEAD_DIM),
@@ -1788,12 +1900,20 @@ def _poison_workspaces(device) -> None:
         for buffers in table.values():
             for t in buffers.values():
                 t.fill_(float("nan") if t.is_floating_point() else -1)
-    junk = [torch.full((size,), float("nan"), device=device) for size in (1 << 26, 1 << 22, 1 << 18)]
+    junk = [
+        torch.full((size,), float("nan"), device=device)
+        for size in (1 << 26, 1 << 22, 1 << 18)
+    ]
     del junk
 
 
 # The layouts of one sequence of calls: changed tokens, sequences and heads, then the first again.
-POISON_SHAPES = (((300, 77, 640), (2, 6)), ((2048, 100), (2, 4)), ((63, 64, 65, 500), (4, 8)), ((300, 77, 640), (2, 6)))
+POISON_SHAPES = (
+    ((300, 77, 640), (2, 6)),
+    ((2048, 100), (2, 4)),
+    ((63, 64, 65, 500), (4, 8)),
+    ((300, 77, 640), (2, 6)),
+)
 
 
 @pytest.mark.parametrize("host_cache", [True, False], ids=["pooled", "fresh"])
@@ -1808,7 +1928,10 @@ def test_changed_shapes_over_poisoned_workspaces(host_cache, device) -> None:
 def test_concurrent_caller_streams(device) -> None:
     # two caller streams run two problems at once (each with its own pooled workspaces), three times
     problems = (((300, 77, 640), (2, 6), 239), ((1000, 64), (2, 4), 241))
-    data = [(seq_lens, _inputs(seq_lens, heads, torch.bfloat16, device, seed=seed)) for seq_lens, heads, seed in problems]
+    data = [
+        (seq_lens, _inputs(seq_lens, heads, torch.bfloat16, device, seed=seed))
+        for seq_lens, heads, seed in problems
+    ]
     want = [_run(inputs, seq_lens) for seq_lens, inputs in data]
     streams = [torch.cuda.Stream(device=device) for _ in data]
     for _ in range(3):
@@ -1827,7 +1950,10 @@ def test_cuda_graph_replay_matches_eager(heads, device) -> None:
     seq_lens = STREAM_LAYOUT
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=269)
     eager = _run(inputs, seq_lens, streams=1)
-    leaves = {name: inputs[name].detach().clone().requires_grad_(True) for name in ("q", "k", "v", "g", "beta")}
+    leaves = {
+        name: inputs[name].detach().clone().requires_grad_(True)
+        for name in ("q", "k", "v", "g", "beta")
+    }
     cu = _cu(seq_lens)
     cu_seqlens = torch.tensor(cu, dtype=torch.int64, device=device)
     cu_seqlens_cpu = torch.tensor(cu, dtype=torch.int64)
@@ -1851,8 +1977,13 @@ def test_cuda_graph_replay_matches_eager(heads, device) -> None:
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.graph(graph):
         o = step()
-    for _ in range(3):  # every replay alone: the captured kernels leave their scratch as they found it
+    for _ in range(
+        3
+    ):  # every replay alone: the captured kernels leave their scratch as they found it
         graph.replay()
         torch.cuda.synchronize()
-        got = {"o": o, **{"d" + name: leaves[name].grad for name in ("q", "k", "v", "g", "beta")}}
+        got = {
+            "o": o,
+            **{"d" + name: leaves[name].grad for name in ("q", "k", "v", "g", "beta")},
+        }
         _assert_within_budget(got, eager, OUTPUT_NAMES)

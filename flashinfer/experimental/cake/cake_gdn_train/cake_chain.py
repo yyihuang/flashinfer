@@ -131,6 +131,7 @@ def _require_nondeterministic(deterministic: Any, entry: str) -> None:
     if torch.are_deterministic_algorithms_enabled():
         torch._C._alert_not_deterministic(entry)
 
+
 # Kernel parameter names of every stage in call-site order; a delivered record whose parameters are these names in
 # another order is launched with the values reordered.
 _PREP_ARGS = ("q", "k", "g", "beta", "beta32_out", "qn", "kn", "rstd_q", "rstd_k", "g_cs", "chunk_start", "chunk_len",
@@ -2002,7 +2003,8 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
         ctx.has_initial_state_input = initial_state is not None
         ctx.dtypes = (g.dtype, beta.dtype)
         ctx.options = options
-        ctx.deterministic = fwd["deterministic"]  # the forward's mode; the backward reads only a tape of its own
+        # the forward's mode; the backward reads only a tape of its own
+        ctx.deterministic = fwd["deterministic"]
         output = fwd["output"]
         if output.dtype != q.dtype:
             output = output.to(q.dtype)
@@ -2115,4 +2117,3 @@ def chunk_gated_delta_rule(
     return ChunkGatedDeltaRuleFunction.apply(q, k, v, g, beta, float(scale), initial_state, output_final_state,
                                              cu_seqlens, cu_seqlens_cpu, use_qk_l2norm_in_kernel, options,
                                              _MODE_CHECKED)  # fmt: skip
-
