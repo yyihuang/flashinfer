@@ -1404,7 +1404,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_train_ac9400911e28b3eba2ad",
+        "kernel_symbol": "kernel_cake_gdn_train_81a083910fce7945e093",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1412,7 +1412,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 108160,
             "use_pdl": False,
         },
-        "library": "cake_gdn_train_ac9400911e28b3eba2ad",
+        "library": "cake_gdn_train_81a083910fce7945e093",
         "stage": "tail",
     },
     "tail_bf16": {
@@ -1450,7 +1450,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_train_b8a1ceebbe14b720a558",
+        "kernel_symbol": "kernel_cake_gdn_train_29cb16e7f53c210005cc",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1458,7 +1458,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 108160,
             "use_pdl": False,
         },
-        "library": "cake_gdn_train_b8a1ceebbe14b720a558",
+        "library": "cake_gdn_train_29cb16e7f53c210005cc",
         "stage": "tail_bf16",
     },
     "tail_bulk": {
@@ -1496,7 +1496,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_train_ac9400911e28b3eba2ad",
+        "kernel_symbol": "kernel_cake_gdn_train_d369b6818c658d8aed76",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1504,7 +1504,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 108160,
             "use_pdl": False,
         },
-        "library": "cake_gdn_train_ac9400911e28b3eba2ad",
+        "library": "cake_gdn_train_d369b6818c658d8aed76",
         "stage": "tail_bulk",
     },
     "tail_bulk_bf16": {
@@ -1542,7 +1542,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_train_b8a1ceebbe14b720a558",
+        "kernel_symbol": "kernel_cake_gdn_train_c73f650173c1eba41147",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1550,7 +1550,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 108160,
             "use_pdl": False,
         },
-        "library": "cake_gdn_train_b8a1ceebbe14b720a558",
+        "library": "cake_gdn_train_c73f650173c1eba41147",
         "stage": "tail_bulk_bf16",
     },
     "tail_ordered": {
@@ -1588,7 +1588,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_train_ac9400911e28b3eba2ad",
+        "kernel_symbol": "kernel_cake_gdn_train_dc6f4d0f94ba9dbc8e53",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1596,7 +1596,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 108160,
             "use_pdl": False,
         },
-        "library": "cake_gdn_train_ac9400911e28b3eba2ad",
+        "library": "cake_gdn_train_dc6f4d0f94ba9dbc8e53",
         "stage": "tail_ordered",
     },
     "tail_ordered_bf16": {
@@ -1634,7 +1634,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_train_b8a1ceebbe14b720a558",
+        "kernel_symbol": "kernel_cake_gdn_train_78a8a789caccf160fc4a",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1642,7 +1642,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 108160,
             "use_pdl": False,
         },
-        "library": "cake_gdn_train_b8a1ceebbe14b720a558",
+        "library": "cake_gdn_train_78a8a789caccf160fc4a",
         "stage": "tail_ordered_bf16",
     },
 }
