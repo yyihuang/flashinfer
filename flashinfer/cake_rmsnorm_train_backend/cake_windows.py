@@ -812,7 +812,72 @@ DET_PAIR_ROUTES: dict[str, dict[str, str]] = {
 # ``(above, at_most, KB)``, KB the smallest size beside which the window waits (None: it starts
 # beside every measured size); the exporter's ``SMEM_WAITS``, checked by the stall test.
 SMEM_SIDE_KB = (100, 132)
-SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]] = {}
+SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]] = {
+    "sm_100a": {
+        "bwd_h1536": (
+            (0, 1024, 132),
+            (1024, 4096, 100),
+            (4096, 32768, 100),
+            (32768, None, 132),
+        ),
+        "bwd_h2048": (
+            (0, 2048, 100),
+            (2048, 8192, None),
+            (8192, 16384, 100),
+            (16384, None, 100),
+        ),
+        "bwd_h256": ((0, None, None),),
+        "bwd_h4096": (
+            (0, 256, None),
+            (256, 1024, None),
+            (1024, 4096, 132),
+            (4096, 14927, 132),
+            (14927, 16384, 132),
+            (16384, None, 132),
+        ),
+        "bwd_h512": ((0, 4096, None), (4096, 32768, None), (32768, None, 132)),
+        "bwd_h5120": ((0, 256, None), (256, None, None)),
+        "bwd_h6144": (
+            (0, 256, 132),
+            (256, 4096, 132),
+            (4096, 14927, 132),
+            (14927, 32768, 100),
+            (32768, None, 132),
+        ),
+        "bwd_residual_h6144": ((0, 1023, 100), (1023, None, 100)),
+        "bwd_w32_h1536": (
+            (0, 1024, 132),
+            (1024, 4096, 100),
+            (4096, 32768, 100),
+            (32768, None, 132),
+        ),
+        "bwd_w32_h2048": (
+            (0, 2048, 100),
+            (2048, 8192, None),
+            (8192, 16384, 100),
+            (16384, None, 100),
+        ),
+        "bwd_w32_h256": ((0, None, None),),
+        "bwd_w32_h4096": (
+            (0, 256, None),
+            (256, 1024, None),
+            (1024, 4096, 132),
+            (4096, 14927, 132),
+            (14927, 16384, 132),
+            (16384, None, 132),
+        ),
+        "bwd_w32_h512": ((0, 4096, None), (4096, 32768, None), (32768, None, 132)),
+        "bwd_w32_h5120": ((0, 256, None), (256, None, None)),
+        "bwd_w32_h6144": (
+            (0, 256, 132),
+            (256, 4096, 132),
+            (4096, 14927, 132),
+            (14927, 32768, 100),
+            (32768, None, 132),
+        ),
+        "bwd_w32_residual_h6144": ((0, 1023, 100), (1023, None, 100)),
+    },
+}
 
 NOTES = """
 Each route -- one architecture, hidden size and direction -- ships one or more programs
@@ -956,6 +1021,23 @@ when the shared memory it leaves is too small for the window's program.  Measure
 100 / 132 KB per CTA (``SMEM_WAITS``): ``>= K`` after a window means it waits beside
 K KB or more, ``-`` that it starts beside every measured size; an architecture or
 route not listed is unmeasured.  Beside such a kernel, leave some SMs free of it.
+
+* ``sm_100a`` ``bwd_h1536``: (0, 1024] >= 132, (1024, 4096] >= 100, (4096, 32768] >= 100, (32768, inf) >= 132
+* ``sm_100a`` ``bwd_h2048``: (0, 2048] >= 100, (2048, 8192] -, (8192, 16384] >= 100, (16384, inf) >= 100
+* ``sm_100a`` ``bwd_h256``: (0, inf) -
+* ``sm_100a`` ``bwd_h4096``: (0, 256] -, (256, 1024] -, (1024, 4096] >= 132, (4096, 14927] >= 132, (14927, 16384] >= 132, (16384, inf) >= 132
+* ``sm_100a`` ``bwd_h512``: (0, 4096] -, (4096, 32768] -, (32768, inf) >= 132
+* ``sm_100a`` ``bwd_h5120``: (0, 256] -, (256, inf) -
+* ``sm_100a`` ``bwd_h6144``: (0, 256] >= 132, (256, 4096] >= 132, (4096, 14927] >= 132, (14927, 32768] >= 100, (32768, inf) >= 132
+* ``sm_100a`` ``bwd_residual_h6144``: (0, 1023] >= 100, (1023, inf) >= 100
+* ``sm_100a`` ``bwd_w32_h1536``: (0, 1024] >= 132, (1024, 4096] >= 100, (4096, 32768] >= 100, (32768, inf) >= 132
+* ``sm_100a`` ``bwd_w32_h2048``: (0, 2048] >= 100, (2048, 8192] -, (8192, 16384] >= 100, (16384, inf) >= 100
+* ``sm_100a`` ``bwd_w32_h256``: (0, inf) -
+* ``sm_100a`` ``bwd_w32_h4096``: (0, 256] -, (256, 1024] -, (1024, 4096] >= 132, (4096, 14927] >= 132, (14927, 16384] >= 132, (16384, inf) >= 132
+* ``sm_100a`` ``bwd_w32_h512``: (0, 4096] -, (4096, 32768] -, (32768, inf) >= 132
+* ``sm_100a`` ``bwd_w32_h5120``: (0, 256] -, (256, inf) -
+* ``sm_100a`` ``bwd_w32_h6144``: (0, 256] >= 132, (256, 4096] >= 132, (4096, 14927] >= 132, (14927, 32768] >= 100, (32768, inf) >= 132
+* ``sm_100a`` ``bwd_w32_residual_h6144``: (0, 1023] >= 100, (1023, inf) >= 100
 
 * ``sm_100a`` ``bwd_h256``: (0, inf) 195c4317
 * ``sm_100a`` ``bwd_h512``: (0, 4096] d0bde38a ? (4096, 32768] ad1a5a3c (det pair) ?
