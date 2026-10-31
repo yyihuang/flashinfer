@@ -119,23 +119,77 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (256, 1024, "cake_rmsnorm_train_e5a3aa2548fc41ee0485"),
             (1024, None, "cake_rmsnorm_train_6325c474ad9955a319e9"),
         ),
-        "bwd_h256": ((0, None, "cake_rmsnorm_train_34a86aa5963ced91a2ff"),),
-        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_46f51338c6f926913fd1"),),
-        "bwd_h512": ((0, None, "cake_rmsnorm_train_6643d57c6d06d97591ea"),),
-        "bwd_w32_h512": ((0, None, "cake_rmsnorm_train_e4fcc22eaf0f41c41733"),),
-        "bwd_h1536": ((0, None, "cake_rmsnorm_train_c1fd076f1d546c738faa"),),
-        "bwd_w32_h1536": ((0, None, "cake_rmsnorm_train_e54e7b6e14559821fa59"),),
-        "bwd_h2048": ((0, None, "cake_rmsnorm_train_22dd3e26be3e6e967b8d"),),
-        "bwd_w32_h2048": ((0, None, "cake_rmsnorm_train_c01d393ae1c5a5345fa7"),),
-        "bwd_h4096": ((0, None, "cake_rmsnorm_train_840520351132359f4477"),),
-        "bwd_w32_h4096": ((0, None, "cake_rmsnorm_train_74673c6e9720e22a03e1"),),
-        "bwd_h5120": ((0, None, "cake_rmsnorm_train_04c86dbf2404c816c348"),),
-        "bwd_w32_h5120": ((0, None, "cake_rmsnorm_train_3b125d2bc50aabcdc8ed"),),
-        "bwd_h6144": ((0, None, "cake_rmsnorm_train_5b1b62335a0652c9f3b1"),),
-        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_1d84f082dd3ae27ed963"),),
-        "bwd_w32_h6144": ((0, None, "cake_rmsnorm_train_72d0946fe83c0c605957"),),
+        "bwd_h256": ((0, None, "cake_rmsnorm_train_5450d39836b26cfd3256"),),
+        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_5e0c6208d4b426f79faa"),),
+        "bwd_h512": (
+            (0, 1024, "cake_rmsnorm_train_09601d42628de24f6f87"),
+            (1024, 4096, "cake_rmsnorm_train_123db0b2f7fb38cfab03"),
+            (4096, 32768, "cake_rmsnorm_train_ad1a5a3c5f88e3d10036"),
+            (32768, None, "cake_rmsnorm_train_8877322a3002e3a4fefd"),
+        ),
+        "bwd_w32_h512": (
+            (0, 1024, "cake_rmsnorm_train_9f07cea1d13b923ed91e"),
+            (1024, 4096, "cake_rmsnorm_train_632ca6ff01848a71f9f2"),
+            (4096, 32768, "cake_rmsnorm_train_1f628cf4fd17b4ea9441"),
+            (32768, None, "cake_rmsnorm_train_659bfc53e5372850ae2e"),
+        ),
+        "bwd_h1536": (
+            (0, 1024, "cake_rmsnorm_train_7dc29629ff21625607f8"),
+            (1024, 4096, "cake_rmsnorm_train_c1a9efdf06c3087b4efe"),
+            (4096, 32768, "cake_rmsnorm_train_21c8bb55c8d672b63952"),
+            (32768, None, "cake_rmsnorm_train_b457c4d134e44476dc6f"),
+        ),
+        "bwd_w32_h1536": (
+            (0, 1024, "cake_rmsnorm_train_baff9ecbafe7de1e6030"),
+            (1024, 4096, "cake_rmsnorm_train_17d9cdfd157ba4b86c2b"),
+            (4096, 32768, "cake_rmsnorm_train_4bf450b6af0314ed03be"),
+            (32768, None, "cake_rmsnorm_train_8777b1c8538527c9aaf7"),
+        ),
+        "bwd_h2048": (
+            (0, 3072, "cake_rmsnorm_train_caf6978ed0a17fbf65b9"),
+            (3072, 4096, "cake_rmsnorm_train_9ac8d21e46a658e7913f"),
+            (4096, 16384, "cake_rmsnorm_train_c73074cf44f07fcf3bb6"),
+            (16384, None, "cake_rmsnorm_train_ceeef043ac64f37fc529"),
+        ),
+        "bwd_w32_h2048": (
+            (0, 3072, "cake_rmsnorm_train_07f9f2fbea7163639c27"),
+            (3072, 4096, "cake_rmsnorm_train_d96a14fe8882bbd9ec2e"),
+            (4096, 16384, "cake_rmsnorm_train_b187e5989302def22b2d"),
+            (16384, None, "cake_rmsnorm_train_7e6a0b631aea3edf51f9"),
+        ),
+        "bwd_h4096": (
+            (0, 256, "cake_rmsnorm_train_3e644ea19b7d14e61ab9"),
+            (256, 1024, "cake_rmsnorm_train_59270fb249dcba1ff679"),
+            (1024, 4096, "cake_rmsnorm_train_9a830956447d4e304914"),
+            (4096, None, "cake_rmsnorm_train_35a0b0ca6b2060313255"),
+        ),
+        "bwd_w32_h4096": (
+            (0, 256, "cake_rmsnorm_train_20c64c610d22c6db4c05"),
+            (256, 1024, "cake_rmsnorm_train_c9f55c0ae4b198c859d1"),
+            (1024, 4096, "cake_rmsnorm_train_0c84999caf2b86c2e09e"),
+            (4096, None, "cake_rmsnorm_train_626aed743358c27513f1"),
+        ),
+        "bwd_h5120": (
+            (0, 256, "cake_rmsnorm_train_db01cec1153cd7fb2759"),
+            (256, None, "cake_rmsnorm_train_b482c84dbffcd75a4a4c"),
+        ),
+        "bwd_w32_h5120": (
+            (0, 256, "cake_rmsnorm_train_6042554b427634669739"),
+            (256, None, "cake_rmsnorm_train_40227b2a2b2122628d58"),
+        ),
+        "bwd_h6144": (
+            (0, 256, "cake_rmsnorm_train_b93bf060d4d3defc8150"),
+            (256, 4096, "cake_rmsnorm_train_5c804aed7ad14b99e1d0"),
+            (4096, None, "cake_rmsnorm_train_b93bf060d4d3defc8150"),
+        ),
+        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_0dcdc563be377247044e"),),
+        "bwd_w32_h6144": (
+            (0, 256, "cake_rmsnorm_train_62beb52fa50cc8624c9f"),
+            (256, 4096, "cake_rmsnorm_train_41b80b6af97974feb181"),
+            (4096, None, "cake_rmsnorm_train_62beb52fa50cc8624c9f"),
+        ),
         "bwd_w32_residual_h6144": (
-            (0, None, "cake_rmsnorm_train_b68265b368a076a73620"),
+            (0, None, "cake_rmsnorm_train_56f988dde54db37f09d9"),
         ),
     },
     "sm_103a": {
@@ -227,23 +281,73 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (256, 1024, "cake_rmsnorm_train_e5a3aa2548fc41ee0485"),
             (1024, None, "cake_rmsnorm_train_6325c474ad9955a319e9"),
         ),
-        "bwd_h256": ((0, None, "cake_rmsnorm_train_34a86aa5963ced91a2ff"),),
-        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_46f51338c6f926913fd1"),),
-        "bwd_h512": ((0, None, "cake_rmsnorm_train_6643d57c6d06d97591ea"),),
-        "bwd_w32_h512": ((0, None, "cake_rmsnorm_train_e4fcc22eaf0f41c41733"),),
-        "bwd_h1536": ((0, None, "cake_rmsnorm_train_c1fd076f1d546c738faa"),),
-        "bwd_w32_h1536": ((0, None, "cake_rmsnorm_train_e54e7b6e14559821fa59"),),
-        "bwd_h2048": ((0, None, "cake_rmsnorm_train_22dd3e26be3e6e967b8d"),),
-        "bwd_w32_h2048": ((0, None, "cake_rmsnorm_train_c01d393ae1c5a5345fa7"),),
-        "bwd_h4096": ((0, None, "cake_rmsnorm_train_840520351132359f4477"),),
-        "bwd_w32_h4096": ((0, None, "cake_rmsnorm_train_74673c6e9720e22a03e1"),),
-        "bwd_h5120": ((0, None, "cake_rmsnorm_train_04c86dbf2404c816c348"),),
-        "bwd_w32_h5120": ((0, None, "cake_rmsnorm_train_3b125d2bc50aabcdc8ed"),),
-        "bwd_h6144": ((0, None, "cake_rmsnorm_train_5b1b62335a0652c9f3b1"),),
-        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_1d84f082dd3ae27ed963"),),
-        "bwd_w32_h6144": ((0, None, "cake_rmsnorm_train_72d0946fe83c0c605957"),),
+        "bwd_h256": ((0, None, "cake_rmsnorm_train_5450d39836b26cfd3256"),),
+        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_5e0c6208d4b426f79faa"),),
+        "bwd_h512": (
+            (0, 1024, "cake_rmsnorm_train_09601d42628de24f6f87"),
+            (1024, 4096, "cake_rmsnorm_train_8e7f4d811e55a351a22e"),
+            (4096, 32768, "cake_rmsnorm_train_274b0055aace183f2367"),
+            (32768, None, "cake_rmsnorm_train_cfaae3cec98f8501832b"),
+        ),
+        "bwd_w32_h512": (
+            (0, 1024, "cake_rmsnorm_train_9f07cea1d13b923ed91e"),
+            (1024, 4096, "cake_rmsnorm_train_dfcbd32cdb8108643fba"),
+            (4096, 32768, "cake_rmsnorm_train_56ee8e66479625fd078a"),
+            (32768, None, "cake_rmsnorm_train_a546f410ec8cf03ef20d"),
+        ),
+        "bwd_h1536": (
+            (0, 1024, "cake_rmsnorm_train_7dc29629ff21625607f8"),
+            (1024, 4096, "cake_rmsnorm_train_c1a9efdf06c3087b4efe"),
+            (4096, 14928, "cake_rmsnorm_train_1df7db17277d363b5168"),
+            (14928, 15566, "cake_rmsnorm_train_4df08ce51fb01ba1193f"),
+            (15566, None, "cake_rmsnorm_train_f522f5b8d4343d96ca04"),
+        ),
+        "bwd_w32_h1536": (
+            (0, 1024, "cake_rmsnorm_train_baff9ecbafe7de1e6030"),
+            (1024, 4096, "cake_rmsnorm_train_17d9cdfd157ba4b86c2b"),
+            (4096, 14928, "cake_rmsnorm_train_a99e2b380514c4d86d60"),
+            (14928, 15566, "cake_rmsnorm_train_7a72e97bd6cb4dc0efc2"),
+            (15566, None, "cake_rmsnorm_train_109f19bb177c8f20cadc"),
+        ),
+        "bwd_h2048": (
+            (0, 3072, "cake_rmsnorm_train_caf6978ed0a17fbf65b9"),
+            (3072, 4096, "cake_rmsnorm_train_9ac8d21e46a658e7913f"),
+            (4096, 16384, "cake_rmsnorm_train_caf6978ed0a17fbf65b9"),
+            (16384, 32768, "cake_rmsnorm_train_caf6978ed0a17fbf65b9"),
+            (32768, None, "cake_rmsnorm_train_302f64db6abe79e5259e"),
+        ),
+        "bwd_w32_h2048": (
+            (0, 3072, "cake_rmsnorm_train_07f9f2fbea7163639c27"),
+            (3072, 4096, "cake_rmsnorm_train_d96a14fe8882bbd9ec2e"),
+            (4096, 16384, "cake_rmsnorm_train_07f9f2fbea7163639c27"),
+            (16384, 32768, "cake_rmsnorm_train_07f9f2fbea7163639c27"),
+            (32768, None, "cake_rmsnorm_train_e98cb156abfe1666c76f"),
+        ),
+        "bwd_h4096": (
+            (0, 256, "cake_rmsnorm_train_50044ee3bd1ca54bd821"),
+            (256, 1024, "cake_rmsnorm_train_ad2bb26ea5916baef963"),
+            (1024, 4096, "cake_rmsnorm_train_24643edc7e1143da24e0"),
+            (4096, None, "cake_rmsnorm_train_35a0b0ca6b2060313255"),
+        ),
+        "bwd_w32_h4096": (
+            (0, 256, "cake_rmsnorm_train_3fd77c8ce97e8a523abb"),
+            (256, 1024, "cake_rmsnorm_train_16545056022785f2a7d8"),
+            (1024, 4096, "cake_rmsnorm_train_78c26a53e83c9803bcbf"),
+            (4096, None, "cake_rmsnorm_train_626aed743358c27513f1"),
+        ),
+        "bwd_h5120": ((0, None, "cake_rmsnorm_train_2fc4932fbde0bc848b32"),),
+        "bwd_w32_h5120": ((0, None, "cake_rmsnorm_train_79811a76205d7d7dd197"),),
+        "bwd_h6144": (
+            (0, 4096, "cake_rmsnorm_train_5c804aed7ad14b99e1d0"),
+            (4096, None, "cake_rmsnorm_train_322574af704b51aef0bb"),
+        ),
+        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_0dcdc563be377247044e"),),
+        "bwd_w32_h6144": (
+            (0, 4096, "cake_rmsnorm_train_41b80b6af97974feb181"),
+            (4096, None, "cake_rmsnorm_train_9a8c0396edd85d4d545e"),
+        ),
         "bwd_w32_residual_h6144": (
-            (0, None, "cake_rmsnorm_train_b68265b368a076a73620"),
+            (0, None, "cake_rmsnorm_train_56f988dde54db37f09d9"),
         ),
     },
     "sm_107a": {
@@ -343,23 +447,67 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (256, 1024, "cake_rmsnorm_train_e5a3aa2548fc41ee0485"),
             (1024, None, "cake_rmsnorm_train_6325c474ad9955a319e9"),
         ),
-        "bwd_h256": ((0, None, "cake_rmsnorm_train_34a86aa5963ced91a2ff"),),
-        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_46f51338c6f926913fd1"),),
-        "bwd_h512": ((0, None, "cake_rmsnorm_train_6643d57c6d06d97591ea"),),
-        "bwd_w32_h512": ((0, None, "cake_rmsnorm_train_e4fcc22eaf0f41c41733"),),
-        "bwd_h1536": ((0, None, "cake_rmsnorm_train_c1fd076f1d546c738faa"),),
-        "bwd_w32_h1536": ((0, None, "cake_rmsnorm_train_e54e7b6e14559821fa59"),),
-        "bwd_h2048": ((0, None, "cake_rmsnorm_train_22dd3e26be3e6e967b8d"),),
-        "bwd_w32_h2048": ((0, None, "cake_rmsnorm_train_c01d393ae1c5a5345fa7"),),
-        "bwd_h4096": ((0, None, "cake_rmsnorm_train_840520351132359f4477"),),
-        "bwd_w32_h4096": ((0, None, "cake_rmsnorm_train_74673c6e9720e22a03e1"),),
-        "bwd_h5120": ((0, None, "cake_rmsnorm_train_04c86dbf2404c816c348"),),
-        "bwd_w32_h5120": ((0, None, "cake_rmsnorm_train_3b125d2bc50aabcdc8ed"),),
-        "bwd_h6144": ((0, None, "cake_rmsnorm_train_5b1b62335a0652c9f3b1"),),
-        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_1d84f082dd3ae27ed963"),),
-        "bwd_w32_h6144": ((0, None, "cake_rmsnorm_train_72d0946fe83c0c605957"),),
+        "bwd_h256": ((0, None, "cake_rmsnorm_train_5450d39836b26cfd3256"),),
+        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_5e0c6208d4b426f79faa"),),
+        "bwd_h512": (
+            (0, 1024, "cake_rmsnorm_train_3feed5026e1156d2fba2"),
+            (1024, 4096, "cake_rmsnorm_train_3feed5026e1156d2fba2"),
+            (4096, 16384, "cake_rmsnorm_train_dfaf378aa8ad93e68bbd"),
+            (16384, None, "cake_rmsnorm_train_eb141cc9e0a93c6f0ce3"),
+        ),
+        "bwd_w32_h512": (
+            (0, 1024, "cake_rmsnorm_train_b841d64bbcaefff5ce7b"),
+            (1024, 4096, "cake_rmsnorm_train_b841d64bbcaefff5ce7b"),
+            (4096, 16384, "cake_rmsnorm_train_383f709cd5c4fadd9436"),
+            (16384, None, "cake_rmsnorm_train_03efa681eb38f59b00c2"),
+        ),
+        "bwd_h1536": (
+            (0, 1024, "cake_rmsnorm_train_7dc29629ff21625607f8"),
+            (1024, 16384, "cake_rmsnorm_train_6a428da2227972ae18ae"),
+            (16384, None, "cake_rmsnorm_train_56d26996239835327501"),
+        ),
+        "bwd_w32_h1536": (
+            (0, 1024, "cake_rmsnorm_train_baff9ecbafe7de1e6030"),
+            (1024, 16384, "cake_rmsnorm_train_e63beae98c236ce26335"),
+            (16384, None, "cake_rmsnorm_train_de8e07d4cb312b06dbc4"),
+        ),
+        "bwd_h2048": (
+            (0, 256, "cake_rmsnorm_train_84efa2af7907877dfb56"),
+            (256, 1024, "cake_rmsnorm_train_845cdcd8145ada631461"),
+            (1024, 16384, "cake_rmsnorm_train_81c3d8ab0a482e3af043"),
+            (16384, None, "cake_rmsnorm_train_845cdcd8145ada631461"),
+        ),
+        "bwd_w32_h2048": (
+            (0, 256, "cake_rmsnorm_train_6b13aa49e0c0414d9041"),
+            (256, 1024, "cake_rmsnorm_train_838a9a4054731f7942af"),
+            (1024, 16384, "cake_rmsnorm_train_9e5ec75a15ac2bff0e4b"),
+            (16384, None, "cake_rmsnorm_train_838a9a4054731f7942af"),
+        ),
+        "bwd_h4096": (
+            (0, 256, "cake_rmsnorm_train_0da5dd4b80ad9b5426ce"),
+            (256, 1024, "cake_rmsnorm_train_a647fccc3d9fa9134733"),
+            (1024, 4096, "cake_rmsnorm_train_d41a514f5210e9adc39f"),
+            (4096, None, "cake_rmsnorm_train_ee4a9053bb25b8d49fcf"),
+        ),
+        "bwd_w32_h4096": (
+            (0, 256, "cake_rmsnorm_train_0c0fa63d0ff2cdc484a4"),
+            (256, 1024, "cake_rmsnorm_train_dc439f8335327e482025"),
+            (1024, 4096, "cake_rmsnorm_train_b08633208e60b8ce94fd"),
+            (4096, None, "cake_rmsnorm_train_0f1859b9fe9e47668a1c"),
+        ),
+        "bwd_h5120": (
+            (0, 4096, "cake_rmsnorm_train_838c077df3a6d35d55b7"),
+            (4096, None, "cake_rmsnorm_train_6816fb80e97380f1bcbc"),
+        ),
+        "bwd_w32_h5120": (
+            (0, 4096, "cake_rmsnorm_train_cd612de56c0985bb4caa"),
+            (4096, None, "cake_rmsnorm_train_468cc4d1b8128187b4b3"),
+        ),
+        "bwd_h6144": ((0, None, "cake_rmsnorm_train_5d292172df772adb17ae"),),
+        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_0dcdc563be377247044e"),),
+        "bwd_w32_h6144": ((0, None, "cake_rmsnorm_train_7d2f6707bfa3d2cd60bb"),),
         "bwd_w32_residual_h6144": (
-            (0, None, "cake_rmsnorm_train_b68265b368a076a73620"),
+            (0, None, "cake_rmsnorm_train_56f988dde54db37f09d9"),
         ),
     },
 }
@@ -395,19 +543,43 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_w32_residual_h6144": ((256, "same"), (1024, "ulp")),
         "bwd_h256": (),
         "bwd_w32_h256": (),
-        "bwd_h512": (),
-        "bwd_w32_h512": (),
-        "bwd_h1536": (),
-        "bwd_w32_h1536": (),
-        "bwd_h2048": (),
-        "bwd_w32_h2048": (),
-        "bwd_h4096": (),
-        "bwd_w32_h4096": (),
-        "bwd_h5120": (),
-        "bwd_w32_h5120": (),
-        "bwd_h6144": (),
+        "bwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (32768, "unmeasured")),
+        "bwd_w32_h512": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (32768, "unmeasured"),
+        ),
+        "bwd_h1536": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (32768, "unmeasured"),
+        ),
+        "bwd_w32_h1536": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (32768, "unmeasured"),
+        ),
+        "bwd_h2048": (
+            (3072, "unmeasured"),
+            (4096, "unmeasured"),
+            (16384, "unmeasured"),
+        ),
+        "bwd_w32_h2048": (
+            (3072, "unmeasured"),
+            (4096, "unmeasured"),
+            (16384, "unmeasured"),
+        ),
+        "bwd_h4096": ((256, "unmeasured"), (1024, "unmeasured"), (4096, "unmeasured")),
+        "bwd_w32_h4096": (
+            (256, "unmeasured"),
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+        ),
+        "bwd_h5120": ((256, "unmeasured"),),
+        "bwd_w32_h5120": ((256, "unmeasured"),),
+        "bwd_h6144": ((256, "unmeasured"), (4096, "unmeasured")),
         "bwd_residual_h6144": (),
-        "bwd_w32_h6144": (),
+        "bwd_w32_h6144": ((256, "unmeasured"), (4096, "unmeasured")),
         "bwd_w32_residual_h6144": (),
     },
     "sm_103a": {
@@ -433,19 +605,47 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_w32_residual_h6144": ((256, "same"), (1024, "ulp")),
         "bwd_h256": (),
         "bwd_w32_h256": (),
-        "bwd_h512": (),
-        "bwd_w32_h512": (),
-        "bwd_h1536": (),
-        "bwd_w32_h1536": (),
-        "bwd_h2048": (),
-        "bwd_w32_h2048": (),
-        "bwd_h4096": (),
-        "bwd_w32_h4096": (),
+        "bwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (32768, "unmeasured")),
+        "bwd_w32_h512": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (32768, "unmeasured"),
+        ),
+        "bwd_h1536": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (14928, "unmeasured"),
+            (15566, "unmeasured"),
+        ),
+        "bwd_w32_h1536": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (14928, "unmeasured"),
+            (15566, "unmeasured"),
+        ),
+        "bwd_h2048": (
+            (3072, "unmeasured"),
+            (4096, "unmeasured"),
+            (16384, "unmeasured"),
+            (32768, "unmeasured"),
+        ),
+        "bwd_w32_h2048": (
+            (3072, "unmeasured"),
+            (4096, "unmeasured"),
+            (16384, "unmeasured"),
+            (32768, "unmeasured"),
+        ),
+        "bwd_h4096": ((256, "unmeasured"), (1024, "unmeasured"), (4096, "unmeasured")),
+        "bwd_w32_h4096": (
+            (256, "unmeasured"),
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+        ),
         "bwd_h5120": (),
         "bwd_w32_h5120": (),
-        "bwd_h6144": (),
+        "bwd_h6144": ((4096, "unmeasured"),),
         "bwd_residual_h6144": (),
-        "bwd_w32_h6144": (),
+        "bwd_w32_h6144": ((4096, "unmeasured"),),
         "bwd_w32_residual_h6144": (),
     },
     "sm_107a": {
@@ -496,16 +696,28 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_w32_residual_h6144": ((256, "ulp"), (1024, "ulp")),
         "bwd_h256": (),
         "bwd_w32_h256": (),
-        "bwd_h512": (),
-        "bwd_w32_h512": (),
-        "bwd_h1536": (),
-        "bwd_w32_h1536": (),
-        "bwd_h2048": (),
-        "bwd_w32_h2048": (),
-        "bwd_h4096": (),
-        "bwd_w32_h4096": (),
-        "bwd_h5120": (),
-        "bwd_w32_h5120": (),
+        "bwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (16384, "unmeasured")),
+        "bwd_w32_h512": (
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+            (16384, "unmeasured"),
+        ),
+        "bwd_h1536": ((1024, "unmeasured"), (16384, "unmeasured")),
+        "bwd_w32_h1536": ((1024, "unmeasured"), (16384, "unmeasured")),
+        "bwd_h2048": ((256, "unmeasured"), (1024, "unmeasured"), (16384, "unmeasured")),
+        "bwd_w32_h2048": (
+            (256, "unmeasured"),
+            (1024, "unmeasured"),
+            (16384, "unmeasured"),
+        ),
+        "bwd_h4096": ((256, "unmeasured"), (1024, "unmeasured"), (4096, "unmeasured")),
+        "bwd_w32_h4096": (
+            (256, "unmeasured"),
+            (1024, "unmeasured"),
+            (4096, "unmeasured"),
+        ),
+        "bwd_h5120": ((4096, "unmeasured"),),
+        "bwd_w32_h5120": ((4096, "unmeasured"),),
         "bwd_h6144": (),
         "bwd_residual_h6144": (),
         "bwd_w32_h6144": (),
@@ -522,10 +734,13 @@ and selects one per call from the token count ``T``: the program whose window
 the table below lists them).  The forward programs are the deterministic package's,
 with its windows: within one window a row's ``y`` and ``rstd`` do not depend on ``T``,
 and across a forward edge between programs of different per-row thread groups ``rstd``
-may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  The backward
-(``deterministic=False``) computes ``dx`` row by row as the deterministic backward does
-and adds the FP32 ``dw`` partials of its CTAs with atomics in a scheduling-dependent
-order: ``dw`` is not bitwise reproducible, even for a fixed ``T``.
+may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
+(``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
+by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
+FP64 column sums in a scheduling-dependent order: its ``dw`` is not bitwise
+reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs the
+deterministic package's main kernel and fixed-order dw reduce, rendered into this
+package, where that pair is the faster form.
 """
 
 FORWARD_SECTION = """
@@ -537,10 +752,13 @@ and selects one per call from the token count ``T``: the program whose window
 the table below lists them).  The forward programs are the deterministic package's,
 with its windows: within one window a row's ``y`` and ``rstd`` do not depend on ``T``,
 and across a forward edge between programs of different per-row thread groups ``rstd``
-may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  The backward
-(``deterministic=False``) computes ``dx`` row by row as the deterministic backward does
-and adds the FP32 ``dw`` partials of its CTAs with atomics in a scheduling-dependent
-order: ``dw`` is not bitwise reproducible, even for a fixed ``T``.
+may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
+(``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
+by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
+FP64 column sums in a scheduling-dependent order: its ``dw`` is not bitwise
+reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs the
+deterministic package's main kernel and fixed-order dw reduce, rendered into this
+package, where that pair is the faster form.
 
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
 8 hex digits of its name).  The mark after a window names the measured outcome
@@ -625,10 +843,13 @@ and selects one per call from the token count ``T``: the program whose window
 the table below lists them).  The forward programs are the deterministic package's,
 with its windows: within one window a row's ``y`` and ``rstd`` do not depend on ``T``,
 and across a forward edge between programs of different per-row thread groups ``rstd``
-may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  The backward
-(``deterministic=False``) computes ``dx`` row by row as the deterministic backward does
-and adds the FP32 ``dw`` partials of its CTAs with atomics in a scheduling-dependent
-order: ``dw`` is not bitwise reproducible, even for a fixed ``T``.
+may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
+(``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
+by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
+FP64 column sums in a scheduling-dependent order: its ``dw`` is not bitwise
+reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs the
+deterministic package's main kernel and fixed-order dw reduce, rendered into this
+package, where that pair is the faster form.
 
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
 8 hex digits of its name).  The mark after a window names the measured outcome
@@ -639,30 +860,60 @@ The FP32-weight routes (``bwd_w32_...``) select among the FP32-weight twins of t
 same programs over the same windows and are not listed; a route re-cut for the FP32
 weight (another twin in a window) is listed with its own windows.
 
-* ``sm_100a`` ``bwd_h256``: (0, inf) 34a86aa5
-* ``sm_100a`` ``bwd_h512``: (0, inf) 6643d57c
-* ``sm_100a`` ``bwd_h1536``: (0, inf) c1fd076f
-* ``sm_100a`` ``bwd_h2048``: (0, inf) 22dd3e26
-* ``sm_100a`` ``bwd_h4096``: (0, inf) 84052035
-* ``sm_100a`` ``bwd_h5120``: (0, inf) 04c86dbf
-* ``sm_100a`` ``bwd_h6144``: (0, inf) 5b1b6233
-* ``sm_100a`` ``bwd_residual_h6144``: (0, inf) 1d84f082
-* ``sm_103a`` ``bwd_h256``: (0, inf) 34a86aa5
-* ``sm_103a`` ``bwd_h512``: (0, inf) 6643d57c
-* ``sm_103a`` ``bwd_h1536``: (0, inf) c1fd076f
-* ``sm_103a`` ``bwd_h2048``: (0, inf) 22dd3e26
-* ``sm_103a`` ``bwd_h4096``: (0, inf) 84052035
-* ``sm_103a`` ``bwd_h5120``: (0, inf) 04c86dbf
-* ``sm_103a`` ``bwd_h6144``: (0, inf) 5b1b6233
-* ``sm_103a`` ``bwd_residual_h6144``: (0, inf) 1d84f082
-* ``sm_107a`` ``bwd_h256``: (0, inf) 34a86aa5
-* ``sm_107a`` ``bwd_h512``: (0, inf) 6643d57c
-* ``sm_107a`` ``bwd_h1536``: (0, inf) c1fd076f
-* ``sm_107a`` ``bwd_h2048``: (0, inf) 22dd3e26
-* ``sm_107a`` ``bwd_h4096``: (0, inf) 84052035
-* ``sm_107a`` ``bwd_h5120``: (0, inf) 04c86dbf
-* ``sm_107a`` ``bwd_h6144``: (0, inf) 5b1b6233
-* ``sm_107a`` ``bwd_residual_h6144``: (0, inf) 1d84f082
+A backward window marked ``(det pair)`` runs the deterministic package's main kernel
+(the program named) and its dw reduce; the others run the single kernel.
+
+* ``sm_100a`` ``bwd_h256``: (0, inf) 5450d398 (det pair)
+* ``sm_100a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
+  (1024, 4096] 123db0b2 (det pair) ? (4096, 32768] ad1a5a3c (det pair) ?
+  (32768, inf) 8877322a (det pair)
+* ``sm_100a`` ``bwd_h1536``: (0, 1024] 7dc29629 (det pair) ?
+  (1024, 4096] c1a9efdf (det pair) ? (4096, 32768] 21c8bb55 (det pair) ?
+  (32768, inf) b457c4d1 (det pair)
+* ``sm_100a`` ``bwd_h2048``: (0, 3072] caf6978e (det pair) ?
+  (3072, 4096] 9ac8d21e (det pair) ? (4096, 16384] c73074cf (det pair) ?
+  (16384, inf) ceeef043 (det pair)
+* ``sm_100a`` ``bwd_h4096``: (0, 256] 3e644ea1 (det pair) ?
+  (256, 1024] 59270fb2 (det pair) ? (1024, 4096] 9a830956 (det pair) ?
+  (4096, inf) 35a0b0ca (det pair)
+* ``sm_100a`` ``bwd_h5120``: (0, 256] db01cec1 (det pair) ?
+  (256, inf) b482c84d (det pair)
+* ``sm_100a`` ``bwd_h6144``: (0, 256] b93bf060 (det pair) ?
+  (256, 4096] 5c804aed (det pair) ? (4096, inf) b93bf060 (det pair)
+* ``sm_100a`` ``bwd_residual_h6144``: (0, inf) 0dcdc563 (det pair)
+* ``sm_103a`` ``bwd_h256``: (0, inf) 5450d398 (det pair)
+* ``sm_103a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
+  (1024, 4096] 8e7f4d81 (det pair) ? (4096, 32768] 274b0055 (det pair) ?
+  (32768, inf) cfaae3ce (det pair)
+* ``sm_103a`` ``bwd_h1536``: (0, 1024] 7dc29629 (det pair) ?
+  (1024, 4096] c1a9efdf (det pair) ? (4096, 14928] 1df7db17 (det pair) ?
+  (14928, 15566] 4df08ce5 (det pair) ? (15566, inf) f522f5b8 (det pair)
+* ``sm_103a`` ``bwd_h2048``: (0, 3072] caf6978e (det pair) ?
+  (3072, 4096] 9ac8d21e (det pair) ? (4096, 16384] caf6978e (det pair) ?
+  (16384, 32768] caf6978e (det pair) ? (32768, inf) 302f64db (det pair)
+* ``sm_103a`` ``bwd_h4096``: (0, 256] 50044ee3 (det pair) ?
+  (256, 1024] ad2bb26e (det pair) ? (1024, 4096] 24643edc (det pair) ?
+  (4096, inf) 35a0b0ca (det pair)
+* ``sm_103a`` ``bwd_h5120``: (0, inf) 2fc4932f (det pair)
+* ``sm_103a`` ``bwd_h6144``: (0, 4096] 5c804aed (det pair) ?
+  (4096, inf) 322574af (det pair)
+* ``sm_103a`` ``bwd_residual_h6144``: (0, inf) 0dcdc563 (det pair)
+* ``sm_107a`` ``bwd_h256``: (0, inf) 5450d398 (det pair)
+* ``sm_107a`` ``bwd_h512``: (0, 1024] 3feed502 (det pair) ?
+  (1024, 4096] 3feed502 (det pair) ? (4096, 16384] dfaf378a (det pair) ?
+  (16384, inf) eb141cc9 (det pair)
+* ``sm_107a`` ``bwd_h1536``: (0, 1024] 7dc29629 (det pair) ?
+  (1024, 16384] 6a428da2 (det pair) ? (16384, inf) 56d26996 (det pair)
+* ``sm_107a`` ``bwd_h2048``: (0, 256] 84efa2af (det pair) ?
+  (256, 1024] 845cdcd8 (det pair) ? (1024, 16384] 81c3d8ab (det pair) ?
+  (16384, inf) 845cdcd8 (det pair)
+* ``sm_107a`` ``bwd_h4096``: (0, 256] 0da5dd4b (det pair) ?
+  (256, 1024] a647fccc (det pair) ? (1024, 4096] d41a514f (det pair) ?
+  (4096, inf) ee4a9053 (det pair)
+* ``sm_107a`` ``bwd_h5120``: (0, 4096] 838c077d (det pair) ?
+  (4096, inf) 6816fb80 (det pair)
+* ``sm_107a`` ``bwd_h6144``: (0, inf) 5d292172 (det pair)
+* ``sm_107a`` ``bwd_residual_h6144``: (0, inf) 0dcdc563 (det pair)
 """
 
 SECTIONS: dict[str, str] = {"fwd": FORWARD_SECTION, "bwd": BACKWARD_SECTION}
