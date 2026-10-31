@@ -697,24 +697,39 @@ def _kernel_text(build, library: str, prefix: str) -> str:
     return path.read_text().replace(prefix, "@prefix@")
 
 
-def _dx_bitwise_claimed(records: list[str], det_records: list[str]) -> bool:
-    """Whether the window's main program computes the det package's ``dx`` bits
-    for this call: the det package's selected main program itself (a det pair
-    window renders the det programs under this package's prefix: the kernel
-    sources are identical once the prefixes are replaced), or a single kernel
-    whose record names that det program (``dx_bitwise_with``)."""
+def _program_id(name: str) -> str:
+    """The program part of a module name (the digits after the package prefix):
+    a det pair window of this package renders the det program of that name."""
+    return name.rsplit("_", 1)[1]
+
+
+def _dx_bitwise_claimed(
+    records: list[str], det_records: list[str]
+) -> tuple[bool, bool]:
+    """``(claimed, same_source)`` for the window's main program against the det
+    package's selected main program.  Claimed: the window runs the det program
+    of that name (same program id: same tile and row mapping, and ``dx`` has no
+    cross-row reduction), or a single kernel whose record names that det program
+    (``dx_bitwise_with``).  ``same_source``: the two kernel sources are equal once
+    the package prefixes are replaced (reported only: the det package and this
+    package may render the same program from different det flour revisions)."""
     main = next(n for n in records if loader.MODULES[n]["role"] != "bwd_reduce")
     det_main = next(
         n for n in det_records if det_loader.MODULES[n]["role"] != "bwd_reduce"
     )
-    claim = loader.MODULES[main].get("dx_bitwise_with")
-    if claim is not None:
-        return claim == det_main
-    return _kernel_text(
+    same_source = _kernel_text(
         cake_build, loader.MODULES[main]["library"], "cake_rmsnorm_train_"
     ) == _kernel_text(
         det_build, det_loader.MODULES[det_main]["library"], "cake_rmsnorm_det_train_"
     )
+    claim = loader.MODULES[main].get("dx_bitwise_with")
+    if claim is not None:
+        return _program_id(claim) == _program_id(det_main), same_source
+    return _program_id(main) == _program_id(det_main), same_source
+
+
+# (label, claimed, differing dx elements) of every dx comparison against the det package in this process.
+_DX_CLAIMS: list[tuple[str, bool, int]] = []
 
 
 def _dx_vs_det(dx: torch.Tensor, dx_det: torch.Tensor) -> tuple[int, float, float]:
@@ -785,11 +800,13 @@ def test_repeated_launches_against_fp64_and_det(
             assert _rel_l2(dw, dw_det) <= DW_REL_L2, f"{label}: dw vs det"
     det_note = "det=none"
     if dx_det is not None:
-        claimed = _dx_bitwise_claimed(case.records, det_records)
+        claimed, same_source = _dx_bitwise_claimed(case.records, det_records)
         differing, max_dx, worst_rel = _dx_vs_det(case.dx, dx_det)
+        _DX_CLAIMS.append((label, claimed, differing))
         det_note = (
-            f"dx_bitwise_claimed={claimed} dx_differing={differing} "
-            f"max_dx_vs_det={max_dx:.3e} max_dw_vs_det={dw_vs_det:.3e}"
+            f"dx_bitwise_claimed={claimed} same_source={same_source} "
+            f"dx_differing={differing} max_dx_vs_det={max_dx:.3e} "
+            f"max_dw_vs_det={dw_vs_det:.3e}"
         )
         if claimed:
             assert differing == 0, f"{label}: {differing} dx elements differ from det"
@@ -1503,3 +1520,10 @@ def test_dw_not_worse_than_eager_fp32_over_the_matrix() -> None:
             f"{len(cases)} cases (worst kernel rel-L2 {worst[2]:.3e} at {worst[0]})"
         )
     print(f"FORMS single={counts['single']} pair={counts['pair']}")
+    claimed = [item for item in _DX_CLAIMS if item[1]]
+    print(
+        f"DX_CLAIMS compared={len(_DX_CLAIMS)} claimed={len(claimed)} "
+        f"unclaimed_differing={sum(1 for item in _DX_CLAIMS if not item[1] and item[2])}"
+    )
+    # A det comparison that never claims bitwise dx would make that gate vacuous.
+    assert not _DX_CLAIMS or claimed, "no window claims the det dx bits"
