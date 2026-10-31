@@ -306,10 +306,10 @@ def test_nondeterministic_flag_selects_this_package(
 
 def _workspace_clean(ws: torch.Tensor, hidden: int, residual: bool = False) -> bool:
     """The kernels' state between calls of one family: the det pair counters
-    zero; per single-kernel state region the claim ticket and the unused counter
-    words zero, the count's low 31 bits zero and the half its bit 31 selects (the
-    next launch's) all zero -- the other half keeps the last launch's sums; a det
-    pair's partial rows are scratch."""
+    zero; per single-kernel state region the claim ticket zero, the count words'
+    low 31 bits zero and the half their bit 31 selects (the next launch's) all
+    zero -- the other half keeps the last launch's sums; a det pair's partial
+    rows are scratch."""
     torch.cuda.synchronize()
     if bool(ws[: loader.COUNTERS_BYTES].any()):
         return False
@@ -318,12 +318,18 @@ def _workspace_clean(ws: torch.Tensor, hidden: int, residual: bool = False) -> b
         arch, hidden, residual
     ):
         words = ws[offset : offset + 4 * counters].view(torch.int32).tolist()
-        if words[0] != 0 or words[1] & 0x7FFFFFFF or any(words[2:]):
+        if words[0] != 0 or any(word & 0x7FFFFFFF for word in words[1:]):
+            return False
+        # word 1's bit 31 is the half the next launch adds into; later words are
+        # unused (zero) or one count word per column slice, flipping with word 1
+        half = (words[1] >> 31) & 1
+        later = [(word >> 31) & 1 for word in words[2:]]
+        if any(later) and set(later) != {half}:
             return False
         begin = offset + loader.SINGLE_COUNTERS_BYTES
         sums = ws[begin : begin + loader.SUM_BYTES * hidden * replicas * halves]
         sums = sums.view(torch.float64).view(replicas, halves, hidden)
-        if bool(sums[:, (words[1] >> 31) & 1 if halves > 1 else 0].any()):
+        if bool(sums[:, half if halves > 1 else 0].any()):
             return False
     return True
 
