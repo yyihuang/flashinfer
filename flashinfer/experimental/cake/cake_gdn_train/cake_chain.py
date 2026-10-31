@@ -27,14 +27,16 @@ the stitch for the segment start states).  The backward runs ``dv_local`` and
 the register scan of the adjoint state (with the pre-scan and the stitch on a
 split plan), or on a serial plan the tcgen05 adjoint scan with ``dv_local``
 fused (``dhu_tc2``) when its selection rule (:func:`dhu_tc_pricing`) prices it
-at most ``DHU_TC_GAIN`` of the register path; then the tail (``tail``): one
-tcgen05 kernel per (chunk, value head) for every value-head group, whose
-value heads add their FP32 ``dq`` / ``dk`` partials into a self-cleaning
-workspace tile of their (chunk, key head) with unordered reductions, the last
-arriving CTA running the finalize and rounding ``dq`` / ``dk`` to BF16 once
-(:func:`tail_segments` bounds the workspace).  The deterministic package's
-tails (``tail_g2``; ``dqkwg``, the WY pullback and the finalize) stay
-available as the ``tail`` pins ``"tail_g2"`` / ``"unfused"``.  A host-built table lists the sequences longest first
+at most ``DHU_TC_GAIN`` of the register path; then the tail :func:`tail_form`
+dispatches: the package's ``tail``, one tcgen05 kernel per (chunk, value
+head) whose value heads add their FP32 ``dq`` / ``dk`` partials into a
+self-cleaning workspace tile of their (chunk, key head) with unordered
+reductions, the last arriving CTA running the finalize and rounding ``dq`` /
+``dk`` to BF16 once (:func:`tail_segments` bounds the workspace), or one of
+the deterministic package's fixed-order tails where it measures faster
+(``tail_g2`` for a value-head group of two; ``dqkwg``, the WY pullback and the
+finalize, "unfused", for other groups below ``TAIL_MIN_CTAS`` (chunk, value
+head) CTAs).  A host-built table lists the sequences longest first
 (:func:`lpt_sequence_order`; every chunk keeps its token offset, the state rows
 are gathered into that order and the final state and its gradient scattered
 back) and ``fwd_ho`` walks the forward segments longest first
@@ -87,6 +89,7 @@ __all__ = [
     "REG_SCAN_CONFIGS",
     "R_FORM_GROUPS",
     "TAIL_FORMS",
+    "TAIL_MIN_CTAS",
     "TAIL_TILE_FLOATS",
     "TAIL_WORKSPACE_TILES",
     "ChainOptions",
@@ -309,11 +312,10 @@ class ChainOptions:
     sequences of a host-built table longest first (the same bits; ``False``: the caller's order); ``streams`` is
     ``2`` to let a host-built table's serial scans run as two sequence groups on the caller's stream and a side stream
     where their rule (:func:`two_stream_split`) fills the last round (the same bits), ``1`` to keep every launch on
-    the caller's stream; ``tail`` forces the backward tail (:func:`tail_form`): ``"tail"``, the default for every
-    value-head group, or the deterministic package's tails ``"tail_g2"`` (a value-head group of two) and
-    ``"unfused"`` (``dqkwg``, the WY pullback and the finalize), fixed-order programs that round each value head's
-    ``dq`` / ``dk`` partials to BF16 before their sum (``dv``, ``dg`` and ``dbeta`` are the same bits in every
-    form).
+    the caller's stream; ``tail`` forces the backward tail (``None``: the rule of :func:`tail_form`): the package's
+    unordered ``"tail"``, or the deterministic package's fixed-order tails ``"tail_g2"`` (a value-head group of two)
+    and ``"unfused"`` (``dqkwg``, the WY pullback and the finalize), which round each value head's ``dq`` / ``dk``
+    partials to BF16 before their sum (``dv``, ``dg`` and ``dbeta`` are the same bits in every form).
     """
 
     scan_config: tuple[int, int] | None = None
@@ -718,19 +720,30 @@ def finalize_stage(
 # ``max(TAIL_WORKSPACE_TILES, num_heads)`` tiles.
 TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
 TAIL_WORKSPACE_TILES = 1024
+# Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail (value-head groups other
+# than two): where the unordered tail's fused per-CTA chain is latency-bound it measured slower (GB300 crossovers:
+# G = 1 between 1024 and 2048 CTAs, G = 3 between 1536 and 2304, G = 4 between 512 and 1024).
+TAIL_MIN_CTAS = 2048
 # The value-head groups whose adjoint dhu_tc2 scan runs as two sequence groups (two streams) feeding the fused tail
 # (the R form) where :func:`sequence_groups` splits it.
 R_FORM_GROUPS: tuple[int, ...] = (2,)
 
 
-def tail_form(num_heads: int, num_v_heads: int, forced: str | None = None) -> str:
-    """The backward tail of one call: ``forced`` when given (``"tail_g2"`` serves a value-head group of two), else
-    ``"tail"`` for every value-head group."""
+def tail_form(num_heads: int, num_v_heads: int, forced: str | None = None, *, num_chunks: int | None = None) -> str:
+    """The backward tail of one call over ``num_chunks`` chunks (``None``: a large call): ``forced`` when given
+    (``"tail_g2"`` serves a value-head group of two), else the fastest tail measured for the call's value-head group
+    ``G = num_v_heads / num_heads`` and size (``benchmarks/bench_cake_gdn_train.py`` on B200 and GB300): the
+    fixed-order cluster tail ``"tail_g2"`` at ``G = 2``; otherwise the unordered ``"tail"`` from ``TAIL_MIN_CTAS``
+    (chunk, value head) CTAs on, the fixed-order ``"unfused"`` tail below."""
     if num_heads <= 0 or num_v_heads % num_heads != 0:
         raise ValueError(
             f"num_v_heads={num_v_heads} must be a positive multiple of num_heads={num_heads}"
         )
     if forced is None:
+        if num_v_heads == 2 * num_heads:
+            return "tail_g2"
+        if num_chunks is not None and int(num_chunks) * num_v_heads < TAIL_MIN_CTAS:
+            return "unfused"
         return "tail"
     if forced not in TAIL_FORMS:
         raise ValueError(f"tail={forced!r}")
@@ -1753,7 +1766,7 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
     scale = float(forward["scale"])
     v, beta32 = forward["v"], forward["beta32"]
     num_heads, num_v_heads = qn.shape[-2], v.shape[-2]
-    form = tail_form(num_heads, num_v_heads, options.tail)
+    form = tail_form(num_heads, num_v_heads, options.tail, num_chunks=meta.num_chunks)
     if tail_alerts(form, num_heads, num_v_heads):
         _alert_nondeterministic(entry)
     total_tokens = qn.numel() // (num_heads * qn.shape[-1])

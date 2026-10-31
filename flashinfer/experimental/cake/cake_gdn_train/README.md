@@ -3,12 +3,12 @@
 Experimental backend for the forward and backward of packed GDN (scalar-gated
 DeltaNet) layers in training: head dimension 128, chunk 64, grouped Q/K heads
 (`HV` a multiple of `H`), no context parallelism.  This package makes no
-run-to-run bitwise promise.  For `HV > H` its backward sums the `dq` / `dk`
-partials of the value heads of a key head in the arrival order of their CTAs,
-so `dq` and `dk` match the deterministic package
-`flashinfer.experimental.cake_gdn_det_train` within that package's accuracy
-budgets, not bitwise.  The output, `dv`, `dg`, `dbeta`, the final state and
-the initial-state gradient have the deterministic package's bits.
+run-to-run bitwise promise.  Where its backward runs the unordered tail (see
+Chain), it sums the `dq` / `dk` partials of the value heads of a key head in
+the arrival order of their CTAs, so `dq` and `dk` match the deterministic
+package `flashinfer.experimental.cake_gdn_det_train` within that package's
+accuracy budgets, not bitwise.  The output, `dv`, `dg`, `dbeta`, the final
+state and the initial-state gradient have the deterministic package's bits.
 
 Both the API and the backend are experimental: no compatibility guarantee.
 SM100 (B200 / GB200), SM103 (B300 / GB300) and SM107 (R200) are the supported
@@ -84,11 +84,10 @@ unordered reduction raises PyTorch's alert for an operation without a
 deterministic implementation (`RuntimeError`, or one `UserWarning` per call
 with `warn_only=True`): the backward of `chunk_gated_delta_rule` /
 `ChunkGatedDeltaRuleFunction` (named `ChunkGatedDeltaRuleFunction.backward`)
-and `gdn_chunk_backward`, when their tail is the default tail of a value-head
-group of two or more.  The alert comes before the backward's first launch.
-The forward entries, a value-head group of one and the pinned fixed-order
-tails (`tail="tail_g2"` / `"unfused"`) run fixed-order programs and do not
-alert.  With the flag off nothing changes.  The deterministic
+and `gdn_chunk_backward`, when the dispatched tail is the unordered `"tail"`
+of a value-head group of two or more.  The alert comes before the backward's
+first launch.  The forward entries, a value-head group of one and the
+fixed-order tails (`"tail_g2"`, `"unfused"`) do not alert.  With the flag off nothing changes.  The deterministic
 packages, their names, defaults and aliases are unchanged.
 
 | name | what it is now |
@@ -111,19 +110,24 @@ for Q or K not 16-byte aligned.  Both preps give the same bits.  A long sequence
 split into segments: a pre-scan and a stitch then give every segment its start
 state.  The backward runs the adjoint scan, either `dv_local` plus a register
 scan or, on a serial plan, the tcgen05 scan with `dv_local` fused (`dhu_tc2`),
-which a host-side cost rule selects on the host-table route.  Then the tail,
-one tcgen05 kernel with one CTA per (chunk, value head), computes `dq`, `dk`,
-`dv`, `dg` and `dbeta` for every value-head group.
+which a host-side cost rule selects on the host-table route.  Then one of
+three tails computes `dq`, `dk`, `dv`, `dg` and `dbeta`.  The call's
+value-head group `G = HV / H` and its (chunk, value head) CTAs select the
+fastest one measured on B200 and GB300 (the production rows, packs, source
+head pairs and group shapes of `benchmarks/bench_cake_gdn_train.py`), and the
+`tail` keyword pins one:
 
-The tail keeps one rounding contract for every group: each CTA keeps its
-`dq` / `dk` partials in FP32 and, for `HV > H`, adds them into the FP32 tile
-of its (chunk, key head) with unordered reductions.  The last CTA of the group
-to arrive runs the L2-norm pullback in FP32 and rounds `dq` / `dk` to BF16
-once.  The deterministic package rounds each value head's partials to BF16
-before their sum, so `dq` / `dk` differ from it within the accuracy budgets;
-`dv`, `dg` and `dbeta` have one writer each and the same bits.
+| tail | selected for | `dq` / `dk` rounding | run to run |
+|---|---|---|---|
+| `"tail"`: one tcgen05 kernel per (chunk, value head) | `G != 2` with at least `TAIL_MIN_CTAS` (2048) chunks x `HV` | the value heads' FP32 partials summed with unordered reductions, one BF16 rounding after the FP32 L2-norm pullback | `dq` / `dk` may differ in their last bits for `G >= 2` |
+| `"tail_g2"`: one cluster kernel per (chunk, key head) | `G = 2` | each value head's partial rounded to BF16, summed in a fixed order (the deterministic package's bits) | bitwise |
+| `"unfused"`: `dqkwg`, the WY pullback and the finalize | `G != 2` below `TAIL_MIN_CTAS` chunks x `HV` | as `"tail_g2"` (the deterministic package's bits) | bitwise |
 
-The tail's workspace holds one 64 KiB FP32 tile and one 32-bit arrival
+Every tail meets the deterministic package's accuracy budgets.  `dv`, `dg`
+and `dbeta` have one writer each and the deterministic package's bits in
+every tail.
+
+The `"tail"` workspace holds one 64 KiB FP32 tile and one 32-bit arrival
 counter per (chunk, key head) of a launch.  The workspace is created zero
 (`torch.zeros` on the launching stream) and every launch leaves it zero, so a
 later launch needs no memset.  The chain keeps one workspace per (device,
@@ -170,7 +174,7 @@ tail runs on the caller's stream.
 |---|---|---|
 | `scan_config` | planner | register-scan `(value block, key split)` of both scans: `(32, 2)`, `(32, 1)` or `(64, 1)` |
 | `segment_chunks` | planner | segment length in chunks of the segment-parallel scans; `0` forces the serial scan; lengths above 128 (the chunks one pre-scan CTA covers) are not supported: a call whose plan then splits a sequence raises `ValueError` |
-| `finalize` | by size | finalize of the `tail="unfused"` form: `"finalize"` or `"finalize_mlp"` (the latter needs `HV == 3 * H`) |
+| `finalize` | by size | finalize of the `"unfused"` tail: `"finalize"` or `"finalize_mlp"` (the latter needs `HV == 3 * H`) |
 | `warmup_log2` | `-10 / ln 2` | warm-up threshold of the pre-scans |
 | `dhu_scan` | rule | adjoint scan of a serial plan: `"reg"` (`dv_local` + register scan) or `"tc"` (`dhu_tc2`) |
 | `prep` | rule | forward prep: `"plain"` or `"tma"` (`prep_tma`; Q or K not 16-byte aligned still take the plain prep) |
@@ -178,7 +182,7 @@ tail runs on the caller's stream.
 | `host_cache` | `True` | keep the chunk tables, the `dhu_tc2` selections and the per-stream workspaces between calls |
 | `lpt` | `True` | host-table route: dispatch the sequences and the forward segments longest first; `False` keeps the caller's order |
 | `streams` | `2` | host-table route: `2` lets a serial scan run as two sequence groups on two streams where the rule above splits it; `1` keeps one stream |
-| `tail` | `"tail"` | backward tail: `"tail"` for every value-head group; the deterministic package's fixed-order tails `"tail_g2"` (one cluster kernel, `HV == 2 * H` only) and `"unfused"` (`dqkwg`, the WY pullback and the finalize), which round each value head's `dq` / `dk` partials to BF16 before their sum and give the deterministic package's bits |
+| `tail` | rule | backward tail (see Chain): `"tail"`, `"tail_g2"` (`HV == 2 * H` only) or `"unfused"` |
 
 ## Limitations
 
