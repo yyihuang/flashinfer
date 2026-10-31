@@ -635,7 +635,11 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory() -> None:
             unmeasured.append((key, level))
         elif listed[key] != level:
             mismatched.append((key, listed[key], level))
-        if level is not None and det_extras and (det_level is None or det_level > level):
+        if (
+            level is not None
+            and det_extras
+            and (det_level is None or det_level > level)
+        ):
             regressions.append((key, level, det_level))
         report.append(
             f"SMEM_SIDE {arch} {route} ({above}, {at_most}] rows={rows} form={form} "

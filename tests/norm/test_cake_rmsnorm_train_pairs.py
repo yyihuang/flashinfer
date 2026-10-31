@@ -374,14 +374,24 @@ def test_a_family_mixing_both_forms_keeps_its_regions_apart(
     token count of both forms."""
 
     monkeypatch.setattr(loader, "sm_count", lambda device_index: 148)
+    shipped = _check_family_layout("sm_100a", 6144, False, 148)  # the registry's own
+    largest = max(
+        (
+            record["workspace_rule"]["sum_bytes"]
+            for record in loader.MODULES.values()
+            if record["workspace_rule"] is not None
+            and record["workspace_rule"]["kind"] == "claim_sum_f64"
+        ),
+        default=0,
+    )
     family = _with_single(monkeypatch, "bwd_h6144", 256, sizes)
     assert list(loader.selected_modules(family[0], 6144, "bwd", False, rows=1)) == [
         "test_single_0"
     ]
     assert len(loader.selected_modules(family[0], 6144, "bwd", False, rows=257)) == 2
-    expected = 8 * 6144 * max(sizes)
+    expected = -(-max(largest, 8 * 6144 * max(sizes)) // 256) * 256
     assert expected == loader.SUMS_BYTES
-    assert _check_family_layout(*family, 148) == len(sizes)
+    assert _check_family_layout(*family, 148) == shipped + len(sizes)
 
 
 def test_every_backward_route_ships_the_single_kernel_or_is_listed() -> None:
