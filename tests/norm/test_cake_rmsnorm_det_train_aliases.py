@@ -45,7 +45,7 @@ OLD_FACADE = "flashinfer.cake_rmsnorm_train"
 NEW_FACADE = "flashinfer.cake_rmsnorm_det_train"
 OLD_PACKAGE = "flashinfer.cake_rmsnorm_train_backend"
 NEW_PACKAGE = "flashinfer.cake_rmsnorm_det_train_backend"
-SUBMODULES = ("cake_build", "cake_jit")
+SUBMODULES = ("cake_build", "cake_jit", "cake_windows")
 
 # (compatibility name, det name) of the facade and the backend package.
 PAIRS = (
