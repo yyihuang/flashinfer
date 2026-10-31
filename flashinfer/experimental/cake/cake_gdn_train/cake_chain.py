@@ -2139,13 +2139,23 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
         )
         normalize = 1 if forward.get("normalize_qk", True) else 0
         rstd_q, rstd_k = forward["rstd_q"], forward["rstd_k"]
+        num_chunks = meta.num_chunks
+
+        def rows(a, b):
+            # the chunk rows [a, b) of the per-chunk tensors: the tensors themselves for the whole table (no slicing
+            # on the host path of a one-launch tail)
+            if (a, b) == (0, num_chunks):
+                return h, dh, meta.chunk_start, meta.chunk_len
+            return h[a:b], dh[a:b], meta.chunk_start[a:b], meta.chunk_len[a:b]
+
         if form in ("tail_g2", "tail_g3"):
             stage = form + ("_bf16" if dbeta_bf16 else "")
 
             def tail(c0, c1):
-                _launch(stage, (c1 - c0) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h[c0:c1],
-                        dh[c0:c1], g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, meta.chunk_start[c0:c1],
-                        meta.chunk_len[c0:c1], num_heads, num_v_heads, scale, normalize)  # fmt: skip
+                h_r, dh_r, cs_r, cl_r = rows(c0, c1)
+                _launch(stage, (c1 - c0) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h_r, dh_r, g_cs,
+                        v, A, beta32, dq, dk, dg, dv, dbeta, cs_r, cl_r, num_heads, num_v_heads, scale,
+                        normalize)  # fmt: skip
 
         else:
             stage = form + ("_bf16" if dbeta_bf16 else "")
@@ -2176,9 +2186,10 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
                 )
                 for s0, s1 in ranges:
                     a, b = c0 + s0, c0 + s1
-                    _launch(stage, (b - a) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h[a:b],
-                            dh[a:b], g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, ws, ws_count, meta.chunk_start[a:b],
-                            meta.chunk_len[a:b], num_heads, num_v_heads, scale, normalize, tiles)  # fmt: skip
+                    h_r, dh_r, cs_r, cl_r = rows(a, b)
+                    _launch(stage, (b - a) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h_r, dh_r,
+                            g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, ws, ws_count, cs_r, cl_r, num_heads,
+                            num_v_heads, scale, normalize, tiles)  # fmt: skip
 
         if groups is None:
             tail(0, meta.num_chunks)
