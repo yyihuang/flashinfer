@@ -711,8 +711,6 @@ def _program_id(name: str) -> str:
 # holds where the det package selects that module; elsewhere the single is
 # compared only.
 DX_BITWISE_WITH = {
-    # sm_100a H512, window (0, 4096]; the det bwd_small program of (0, 1024]
-    "cake_rmsnorm_train_d0bde38aa443d42a5f04": "cake_rmsnorm_det_train_09601d42628de24f6f87",
     # sm_100a H6144 residual, window (1023, inf); the det residual program (every T)
     "cake_rmsnorm_train_87d2866c1ea3bcc08b13": "cake_rmsnorm_det_train_0dcdc563be377247044e",
 }
