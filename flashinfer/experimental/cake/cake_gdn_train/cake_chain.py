@@ -27,9 +27,14 @@ the stitch for the segment start states).  The backward runs ``dv_local`` and
 the register scan of the adjoint state (with the pre-scan and the stitch on a
 split plan), or on a serial plan the tcgen05 adjoint scan with ``dv_local``
 fused (``dhu_tc2``) when its selection rule (:func:`dhu_tc_pricing`) prices it
-at most ``DHU_TC_GAIN`` of the register path; then, for a value-head group of
-two, the fused tcgen05 tail (``tail_g2``), else ``dqkwg``, the WY pullback and
-the finalize.  A host-built table lists the sequences longest first
+at most ``DHU_TC_GAIN`` of the register path; then the tail (``tail``): one
+tcgen05 kernel per (chunk, value head) for every value-head group, whose
+value heads add their FP32 ``dq`` / ``dk`` partials into a self-cleaning
+workspace tile of their (chunk, key head) with unordered reductions, the last
+arriving CTA running the finalize and rounding ``dq`` / ``dk`` to BF16 once
+(:func:`tail_segments` bounds the workspace).  The deterministic package's
+tails (``tail_g2``; ``dqkwg``, the WY pullback and the finalize) stay
+available as the ``tail`` pins ``"tail_g2"`` / ``"unfused"``.  A host-built table lists the sequences longest first
 (:func:`lpt_sequence_order`; every chunk keeps its token offset, the state rows
 are gathered into that order and the final state and its gradient scattered
 back) and ``fwd_ho`` walks the forward segments longest first
@@ -49,13 +54,15 @@ the chunks one pre-scan CTA covers) are the records' ``scan`` constants; the
 ``dhu_tc2`` selection constants and the ``prep_tma`` dispatch window are those
 records' ``select`` tables.
 
-The chain makes no run-to-run bitwise promise: a stage may accumulate in an
-order that depends on the arrival of its CTAs, so outputs and gradients agree
-with the deterministic package (``flashinfer.experimental.cake_gdn_det_train``)
-to its accuracy budgets, not bitwise.
+The chain makes no run-to-run bitwise promise: the tail of a value-head group
+of two or more sums the group's ``dq`` / ``dk`` partials in the arrival order
+of its CTAs, so those two gradients agree with the deterministic package
+(``flashinfer.experimental.cake_gdn_det_train``) to its accuracy budgets, not
+bitwise; the forward and the other gradients run fixed-order programs.
 The plan pins that tests and tuning use are explicit keyword arguments of
 :func:`chunk_gated_delta_rule` (``scan_config``, ``segment_chunks``,
-``finalize``, ``warmup_log2``, ``dhu_scan``, ``prep``, ``lpt``, ``streams``);
+``finalize``, ``warmup_log2``, ``dhu_scan``, ``prep``, ``lpt``, ``streams``,
+``tail``);
 nothing here reads an environment variable.
 """
 
@@ -78,6 +85,9 @@ __all__ = [
     "HEAD_DIM",
     "PRESCAN_CONFIGS",
     "REG_SCAN_CONFIGS",
+    "TAIL_FORMS",
+    "TAIL_TILE_FLOATS",
+    "TAIL_WORKSPACE_TILES",
     "ChainOptions",
     "ChunkGatedDeltaRuleFunction",
     "ChunkMeta",
@@ -99,6 +109,9 @@ __all__ = [
     "scan_plans",
     "sequence_groups",
     "stage_set",
+    "tail_alerts",
+    "tail_form",
+    "tail_segments",
     "two_stream_split",
     "use_prep_tma",
 ]
@@ -121,21 +134,25 @@ _MODE_CHECKED = object()
 def _require_nondeterministic(deterministic: Any, entry: str) -> None:
     """The mode contract of every entry: the package computes non-deterministically, so an entry takes
     ``deterministic=False`` and raises ``ValueError`` for any other value (the deterministic package is
-    ``flashinfer.experimental.cake_gdn_det_train``).  With PyTorch's deterministic algorithms enabled the call
-    raises PyTorch's alert for an operation without a deterministic implementation: a ``RuntimeError``, or a
-    ``UserWarning`` under ``torch.use_deterministic_algorithms(True, warn_only=True)`` (the alert of PyTorch's own
-    operators; PyTorch exposes no public Python entry for it)."""
+    ``flashinfer.experimental.cake_gdn_det_train``)."""
     if deterministic is not False:
         raise ValueError(f"{entry} computes non-deterministically and takes deterministic=False (got "
                          f"{deterministic!r}); flashinfer.experimental.cake_gdn_det_train is the deterministic "
                          "package")  # fmt: skip
+
+
+def _alert_nondeterministic(entry: str) -> None:
+    """PyTorch's alert for an operation without a deterministic implementation, raised by ``entry`` before it
+    launches an unordered reduction while PyTorch's deterministic algorithms are enabled: a ``RuntimeError``, or a
+    ``UserWarning`` under ``torch.use_deterministic_algorithms(True, warn_only=True)`` (the alert of PyTorch's own
+    operators; PyTorch exposes no public Python entry for it).  Fixed-order launches do not alert."""
     if not torch.are_deterministic_algorithms_enabled():
         return
     if torch.is_deterministic_algorithms_warn_only_enabled():
         warnings.warn(f"{entry} does not have a deterministic implementation, but you set "
                       "'torch.use_deterministic_algorithms(True, warn_only=True)'; "
                       "flashinfer.experimental.cake_gdn_det_train is the deterministic package",
-                      stacklevel=3)  # fmt: skip
+                      stacklevel=4)  # fmt: skip
         return
     raise RuntimeError(f"{entry} does not have a deterministic implementation, but you set "
                        "'torch.use_deterministic_algorithms(True)'; flashinfer.experimental.cake_gdn_det_train is "
@@ -180,6 +197,8 @@ _FINALIZE_ARGS = ("qn", "kn", "rstd_q", "rstd_k", "dq_hv", "dk_hv", "dk2", "dg1"
 _TAIL_ARGS = ("qn", "kn", "rstd_q", "rstd_k", "v_new", "do", "dv2", "h", "dh", "g_cs", "v", "A", "beta", "dq_out",
               "dk_out", "dg_out", "dv_out", "dbeta_out", "chunk_start", "chunk_len", "num_heads", "num_v_heads", "scale",
               "normalize_qk")  # fmt: skip
+# the tail of any value-head group: the operands of tail_g2, then the workspace, its arrival counters and its tiles
+_TAIL_RED_ARGS = (*_TAIL_ARGS[:18], "ws", "ws_count", *_TAIL_ARGS[18:], "ws_tiles")
 _META_ARGS = ("cu_seqlens", "chunk_start", "chunk_len", "seq_chunk_start", "fwd_seg_chunk_start", "fwd_seg_seq",
               "fwd_seq_seg_start", "bwd_seg_chunk_start", "bwd_seg_seq", "bwd_seq_seg_start", "num_seqs",
               "num_chunks_max", "total_tokens", "fwd_segment_len", "bwd_segment_len", "fwd_num_segments_max",
@@ -202,6 +221,8 @@ LAUNCH_ARGS: dict[str, tuple[str, ...]] = {
     "finalize_mlp": _FINALIZE_ARGS,
     "tail_g2": _TAIL_ARGS,
     "tail_g2_bf16": _TAIL_ARGS,
+    "tail": _TAIL_RED_ARGS,
+    "tail_bf16": _TAIL_RED_ARGS,
     **{f"fwd_h_r{vb}k{ks}": _FWD_H_ARGS for vb, ks in REG_SCAN_CONFIGS},
     **{f"fwd_h_r{vb}k{ks}_split": _FWD_H_SPLIT_ARGS for vb, ks in PRESCAN_CONFIGS},
     **{f"fwd_h_pre_r{vb}k{ks}": _FWD_H_PRE_ARGS for vb, ks in PRESCAN_CONFIGS},
@@ -268,6 +289,7 @@ FINALIZE_STAGES = ("finalize", "finalize_mlp")
 DHU_SCANS = ("reg", "tc")
 PREP_FORMS = ("plain", "tma")
 STREAM_COUNTS = (1, 2)
+TAIL_FORMS = ("tail", "tail_g2", "unfused")
 
 
 @dataclass(frozen=True)
@@ -276,8 +298,8 @@ class ChainOptions:
 
     ``scan_config`` forces the register-scan configuration ``(value block, key split)`` of both scans;
     ``segment_chunks`` forces the segment length in chunks (0: the serial scan; above the chunks one pre-scan
-    CTA covers, 128, a plan that splits a sequence raises); ``finalize`` forces the finalize stage of the unfused tail
-    (value-head groups other than two); ``warmup_log2`` overrides the pre-scans' warm-up threshold; ``dhu_scan``
+    CTA covers, 128, a plan that splits a sequence raises); ``finalize`` forces the finalize stage of the
+    ``"unfused"`` tail; ``warmup_log2`` overrides the pre-scans' warm-up threshold; ``dhu_scan``
     forces the adjoint scan of a serial plan (``"reg"``: ``dv_local`` + the register scan, ``"tc"``: ``dhu_tc2``;
     ``None``: the selection rule); ``prep`` forces the prep (``"plain"``: grid (chunks, HV); ``"tma"``: ``prep_tma``,
     grid (chunks, H), where q and k are 16-byte aligned; ``None``: the dispatch rule); ``save_state`` keeps the
@@ -286,7 +308,11 @@ class ChainOptions:
     sequences of a host-built table longest first (the same bits; ``False``: the caller's order); ``streams`` is
     ``2`` to let a host-built table's serial scans run as two sequence groups on the caller's stream and a side stream
     where their rule (:func:`two_stream_split`) fills the last round (the same bits), ``1`` to keep every launch on
-    the caller's stream.
+    the caller's stream; ``tail`` forces the backward tail (:func:`tail_form`): ``"tail"``, the default for every
+    value-head group, or the deterministic package's tails ``"tail_g2"`` (a value-head group of two) and
+    ``"unfused"`` (``dqkwg``, the WY pullback and the finalize), fixed-order programs that round each value head's
+    ``dq`` / ``dk`` partials to BF16 before their sum (``dv``, ``dg`` and ``dbeta`` are the same bits in every
+    form).
     """
 
     scan_config: tuple[int, int] | None = None
@@ -299,6 +325,7 @@ class ChainOptions:
     prep: str | None = None
     lpt: bool = True
     streams: int = 2
+    tail: str | None = None
 
     @property
     def pins(self) -> tuple:
@@ -317,6 +344,7 @@ def make_options(
     prep: str | None = None,
     lpt: bool = True,
     streams: int = 2,
+    tail: str | None = None,
 ) -> ChainOptions:
     """Validated :class:`ChainOptions`."""
     if scan_config is not None:
@@ -359,6 +387,8 @@ def make_options(
         )
     if prep is not None and prep not in PREP_FORMS:
         raise ValueError(f"prep must be one of {PREP_FORMS} or None; got {prep!r}")
+    if tail is not None and tail not in TAIL_FORMS:
+        raise ValueError(f"tail must be one of {TAIL_FORMS} or None; got {tail!r}")
     return ChainOptions(
         scan_config,
         segment_chunks,
@@ -370,6 +400,7 @@ def make_options(
         prep,
         bool(lpt),
         int(streams),
+        tail,
     )
 
 
@@ -677,6 +708,53 @@ def finalize_stage(
     ):
         return "finalize_mlp"
     return "finalize"
+
+
+# The tail's workspace (a value-head group of two or more): FP32 (chunk, key head) tiles of 64 ``dq`` rows then 64
+# ``dk`` rows (65,536 bytes each) and one u32 arrival counter per tile, per (device, stream of the launch), zero when
+# created and left zero by every launch.  A backward launches its chunk table in segments of at most
+# ``TAIL_WORKSPACE_TILES // num_heads`` chunks (at least one), so a workspace holds at most
+# ``max(TAIL_WORKSPACE_TILES, num_heads)`` tiles.
+TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
+TAIL_WORKSPACE_TILES = 1024
+
+
+def tail_form(num_heads: int, num_v_heads: int, forced: str | None = None) -> str:
+    """The backward tail of one call: ``forced`` when given (``"tail_g2"`` serves a value-head group of two), else
+    ``"tail"`` for every value-head group."""
+    if num_heads <= 0 or num_v_heads % num_heads != 0:
+        raise ValueError(
+            f"num_v_heads={num_v_heads} must be a positive multiple of num_heads={num_heads}"
+        )
+    if forced is None:
+        return "tail"
+    if forced not in TAIL_FORMS:
+        raise ValueError(f"tail={forced!r}")
+    if forced == "tail_g2" and num_v_heads != 2 * num_heads:
+        raise ValueError("the tail_g2 form serves a value-head group of two")
+    return forced
+
+
+def tail_alerts(form: str, num_heads: int, num_v_heads: int) -> bool:
+    """Whether a backward with the tail ``form`` launches an unordered reduction, and so raises PyTorch's
+    determinism alert: the ``"tail"`` form of a value-head group of two or more (a group of one sums nothing across
+    CTAs, and the other forms are fixed-order)."""
+    return form == "tail" and num_v_heads > num_heads
+
+
+def tail_segments(num_chunks: int, num_heads: int, num_v_heads: int,
+                  tiles: int | None = None) -> tuple[tuple[tuple[int, int], ...], int]:  # fmt: skip
+    """The chunk ranges ``[c0, c1)`` the ``"tail"`` form launches in stream order over a chunk table of
+    ``num_chunks`` chunks, and the workspace tiles a launch may index: one launch and no tile at a value-head group
+    of one, else ranges of ``max(1, tiles // num_heads)`` chunks (``tiles`` defaults to ``TAIL_WORKSPACE_TILES``)."""
+    num_chunks, num_heads = int(num_chunks), int(num_heads)
+    if num_chunks <= 0:
+        return (), 0
+    if int(num_v_heads) == num_heads:
+        return ((0, num_chunks),), 0
+    cap = TAIL_WORKSPACE_TILES if tiles is None else int(tiles)
+    per = min(num_chunks, max(1, cap // num_heads))
+    return tuple((c, min(c + per, num_chunks)) for c in range(0, num_chunks, per)), per * num_heads
 
 
 MIN_SEGMENT_CHUNKS = 4
@@ -1041,6 +1119,20 @@ WORKSPACE_SHAPES_PER_ROLE = 4
 class Workspaces:
     def __init__(self):
         self.tables: dict = {}
+        # self-cleaning buffers per (device, stream): zero when created, left zero by every launch that uses them
+        self.zeroed: dict = {}
+
+    def take_zeroed(self, device_index: int, role: str, rows: int, row_shape: tuple, dtype, device) -> torch.Tensor:
+        """The first ``rows`` rows of the ``role`` buffer of the current stream of ``device_index``: created (or grown)
+        by ``torch.zeros`` on that stream, then reused without a memset, since every launch leaves it zero.  The
+        stream is read at the launch, so launches that may run concurrently (other streams, a CUDA graph capture on
+        its capture stream) take distinct buffers."""
+        key = (device_index, torch.cuda.current_stream(device_index).cuda_stream)
+        buffers = self.zeroed.setdefault(key, {})
+        buffer = buffers.get(role)
+        if buffer is None or buffer.shape[0] < rows or tuple(buffer.shape[1:]) != tuple(row_shape):
+            buffer = buffers[role] = _zeros((rows, *row_shape), dtype, device)
+        return buffer[:rows]
 
     def table(self, device_index: int) -> dict:
         key = (device_index, torch.cuda.current_stream(device_index).cuda_stream)
@@ -1063,6 +1155,16 @@ class FreshWorkspaces(Workspaces):
 
     def take(self, table, role, shape, dtype, device):
         return torch.empty(shape, dtype=dtype, device=device)
+
+    def take_zeroed(self, device_index, role, rows, row_shape, dtype, device):
+        return _zeros((rows, *row_shape), dtype, device)
+
+
+def _zeros(shape: tuple, dtype, device) -> torch.Tensor:
+    """``torch.zeros`` on the current stream; an unsigned 32-bit buffer is zeroed as int32 and viewed."""
+    if dtype == torch.uint32:
+        return torch.zeros(shape, dtype=torch.int32, device=device).view(torch.uint32)
+    return torch.zeros(shape, dtype=dtype, device=device)
 
 
 _POOLED = Workspaces()
@@ -1523,7 +1625,8 @@ def gdn_chunk_forward(q, k, v, g, beta, *, meta, arch, scale=None, initial_state
                       deterministic: bool = True) -> dict[str, Any]:  # fmt: skip
     """The forward chain over flattened ``[T, H, 128]`` / ``[T, HV, 128]`` inputs and one chunk table; returns the
     output and the tape the backward reads (the tape records ``deterministic=False``).  ``deterministic`` must be
-    ``False`` (``ValueError`` otherwise); see :func:`chunk_gated_delta_rule` for PyTorch's deterministic mode."""
+    ``False`` (``ValueError`` otherwise).  The forward runs fixed-order programs only: it raises no determinism alert
+    under PyTorch's deterministic algorithms."""
     _require_nondeterministic(deterministic, "gdn_chunk_forward")
     return _forward(q, k, v, g, beta, meta=meta, arch=arch, scale=scale, initial_state=initial_state,
                     output_final_state=output_final_state, normalize_qk=normalize_qk, options=options)  # fmt: skip
@@ -1614,17 +1717,19 @@ def gdn_chunk_backward(
 ) -> dict[str, Any]:
     """The backward chain over one forward tape of :func:`gdn_chunk_forward`; returns ``dq``, ``dk``, ``dv``, ``dg``,
     ``dbeta`` and ``dinitial_state``.  ``deterministic`` must be ``False``, and so must the mode the tape records
-    (``ValueError`` otherwise: a tape of the deterministic package is refused)."""
+    (``ValueError`` otherwise: a tape of the deterministic package is refused).  With PyTorch's deterministic
+    algorithms enabled, a backward whose tail sums ``dq`` / ``dk`` partials in arrival order (:func:`tail_alerts`)
+    raises PyTorch's alert before its first launch: ``RuntimeError``, or a ``UserWarning`` with ``warn_only=True``."""
     _require_nondeterministic(deterministic, "gdn_chunk_backward")
     return _backward(
         forward, do, dht, initial_state=initial_state, dbeta_dtype=dbeta_dtype
     )
 
 
-def _backward(
-    forward, do, dht=None, *, initial_state=None, dbeta_dtype=None
-) -> dict[str, Any]:
-    """:func:`gdn_chunk_backward` after its mode check: the tape must be of this package's mode."""
+def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
+              entry: str = "gdn_chunk_backward") -> dict[str, Any]:  # fmt: skip
+    """:func:`gdn_chunk_backward` after its mode check: the tape must be of this package's mode.  ``entry`` names the
+    caller in PyTorch's determinism alert, raised before the first launch when the tail is an unordered one."""
     if forward.get("deterministic", True) is not False:
         raise ValueError("gdn_chunk_backward reads the tape of a non-deterministic forward (deterministic=False); "
                          "this tape records the deterministic mode")  # fmt: skip
@@ -1636,6 +1741,9 @@ def _backward(
     scale = float(forward["scale"])
     v, beta32 = forward["v"], forward["beta32"]
     num_heads, num_v_heads = qn.shape[-2], v.shape[-2]
+    form = tail_form(num_heads, num_v_heads, options.tail)
+    if tail_alerts(form, num_heads, num_v_heads):
+        _alert_nondeterministic(entry)
     total_tokens = qn.numel() // (num_heads * qn.shape[-1])
     device = qn.device
     index = _tensor_index(qn)
@@ -1671,8 +1779,8 @@ def _backward(
     segs = meta.bwd_segments
     serial = not (segs.segment_len > 0 and segs.num_segments > meta.num_seqs)
     use_tc = serial and _dhu_tc_selected(meta, num_v_heads, index, options)
-    # two sequence groups: the tcgen05 serial scan feeding the fused tail of a value-head group of two
-    groups = meta.bwd_groups if use_tc and num_v_heads == 2 * num_heads else None
+    # two sequence groups (R form): the tcgen05 serial scan feeding a fused tail of a value-head group of two
+    groups = meta.bwd_groups if use_tc and form != "unfused" and num_v_heads == 2 * num_heads else None
     if not use_tc:
         dv_local = workspaces.take(table, "b_dv_local", token_hv, v.dtype, device)
         _launch("dv_local", meta.num_chunks, num_v_heads, 1, qn, kn, do, g_cs, dv_local, meta.chunk_start,
@@ -1733,8 +1841,9 @@ def _backward(
                 dv2, dh0, dh0, meta.chunk_start, meta.chunk_len, segs.seg_chunk_start, segs.seg_seq,
                 meta.seq_chunk_start, num_heads, num_v_heads, use_dht, 1 if has_initial_state else 0, scale)  # fmt: skip
     dbeta_bf16 = dbeta_dtype == torch.bfloat16
-    if num_v_heads == 2 * num_heads:
-        # a value-head group of two: dqkwg, the WY pullback and the finalize as one cluster kernel
+    if form != "unfused":
+        # one kernel per (chunk, value head) for dqkwg, the WY pullback and the finalize: "tail" for every value-head
+        # group (its workspace bounded by segmented launches), or the cluster kernel of a group of two ("tail_g2")
         dv = torch.empty(v.shape, dtype=v.dtype, device=device)
         dbeta = torch.empty(forward.get("beta_shape") or (total_tokens, num_v_heads),
                             dtype=torch.bfloat16 if dbeta_bf16 else torch.float32, device=device)  # fmt: skip
@@ -1745,12 +1854,34 @@ def _backward(
             dtype=torch.float32,
             device=device,
         )
-        tail = "tail_g2_bf16" if dbeta_bf16 else "tail_g2"
         normalize = 1 if forward.get("normalize_qk", True) else 0
+        rstd_q, rstd_k = forward["rstd_q"], forward["rstd_k"]
+        if form == "tail_g2":
+            stage = "tail_g2_bf16" if dbeta_bf16 else "tail_g2"
+
+            def tail(c0, c1):
+                _launch(stage, (c1 - c0) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h[c0:c1],
+                        dh[c0:c1], g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, meta.chunk_start[c0:c1],
+                        meta.chunk_len[c0:c1], num_heads, num_v_heads, scale, normalize)  # fmt: skip
+
+        else:
+            stage = "tail_bf16" if dbeta_bf16 else "tail"
+
+            def tail(c0, c1):
+                # the workspace of the stream that launches (every tail runs on the caller's stream), and launches of
+                # at most its tiles in stream order
+                ranges, tiles = tail_segments(c1 - c0, num_heads, num_v_heads)
+                rows = max(tiles, 1)
+                ws = workspaces.take_zeroed(index, "tail_ws", rows, (TAIL_TILE_FLOATS,), torch.float32, device)
+                ws_count = workspaces.take_zeroed(index, "tail_count", rows, (), torch.uint32, device)
+                for s0, s1 in ranges:
+                    a, b = c0 + s0, c0 + s1
+                    _launch(stage, (b - a) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h[a:b],
+                            dh[a:b], g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, ws, ws_count, meta.chunk_start[a:b],
+                            meta.chunk_len[a:b], num_heads, num_v_heads, scale, normalize, tiles)  # fmt: skip
+
         if groups is None:
-            _launch(tail, meta.num_chunks * num_v_heads, 1, 1, qn, kn, forward["rstd_q"], forward["rstd_k"], v_new, do,
-                    dv2, h, dh, g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, meta.chunk_start, meta.chunk_len, num_heads,
-                    num_v_heads, scale, normalize)  # fmt: skip
+            tail(0, meta.num_chunks)
         else:
             # R form: the caller's stream runs dhu_tc2 of group A (the full rounds), then the tail of A while the side
             # stream runs dhu_tc2 of group B (the partial round), then joins it and runs the tail of B
@@ -1762,11 +1893,6 @@ def _backward(
                         segs.seg_seq[s0:s1], meta.seq_chunk_start, num_heads, num_v_heads, use_dht,
                         1 if has_initial_state else 0, scale)  # fmt: skip
 
-            def tail_g2(c0, c1):
-                _launch(tail, (c1 - c0) * num_v_heads, 1, 1, qn, kn, forward["rstd_q"], forward["rstd_k"], v_new, do,
-                        dv2, h[c0:c1], dh[c0:c1], g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, meta.chunk_start[c0:c1],
-                        meta.chunk_len[c0:c1], num_heads, num_v_heads, scale, normalize)  # fmt: skip
-
             main = torch.cuda.current_stream(index)
             side = _side_stream(index, main)
             dhu_tc2(0, na)
@@ -1776,10 +1902,10 @@ def _backward(
                 with torch.cuda.stream(side):
                     side.wait_event(fork)
                     dhu_tc2(na, segs.num_segments)
-                tail_g2(0, ca)
+                tail(0, ca)
             finally:
                 main.wait_stream(side)  # the join
-            tail_g2(ca, meta.num_chunks)
+            tail(ca, meta.num_chunks)
         return {"dq": dq, "dk": dk, "dv": dv, "dg": dg, "dbeta": dbeta,
                 "dinitial_state": _caller_rows(dh0, meta) if has_initial_state else None}  # fmt: skip
     dq_hv = workspaces.take(table, "b_dq_hv", token_hv, qn.dtype, device)
@@ -2034,13 +2160,8 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
                 "deterministic": ctx.deterministic}  # fmt: skip
         if ctx.saved_state_tensors:
             tape["w"], tape["u"], tape["h"], tape["v_new"] = state_tensors
-        grads = _backward(
-            tape,
-            do.contiguous(),
-            dht,
-            initial_state=saved_state,
-            dbeta_dtype=beta_dtype,
-        )
+        grads = _backward(tape, do.contiguous(), dht, initial_state=saved_state, dbeta_dtype=beta_dtype,
+                          entry="ChunkGatedDeltaRuleFunction.backward")  # fmt: skip
         dg = grads["dg"]
         if dg.dtype != g_dtype:
             dg = dg.to(g_dtype)
@@ -2088,6 +2209,7 @@ def chunk_gated_delta_rule(
     prep: str | None = None,
     lpt: bool = True,
     streams: int = 2,
+    tail: str | None = None,
     deterministic: bool = True,
 ):
     """Non-deterministic chunked gated delta rule with FLA's signature (head dimension 128, ``HV`` a multiple of ``H``).
@@ -2107,9 +2229,11 @@ def chunk_gated_delta_rule(
 
     ``deterministic`` must be ``False``: the package computes non-deterministically (the outputs and gradients match
     the deterministic package within its accuracy budgets, not bitwise), and any other value raises ``ValueError``.
-    With PyTorch's deterministic algorithms enabled (``torch.use_deterministic_algorithms(True)``) a call raises
-    PyTorch's alert for an operation without a deterministic implementation: ``RuntimeError``, or a ``UserWarning``
-    with ``warn_only=True``.
+    With PyTorch's deterministic algorithms enabled (``torch.use_deterministic_algorithms(True)``) the forward runs
+    as usual (fixed-order programs), and a backward that sums the ``dq`` / ``dk`` partials of a value-head group in
+    arrival order (the default tail at ``HV > H``; :func:`tail_alerts`) raises PyTorch's alert for an operation
+    without a deterministic implementation, named ``ChunkGatedDeltaRuleFunction.backward``: ``RuntimeError``, or a
+    ``UserWarning`` with ``warn_only=True``.  ``tail`` pins the backward tail (:class:`ChainOptions`).
     """
     _require_nondeterministic(deterministic, "chunk_gated_delta_rule")
     if (
@@ -2121,7 +2245,7 @@ def chunk_gated_delta_rule(
     _check_inputs(q, k, v, g, beta, initial_state, cu_seqlens, cu_seqlens_cpu)
     options = make_options(scan_config=scan_config, segment_chunks=segment_chunks, finalize=finalize,
                            warmup_log2=warmup_log2, save_state=save_state, host_cache=host_cache,
-                           dhu_scan=dhu_scan, prep=prep, lpt=lpt, streams=streams)  # fmt: skip
+                           dhu_scan=dhu_scan, prep=prep, lpt=lpt, streams=streams, tail=tail)  # fmt: skip
     if g.dtype != torch.float32:
         g = g.float()
     if scale is None:
