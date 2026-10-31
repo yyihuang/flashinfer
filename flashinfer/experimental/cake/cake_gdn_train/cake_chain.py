@@ -40,8 +40,8 @@ finalize and rounding ``dq`` / ``dk`` to BF16 once (:func:`tail_segments`
 bounds the workspace), or one of the deterministic package's fixed-order tails
 where it measures faster (``tail_g2`` for a value-head group of two,
 ``tail_g3`` for three; ``dqkwg``, the WY pullback and the finalize,
-"unfused", for other groups below ``TAIL_MIN_CTAS`` (chunk, value head)
-CTAs).
+"unfused", for other groups below the architecture's ``TAIL_MIN_CTAS``
+(chunk, value head) CTAs).
 Every launch is fixed-order.  A host-built table lists the sequences longest first
 (:func:`lpt_sequence_order`; every chunk keeps its token offset, the state rows
 are gathered into that order and the final state and its gradient scattered
@@ -130,6 +130,7 @@ __all__ = [
     "sequence_groups",
     "stage_set",
     "tail_form",
+    "tail_min_ctas",
     "tail_segments",
     "two_stream_split",
     "use_prep_tma",
@@ -728,13 +729,20 @@ def finalize_stage(
 # workspace holds at most ``max(TAIL_WORKSPACE_TILES, num_v_heads)`` slots.
 TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
 TAIL_WORKSPACE_TILES = 4096
-# Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail (value-head groups
-# without a cluster tail): where the package tail's fused per-CTA chain is latency-bound it measured slower (backward
-# crossovers, B200 / GB300: G = 1 between 2048 and 3072 CTAs (even at 2048) / between 1024 and 2048; G = 4 at about
-# 2048 / between 512 and 1024).
-TAIL_MIN_CTAS = 2048
+# Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail, per architecture and
+# group class (1: a value-head group of one; 4: the larger groups without a cluster tail): where the package tail's
+# fused per-CTA chain is latency-bound it measured slower in the backward.  Crossovers (package tail / unfused):
+# B200 G = 1 between 2048 and 3072 CTAs (a tie at 2048), G = 4 about 2048 (the 1024-CTA rows within their spreads);
+# GB300 G = 1 between 1024 and 2048 (1.02 at 1024), G = 4 between 512 and 1024 (1.02 at 512, 0.89 at 1024); R200
+# (216 SMs) G = 1 between 512 and 1024 (0.87 at 1024), G = 4 at most 1024 (0.77-0.79 at 1024; 0.93 at 512, where
+# forward + backward ties).
+TAIL_MIN_CTAS: dict[str, dict[int, int]] = {
+    "sm_100a": {1: 2048, 4: 2048},
+    "sm_103a": {1: 2048, 4: 1024},
+    "sm_107a": {1: 1024, 4: 1024},
+}
 # The fixed-order cluster tail the rule takes per architecture and value-head group, and the package tail it takes
-# elsewhere from TAIL_MIN_CTAS CTAs on: tail_g2 measured 16-19 % faster than the package tail at G = 2 (the tail
+# elsewhere from its TAIL_MIN_CTAS on: tail_g2 measured 16-19 % faster than the package tail at G = 2 (the tail
 # kernels alone, B200 and GB300), tail_g3 1-6 % (B200) and 1-14 % (GB300) faster at G = 3 (this package's backward;
 # sm_107a: as sm_103a until it is measured there).
 CLUSTER_TAILS: dict[str, dict[int, str]] = {
@@ -746,6 +754,12 @@ TAIL_DEFAULT = "tail"
 # The value-head groups whose adjoint dhu_tc2 scan runs as two sequence groups (two streams) feeding the fused tail
 # (the R form) where :func:`sequence_groups` splits it.
 R_FORM_GROUPS: tuple[int, ...] = (2,)
+
+
+def tail_min_ctas(arch: str, group: int) -> int:
+    """The (chunk, value head) CTAs from which ``arch`` runs the package tail for a value-head group ``group`` without a
+    cluster tail: ``TAIL_MIN_CTAS[arch]`` of its class (``1`` for a group of one, ``4`` for the larger groups)."""
+    return TAIL_MIN_CTAS[arch][1 if group == 1 else 4]
 
 
 def tail_form(
@@ -760,9 +774,9 @@ def tail_form(
     given (``"tail_g2"`` / ``"tail_g3"`` serve a value-head group of two / three), else the fastest tail measured for
     the call's architecture, value-head group ``G = num_v_heads / num_heads`` and size
     (``benchmarks/bench_cake_gdn_train.py`` on B200 and GB300): the fixed-order cluster tail of
-    ``CLUSTER_TAILS[arch]`` for its group; otherwise the package tail ``TAIL_DEFAULT`` from ``TAIL_MIN_CTAS``
-    (chunk, value head) CTAs on, and below them the fixed-order ``"tail_g3"`` for a group of three, ``"unfused"`` for
-    the others."""
+    ``CLUSTER_TAILS[arch]`` for its group; otherwise the package tail ``TAIL_DEFAULT`` from
+    :func:`tail_min_ctas` (chunk, value head) CTAs on, and below them the fixed-order ``"tail_g3"`` for a group of
+    three, ``"unfused"`` for the others."""
     if num_heads <= 0 or num_v_heads % num_heads != 0:
         raise ValueError(
             f"num_v_heads={num_v_heads} must be a positive multiple of num_heads={num_heads}"
@@ -772,7 +786,8 @@ def tail_form(
         cluster = CLUSTER_TAILS[arch]
         if group in cluster:
             return cluster[group]
-        if num_chunks is not None and int(num_chunks) * num_v_heads < TAIL_MIN_CTAS:
+        floor = tail_min_ctas(arch, group)
+        if num_chunks is not None and int(num_chunks) * num_v_heads < floor:
             return "tail_g3" if group == 3 else "unfused"
         return TAIL_DEFAULT
     if forced not in TAIL_FORMS:

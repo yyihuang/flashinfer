@@ -1765,7 +1765,7 @@ def test_torch_deterministic_algorithms_change_nothing(
     seq_lens = (300, 77)
     pins = dict(pins)
     if pins.pop("crossover0", False):
-        monkeypatch.setattr(cake_chain, "TAIL_MIN_CTAS", 0)
+        monkeypatch.setattr(cake_chain, "TAIL_MIN_CTAS", _min_ctas_table(0))
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=251)
     want = _run(inputs, seq_lens, **pins)
     for warn_only in (False, True):
@@ -1951,6 +1951,38 @@ TAIL_RULE = {
     }
     for arch in ("sm_100a", "sm_103a", "sm_107a")
 }
+# the package tail's (chunk, value head) CTA floor per architecture and group class (1: G = 1; 4: the larger groups
+# without a cluster tail), from the backward crossovers measured on B200, GB300 and R200
+TAIL_MIN_CTAS_TABLE = {
+    "sm_100a": {1: 2048, 4: 2048},
+    "sm_103a": {1: 2048, 4: 1024},
+    "sm_107a": {1: 1024, 4: 1024},
+}
+
+
+def _min_ctas_table(value: int) -> dict[str, dict[int, int]]:
+    return {arch: {1: value, 4: value} for arch in TAIL_MIN_CTAS_TABLE}
+
+
+def test_tail_min_ctas_table() -> None:
+    assert cake_chain.TAIL_MIN_CTAS == TAIL_MIN_CTAS_TABLE
+    for arch, floors in TAIL_MIN_CTAS_TABLE.items():
+        assert cake_chain.tail_min_ctas(arch, 1) == floors[1], arch
+        for group in (3, 4, 5, 8, 16):
+            assert cake_chain.tail_min_ctas(arch, group) == floors[4], (arch, group)
+        # the rule at the floor: the package tail; one chunk below: unfused
+        for h, hv in ((4, 4), (1, 4), (2, 16)):
+            edge = floors[1 if hv == h else 4]
+            assert (
+                cake_chain.tail_form(h, hv, arch=arch, num_chunks=edge // hv)
+                == cake_chain.TAIL_DEFAULT
+            ), (arch, h, hv)
+            assert (
+                cake_chain.tail_form(h, hv, arch=arch, num_chunks=edge // hv - 1)
+                == "unfused"
+            ), (arch, h, hv)
+
+
 # the stages a backward launches per tail (beyond the shared scans), and the ones it never launches
 _TAIL_SETS = {f: {f, f + "_bf16"} for f in ("tail", "tail_g2", "tail_g3")}
 _TAIL_SETS["unfused"] = {"dqkwg", "finalize", "finalize_mlp"}
@@ -1970,7 +2002,7 @@ def test_the_dispatched_tail_runs(heads, min_tiles, device, monkeypatch) -> None
     # without a pin the backward launches the tail the rule names, and only that one; the pins launch theirs
     seq_lens = TAIL_LAYOUT
     if min_tiles is not None:
-        monkeypatch.setattr(cake_chain, "TAIL_MIN_CTAS", min_tiles)
+        monkeypatch.setattr(cake_chain, "TAIL_MIN_CTAS", _min_ctas_table(min_tiles))
     inputs = _inputs(seq_lens, heads, torch.float32, device, seed=289)
     launches = _record_tail_launches(monkeypatch, device)
     arch = cake_backend.device_arch(cake_chain._device_index(device))
@@ -2009,8 +2041,8 @@ def test_tail_segments_rule(monkeypatch) -> None:
         assert {
             heads: cake_chain.tail_form(*heads, arch=arch) for heads in want
         } == want, arch
-        edge = cake_chain.TAIL_MIN_CTAS
         for h, hv in ((2, 2), (4, 16), (1, 4)):
+            edge = cake_chain.tail_min_ctas(arch, hv // h)
             assert (
                 cake_chain.tail_form(h, hv, arch=arch, num_chunks=-(-edge // hv))
                 == cake_chain.TAIL_DEFAULT
@@ -2032,6 +2064,7 @@ def test_tail_segments_rule(monkeypatch) -> None:
         )
     # an architecture without a cluster tail for a group of three: tail_g3 below the package tail's crossover
     monkeypatch.setitem(cake_chain.CLUSTER_TAILS, "sm_107a", {2: "tail_g2"})
+    edge = cake_chain.tail_min_ctas("sm_107a", 3)
     assert (
         cake_chain.tail_form(2, 6, arch="sm_107a", num_chunks=-(-edge // 6) - 1)
         == "tail_g3"

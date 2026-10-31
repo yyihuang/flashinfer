@@ -124,25 +124,37 @@ backward outputs (other segment boundaries), so the deterministic package's
 bits need its table: pin `scan_config` / `segment_chunks`.  Then one of four
 tails computes `dq`, `dk`, `dv`, `dg` and `dbeta`.  The device's architecture,
 the call's value-head group `G = HV / H` and its (chunk, value head) CTAs
-select the fastest one measured on B200 and GB300 (the production rows, packs,
+select the fastest one measured on B200, GB300 and R200 (the production rows, packs,
 source head pairs and group shapes of `benchmarks/bench_cake_gdn_train.py`),
 and the `tail` keyword pins one:
 
 | tail | selected for | `dq` / `dk` rounding | run to run |
 |---|---|---|---|
-| `"tail"`: one tcgen05 kernel per (chunk, value head), a workspace slot per value head, the last CTA of a (chunk, key head) sums the slots | `G` other than 2 and 3 with at least `TAIL_MIN_CTAS` (2048) chunks x `HV` | the value heads' FP32 partials summed in value-head order, one BF16 rounding after the FP32 L2-norm pullback | bitwise |
+| `"tail"`: one tcgen05 kernel per (chunk, value head), a workspace slot per value head, the last CTA of a (chunk, key head) sums the slots | `G` other than 2 and 3 with at least the architecture's `TAIL_MIN_CTAS` chunks x `HV` | the value heads' FP32 partials summed in value-head order, one BF16 rounding after the FP32 L2-norm pullback | bitwise |
 | `"tail_g2"`: one cluster kernel per (chunk, key head) | `G = 2` | each value head's partial rounded to BF16, summed in a fixed order (the deterministic package's bits) | bitwise |
 | `"tail_g3"`: one three-CTA cluster kernel per (chunk, key head) | `G = 3` | as `"tail_g2"` | bitwise |
-| `"unfused"`: `dqkwg`, the WY pullback and the finalize | `G` other than 2 and 3 below `TAIL_MIN_CTAS` chunks x `HV` | as `"tail_g2"` | bitwise |
+| `"unfused"`: `dqkwg`, the WY pullback and the finalize | `G` other than 2 and 3 below the architecture's `TAIL_MIN_CTAS` chunks x `HV` | as `"tail_g2"` | bitwise |
 
-The rule is the same on `sm_100a`, `sm_103a` and `sm_107a` (`sm_107a`, not
-yet measured, takes the rule of `sm_103a`; `CLUSTER_TAILS` holds it per
-architecture).  In this package's backward (B200 / GB300), `tail_g3` measured
-1-6 % / 1-14 % faster than `"tail"` at `G = 3`, and `"tail"` at least 16 %
-faster than `"unfused"` at `G = 1` and `G = 4` from 3072 / 2048 (chunk,
-value head) CTAs on; at 2048 CTAs the two tie on B200, and on GB300 `"tail"`
-is already 13 % faster at `G = 4` from 1024 CTAs.  `tail_g2`
-measured 16-19 % faster than `"tail"` at `G = 2` (the tail kernels alone).
+The cluster tails are the same on `sm_100a`, `sm_103a` and `sm_107a`
+(`CLUSTER_TAILS` holds them per architecture; `sm_107a` takes those of
+`sm_103a`).  In this package's backward (B200 / GB300), `tail_g3` measured
+1-6 % / 1-14 % faster than `"tail"` at `G = 3`, and `tail_g2` 16-19 % faster
+than `"tail"` at `G = 2` (the tail kernels alone).
+
+`TAIL_MIN_CTAS` holds the (chunk, value head) CTAs from which the package
+tail runs, per architecture and group class (`tail_min_ctas(arch, G)`):
+
+| architecture | `G = 1` | `G` of 4 and more |
+|---|---|---|
+| `sm_100a` (B200) | 2048 | 2048 |
+| `sm_103a` (GB300) | 2048 | 1024 |
+| `sm_107a` (R200) | 1024 | 1024 |
+
+Each floor is the smallest size where `"tail"` measured no slower than
+`"unfused"` in the backward.  On B200 the two tie at 2048 CTAs, and `"tail"`
+is at least 16 % faster from 3072 CTAs on.  The backward time ratio `"tail"` /
+`"unfused"` at 1024 CTAs is 1.02 (`G = 1`) and 0.89 (`G = 4`) on GB300, and
+0.87 (`G = 1`) and 0.77-0.79 (`G = 4`) on R200 (216 SMs).
 
 Every tail meets the deterministic package's accuracy budgets.  `dv`, `dg`
 and `dbeta` have one writer each and the deterministic package's bits in
