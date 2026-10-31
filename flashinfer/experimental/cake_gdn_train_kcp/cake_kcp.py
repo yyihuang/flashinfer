@@ -2102,6 +2102,20 @@ class _Tables:
                 )
         return ch
 
+    def tree_block(self, family: str, sm_count: int, forced: Any) -> int:
+        """:func:`owner_tree_block` of owner family ``family``'s chain lengths, cached per ``(family, sm_count,
+        forced)``: a table's chains never change, and the rule (a Python pass over every chain per block size) would
+        otherwise run on the host at every merge launch of every call."""
+        key = (str(family), int(sm_count), forced)
+        cache = self.__dict__.setdefault("_tree_block_cache", {})
+        if key not in cache:
+            ch = self.chains[family]
+            lengths = [
+                ch.chain_start[i + 1] - ch.chain_start[i] for i in range(ch.n_chains)
+            ]
+            cache[key] = owner_tree_block(lengths, sm_count, forced)
+        return cache[key]
+
     def tree_plan(self, family: str, b: int) -> dict[str, Any]:
         """The three launches of the K1 blocked scan of owner family ``family`` at block size ``b`` (cached per
         ``(family, b)``): ``map`` (the composed ``[c | M]`` of every block but a chain's last, map mode, into the
@@ -2906,11 +2920,8 @@ class CallKcp:
         if ch.n_chains == 0:
             return
         if chains is None and family in TREE_FAMILIES:
-            lengths = [
-                ch.chain_start[i + 1] - ch.chain_start[i] for i in range(ch.n_chains)
-            ]
-            b = owner_tree_block(
-                lengths,
+            b = self.tb.tree_block(
+                family,
                 int(getattr(self.ctx, "sm_count", 0) or 0),
                 self.opts.knob("owner_tree"),
             )
