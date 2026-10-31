@@ -1172,6 +1172,7 @@ def test_autograd_saves_only_its_inputs_and_rstd(hidden: int, residual: bool, w:
     else:
         outputs.backward(g)
     del outputs, y, normalized
+    _DW_BUFFERS.clear()  # the launch recorder's references to the kernel's dw
     torch.cuda.synchronize()
     grads = [xa.grad, wa.grad] + ([ua.grad] if residual else [])
     storages = {
