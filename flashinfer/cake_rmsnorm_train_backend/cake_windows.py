@@ -727,6 +727,11 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
 
 EDGE_CLASSES = ["same", "ulp", "dx", "unmeasured"]
 
+# Per architecture: the backward routes that run the deterministic pair in every window, each
+# with the measured reason; every other backward route ships the single kernel in at least one
+# window (the exporter's ``DET_PAIR_ROUTES``; the registry gate test reads this table).
+DET_PAIR_ROUTES: dict[str, dict[str, str]] = {}
+
 NOTES = """
 Each route -- one architecture, hidden size and direction -- ships one or more programs
 and selects one per call from the token count ``T``: the program whose window
@@ -920,6 +925,7 @@ SECTIONS: dict[str, str] = {"fwd": FORWARD_SECTION, "bwd": BACKWARD_SECTION}
 
 __all__ = [
     "BACKWARD_SECTION",
+    "DET_PAIR_ROUTES",
     "EDGES",
     "EDGE_CLASSES",
     "FORWARD_SECTION",

@@ -33,22 +33,27 @@ Every entry point takes ``deterministic`` (default ``True``):
   given token count on a given architecture.  The default call returns exactly
   that package's results.
 * ``deterministic=False`` runs this package's kernels: the same forward programs
-  (the forward has no cross-row reduction) and, per token-count window, one of
-  two backward forms.  One backward kernel whose persistent CTAs claim row
-  chunks, write ``dx`` and add their per-column ``dw`` sums into FP64 sums in
-  the workspace in the order they finish; the CTA that finishes last rounds the
-  sums into ``dw``.  ``dx`` is computed as the deterministic backward computes
-  it; ``dw`` is not guaranteed bitwise reproducible (the order of the FP64
-  additions depends on scheduling).  In the windows where it is faster, the
-  deterministic package's backward pair (main kernel and fixed-order reduce),
-  rendered into this package; ``cake_jit.program_windows`` and the backward
-  docstring list the form of every window.  This path also accepts ``[..., H]`` inputs whose leading dimensions collapse into
+  (the forward has no cross-row reduction) and, per token-count window, the
+  backward form this build's registry lists for the window
+  (``cake_jit.program_windows``; the backward docstring's notes are generated
+  from it).  The single-kernel form, in the windows that ship it: persistent
+  CTAs claim row chunks, write ``dx`` and add their per-column ``dw`` sums into
+  FP64 sums in the workspace in the order they finish; the CTA that finishes
+  last rounds the sums into ``dw``.  ``dx`` is computed as the deterministic
+  backward computes it; ``dw`` is not guaranteed bitwise reproducible (the
+  order of the FP64 additions depends on scheduling).  Every other window runs
+  the deterministic package's backward pair (main kernel and fixed-order
+  reduce), rendered into this package.  This path also accepts ``[..., H]`` inputs whose leading dimensions collapse into
   rows (for example a ``[T, heads, 256]`` per-head view sharing one ``w[256]``)
   and an FP32 weight on the routes that ship the FP32-weight programs.
 * ``deterministic=False`` while ``torch.use_deterministic_algorithms(True)`` is
-  in effect raises ``RuntimeError``; with ``warn_only=True`` it warns and runs
-  the deterministic kernels.  A call that asks for determinism never runs the
-  non-deterministic kernels.
+  in effect raises ``RuntimeError``.  With ``warn_only=True`` it warns, the
+  forward runs this package's forward programs (deterministic) and the backward
+  runs the deterministic package with a workspace of its own; a call that
+  package cannot serve (``[..., H]`` inputs, an FP32 weight, a width or residual
+  route it does not export) raises one ``RuntimeError`` naming the feature
+  instead.  A call that asks for determinism never runs the non-deterministic
+  kernels.  ``deterministic`` must be a ``bool`` (``TypeError`` otherwise).
 
 All kernels use FP32 statistics and accumulation (the non-deterministic
 single kernel's ``dw`` sums across CTAs in FP64) with IEEE division and square root (no
@@ -62,18 +67,20 @@ returns empty outputs (a zero ``dw``) without launching.
 
 The non-deterministic backward's workspace
 (``cake_rmsnorm_train_backward_workspace_bytes(T, H, ..., deterministic=False)``
-bytes) serves one hidden size and residual flag (both weight dtypes).  It holds
-the deterministic pair's counters, the single kernel's state -- a few counters
-and two halves of FP64 column sums per sum shape, ``1024 + 256 + 16 * R * H``
-bytes whatever ``T`` (``R`` sum replicas) when every window runs one
-single-kernel shape -- and, when a window up to ``T`` runs the deterministic
-pair, its FP32 partial rows.  Zero the buffer once: the kernels keep it valid
-(the pair's counters back at zero, the single kernel's half selector and the
-half its next launch adds into ready), so it serves calls of token counts up to
-``T``, windows and CUDA Graph replays with no host write.  Zeroing it again is
-harmless; sharing it with another width or residual flag is not.  Give each
-stream that may run a backward at the same time its own buffer.  A call without
-a workspace allocates and zero-fills one (an allocator call and a fill kernel).
+bytes) has one layout, with offsets fixed by the package, for every call: the
+deterministic pair's counters, the single kernel's counters and FP64 column
+sums (``cake_jit.SUMS_BYTES``, the largest of the package's single kernels)
+and, when a window up to ``T`` runs the deterministic pair, its FP32 partial
+rows.  Zero the buffer once: after every launch the kernels leave the counters
+at rest and the sums at zero, so with no host write one buffer serves any
+sequence of ``deterministic=False`` backward calls it is large enough for --
+hidden sizes, residual flags, weight dtypes, token counts, windows and CUDA
+Graph replays.  A buffer serves calls of one mode: a ``deterministic=True``
+call takes the deterministic package's workspace.  Zeroing it again is
+harmless.  Give each stream that may run a backward at the same time its own
+buffer.  A call with a workspace issues no memset, copy or synchronization; a
+call without one allocates and zero-fills one per call (a caching-allocator
+call, one fill kernel of about 3 us and about 35 us of host time on B200).
 The backward writes all of ``dw``.
 
 Beside kernels resident on other streams (``deterministic=False``): the backward

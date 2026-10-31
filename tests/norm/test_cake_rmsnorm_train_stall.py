@@ -31,10 +31,8 @@ most ``MAX_EXTRA_MS`` above it (the alone and busy calls alternate in pairs).
 ``dx`` is bitwise equal across the alone and busy calls, a fresh-workspace
 call and launch grids other than the production one; ``dw`` stays within the
 package's budget against the first call in every one of them; after every
-call the workspace holds the kernels' state and nothing else: the det pair
-counters zero and, per single-kernel state region, the claim ticket zero, the
-count's low bits zero and the sum half the next launch adds into zero (a det
-pair's partial rows are scratch).
+call the workspace is at rest: every counter and FP64 sum zero (a det pair's
+partial rows are scratch).
 
 Beside a kernel resident on every SM (#7548 item 2): with the side kernel's
 preferred carveout set to the maximum shared memory, the backward starts beside
@@ -164,33 +162,12 @@ def _rel_l2(actual: torch.Tensor, reference: torch.Tensor) -> float:
 
 
 def _workspace_clean(ws: torch.Tensor, hidden: int, residual: bool = False) -> bool:
-    """The kernels' state between calls of one family: the det pair counters
-    zero; per single-kernel state region the claim ticket zero, the count words'
-    low 31 bits zero and the half their bit 31 selects (the next launch's) all
-    zero -- the other half keeps the last launch's sums; a det pair's partial
-    rows are scratch."""
+    """The workspace's documented rest state after a call (any hidden size or
+    residual flag): every counter and FP64 sum zero -- every byte before the det
+    pair's partial rows (``cake_jit.PAIR_ROWS_OFFSET``), which are scratch."""
+    del hidden, residual  # one layout serves every family
     torch.cuda.synchronize()
-    if bool(ws[: loader.COUNTERS_BYTES].any()):
-        return False
-    arch = loader.device_arch(ws.device.index or 0)
-    for (counters, replicas, halves), offset in loader.single_regions(
-        arch, hidden, residual
-    ):
-        words = ws[offset : offset + 4 * counters].view(torch.int32).tolist()
-        if words[0] != 0 or any(word & 0x7FFFFFFF for word in words[1:]):
-            return False
-        # word 1's bit 31 is the half the next launch adds into; later words are
-        # unused (zero) or one count word per column slice, flipping with word 1
-        half = (words[1] >> 31) & 1
-        later = [(word >> 31) & 1 for word in words[2:]]
-        if any(later) and set(later) != {half}:
-            return False
-        begin = offset + loader.SINGLE_COUNTERS_BYTES
-        sums = ws[begin : begin + loader.SUM_BYTES * hidden * replicas * halves]
-        sums = sums.view(torch.float64).view(replicas, halves, hidden)
-        if bool(sums[:, half if halves > 1 else 0].any()):
-            return False
-    return True
+    return not bool(ws[: loader.PAIR_ROWS_OFFSET].any())
 
 
 def _timed(

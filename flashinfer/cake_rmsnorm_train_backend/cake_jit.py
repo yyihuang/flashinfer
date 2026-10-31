@@ -9505,89 +9505,40 @@ def _round_up(value: int, multiple: int) -> int:
 
 # The backward workspace starts with the deterministic pairs' ``uint32``
 # counter table (192 words at most, padded to four 256-byte lines); every pair
-# kernel leaves the words it uses at zero.  One state region per single-kernel
-# sum shape of the call's family -- its architecture, hidden size and residual
-# flag, both weight dtypes -- follows: ``SINGLE_COUNTERS_BYTES`` of counters,
-# then the kernel's FP64 column sums, ``replicas`` copies of ``halves`` halves
-# of ``hidden`` sums (``SUM_BYTES`` each).  A single-kernel launch adds into
-# the half that bit 31 of its second counter word selects, zeroes the other
-# half and flips that bit, so a region holds valid state, not zeros, between
-# launches; single kernels share a region only when their sums have the same
-# shape.  The FP32 partial rows of the pairs' main kernels come last.  Every
-# offset depends on the family only, so one buffer, zero when first used,
-# serves the family's calls of different token counts and windows with no
-# host write between them.
+# kernel leaves the words it uses at zero.  The single kernel's counters
+# (``SINGLE_COUNTERS_BYTES`` at ``SINGLE_COUNTERS_OFFSET``) and FP64 column sums
+# (``SUMS_BYTES`` at ``SUMS_OFFSET``: the widest sums of the package's single
+# records, their workspace rules' ``sum_bytes``) follow; the single kernel leaves
+# its sums at zero and its counters in their rest state after every launch.
+# The FP32 partial rows of the pairs' main kernels come last
+# (``PAIR_ROWS_OFFSET``).  Every offset is the package's, not the call's, so one
+# buffer, zero when first used, serves calls of any token count, window, hidden
+# size, residual flag and weight dtype with no host write between them, and the
+# two forms never share a counter word.
 COUNTERS_BYTES = 1024
+SINGLE_COUNTERS_OFFSET = COUNTERS_BYTES
 SINGLE_COUNTERS_BYTES = 256
-SUM_BYTES = 8
+SUMS_OFFSET = SINGLE_COUNTERS_OFFSET + SINGLE_COUNTERS_BYTES
 # The workspace rule kinds of the two backward forms: the main kernel of a
 # deterministic pair, the single kernel.
 WORKSPACE_KINDS = ("chunk_partials", "claim_sum_f64")
 
 
 def _sum_bytes(record: dict[str, Any]) -> int:
-    """Bytes of the FP64 column sums of a single-kernel record (0 for another
-    record): ``replicas`` copies of ``halves`` halves of ``hidden`` sums."""
+    """Bytes of the FP64 column sums a single-kernel record binds to
+    ``partial`` (its workspace rule's ``sum_bytes``, the kernel's
+    ``workspace_bytes`` of the build); 0 for another record."""
 
     rule = record["workspace_rule"]
     if rule is None or rule["kind"] != "claim_sum_f64":
         return 0
-    return (
-        SUM_BYTES
-        * int(record["hidden"])
-        * int(rule.get("replicas", 1))
-        * int(rule.get("halves", 1))
-    )
+    return int(rule["sum_bytes"])
 
 
-def _region_key(record: dict[str, Any]) -> tuple[int, int, int]:
-    """The state-region shape of a single-kernel record: its counter words, sum
-    replicas and halves."""
-
-    rule = record["workspace_rule"]
-    return (
-        int(rule["counters"]),
-        int(rule.get("replicas", 1)),
-        int(rule.get("halves", 1)),
-    )
-
-
-@functools.cache
-def single_regions(
-    arch: str, hidden: int, residual: bool
-) -> tuple[tuple[tuple[int, int, int], int], ...]:
-    """``((region shape, byte offset), ...)`` of the single-kernel state regions
-    of one family -- ``arch``, ``hidden``, ``residual``, both weight dtypes -- in
-    route order; empty when every window of the family runs a deterministic
-    pair.  A region's shape is ``(counters, replicas, halves)`` of its records'
-    workspace rule; its counters start at the offset, its FP64 sums
-    ``SINGLE_COUNTERS_BYTES`` after it."""
-
-    regions: list[tuple[tuple[int, int, int], int]] = []
-    end = COUNTERS_BYTES
-    for w_dtype in weight_dtypes(arch, hidden, "bwd", residual):
-        for name in route_modules(arch, hidden, "bwd", residual, w_dtype):
-            record = MODULES[name]
-            if not _sum_bytes(record):
-                continue
-            key = _region_key(record)
-            if key not in dict(regions):
-                regions.append((key, end))
-                end += SINGLE_COUNTERS_BYTES + _round_up(_sum_bytes(record), 256)
-    return tuple(regions)
-
-
-def single_bytes(arch: str, hidden: int, residual: bool) -> int:
-    """Bytes of one family's single-kernel state regions (0 when every window
-    runs a deterministic pair)."""
-
-    return sum(
-        SINGLE_COUNTERS_BYTES
-        + _round_up(SUM_BYTES * int(hidden) * replicas * halves, 256)
-        for (_counters, replicas, halves), _offset in single_regions(
-            arch, hidden, residual
-        )
-    )
+SUMS_BYTES = _round_up(
+    max((_sum_bytes(record) for record in MODULES.values()), default=0), 256
+)
+PAIR_ROWS_OFFSET = SUMS_OFFSET + SUMS_BYTES
 
 
 @functools.cache
@@ -9848,64 +9799,54 @@ def workspace_layout(
     rows: int,
     *,
     device_index: int,
-    residual: bool,
-    arch: Optional[str] = None,
     capacity_record: Optional[dict[str, Any]] = None,
 ) -> dict[str, int]:
     """Byte layout of the caller-owned backward workspace of one module.
 
-    The workspace is one CUDA ``uint8`` buffer of the module's family -- ``arch``
-    (the device's when ``None``), the record's hidden size and ``residual``:
-    the deterministic pairs' ``uint32`` counters in its first
-    :data:`COUNTERS_BYTES` bytes, the family's single-kernel state regions
-    (:func:`single_regions`), then the pairs' FP32 partial rows.  A
-    single-kernel module (workspace rule ``claim_sum_f64``) binds the counters
-    of its region and its FP64 column sums (``replicas`` copies of ``halves``
-    halves of ``hidden`` sums), whatever ``rows``.  The main kernel of a
-    deterministic pair (``chunk_partials``) binds the table's counters and the
-    FP32 ``[capacity, hidden]`` per-chunk partial rows after the family's state
-    regions, ``capacity`` the :func:`chunk_capacity` of ``rows``, so a buffer
-    sized for ``rows`` serves every smaller token count.  The buffer is zero
-    when first used; the pair kernels leave their counters at zero and a single
-    kernel leaves its region valid for the next launch, so no host write is
-    needed between launches or CUDA Graph replays.  A route whose pair modules
-    switch on the row count shares one buffer: ``capacity_record`` (the pair
-    main module with the largest capacity) fixes the partial capacity for every
-    pair module of the route, while ``n_chunks`` and ``slots`` follow
-    ``record``, the module launched.
+    The workspace is one CUDA ``uint8`` buffer: the deterministic pairs'
+    ``uint32`` counters in its first :data:`COUNTERS_BYTES` bytes, the single
+    kernel's counters at :data:`SINGLE_COUNTERS_OFFSET`, its FP64 column sums at
+    :data:`SUMS_OFFSET` and the pairs' FP32 partial rows at
+    :data:`PAIR_ROWS_OFFSET`.  A single-kernel module (workspace rule
+    ``claim_sum_f64``) binds the single counters and its rule's ``sum_bytes``
+    of sums, whatever ``rows``.  The main kernel of a deterministic pair
+    (``chunk_partials``) binds the pair counters and the FP32
+    ``[capacity, hidden]`` per-chunk partial rows, ``capacity`` the
+    :func:`chunk_capacity` of ``rows``, so a buffer sized for ``rows`` serves
+    every smaller token count.  The buffer is zero when first used and every
+    kernel leaves its counters in their rest state and the sums at zero, so no
+    host write is needed between launches, layouts or CUDA Graph replays.  A
+    route whose pair modules switch on the row count shares one buffer:
+    ``capacity_record`` (the pair main module with the largest capacity) fixes
+    the partial capacity for every pair module of the route, while
+    ``n_chunks`` and ``slots`` follow ``record``, the module launched.
     """
 
     rule = record["workspace_rule"]
     chunks, slots = chunking(record, rows, device_index=device_index)
     hidden = int(record["hidden"])
     counters = int(rule["counters"])
-    family = (
-        device_arch(device_index) if arch is None else arch,
-        hidden,
-        bool(residual),
-    )
     if rule["kind"] == "claim_sum_f64":
         if 4 * max(counters, 1) > SINGLE_COUNTERS_BYTES:
             raise ValueError(
-                f"module kernel_{record['kernel']} declares {counters} counters; a "
-                f"state region holds {SINGLE_COUNTERS_BYTES // 4}"
-            )
-        offset = dict(single_regions(*family)).get(_region_key(record))
-        if offset is None:
-            raise ValueError(
-                f"module kernel_{record['kernel']} is no single kernel of the "
-                f"{family[0]} {route_key(hidden, 'bwd', family[2])} routes"
+                f"module kernel_{record['kernel']} declares {counters} counters; the "
+                f"single kernel's table holds {SINGLE_COUNTERS_BYTES // 4}"
             )
         partial_bytes = _sum_bytes(record)
+        if partial_bytes % 8 or partial_bytes > SUMS_BYTES:
+            raise ValueError(
+                f"module kernel_{record['kernel']} declares {partial_bytes} bytes of "
+                f"FP64 sums; the workspace holds {SUMS_BYTES}"
+            )
         return {
             "n_chunks": chunks,
             "slots": slots,
             "capacity_chunks": 0,
             "partial_bytes": partial_bytes,
-            "partial_offset": offset + SINGLE_COUNTERS_BYTES,
+            "partial_offset": SUMS_OFFSET,
             "counters": counters,
-            "counters_offset": offset,
-            "total_bytes": COUNTERS_BYTES + single_bytes(*family),
+            "counters_offset": SINGLE_COUNTERS_OFFSET,
+            "total_bytes": SUMS_OFFSET + _round_up(partial_bytes, 256),
         }
     if 4 * max(counters, 1) > COUNTERS_BYTES:
         raise ValueError(
@@ -9923,16 +9864,15 @@ def workspace_layout(
             f"module kernel_{record['kernel']} for {rows} rows"
         )
     partial_bytes = 4 * capacity * hidden
-    offset = COUNTERS_BYTES + single_bytes(*family)
     return {
         "n_chunks": chunks,
         "slots": slots,
         "capacity_chunks": capacity,
         "partial_bytes": partial_bytes,
-        "partial_offset": offset,
+        "partial_offset": PAIR_ROWS_OFFSET,
         "counters": counters,
         "counters_offset": 0,
-        "total_bytes": offset + _round_up(partial_bytes, 256),
+        "total_bytes": PAIR_ROWS_OFFSET + _round_up(partial_bytes, 256),
     }
 
 
@@ -10027,9 +9967,12 @@ __all__ = [
     "MAX_ROUNDS",
     "MODULES",
     "ROUTES",
+    "PAIR_ROWS_OFFSET",
     "ROW_ALIGNMENT_ELEMENTS",
     "SINGLE_COUNTERS_BYTES",
-    "SUM_BYTES",
+    "SINGLE_COUNTERS_OFFSET",
+    "SUMS_BYTES",
+    "SUMS_OFFSET",
     "TAIL_DIV",
     "WEIGHT_DTYPES",
     "WORKSPACE_KINDS",
@@ -10050,8 +9993,6 @@ __all__ = [
     "route_modules",
     "run_module",
     "selected_modules",
-    "single_bytes",
-    "single_regions",
     "sm_count",
     "specs_for_arch",
     "supported_hidden_sizes",

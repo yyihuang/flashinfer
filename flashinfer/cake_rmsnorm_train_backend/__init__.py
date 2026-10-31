@@ -24,11 +24,11 @@ deterministic package :mod:`flashinfer.cake_rmsnorm_det_train_backend` with the
 same arguments, so the default call returns that package's bits.
 ``deterministic=False`` runs this package's kernels: the forward programs of
 the deterministic package (rendered here; the forward has no cross-row
-reduction) and, per token-count window, one of two backward forms: one kernel
-whose CTAs add their ``dw`` sums into FP64 workspace sums in the order they
-finish, so ``dw`` is not guaranteed bitwise reproducible, or, in the windows
-where it is the faster form, the deterministic package's backward pair (main
-kernel and fixed-order ``dw`` reduce) rendered here.  The stable,
+reduction) and, per token-count window, the backward form the registry lists
+for it: in the windows that ship it, one kernel whose CTAs add their ``dw``
+sums into FP64 workspace sums in the order they finish, so ``dw`` is not
+guaranteed bitwise reproducible; in the others, the deterministic package's
+backward pair (main kernel and fixed-order ``dw`` reduce) rendered here.  The stable,
 ``@flashinfer_api``-decorated entry points and the full user-facing
 documentation live in :mod:`flashinfer.cake_rmsnorm_train`; import that module.
 """
@@ -42,7 +42,6 @@ from typing import Optional
 
 import torch
 
-from .. import cake_rmsnorm_det_train_backend as _det
 from . import cake_jit as _loader
 from . import cake_windows as _windows
 from .cake_jit import (
@@ -73,32 +72,129 @@ _DET_NAMES = {
 }
 
 
-def _resolve_deterministic(deterministic: bool, api: str) -> bool:
-    """Whether a call of ``api`` runs the deterministic package.
+# What the warn_only fallback of each entry point runs (see ``_fallback``).
+_FALLBACK_RUNS = {
+    "cake_rmsnorm_train_forward": "this package's forward programs (the forward "
+    "has no cross-row reduction; they are deterministic)",
+    "cake_rmsnorm_train_backward": "the deterministic package's backward with a "
+    "workspace of its own (the workspace argument is not used)",
+    "cake_rmsnorm_train_backward_workspace": "the deterministic package's workspace "
+    "helper",
+    "cake_rmsnorm_train_backward_workspace_bytes": "the deterministic package's "
+    "workspace helper",
+    "cake_rmsnorm": "this package's forward programs and the deterministic "
+    "package's backward",
+}
 
-    ``deterministic=True`` does.  ``deterministic=False`` runs this package's
-    non-deterministic kernels unless ``torch.use_deterministic_algorithms(True)``
-    is in effect: then the call raises ``RuntimeError``, or, with
-    ``warn_only=True``, warns and runs the deterministic package.  A call that
-    asked for determinism never runs the non-deterministic kernels.
+# The modes of a call (``_resolve_deterministic``): the deterministic package,
+# this package's kernels, the warn_only fallback of ``deterministic=False``.
+_DET, _NONDET, _FALLBACK = "det", "nondet", "fallback"
+
+
+def _det_package():
+    """The deterministic package the ``deterministic=True`` calls run.
+
+    It is imported on first use, so this package imports on its own (a
+    consumer may vendor it without the deterministic package); a deterministic
+    call then raises ``RuntimeError`` naming the missing package.
     """
 
-    if deterministic:
-        return True
-    if not torch.are_deterministic_algorithms_enabled():
-        return False
-    message = (
+    try:
+        from .. import cake_rmsnorm_det_train_backend as det
+    except ImportError as exc:
+        raise RuntimeError(
+            "deterministic=True runs the deterministic Cake RMSNorm training "
+            "package (flashinfer.cake_rmsnorm_det_train_backend), which cannot be "
+            f"imported here ({exc}); install it, or call with deterministic=False "
+            "to run this package's kernels"
+        ) from exc
+    return det
+
+
+def _check_flag(deterministic: bool, api: str) -> None:
+    if not isinstance(deterministic, bool):
+        raise TypeError(
+            f"flashinfer.{api}: deterministic must be a bool, got "
+            f"{type(deterministic).__name__}"
+        )
+
+
+def _refusal(api: str) -> str:
+    return (
         f"flashinfer.{api}(deterministic=False) sums the weight gradient over the "
         "CTAs in a scheduling-dependent order, but "
         "torch.use_deterministic_algorithms(True) is in effect; call it with "
         f"deterministic=True or use flashinfer.{_DET_NAMES[api]}"
     )
+
+
+def _resolve_deterministic(deterministic: bool, api: str) -> str:
+    """The mode of a call of ``api``: ``_DET``, ``_NONDET`` or ``_FALLBACK``.
+
+    ``deterministic`` must be a ``bool`` (``TypeError`` otherwise).  ``True``
+    runs the deterministic package.  ``False`` runs this package's kernels
+    unless ``torch.use_deterministic_algorithms(True)`` is in effect: then the
+    call raises ``RuntimeError``, or, with ``warn_only=True``, takes the
+    fallback (``_fallback``).  A call that asked for determinism never runs the
+    non-deterministic kernels.
+    """
+
+    _check_flag(deterministic, api)
+    if deterministic:
+        return _DET
+    if not torch.are_deterministic_algorithms_enabled():
+        return _NONDET
     if torch.is_deterministic_algorithms_warn_only_enabled():
-        warnings.warn(
-            f"{message}; running the deterministic kernels", UserWarning, stacklevel=3
+        return _FALLBACK
+    raise RuntimeError(_refusal(api))
+
+
+def _fallback(api: str, gap: Optional[str] = None) -> None:
+    """The ``warn_only`` fallback of ``deterministic=False``: one ``UserWarning``
+    naming what runs instead (``_FALLBACK_RUNS``), or, when the deterministic
+    package cannot serve the call (``gap``: the feature it lacks), one
+    ``RuntimeError`` and no warning: such a call is never run with
+    non-deterministic kernels in silence nor refused with an unrelated error."""
+
+    if gap is not None:
+        raise RuntimeError(
+            f"{_refusal(api)}; with warn_only=True the call falls back to the "
+            f"deterministic package, which does not support {gap}: only "
+            "deterministic=False serves this call, with "
+            "torch.use_deterministic_algorithms off"
         )
-        return True
-    raise RuntimeError(message)
+    warnings.warn(
+        f"{_refusal(api)}; running {_FALLBACK_RUNS[api]}", UserWarning, stacklevel=3
+    )
+
+
+def _det_gap(
+    kind: str, x: torch.Tensor, w: torch.Tensor, residual: bool
+) -> Optional[str]:
+    """What the deterministic package lacks to serve the ``kind`` (``"fwd"`` /
+    ``"bwd"``) call of these inputs, or ``None``: an input of more than two
+    dimensions, a weight other than BF16, or a width / residual route it does
+    not export on the device."""
+
+    if not isinstance(x, torch.Tensor) or not isinstance(w, torch.Tensor):
+        return None  # the deterministic package reports the argument error
+    if x.ndim > 2:
+        return f"inputs of more than two dimensions (x of shape {tuple(x.shape)})"
+    if w.dtype != torch.bfloat16:
+        return f"{w.dtype} weights"
+    if x.device.type != "cuda" or x.ndim != 2:
+        return None
+    capability = tuple(torch.cuda.get_device_capability(x.device))
+    hidden = int(x.shape[1])
+    if not _det_package().cake_jit.route_applies(
+        device_capability=capability, hidden=hidden, kind=kind, residual=residual
+    ):
+        word = "forward" if kind == "fwd" else "backward"
+        return (
+            f"the {word} of hidden={hidden} (residual={residual}) on "
+            f"{arch_for_capability(capability)}"
+        )
+    return None
 
 
 def _device_index(device: torch.device) -> int:
@@ -129,8 +225,9 @@ def is_cake_rmsnorm_train_supported(
     depend on ``torch.use_deterministic_algorithms``.
     """
 
+    _check_flag(deterministic, "is_cake_rmsnorm_train_supported")
     if deterministic:
-        return _det.is_cake_rmsnorm_det_train_supported(device, hidden)
+        return _det_package().is_cake_rmsnorm_det_train_supported(device, hidden)
     device = torch.device(device)
     if device.type != "cuda":
         return False
@@ -160,7 +257,9 @@ def _validate_tensor(
         raise ValueError(f"{name} must have shape {shape}, got {tuple(tensor.shape)}")
 
 
-def _row_view(tensor: torch.Tensor, name: str) -> tuple[torch.Tensor, tuple[int, ...]]:
+def _row_view(
+    tensor: torch.Tensor, name: str, *, copy: bool = False
+) -> tuple[torch.Tensor, tuple[int, ...]]:
     """``(the [rows, H] view of an input, its leading shape)``.
 
     A ``[T, H]`` tensor is its own view.  A tensor of more dimensions,
@@ -172,8 +271,10 @@ def _row_view(tensor: torch.Tensor, name: str) -> tuple[torch.Tensor, tuple[int,
     stride apart (a ``[T, heads, H]`` slice of a wider ``[T, heads, W]``
     buffer, strides ``(heads * W, W, 1)``, qualifies).  The view keeps that
     row stride, so the alignment rules of the kernel inputs apply to it
-    unchanged.  Any other layout raises ``ValueError`` naming the rule: the
-    kernels index rows by one stride and write contiguous outputs.
+    unchanged.  Any other layout raises ``ValueError`` naming the rule (the
+    kernels index rows by one stride and write contiguous outputs), or, with
+    ``copy`` (the backward's gradients, which autograd hands over in whatever
+    layout the consumer produced), is copied once into a contiguous tensor.
     """
 
     if not isinstance(tensor, torch.Tensor):
@@ -195,6 +296,8 @@ def _row_view(tensor: torch.Tensor, name: str) -> tuple[torch.Tensor, tuple[int,
         tensor.stride(outer) == tensor.stride(inner) * tensor.shape[inner]
         for outer, inner in zip(dims, dims[1:], strict=False)
     )
+    if not collapsible and copy:
+        return tensor.contiguous().view(rows, hidden), lead
     if not collapsible:
         raise ValueError(
             f"{name} of shape {tuple(tensor.shape)} with strides "
@@ -210,7 +313,12 @@ def _row_view(tensor: torch.Tensor, name: str) -> tuple[torch.Tensor, tuple[int,
 
 
 def _companion_view(
-    tensor: torch.Tensor, name: str, *, lead: tuple[int, ...], hidden: int
+    tensor: torch.Tensor,
+    name: str,
+    *,
+    lead: tuple[int, ...],
+    hidden: int,
+    copy: bool = False,
 ) -> torch.Tensor:
     """The ``[rows, H]`` view of an input that takes the first input's shape
     (``residual``; the backward's ``g``, ``x`` companions and ``g_residual``)."""
@@ -222,7 +330,7 @@ def _companion_view(
         raise ValueError(
             f"{name} must have shape {expected}, got {tuple(tensor.shape)}"
         )
-    return _row_view(tensor, name)[0]
+    return _row_view(tensor, name, copy=copy)[0]
 
 
 def _rows_view(
@@ -457,8 +565,6 @@ def _workspace_bytes(
                 record,
                 rows,
                 device_index=device_index,
-                residual=residual,
-                arch=arch,
                 capacity_record=capacity,
             )["total_bytes"]
         )
@@ -482,30 +588,35 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     workspace holds its chunk-claim counters and one FP32 ``dw`` partial row
     per chunk and grows with ``rows``
     (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward_workspace_bytes`).
-    The non-deterministic workspace serves one family -- ``hidden`` and
-    ``residual``, both weight dtypes -- and is the largest layout of the
-    backward records the family runs for up to ``rows`` tokens
-    (``cake_jit.workspace_layout``): the deterministic pairs' ``uint32``
-    counters (``cake_jit.COUNTERS_BYTES``), one state region per single-kernel
-    sum shape of the family (``cake_jit.SINGLE_COUNTERS_BYTES`` of counters
-    and ``replicas`` copies of two halves of ``hidden`` FP64 column sums,
-    whatever ``rows``; ``cake_jit.single_bytes``) and, when a window up to
-    ``rows`` runs the deterministic pair, its FP32 partial rows, which grow with
-    ``rows``.  The buffer must be zero on first use (allocate with
-    ``torch.zeros`` or use :func:`cake_rmsnorm_train_backward_workspace`).
-    After that the kernels keep it valid with no host write: the pair kernels
-    leave their counters at zero and the single kernel keeps its state (which
-    half of the sums the next launch adds into) in its region, so the same
-    buffer serves the family's calls, token counts up to ``rows``, windows and
-    CUDA Graph replays.  Zeroing it again between calls is harmless; using it
-    for another hidden size or residual flag is not.  Backward calls that may
-    run at the same time (on different streams) need one buffer each.
+    The non-deterministic workspace has one layout for every call
+    (``cake_jit.workspace_layout``, offsets fixed by the package): the
+    deterministic pairs' ``uint32`` counters (``cake_jit.COUNTERS_BYTES``), the
+    single kernel's counters (``cake_jit.SINGLE_COUNTERS_BYTES`` at
+    ``cake_jit.SINGLE_COUNTERS_OFFSET``), its FP64 column sums
+    (``cake_jit.SUMS_BYTES`` at ``cake_jit.SUMS_OFFSET``, the largest
+    ``workspace_bytes`` of the package's single kernels) and, when a window up
+    to ``rows`` of the width runs the deterministic pair, that pair's FP32
+    partial rows at ``cake_jit.PAIR_ROWS_OFFSET``, which grow with ``rows``.
+    The size returned is the largest layout of the records the width's
+    backward routes (``hidden``, ``residual``, both weight dtypes) run for up
+    to ``rows`` tokens.  The buffer must be zero on first use (allocate with
+    ``torch.zeros`` or use :func:`cake_rmsnorm_train_backward_workspace`);
+    after every launch the kernels leave the counters at rest and the sums at
+    zero, so with no host write one buffer serves any sequence of
+    ``deterministic=False`` backward calls -- hidden sizes, residual flags,
+    weight dtypes, token counts, windows and CUDA Graph replays -- whose
+    sizes it covers.  It serves calls of one mode: do not pass it to a
+    ``deterministic=True`` call (that package's workspace has another layout).
+    Zeroing it again between calls is harmless.  Backward calls that may run
+    at the same time (on different streams) need one buffer each.
     """
 
-    if _resolve_deterministic(
-        deterministic, "cake_rmsnorm_train_backward_workspace_bytes"
-    ):
-        return _det.cake_rmsnorm_det_train_backward_workspace_bytes(
+    api = "cake_rmsnorm_train_backward_workspace_bytes"
+    mode = _resolve_deterministic(deterministic, api)
+    if mode == _FALLBACK:
+        _fallback(api)
+    if mode != _NONDET:
+        return _det_package().cake_rmsnorm_det_train_backward_workspace_bytes(
             rows, hidden, device, residual=residual
         )
     device = torch.device(device)
@@ -524,8 +635,12 @@ def cake_rmsnorm_train_backward_workspace(
 ) -> torch.Tensor:
     """Allocate a zero-initialized backward workspace (see ``..._workspace_bytes``)."""
 
-    if _resolve_deterministic(deterministic, "cake_rmsnorm_train_backward_workspace"):
-        return _det.cake_rmsnorm_det_train_backward_workspace(
+    api = "cake_rmsnorm_train_backward_workspace"
+    mode = _resolve_deterministic(deterministic, api)
+    if mode == _FALLBACK:
+        _fallback(api)
+    if mode != _NONDET:
+        return _det_package().cake_rmsnorm_det_train_backward_workspace(
             rows, hidden, device, residual=residual
         )
     nbytes = cake_rmsnorm_train_backward_workspace_bytes(
@@ -540,20 +655,20 @@ def _workspace_views(
     *,
     rows: int,
     device: torch.device,
-    residual: bool,
     capacity: Optional[dict],
 ) -> tuple[torch.Tensor, torch.Tensor, dict[str, int]]:
     """``(the region bound to ``partial``, the counters, the layout)`` of the
-    launched workspace owner ``record`` of the ``residual`` family: the FP64
-    column sums of a single kernel's state region, the FP32
-    ``[n_chunks, hidden]`` partial rows of a pair main kernel (``capacity``: the
-    routes' pair record of the largest capacity)."""
+    launched workspace owner ``record``: the FP64 column sums of a single
+    kernel (its workspace rule's ``sum_bytes``, the kernel's
+    ``workspace_bytes``), the FP32 ``[n_chunks, hidden]`` partial rows of a pair
+    main kernel (``capacity``: the routes' pair record of the largest
+    capacity).  The region is checked against the kernel's requirement before
+    the launch."""
 
     layout = _loader.workspace_layout(
         record,
         rows,
         device_index=_device_index(device),
-        residual=residual,
         capacity_record=capacity,
     )
     if not isinstance(workspace, torch.Tensor):
@@ -576,14 +691,21 @@ def _workspace_views(
             "(cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False))"
         )
     begin = layout["partial_offset"]
+    hidden = int(record["hidden"])
     if record["workspace_rule"]["kind"] == "claim_sum_f64":
         partial = workspace[begin : begin + layout["partial_bytes"]].view(torch.float64)
+        required = int(record["workspace_rule"]["sum_bytes"]) // 8
     else:
-        hidden = int(record["hidden"])
         partial = workspace[begin : begin + 4 * layout["n_chunks"] * hidden].view(
             torch.float32
         )
         partial = partial.view(layout["n_chunks"], hidden)
+        required = int(layout["n_chunks"]) * hidden
+    if partial.numel() < required:
+        raise RuntimeError(
+            f"module kernel_{record['kernel']} needs {required} elements of "
+            f"{partial.dtype} partials; the workspace region holds {partial.numel()}"
+        )
     begin = layout["counters_offset"]
     counters = workspace[begin : begin + 4 * max(layout["counters"], 1)].view(
         torch.uint32
@@ -748,7 +870,9 @@ def cake_rmsnorm_train_forward(
         deterministic package's programs rendered here (the forward has no
         cross-row reduction, so both are deterministic); it is refused while
         ``torch.use_deterministic_algorithms(True)`` is in effect (with
-        ``warn_only=True``: a warning, then the deterministic forward).
+        ``warn_only=True``: a warning, then this package's forward programs,
+        which serve the inputs the deterministic package does not).  A value
+        other than a ``bool`` raises ``TypeError``.
 
     Returns
     -------
@@ -757,8 +881,11 @@ def cake_rmsnorm_train_forward(
     needs; no other ``[T, H]`` temporary is produced.
     """
 
-    if _resolve_deterministic(deterministic, "cake_rmsnorm_train_forward"):
-        return _det.cake_rmsnorm_det_train_forward(
+    mode = _resolve_deterministic(deterministic, "cake_rmsnorm_train_forward")
+    if mode == _FALLBACK:
+        _fallback("cake_rmsnorm_train_forward")
+    if mode == _DET:
+        return _det_package().cake_rmsnorm_det_train_forward(
             x, w, eps, residual=residual, out=out, rstd=rstd, residual_out=residual_out
         )
     return _forward(
@@ -805,7 +932,7 @@ def _backward(
         alignment=4,
     )
     g = _kernel_input(
-        _companion_view(g, "g", lead=lead, hidden=hidden),
+        _companion_view(g, "g", lead=lead, hidden=hidden, copy=True),
         "g",
         rows=rows,
         hidden=hidden,
@@ -815,7 +942,9 @@ def _backward(
     )
     if has_residual:
         g_residual = _kernel_input(
-            _companion_view(g_residual, "g_residual", lead=lead, hidden=hidden),
+            _companion_view(
+                g_residual, "g_residual", lead=lead, hidden=hidden, copy=True
+            ),
             "g_residual",
             rows=rows,
             hidden=hidden,
@@ -877,7 +1006,6 @@ def _backward(
         record,
         rows=rows,
         device=device,
-        residual=has_residual,
         capacity=capacity,
     )
     # The plain kernels keep the residual-gradient parameters in their signature
@@ -949,16 +1077,22 @@ def cake_rmsnorm_train_backward(
         (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward`):
         ``dw`` through a fixed row-chunk partition and a fixed-order reduction,
         bitwise reproducible for a given token count on a given architecture.
-        ``False`` runs one of two forms per window of ``T`` (listed below):
-        one kernel that writes ``dx`` and adds the ``dw`` sums of its CTAs into
-        FP64 sums in the workspace, which the CTA that finishes last rounds into
-        ``dw`` (``dx`` is computed as the deterministic kernel computes it; the
-        order of the FP64 additions depends on scheduling, so ``dw`` is not
-        guaranteed bitwise reproducible), or, where it is faster, the
-        deterministic package's backward pair rendered into this package.
+        ``False`` runs, per window of ``T``, the form the notes below list
+        for it: in the windows that ship it, one kernel that writes ``dx`` and
+        adds the ``dw`` sums of its CTAs into FP64 sums in the workspace, which
+        the CTA that finishes last rounds into ``dw`` (``dx`` is computed as the
+        deterministic kernel computes it; the order of the FP64 additions
+        depends on scheduling, so ``dw`` is not guaranteed bitwise
+        reproducible); in the others, the deterministic package's backward pair
+        rendered into this package.
         ``False`` is refused with ``RuntimeError`` while
         ``torch.use_deterministic_algorithms(True)`` is in effect; with
-        ``warn_only=True`` it warns and runs the deterministic backward.
+        ``warn_only=True`` it warns and runs the deterministic backward with a
+        workspace of its own (``workspace`` is not used), or, when the
+        deterministic package cannot serve the call (N-D inputs, an FP32
+        weight, a width or residual route it does not export), raises
+        ``RuntimeError`` naming the missing feature.  A value other than a
+        ``bool`` raises ``TypeError``.
     g_residual : torch.Tensor, optional
         BF16 gradient of ``g``'s shape flowing directly through ``h_new``
         (residual forward), any layout.  It is added once so that the returned
@@ -966,12 +1100,14 @@ def cake_rmsnorm_train_backward(
     workspace : torch.Tensor, optional
         Caller-owned ``uint8`` buffer from
         :func:`cake_rmsnorm_train_backward_workspace` called with the same
-        ``deterministic`` flag, sized for at least this many rows (with
-        ``deterministic=False`` also for this hidden size and residual flag: it
-        carries the single kernel's state from call to call).  When omitted, the
-        call allocates and zero-fills one (an allocator call and a fill
-        kernel).  One buffer per backward that may run concurrently (on
-        another stream).
+        ``deterministic`` flag, at least as large as that helper returns for
+        this call (with ``deterministic=False`` one buffer serves calls of any
+        hidden size, residual flag and weight dtype it is large enough for; see
+        :func:`cake_rmsnorm_train_backward_workspace_bytes`).  The call issues
+        no memset, copy or synchronization on it.  When omitted, the call
+        allocates and zero-fills one: a caching-allocator call, one fill kernel
+        (about 3 us on B200) and about 35 us of host time per call.  One buffer
+        per backward that may run concurrently (on another stream).
     dx, dw : torch.Tensor, optional
         Preallocated outputs: BF16 ``dx`` of ``x``'s shape and FP32 ``[H]``.
         Contiguous aligned buffers are written directly; any other layout
@@ -983,8 +1119,17 @@ def cake_rmsnorm_train_backward(
     ``T == 0`` launches nothing and returns an empty ``dx`` and a zero ``dw``.
     """
 
-    if _resolve_deterministic(deterministic, "cake_rmsnorm_train_backward"):
-        return _det.cake_rmsnorm_det_train_backward(
+    mode = _resolve_deterministic(deterministic, "cake_rmsnorm_train_backward")
+    if mode == _FALLBACK:
+        _fallback(
+            "cake_rmsnorm_train_backward",
+            _det_gap("bwd", x, w, g_residual is not None),
+        )
+        # one workspace serves calls of one mode: the caller's buffer is laid
+        # out for this package's kernels, the deterministic package gets none
+        workspace = None
+    if mode != _NONDET:
+        return _det_package().cake_rmsnorm_det_train_backward(
             g,
             x,
             w,
@@ -1022,8 +1167,15 @@ class CakeRMSNormFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x, w, eps, residual=None, deterministic=True):
-        if _resolve_deterministic(deterministic, "cake_rmsnorm"):
-            outputs = _det.cake_rmsnorm_det_train_forward(x, w, eps, residual=residual)
+        mode = _resolve_deterministic(deterministic, "cake_rmsnorm")
+        if mode == _FALLBACK:
+            # the backward of this call runs the deterministic package: refuse
+            # now when it cannot serve it, before any work
+            _fallback("cake_rmsnorm", _det_gap("bwd", x, w, residual is not None))
+        if mode == _DET:
+            outputs = _det_package().cake_rmsnorm_det_train_forward(
+                x, w, eps, residual=residual
+            )
         else:
             outputs = _forward(
                 x, w, eps, residual=residual, out=None, rstd=None, residual_out=None
@@ -1031,7 +1183,7 @@ class CakeRMSNormFunction(torch.autograd.Function):
         y, rstd = outputs[0], outputs[1]
         normalized = outputs[2] if residual is not None else x
         ctx.save_for_backward(normalized, w, rstd)
-        ctx.deterministic = bool(deterministic)
+        ctx.deterministic = deterministic
         ctx.has_residual = residual is not None
         if residual is not None:
             return y, outputs[2]
@@ -1088,7 +1240,9 @@ def cake_rmsnorm(
         the CTAs in a scheduling-dependent order and is not guaranteed bitwise
         reproducible; refused while
         ``torch.use_deterministic_algorithms(True)`` is in effect (with
-        ``warn_only=True``: a warning, then the deterministic kernels).
+        ``warn_only=True``: a warning, then this package's forward programs and
+        the deterministic package's backward, or one ``RuntimeError`` when that
+        backward cannot serve the call).
 
     Returns
     -------

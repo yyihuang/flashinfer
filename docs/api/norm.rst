@@ -70,21 +70,26 @@ The names the training RMSNorm had before the deterministic package took its
 
 * ``deterministic=True`` runs the deterministic package above and returns its
   bits.
-* ``deterministic=False`` runs this package's backward, one of two forms per
-  token-count window (the backward's docstring lists the windows). One kernel
-  per call computes ``dx`` row by row as the deterministic backward does and
-  adds the ``dw`` sums of its CTAs into FP64 sums in the workspace, in the
-  order the CTAs finish: ``dw`` is not guaranteed bitwise reproducible; ``dx``
-  is. Where it is faster, the deterministic package's backward pair (main
-  kernel and fixed-order reduce), rendered into this package, runs instead. The backward
-  workspace (one per hidden size and residual flag;
-  ``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``)
-  holds the pair's counters, the single kernel's state (counters and two halves
-  of FP64 column sums) and, for the pair windows, the partial rows; zeroed once,
-  the kernels keep it valid across calls with no host write.
+* ``deterministic=False`` runs this package's backward in the form its
+  registry lists for each token-count window (the backward's docstring lists
+  the windows). In the windows that ship the single-kernel form, one kernel per
+  call computes ``dx`` row by row as the deterministic backward does and adds
+  the ``dw`` sums of its CTAs into FP64 sums in the workspace, in the order the
+  CTAs finish: ``dw`` is not guaranteed bitwise reproducible; ``dx`` is. The
+  other windows run the deterministic package's backward pair (main kernel and
+  fixed-order reduce), rendered into this package. The backward workspace
+  (``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``)
+  has one layout with fixed offsets: the pair's counters, the single kernel's
+  counters and FP64 column sums and, for the pair windows, the partial rows.
+  Zeroed once, it serves any sequence of ``deterministic=False`` calls it is
+  large enough for with no host write: the kernels leave the counters at rest
+  and the sums at zero. It serves calls of one mode.
 * Under ``torch.use_deterministic_algorithms(True)``, ``deterministic=False``
-  raises ``RuntimeError``; with ``warn_only=True`` it warns and runs the
-  deterministic kernels.
+  raises ``RuntimeError``. With ``warn_only=True`` it warns; the forward runs
+  this package's (deterministic) forward programs and the backward runs the
+  deterministic package with its own workspace, or raises one ``RuntimeError``
+  when that package cannot serve the call (``[..., H]`` inputs, an FP32
+  weight, a width or residual route it does not export).
 
 .. currentmodule:: flashinfer.cake_rmsnorm_train
 
