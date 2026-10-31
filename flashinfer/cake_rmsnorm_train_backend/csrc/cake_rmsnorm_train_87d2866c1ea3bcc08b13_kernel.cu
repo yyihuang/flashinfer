@@ -135,12 +135,7 @@ kernel_cake_rmsnorm_train_87d2866c1ea3bcc08b13(__nv_bfloat16* __restrict__ g, __
 
     extern __shared__ __align__(1024) char smem_raw[];
     int smem;
-#if __CUDA_ARCH__ == 1000
-    asm volatile("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }" : "=r"(smem) : "l"(smem_raw));
-    smem = make_warp_uniform(smem);
-#else
     smem = (int)(unsigned long long)__cvta_generic_to_shared(smem_raw);
-#endif
 
     const int mbar_base = smem;
     #define full_addr (mbar_base + 0)
@@ -326,75 +321,73 @@ kernel_cake_rmsnorm_train_87d2866c1ea3bcc08b13(__nv_bfloat16* __restrict__ g, __
             pnxt = _atomic_fetch_add_5;
         }
         int slot = 0;
-        #pragma unroll 1
-        for (int adv = 0; adv < n_chunks + 1; adv++) {
-            if (prow < pend || pc >= n_chunks) {
-                break;
-            }
-            pc = (int)pnxt;
+        if (prow >= pend) {
             if (pc < n_chunks) {
-                int stages_1 = T / 1;
-                int sl_1 = rows_per_chunk;
-                if (sl_1 > stages_1) {
-                    sl_1 = stages_1;
-                }
-                if (sl_1 < 1) {
-                    sl_1 = 1;
-                }
-                int share_1 = (stages_1 + sl_1 - 1) / sl_1;
-                int tail_1 = (share_1 + 11) / 12;
-                if (tail_1 < 1) {
-                    tail_1 = 1;
-                }
-                int rem_1 = stages_1;
-                int size_1 = (share_1 + 1) / 2;
-                int first_1 = 0;
-                int base_1 = 0;
-                int span_1 = 0;
-                int halving_1 = 1;
-                int begin_it_1 = 0;
-                #pragma unroll 1
-                for (int k_1 = 0; k_1 < 5; k_1++) {
-                    if (halving_1 != 0) {
-                        if (size_1 > tail_1) {
-                            if (rem_1 >= sl_1 * size_1) {
-                                if (pc < first_1 + sl_1) {
-                                    span_1 = size_1;
-                                    begin_it_1 = base_1 + (pc - first_1) * size_1;
-                                    halving_1 = 0;
+                pc = (int)pnxt;
+                if (pc < n_chunks) {
+                    int stages_1 = T / 1;
+                    int sl_1 = rows_per_chunk;
+                    if (sl_1 > stages_1) {
+                        sl_1 = stages_1;
+                    }
+                    if (sl_1 < 1) {
+                        sl_1 = 1;
+                    }
+                    int share_1 = (stages_1 + sl_1 - 1) / sl_1;
+                    int tail_1 = (share_1 + 11) / 12;
+                    if (tail_1 < 1) {
+                        tail_1 = 1;
+                    }
+                    int rem_1 = stages_1;
+                    int size_1 = (share_1 + 1) / 2;
+                    int first_1 = 0;
+                    int base_1 = 0;
+                    int span_1 = 0;
+                    int halving_1 = 1;
+                    int begin_it_1 = 0;
+                    #pragma unroll 1
+                    for (int k_1 = 0; k_1 < 5; k_1++) {
+                        if (halving_1 != 0) {
+                            if (size_1 > tail_1) {
+                                if (rem_1 >= sl_1 * size_1) {
+                                    if (pc < first_1 + sl_1) {
+                                        span_1 = size_1;
+                                        begin_it_1 = base_1 + (pc - first_1) * size_1;
+                                        halving_1 = 0;
+                                    } else {
+                                        first_1 = first_1 + sl_1;
+                                        base_1 = base_1 + sl_1 * size_1;
+                                        rem_1 = rem_1 - sl_1 * size_1;
+                                        size_1 = (size_1 + 1) / 2;
+                                    }
                                 } else {
-                                    first_1 = first_1 + sl_1;
-                                    base_1 = base_1 + sl_1 * size_1;
-                                    rem_1 = rem_1 - sl_1 * size_1;
-                                    size_1 = (size_1 + 1) / 2;
+                                    halving_1 = 0;
                                 }
                             } else {
                                 halving_1 = 0;
                             }
-                        } else {
-                            halving_1 = 0;
                         }
                     }
-                }
-                if (span_1 == 0) {
-                    int quot_1 = rem_1 / sl_1;
-                    int extra_1 = rem_1 - quot_1 * sl_1;
-                    if (pc < first_1 + extra_1) {
-                        span_1 = quot_1 + 1;
-                        begin_it_1 = base_1 + (pc - first_1) * (quot_1 + 1);
-                    } else if (pc < first_1 + sl_1) {
-                        span_1 = quot_1;
-                        begin_it_1 = base_1 + extra_1 * (quot_1 + 1) + (pc - first_1 - extra_1) * quot_1;
-                    } else {
-                        begin_it_1 = stages_1;
+                    if (span_1 == 0) {
+                        int quot_1 = rem_1 / sl_1;
+                        int extra_1 = rem_1 - quot_1 * sl_1;
+                        if (pc < first_1 + extra_1) {
+                            span_1 = quot_1 + 1;
+                            begin_it_1 = base_1 + (pc - first_1) * (quot_1 + 1);
+                        } else if (pc < first_1 + sl_1) {
+                            span_1 = quot_1;
+                            begin_it_1 = base_1 + extra_1 * (quot_1 + 1) + (pc - first_1 - extra_1) * quot_1;
+                        } else {
+                            begin_it_1 = stages_1;
+                        }
                     }
+                    int _min_6 = ((begin_it_1) < (T) ? (begin_it_1) : (T));
+                    prow = _min_6;
+                    int _min_7 = ((begin_it_1 + span_1) < (T) ? (begin_it_1 + span_1) : (T));
+                    pend = _min_7;
+                    unsigned int _atomic_fetch_add_8 = atomicAdd(&counters[0], 1);
+                    pnxt = _atomic_fetch_add_8;
                 }
-                int _min_6 = ((begin_it_1) < (T) ? (begin_it_1) : (T));
-                prow = _min_6;
-                int _min_7 = ((begin_it_1 + span_1) < (T) ? (begin_it_1 + span_1) : (T));
-                pend = _min_7;
-                unsigned int _atomic_fetch_add_8 = atomicAdd(&counters[0], 1);
-                pnxt = _atomic_fetch_add_8;
             }
         }
         int nval = 0;
@@ -427,75 +420,73 @@ kernel_cake_rmsnorm_train_87d2866c1ea3bcc08b13(__nv_bfloat16* __restrict__ g, __
         }
         prow = prow + nval;
         int slot_0 = 1;
-        #pragma unroll 1
-        for (int adv_1 = 0; adv_1 < n_chunks + 1; adv_1++) {
-            if (prow < pend || pc >= n_chunks) {
-                break;
-            }
-            pc = (int)pnxt;
+        if (prow >= pend) {
             if (pc < n_chunks) {
-                int stages_2 = T / 1;
-                int sl_2 = rows_per_chunk;
-                if (sl_2 > stages_2) {
-                    sl_2 = stages_2;
-                }
-                if (sl_2 < 1) {
-                    sl_2 = 1;
-                }
-                int share_2 = (stages_2 + sl_2 - 1) / sl_2;
-                int tail_2 = (share_2 + 11) / 12;
-                if (tail_2 < 1) {
-                    tail_2 = 1;
-                }
-                int rem_2 = stages_2;
-                int size_2 = (share_2 + 1) / 2;
-                int first_2 = 0;
-                int base_2 = 0;
-                int span_2 = 0;
-                int halving_2 = 1;
-                int begin_it_2 = 0;
-                #pragma unroll 1
-                for (int k_2 = 0; k_2 < 5; k_2++) {
-                    if (halving_2 != 0) {
-                        if (size_2 > tail_2) {
-                            if (rem_2 >= sl_2 * size_2) {
-                                if (pc < first_2 + sl_2) {
-                                    span_2 = size_2;
-                                    begin_it_2 = base_2 + (pc - first_2) * size_2;
-                                    halving_2 = 0;
+                pc = (int)pnxt;
+                if (pc < n_chunks) {
+                    int stages_2 = T / 1;
+                    int sl_2 = rows_per_chunk;
+                    if (sl_2 > stages_2) {
+                        sl_2 = stages_2;
+                    }
+                    if (sl_2 < 1) {
+                        sl_2 = 1;
+                    }
+                    int share_2 = (stages_2 + sl_2 - 1) / sl_2;
+                    int tail_2 = (share_2 + 11) / 12;
+                    if (tail_2 < 1) {
+                        tail_2 = 1;
+                    }
+                    int rem_2 = stages_2;
+                    int size_2 = (share_2 + 1) / 2;
+                    int first_2 = 0;
+                    int base_2 = 0;
+                    int span_2 = 0;
+                    int halving_2 = 1;
+                    int begin_it_2 = 0;
+                    #pragma unroll 1
+                    for (int k_2 = 0; k_2 < 5; k_2++) {
+                        if (halving_2 != 0) {
+                            if (size_2 > tail_2) {
+                                if (rem_2 >= sl_2 * size_2) {
+                                    if (pc < first_2 + sl_2) {
+                                        span_2 = size_2;
+                                        begin_it_2 = base_2 + (pc - first_2) * size_2;
+                                        halving_2 = 0;
+                                    } else {
+                                        first_2 = first_2 + sl_2;
+                                        base_2 = base_2 + sl_2 * size_2;
+                                        rem_2 = rem_2 - sl_2 * size_2;
+                                        size_2 = (size_2 + 1) / 2;
+                                    }
                                 } else {
-                                    first_2 = first_2 + sl_2;
-                                    base_2 = base_2 + sl_2 * size_2;
-                                    rem_2 = rem_2 - sl_2 * size_2;
-                                    size_2 = (size_2 + 1) / 2;
+                                    halving_2 = 0;
                                 }
                             } else {
                                 halving_2 = 0;
                             }
-                        } else {
-                            halving_2 = 0;
                         }
                     }
-                }
-                if (span_2 == 0) {
-                    int quot_2 = rem_2 / sl_2;
-                    int extra_2 = rem_2 - quot_2 * sl_2;
-                    if (pc < first_2 + extra_2) {
-                        span_2 = quot_2 + 1;
-                        begin_it_2 = base_2 + (pc - first_2) * (quot_2 + 1);
-                    } else if (pc < first_2 + sl_2) {
-                        span_2 = quot_2;
-                        begin_it_2 = base_2 + extra_2 * (quot_2 + 1) + (pc - first_2 - extra_2) * quot_2;
-                    } else {
-                        begin_it_2 = stages_2;
+                    if (span_2 == 0) {
+                        int quot_2 = rem_2 / sl_2;
+                        int extra_2 = rem_2 - quot_2 * sl_2;
+                        if (pc < first_2 + extra_2) {
+                            span_2 = quot_2 + 1;
+                            begin_it_2 = base_2 + (pc - first_2) * (quot_2 + 1);
+                        } else if (pc < first_2 + sl_2) {
+                            span_2 = quot_2;
+                            begin_it_2 = base_2 + extra_2 * (quot_2 + 1) + (pc - first_2 - extra_2) * quot_2;
+                        } else {
+                            begin_it_2 = stages_2;
+                        }
                     }
+                    int _min_11 = ((begin_it_2) < (T) ? (begin_it_2) : (T));
+                    prow = _min_11;
+                    int _min_12 = ((begin_it_2 + span_2) < (T) ? (begin_it_2 + span_2) : (T));
+                    pend = _min_12;
+                    unsigned int _atomic_fetch_add_13 = atomicAdd(&counters[0], 1);
+                    pnxt = _atomic_fetch_add_13;
                 }
-                int _min_11 = ((begin_it_2) < (T) ? (begin_it_2) : (T));
-                prow = _min_11;
-                int _min_12 = ((begin_it_2 + span_2) < (T) ? (begin_it_2 + span_2) : (T));
-                pend = _min_12;
-                unsigned int _atomic_fetch_add_13 = atomicAdd(&counters[0], 1);
-                pnxt = _atomic_fetch_add_13;
             }
         }
         int nval_0 = 0;
@@ -528,75 +519,73 @@ kernel_cake_rmsnorm_train_87d2866c1ea3bcc08b13(__nv_bfloat16* __restrict__ g, __
         }
         prow = prow + nval_0;
         int slot_1 = 2;
-        #pragma unroll 1
-        for (int adv_2 = 0; adv_2 < n_chunks + 1; adv_2++) {
-            if (prow < pend || pc >= n_chunks) {
-                break;
-            }
-            pc = (int)pnxt;
+        if (prow >= pend) {
             if (pc < n_chunks) {
-                int stages_3 = T / 1;
-                int sl_3 = rows_per_chunk;
-                if (sl_3 > stages_3) {
-                    sl_3 = stages_3;
-                }
-                if (sl_3 < 1) {
-                    sl_3 = 1;
-                }
-                int share_3 = (stages_3 + sl_3 - 1) / sl_3;
-                int tail_3 = (share_3 + 11) / 12;
-                if (tail_3 < 1) {
-                    tail_3 = 1;
-                }
-                int rem_3 = stages_3;
-                int size_3 = (share_3 + 1) / 2;
-                int first_3 = 0;
-                int base_3 = 0;
-                int span_3 = 0;
-                int halving_3 = 1;
-                int begin_it_3 = 0;
-                #pragma unroll 1
-                for (int k_3 = 0; k_3 < 5; k_3++) {
-                    if (halving_3 != 0) {
-                        if (size_3 > tail_3) {
-                            if (rem_3 >= sl_3 * size_3) {
-                                if (pc < first_3 + sl_3) {
-                                    span_3 = size_3;
-                                    begin_it_3 = base_3 + (pc - first_3) * size_3;
-                                    halving_3 = 0;
+                pc = (int)pnxt;
+                if (pc < n_chunks) {
+                    int stages_3 = T / 1;
+                    int sl_3 = rows_per_chunk;
+                    if (sl_3 > stages_3) {
+                        sl_3 = stages_3;
+                    }
+                    if (sl_3 < 1) {
+                        sl_3 = 1;
+                    }
+                    int share_3 = (stages_3 + sl_3 - 1) / sl_3;
+                    int tail_3 = (share_3 + 11) / 12;
+                    if (tail_3 < 1) {
+                        tail_3 = 1;
+                    }
+                    int rem_3 = stages_3;
+                    int size_3 = (share_3 + 1) / 2;
+                    int first_3 = 0;
+                    int base_3 = 0;
+                    int span_3 = 0;
+                    int halving_3 = 1;
+                    int begin_it_3 = 0;
+                    #pragma unroll 1
+                    for (int k_3 = 0; k_3 < 5; k_3++) {
+                        if (halving_3 != 0) {
+                            if (size_3 > tail_3) {
+                                if (rem_3 >= sl_3 * size_3) {
+                                    if (pc < first_3 + sl_3) {
+                                        span_3 = size_3;
+                                        begin_it_3 = base_3 + (pc - first_3) * size_3;
+                                        halving_3 = 0;
+                                    } else {
+                                        first_3 = first_3 + sl_3;
+                                        base_3 = base_3 + sl_3 * size_3;
+                                        rem_3 = rem_3 - sl_3 * size_3;
+                                        size_3 = (size_3 + 1) / 2;
+                                    }
                                 } else {
-                                    first_3 = first_3 + sl_3;
-                                    base_3 = base_3 + sl_3 * size_3;
-                                    rem_3 = rem_3 - sl_3 * size_3;
-                                    size_3 = (size_3 + 1) / 2;
+                                    halving_3 = 0;
                                 }
                             } else {
                                 halving_3 = 0;
                             }
-                        } else {
-                            halving_3 = 0;
                         }
                     }
-                }
-                if (span_3 == 0) {
-                    int quot_3 = rem_3 / sl_3;
-                    int extra_3 = rem_3 - quot_3 * sl_3;
-                    if (pc < first_3 + extra_3) {
-                        span_3 = quot_3 + 1;
-                        begin_it_3 = base_3 + (pc - first_3) * (quot_3 + 1);
-                    } else if (pc < first_3 + sl_3) {
-                        span_3 = quot_3;
-                        begin_it_3 = base_3 + extra_3 * (quot_3 + 1) + (pc - first_3 - extra_3) * quot_3;
-                    } else {
-                        begin_it_3 = stages_3;
+                    if (span_3 == 0) {
+                        int quot_3 = rem_3 / sl_3;
+                        int extra_3 = rem_3 - quot_3 * sl_3;
+                        if (pc < first_3 + extra_3) {
+                            span_3 = quot_3 + 1;
+                            begin_it_3 = base_3 + (pc - first_3) * (quot_3 + 1);
+                        } else if (pc < first_3 + sl_3) {
+                            span_3 = quot_3;
+                            begin_it_3 = base_3 + extra_3 * (quot_3 + 1) + (pc - first_3 - extra_3) * quot_3;
+                        } else {
+                            begin_it_3 = stages_3;
+                        }
                     }
+                    int _min_16 = ((begin_it_3) < (T) ? (begin_it_3) : (T));
+                    prow = _min_16;
+                    int _min_17 = ((begin_it_3 + span_3) < (T) ? (begin_it_3 + span_3) : (T));
+                    pend = _min_17;
+                    unsigned int _atomic_fetch_add_18 = atomicAdd(&counters[0], 1);
+                    pnxt = _atomic_fetch_add_18;
                 }
-                int _min_16 = ((begin_it_3) < (T) ? (begin_it_3) : (T));
-                prow = _min_16;
-                int _min_17 = ((begin_it_3 + span_3) < (T) ? (begin_it_3 + span_3) : (T));
-                pend = _min_17;
-                unsigned int _atomic_fetch_add_18 = atomicAdd(&counters[0], 1);
-                pnxt = _atomic_fetch_add_18;
             }
         }
         int nval_1 = 0;
@@ -629,75 +618,73 @@ kernel_cake_rmsnorm_train_87d2866c1ea3bcc08b13(__nv_bfloat16* __restrict__ g, __
         }
         prow = prow + nval_1;
         int slot_2 = 3;
-        #pragma unroll 1
-        for (int adv_3 = 0; adv_3 < n_chunks + 1; adv_3++) {
-            if (prow < pend || pc >= n_chunks) {
-                break;
-            }
-            pc = (int)pnxt;
+        if (prow >= pend) {
             if (pc < n_chunks) {
-                int stages_4 = T / 1;
-                int sl_4 = rows_per_chunk;
-                if (sl_4 > stages_4) {
-                    sl_4 = stages_4;
-                }
-                if (sl_4 < 1) {
-                    sl_4 = 1;
-                }
-                int share_4 = (stages_4 + sl_4 - 1) / sl_4;
-                int tail_4 = (share_4 + 11) / 12;
-                if (tail_4 < 1) {
-                    tail_4 = 1;
-                }
-                int rem_4 = stages_4;
-                int size_4 = (share_4 + 1) / 2;
-                int first_4 = 0;
-                int base_4 = 0;
-                int span_4 = 0;
-                int halving_4 = 1;
-                int begin_it_4 = 0;
-                #pragma unroll 1
-                for (int k_4 = 0; k_4 < 5; k_4++) {
-                    if (halving_4 != 0) {
-                        if (size_4 > tail_4) {
-                            if (rem_4 >= sl_4 * size_4) {
-                                if (pc < first_4 + sl_4) {
-                                    span_4 = size_4;
-                                    begin_it_4 = base_4 + (pc - first_4) * size_4;
-                                    halving_4 = 0;
+                pc = (int)pnxt;
+                if (pc < n_chunks) {
+                    int stages_4 = T / 1;
+                    int sl_4 = rows_per_chunk;
+                    if (sl_4 > stages_4) {
+                        sl_4 = stages_4;
+                    }
+                    if (sl_4 < 1) {
+                        sl_4 = 1;
+                    }
+                    int share_4 = (stages_4 + sl_4 - 1) / sl_4;
+                    int tail_4 = (share_4 + 11) / 12;
+                    if (tail_4 < 1) {
+                        tail_4 = 1;
+                    }
+                    int rem_4 = stages_4;
+                    int size_4 = (share_4 + 1) / 2;
+                    int first_4 = 0;
+                    int base_4 = 0;
+                    int span_4 = 0;
+                    int halving_4 = 1;
+                    int begin_it_4 = 0;
+                    #pragma unroll 1
+                    for (int k_4 = 0; k_4 < 5; k_4++) {
+                        if (halving_4 != 0) {
+                            if (size_4 > tail_4) {
+                                if (rem_4 >= sl_4 * size_4) {
+                                    if (pc < first_4 + sl_4) {
+                                        span_4 = size_4;
+                                        begin_it_4 = base_4 + (pc - first_4) * size_4;
+                                        halving_4 = 0;
+                                    } else {
+                                        first_4 = first_4 + sl_4;
+                                        base_4 = base_4 + sl_4 * size_4;
+                                        rem_4 = rem_4 - sl_4 * size_4;
+                                        size_4 = (size_4 + 1) / 2;
+                                    }
                                 } else {
-                                    first_4 = first_4 + sl_4;
-                                    base_4 = base_4 + sl_4 * size_4;
-                                    rem_4 = rem_4 - sl_4 * size_4;
-                                    size_4 = (size_4 + 1) / 2;
+                                    halving_4 = 0;
                                 }
                             } else {
                                 halving_4 = 0;
                             }
-                        } else {
-                            halving_4 = 0;
                         }
                     }
-                }
-                if (span_4 == 0) {
-                    int quot_4 = rem_4 / sl_4;
-                    int extra_4 = rem_4 - quot_4 * sl_4;
-                    if (pc < first_4 + extra_4) {
-                        span_4 = quot_4 + 1;
-                        begin_it_4 = base_4 + (pc - first_4) * (quot_4 + 1);
-                    } else if (pc < first_4 + sl_4) {
-                        span_4 = quot_4;
-                        begin_it_4 = base_4 + extra_4 * (quot_4 + 1) + (pc - first_4 - extra_4) * quot_4;
-                    } else {
-                        begin_it_4 = stages_4;
+                    if (span_4 == 0) {
+                        int quot_4 = rem_4 / sl_4;
+                        int extra_4 = rem_4 - quot_4 * sl_4;
+                        if (pc < first_4 + extra_4) {
+                            span_4 = quot_4 + 1;
+                            begin_it_4 = base_4 + (pc - first_4) * (quot_4 + 1);
+                        } else if (pc < first_4 + sl_4) {
+                            span_4 = quot_4;
+                            begin_it_4 = base_4 + extra_4 * (quot_4 + 1) + (pc - first_4 - extra_4) * quot_4;
+                        } else {
+                            begin_it_4 = stages_4;
+                        }
                     }
+                    int _min_21 = ((begin_it_4) < (T) ? (begin_it_4) : (T));
+                    prow = _min_21;
+                    int _min_22 = ((begin_it_4 + span_4) < (T) ? (begin_it_4 + span_4) : (T));
+                    pend = _min_22;
+                    unsigned int _atomic_fetch_add_23 = atomicAdd(&counters[0], 1);
+                    pnxt = _atomic_fetch_add_23;
                 }
-                int _min_21 = ((begin_it_4) < (T) ? (begin_it_4) : (T));
-                prow = _min_21;
-                int _min_22 = ((begin_it_4 + span_4) < (T) ? (begin_it_4 + span_4) : (T));
-                pend = _min_22;
-                unsigned int _atomic_fetch_add_23 = atomicAdd(&counters[0], 1);
-                pnxt = _atomic_fetch_add_23;
             }
         }
         int nval_2 = 0;
@@ -831,75 +818,73 @@ kernel_cake_rmsnorm_train_87d2866c1ea3bcc08b13(__nv_bfloat16* __restrict__ g, __
         dot[0] = tot;
         if (tid == 0) {
             int slot_3 = (k_5 + 4) % 4;
-            #pragma unroll 1
-            for (int adv_4 = 0; adv_4 < n_chunks + 1; adv_4++) {
-                if (prow < pend || pc >= n_chunks) {
-                    break;
-                }
-                pc = (int)pnxt;
+            if (prow >= pend) {
                 if (pc < n_chunks) {
-                    int stages_5 = T / 1;
-                    int sl_5 = rows_per_chunk;
-                    if (sl_5 > stages_5) {
-                        sl_5 = stages_5;
-                    }
-                    if (sl_5 < 1) {
-                        sl_5 = 1;
-                    }
-                    int share_5 = (stages_5 + sl_5 - 1) / sl_5;
-                    int tail_5 = (share_5 + 11) / 12;
-                    if (tail_5 < 1) {
-                        tail_5 = 1;
-                    }
-                    int rem_5 = stages_5;
-                    int size_5 = (share_5 + 1) / 2;
-                    int first_5 = 0;
-                    int base_5 = 0;
-                    int span_5 = 0;
-                    int halving_5 = 1;
-                    int begin_it_5 = 0;
-                    #pragma unroll 1
-                    for (int k_0 = 0; k_0 < 5; k_0++) {
-                        if (halving_5 != 0) {
-                            if (size_5 > tail_5) {
-                                if (rem_5 >= sl_5 * size_5) {
-                                    if (pc < first_5 + sl_5) {
-                                        span_5 = size_5;
-                                        begin_it_5 = base_5 + (pc - first_5) * size_5;
-                                        halving_5 = 0;
+                    pc = (int)pnxt;
+                    if (pc < n_chunks) {
+                        int stages_5 = T / 1;
+                        int sl_5 = rows_per_chunk;
+                        if (sl_5 > stages_5) {
+                            sl_5 = stages_5;
+                        }
+                        if (sl_5 < 1) {
+                            sl_5 = 1;
+                        }
+                        int share_5 = (stages_5 + sl_5 - 1) / sl_5;
+                        int tail_5 = (share_5 + 11) / 12;
+                        if (tail_5 < 1) {
+                            tail_5 = 1;
+                        }
+                        int rem_5 = stages_5;
+                        int size_5 = (share_5 + 1) / 2;
+                        int first_5 = 0;
+                        int base_5 = 0;
+                        int span_5 = 0;
+                        int halving_5 = 1;
+                        int begin_it_5 = 0;
+                        #pragma unroll 1
+                        for (int k_0 = 0; k_0 < 5; k_0++) {
+                            if (halving_5 != 0) {
+                                if (size_5 > tail_5) {
+                                    if (rem_5 >= sl_5 * size_5) {
+                                        if (pc < first_5 + sl_5) {
+                                            span_5 = size_5;
+                                            begin_it_5 = base_5 + (pc - first_5) * size_5;
+                                            halving_5 = 0;
+                                        } else {
+                                            first_5 = first_5 + sl_5;
+                                            base_5 = base_5 + sl_5 * size_5;
+                                            rem_5 = rem_5 - sl_5 * size_5;
+                                            size_5 = (size_5 + 1) / 2;
+                                        }
                                     } else {
-                                        first_5 = first_5 + sl_5;
-                                        base_5 = base_5 + sl_5 * size_5;
-                                        rem_5 = rem_5 - sl_5 * size_5;
-                                        size_5 = (size_5 + 1) / 2;
+                                        halving_5 = 0;
                                     }
                                 } else {
                                     halving_5 = 0;
                                 }
-                            } else {
-                                halving_5 = 0;
                             }
                         }
-                    }
-                    if (span_5 == 0) {
-                        int quot_5 = rem_5 / sl_5;
-                        int extra_5 = rem_5 - quot_5 * sl_5;
-                        if (pc < first_5 + extra_5) {
-                            span_5 = quot_5 + 1;
-                            begin_it_5 = base_5 + (pc - first_5) * (quot_5 + 1);
-                        } else if (pc < first_5 + sl_5) {
-                            span_5 = quot_5;
-                            begin_it_5 = base_5 + extra_5 * (quot_5 + 1) + (pc - first_5 - extra_5) * quot_5;
-                        } else {
-                            begin_it_5 = stages_5;
+                        if (span_5 == 0) {
+                            int quot_5 = rem_5 / sl_5;
+                            int extra_5 = rem_5 - quot_5 * sl_5;
+                            if (pc < first_5 + extra_5) {
+                                span_5 = quot_5 + 1;
+                                begin_it_5 = base_5 + (pc - first_5) * (quot_5 + 1);
+                            } else if (pc < first_5 + sl_5) {
+                                span_5 = quot_5;
+                                begin_it_5 = base_5 + extra_5 * (quot_5 + 1) + (pc - first_5 - extra_5) * quot_5;
+                            } else {
+                                begin_it_5 = stages_5;
+                            }
                         }
+                        int _min_33 = ((begin_it_5) < (T) ? (begin_it_5) : (T));
+                        prow = _min_33;
+                        int _min_34 = ((begin_it_5 + span_5) < (T) ? (begin_it_5 + span_5) : (T));
+                        pend = _min_34;
+                        unsigned int _atomic_fetch_add_35 = atomicAdd(&counters[0], 1);
+                        pnxt = _atomic_fetch_add_35;
                     }
-                    int _min_33 = ((begin_it_5) < (T) ? (begin_it_5) : (T));
-                    prow = _min_33;
-                    int _min_34 = ((begin_it_5 + span_5) < (T) ? (begin_it_5 + span_5) : (T));
-                    pend = _min_34;
-                    unsigned int _atomic_fetch_add_35 = atomicAdd(&counters[0], 1);
-                    pnxt = _atomic_fetch_add_35;
                 }
             }
             int nval_3_1 = 0;
@@ -1185,614 +1170,550 @@ kernel_cake_rmsnorm_train_87d2866c1ea3bcc08b13(__nv_bfloat16* __restrict__ g, __
     __syncthreads();
     if (flags[2] != 0) {
         double buf[32];
-        int at_r_0 = tid;
         {
             uint64_t _scalar_bits_46;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_46) : "l"((const void*)(partial + (at_r_0))) : "memory");
+                : "=l"(_scalar_bits_46) : "l"((const void*)(partial + (tid))) : "memory");
             buf[0] = __longlong_as_double(_scalar_bits_46);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_0)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_1 = 6144 + tid;
         {
             uint64_t _scalar_bits_47;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_47) : "l"((const void*)(partial + (at_r_1))) : "memory");
+                : "=l"(_scalar_bits_47) : "l"((const void*)(partial + (6144 + tid))) : "memory");
             buf[1] = __longlong_as_double(_scalar_bits_47);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_1)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_2 = 12288 + tid;
         {
             uint64_t _scalar_bits_48;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_48) : "l"((const void*)(partial + (at_r_2))) : "memory");
+                : "=l"(_scalar_bits_48) : "l"((const void*)(partial + (12288 + tid))) : "memory");
             buf[2] = __longlong_as_double(_scalar_bits_48);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_2)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_3 = 18432 + tid;
         {
             uint64_t _scalar_bits_49;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_49) : "l"((const void*)(partial + (at_r_3))) : "memory");
+                : "=l"(_scalar_bits_49) : "l"((const void*)(partial + (18432 + tid))) : "memory");
             buf[3] = __longlong_as_double(_scalar_bits_49);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_3)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_4 = 384 + tid;
         {
             uint64_t _scalar_bits_50;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_50) : "l"((const void*)(partial + (at_r_4))) : "memory");
+                : "=l"(_scalar_bits_50) : "l"((const void*)(partial + (384 + tid))) : "memory");
             buf[4] = __longlong_as_double(_scalar_bits_50);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_4)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_5 = 6528 + tid;
         {
             uint64_t _scalar_bits_51;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_51) : "l"((const void*)(partial + (at_r_5))) : "memory");
+                : "=l"(_scalar_bits_51) : "l"((const void*)(partial + (6528 + tid))) : "memory");
             buf[5] = __longlong_as_double(_scalar_bits_51);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_5)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_6 = 12672 + tid;
         {
             uint64_t _scalar_bits_52;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_52) : "l"((const void*)(partial + (at_r_6))) : "memory");
+                : "=l"(_scalar_bits_52) : "l"((const void*)(partial + (12672 + tid))) : "memory");
             buf[6] = __longlong_as_double(_scalar_bits_52);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_6)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_7 = 18816 + tid;
         {
             uint64_t _scalar_bits_53;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_53) : "l"((const void*)(partial + (at_r_7))) : "memory");
+                : "=l"(_scalar_bits_53) : "l"((const void*)(partial + (18816 + tid))) : "memory");
             buf[7] = __longlong_as_double(_scalar_bits_53);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_7)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_8 = 768 + tid;
         {
             uint64_t _scalar_bits_54;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_54) : "l"((const void*)(partial + (at_r_8))) : "memory");
+                : "=l"(_scalar_bits_54) : "l"((const void*)(partial + (768 + tid))) : "memory");
             buf[8] = __longlong_as_double(_scalar_bits_54);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_8)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_9 = 6912 + tid;
         {
             uint64_t _scalar_bits_55;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_55) : "l"((const void*)(partial + (at_r_9))) : "memory");
+                : "=l"(_scalar_bits_55) : "l"((const void*)(partial + (6912 + tid))) : "memory");
             buf[9] = __longlong_as_double(_scalar_bits_55);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_9)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_10 = 13056 + tid;
         {
             uint64_t _scalar_bits_56;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_56) : "l"((const void*)(partial + (at_r_10))) : "memory");
+                : "=l"(_scalar_bits_56) : "l"((const void*)(partial + (13056 + tid))) : "memory");
             buf[10] = __longlong_as_double(_scalar_bits_56);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_10)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_11 = 19200 + tid;
         {
             uint64_t _scalar_bits_57;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_57) : "l"((const void*)(partial + (at_r_11))) : "memory");
+                : "=l"(_scalar_bits_57) : "l"((const void*)(partial + (19200 + tid))) : "memory");
             buf[11] = __longlong_as_double(_scalar_bits_57);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_11)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_12 = 1152 + tid;
         {
             uint64_t _scalar_bits_58;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_58) : "l"((const void*)(partial + (at_r_12))) : "memory");
+                : "=l"(_scalar_bits_58) : "l"((const void*)(partial + (1152 + tid))) : "memory");
             buf[12] = __longlong_as_double(_scalar_bits_58);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_12)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_13 = 7296 + tid;
         {
             uint64_t _scalar_bits_59;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_59) : "l"((const void*)(partial + (at_r_13))) : "memory");
+                : "=l"(_scalar_bits_59) : "l"((const void*)(partial + (7296 + tid))) : "memory");
             buf[13] = __longlong_as_double(_scalar_bits_59);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_13)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_14 = 13440 + tid;
         {
             uint64_t _scalar_bits_60;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_60) : "l"((const void*)(partial + (at_r_14))) : "memory");
+                : "=l"(_scalar_bits_60) : "l"((const void*)(partial + (13440 + tid))) : "memory");
             buf[14] = __longlong_as_double(_scalar_bits_60);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_14)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_15 = 19584 + tid;
         {
             uint64_t _scalar_bits_61;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_61) : "l"((const void*)(partial + (at_r_15))) : "memory");
+                : "=l"(_scalar_bits_61) : "l"((const void*)(partial + (19584 + tid))) : "memory");
             buf[15] = __longlong_as_double(_scalar_bits_61);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_15)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_16 = 1536 + tid;
         {
             uint64_t _scalar_bits_62;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_62) : "l"((const void*)(partial + (at_r_16))) : "memory");
+                : "=l"(_scalar_bits_62) : "l"((const void*)(partial + (1536 + tid))) : "memory");
             buf[16] = __longlong_as_double(_scalar_bits_62);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_16)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_17 = 7680 + tid;
         {
             uint64_t _scalar_bits_63;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_63) : "l"((const void*)(partial + (at_r_17))) : "memory");
+                : "=l"(_scalar_bits_63) : "l"((const void*)(partial + (7680 + tid))) : "memory");
             buf[17] = __longlong_as_double(_scalar_bits_63);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_17)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_18 = 13824 + tid;
         {
             uint64_t _scalar_bits_64;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_64) : "l"((const void*)(partial + (at_r_18))) : "memory");
+                : "=l"(_scalar_bits_64) : "l"((const void*)(partial + (13824 + tid))) : "memory");
             buf[18] = __longlong_as_double(_scalar_bits_64);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_18)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_19 = 19968 + tid;
         {
             uint64_t _scalar_bits_65;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_65) : "l"((const void*)(partial + (at_r_19))) : "memory");
+                : "=l"(_scalar_bits_65) : "l"((const void*)(partial + (19968 + tid))) : "memory");
             buf[19] = __longlong_as_double(_scalar_bits_65);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_19)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_20 = 1920 + tid;
         {
             uint64_t _scalar_bits_66;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_66) : "l"((const void*)(partial + (at_r_20))) : "memory");
+                : "=l"(_scalar_bits_66) : "l"((const void*)(partial + (1920 + tid))) : "memory");
             buf[20] = __longlong_as_double(_scalar_bits_66);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_20)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_21 = 8064 + tid;
         {
             uint64_t _scalar_bits_67;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_67) : "l"((const void*)(partial + (at_r_21))) : "memory");
+                : "=l"(_scalar_bits_67) : "l"((const void*)(partial + (8064 + tid))) : "memory");
             buf[21] = __longlong_as_double(_scalar_bits_67);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_21)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_22 = 14208 + tid;
         {
             uint64_t _scalar_bits_68;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_68) : "l"((const void*)(partial + (at_r_22))) : "memory");
+                : "=l"(_scalar_bits_68) : "l"((const void*)(partial + (14208 + tid))) : "memory");
             buf[22] = __longlong_as_double(_scalar_bits_68);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_22)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_23 = 20352 + tid;
         {
             uint64_t _scalar_bits_69;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_69) : "l"((const void*)(partial + (at_r_23))) : "memory");
+                : "=l"(_scalar_bits_69) : "l"((const void*)(partial + (20352 + tid))) : "memory");
             buf[23] = __longlong_as_double(_scalar_bits_69);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_23)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_24 = 2304 + tid;
         {
             uint64_t _scalar_bits_70;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_70) : "l"((const void*)(partial + (at_r_24))) : "memory");
+                : "=l"(_scalar_bits_70) : "l"((const void*)(partial + (2304 + tid))) : "memory");
             buf[24] = __longlong_as_double(_scalar_bits_70);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_24)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_25 = 8448 + tid;
         {
             uint64_t _scalar_bits_71;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_71) : "l"((const void*)(partial + (at_r_25))) : "memory");
+                : "=l"(_scalar_bits_71) : "l"((const void*)(partial + (8448 + tid))) : "memory");
             buf[25] = __longlong_as_double(_scalar_bits_71);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_25)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_26 = 14592 + tid;
         {
             uint64_t _scalar_bits_72;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_72) : "l"((const void*)(partial + (at_r_26))) : "memory");
+                : "=l"(_scalar_bits_72) : "l"((const void*)(partial + (14592 + tid))) : "memory");
             buf[26] = __longlong_as_double(_scalar_bits_72);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_26)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_27 = 20736 + tid;
         {
             uint64_t _scalar_bits_73;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_73) : "l"((const void*)(partial + (at_r_27))) : "memory");
+                : "=l"(_scalar_bits_73) : "l"((const void*)(partial + (20736 + tid))) : "memory");
             buf[27] = __longlong_as_double(_scalar_bits_73);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_27)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_28 = 2688 + tid;
         {
             uint64_t _scalar_bits_74;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_74) : "l"((const void*)(partial + (at_r_28))) : "memory");
+                : "=l"(_scalar_bits_74) : "l"((const void*)(partial + (2688 + tid))) : "memory");
             buf[28] = __longlong_as_double(_scalar_bits_74);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_28)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_29 = 8832 + tid;
         {
             uint64_t _scalar_bits_75;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_75) : "l"((const void*)(partial + (at_r_29))) : "memory");
+                : "=l"(_scalar_bits_75) : "l"((const void*)(partial + (8832 + tid))) : "memory");
             buf[29] = __longlong_as_double(_scalar_bits_75);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_29)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_30 = 14976 + tid;
         {
             uint64_t _scalar_bits_76;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_76) : "l"((const void*)(partial + (at_r_30))) : "memory");
+                : "=l"(_scalar_bits_76) : "l"((const void*)(partial + (14976 + tid))) : "memory");
             buf[30] = __longlong_as_double(_scalar_bits_76);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_30)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_31 = 21120 + tid;
         {
             uint64_t _scalar_bits_77;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_77) : "l"((const void*)(partial + (at_r_31))) : "memory");
+                : "=l"(_scalar_bits_77) : "l"((const void*)(partial + (21120 + tid))) : "memory");
             buf[31] = __longlong_as_double(_scalar_bits_77);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_31)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_0 = buf[0];
         tot_0 = tot_0 + buf[1];
         tot_0 = tot_0 + buf[2];
         tot_0 = tot_0 + buf[3];
         int at_w_0 = tid;
         dwbuf[(at_w_0 / 384 / 8 * 384 + at_w_0 % 384) * 8 + at_w_0 / 384 % 8] = (float)tot_0;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_1 = buf[4];
         tot_1 = tot_1 + buf[5];
         tot_1 = tot_1 + buf[6];
         tot_1 = tot_1 + buf[7];
         int at_w_1 = 384 + tid;
         dwbuf[(at_w_1 / 384 / 8 * 384 + at_w_1 % 384) * 8 + at_w_1 / 384 % 8] = (float)tot_1;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_2 = buf[8];
         tot_2 = tot_2 + buf[9];
         tot_2 = tot_2 + buf[10];
         tot_2 = tot_2 + buf[11];
         int at_w_2 = 768 + tid;
         dwbuf[(at_w_2 / 384 / 8 * 384 + at_w_2 % 384) * 8 + at_w_2 / 384 % 8] = (float)tot_2;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_3 = buf[12];
         tot_3 = tot_3 + buf[13];
         tot_3 = tot_3 + buf[14];
         tot_3 = tot_3 + buf[15];
         int at_w_3 = 1152 + tid;
         dwbuf[(at_w_3 / 384 / 8 * 384 + at_w_3 % 384) * 8 + at_w_3 / 384 % 8] = (float)tot_3;
-        int at_r_32 = 3072 + tid;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
         {
             uint64_t _scalar_bits_78;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_78) : "l"((const void*)(partial + (at_r_32))) : "memory");
+                : "=l"(_scalar_bits_78) : "l"((const void*)(partial + (3072 + tid))) : "memory");
             buf[0] = __longlong_as_double(_scalar_bits_78);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_32)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_33 = 9216 + tid;
         {
             uint64_t _scalar_bits_79;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_79) : "l"((const void*)(partial + (at_r_33))) : "memory");
+                : "=l"(_scalar_bits_79) : "l"((const void*)(partial + (9216 + tid))) : "memory");
             buf[1] = __longlong_as_double(_scalar_bits_79);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_33)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_34 = 15360 + tid;
         {
             uint64_t _scalar_bits_80;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_80) : "l"((const void*)(partial + (at_r_34))) : "memory");
+                : "=l"(_scalar_bits_80) : "l"((const void*)(partial + (15360 + tid))) : "memory");
             buf[2] = __longlong_as_double(_scalar_bits_80);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_34)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_35 = 21504 + tid;
         {
             uint64_t _scalar_bits_81;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_81) : "l"((const void*)(partial + (at_r_35))) : "memory");
+                : "=l"(_scalar_bits_81) : "l"((const void*)(partial + (21504 + tid))) : "memory");
             buf[3] = __longlong_as_double(_scalar_bits_81);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_35)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_36 = 3456 + tid;
         {
             uint64_t _scalar_bits_82;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_82) : "l"((const void*)(partial + (at_r_36))) : "memory");
+                : "=l"(_scalar_bits_82) : "l"((const void*)(partial + (3456 + tid))) : "memory");
             buf[4] = __longlong_as_double(_scalar_bits_82);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_36)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_37 = 9600 + tid;
         {
             uint64_t _scalar_bits_83;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_83) : "l"((const void*)(partial + (at_r_37))) : "memory");
+                : "=l"(_scalar_bits_83) : "l"((const void*)(partial + (9600 + tid))) : "memory");
             buf[5] = __longlong_as_double(_scalar_bits_83);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_37)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_38 = 15744 + tid;
         {
             uint64_t _scalar_bits_84;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_84) : "l"((const void*)(partial + (at_r_38))) : "memory");
+                : "=l"(_scalar_bits_84) : "l"((const void*)(partial + (15744 + tid))) : "memory");
             buf[6] = __longlong_as_double(_scalar_bits_84);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_38)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_39 = 21888 + tid;
         {
             uint64_t _scalar_bits_85;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_85) : "l"((const void*)(partial + (at_r_39))) : "memory");
+                : "=l"(_scalar_bits_85) : "l"((const void*)(partial + (21888 + tid))) : "memory");
             buf[7] = __longlong_as_double(_scalar_bits_85);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_39)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_40 = 3840 + tid;
         {
             uint64_t _scalar_bits_86;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_86) : "l"((const void*)(partial + (at_r_40))) : "memory");
+                : "=l"(_scalar_bits_86) : "l"((const void*)(partial + (3840 + tid))) : "memory");
             buf[8] = __longlong_as_double(_scalar_bits_86);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_40)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_41 = 9984 + tid;
         {
             uint64_t _scalar_bits_87;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_87) : "l"((const void*)(partial + (at_r_41))) : "memory");
+                : "=l"(_scalar_bits_87) : "l"((const void*)(partial + (9984 + tid))) : "memory");
             buf[9] = __longlong_as_double(_scalar_bits_87);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_41)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_42 = 16128 + tid;
         {
             uint64_t _scalar_bits_88;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_88) : "l"((const void*)(partial + (at_r_42))) : "memory");
+                : "=l"(_scalar_bits_88) : "l"((const void*)(partial + (16128 + tid))) : "memory");
             buf[10] = __longlong_as_double(_scalar_bits_88);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_42)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_43 = 22272 + tid;
         {
             uint64_t _scalar_bits_89;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_89) : "l"((const void*)(partial + (at_r_43))) : "memory");
+                : "=l"(_scalar_bits_89) : "l"((const void*)(partial + (22272 + tid))) : "memory");
             buf[11] = __longlong_as_double(_scalar_bits_89);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_43)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_44 = 4224 + tid;
         {
             uint64_t _scalar_bits_90;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_90) : "l"((const void*)(partial + (at_r_44))) : "memory");
+                : "=l"(_scalar_bits_90) : "l"((const void*)(partial + (4224 + tid))) : "memory");
             buf[12] = __longlong_as_double(_scalar_bits_90);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_44)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_45 = 10368 + tid;
         {
             uint64_t _scalar_bits_91;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_91) : "l"((const void*)(partial + (at_r_45))) : "memory");
+                : "=l"(_scalar_bits_91) : "l"((const void*)(partial + (10368 + tid))) : "memory");
             buf[13] = __longlong_as_double(_scalar_bits_91);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_45)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_46 = 16512 + tid;
         {
             uint64_t _scalar_bits_92;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_92) : "l"((const void*)(partial + (at_r_46))) : "memory");
+                : "=l"(_scalar_bits_92) : "l"((const void*)(partial + (16512 + tid))) : "memory");
             buf[14] = __longlong_as_double(_scalar_bits_92);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_46)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_47 = 22656 + tid;
         {
             uint64_t _scalar_bits_93;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_93) : "l"((const void*)(partial + (at_r_47))) : "memory");
+                : "=l"(_scalar_bits_93) : "l"((const void*)(partial + (22656 + tid))) : "memory");
             buf[15] = __longlong_as_double(_scalar_bits_93);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_47)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_4 = buf[16];
         tot_4 = tot_4 + buf[17];
         tot_4 = tot_4 + buf[18];
         tot_4 = tot_4 + buf[19];
         int at_w_4 = 1536 + tid;
         dwbuf[(at_w_4 / 384 / 8 * 384 + at_w_4 % 384) * 8 + at_w_4 / 384 % 8] = (float)tot_4;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_5 = buf[20];
         tot_5 = tot_5 + buf[21];
         tot_5 = tot_5 + buf[22];
         tot_5 = tot_5 + buf[23];
         int at_w_5 = 1920 + tid;
         dwbuf[(at_w_5 / 384 / 8 * 384 + at_w_5 % 384) * 8 + at_w_5 / 384 % 8] = (float)tot_5;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_6 = buf[24];
         tot_6 = tot_6 + buf[25];
         tot_6 = tot_6 + buf[26];
         tot_6 = tot_6 + buf[27];
         int at_w_6 = 2304 + tid;
         dwbuf[(at_w_6 / 384 / 8 * 384 + at_w_6 % 384) * 8 + at_w_6 / 384 % 8] = (float)tot_6;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_7 = buf[28];
         tot_7 = tot_7 + buf[29];
         tot_7 = tot_7 + buf[30];
         tot_7 = tot_7 + buf[31];
         int at_w_7 = 2688 + tid;
         dwbuf[(at_w_7 / 384 / 8 * 384 + at_w_7 % 384) * 8 + at_w_7 / 384 % 8] = (float)tot_7;
-        int at_r_48 = 4608 + tid;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
         {
             uint64_t _scalar_bits_94;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_94) : "l"((const void*)(partial + (at_r_48))) : "memory");
+                : "=l"(_scalar_bits_94) : "l"((const void*)(partial + (4608 + tid))) : "memory");
             buf[16] = __longlong_as_double(_scalar_bits_94);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_48)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_49 = 10752 + tid;
         {
             uint64_t _scalar_bits_95;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_95) : "l"((const void*)(partial + (at_r_49))) : "memory");
+                : "=l"(_scalar_bits_95) : "l"((const void*)(partial + (10752 + tid))) : "memory");
             buf[17] = __longlong_as_double(_scalar_bits_95);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_49)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_50 = 16896 + tid;
         {
             uint64_t _scalar_bits_96;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_96) : "l"((const void*)(partial + (at_r_50))) : "memory");
+                : "=l"(_scalar_bits_96) : "l"((const void*)(partial + (16896 + tid))) : "memory");
             buf[18] = __longlong_as_double(_scalar_bits_96);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_50)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_51 = 23040 + tid;
         {
             uint64_t _scalar_bits_97;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_97) : "l"((const void*)(partial + (at_r_51))) : "memory");
+                : "=l"(_scalar_bits_97) : "l"((const void*)(partial + (23040 + tid))) : "memory");
             buf[19] = __longlong_as_double(_scalar_bits_97);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_51)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_52 = 4992 + tid;
         {
             uint64_t _scalar_bits_98;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_98) : "l"((const void*)(partial + (at_r_52))) : "memory");
+                : "=l"(_scalar_bits_98) : "l"((const void*)(partial + (4992 + tid))) : "memory");
             buf[20] = __longlong_as_double(_scalar_bits_98);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_52)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_53 = 11136 + tid;
         {
             uint64_t _scalar_bits_99;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_99) : "l"((const void*)(partial + (at_r_53))) : "memory");
+                : "=l"(_scalar_bits_99) : "l"((const void*)(partial + (11136 + tid))) : "memory");
             buf[21] = __longlong_as_double(_scalar_bits_99);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_53)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_54 = 17280 + tid;
         {
             uint64_t _scalar_bits_100;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_100) : "l"((const void*)(partial + (at_r_54))) : "memory");
+                : "=l"(_scalar_bits_100) : "l"((const void*)(partial + (17280 + tid))) : "memory");
             buf[22] = __longlong_as_double(_scalar_bits_100);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_54)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_55 = 23424 + tid;
         {
             uint64_t _scalar_bits_101;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_101) : "l"((const void*)(partial + (at_r_55))) : "memory");
+                : "=l"(_scalar_bits_101) : "l"((const void*)(partial + (23424 + tid))) : "memory");
             buf[23] = __longlong_as_double(_scalar_bits_101);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_55)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_56 = 5376 + tid;
         {
             uint64_t _scalar_bits_102;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_102) : "l"((const void*)(partial + (at_r_56))) : "memory");
+                : "=l"(_scalar_bits_102) : "l"((const void*)(partial + (5376 + tid))) : "memory");
             buf[24] = __longlong_as_double(_scalar_bits_102);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_56)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_57 = 11520 + tid;
         {
             uint64_t _scalar_bits_103;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_103) : "l"((const void*)(partial + (at_r_57))) : "memory");
+                : "=l"(_scalar_bits_103) : "l"((const void*)(partial + (11520 + tid))) : "memory");
             buf[25] = __longlong_as_double(_scalar_bits_103);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_57)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_58 = 17664 + tid;
         {
             uint64_t _scalar_bits_104;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_104) : "l"((const void*)(partial + (at_r_58))) : "memory");
+                : "=l"(_scalar_bits_104) : "l"((const void*)(partial + (17664 + tid))) : "memory");
             buf[26] = __longlong_as_double(_scalar_bits_104);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_58)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_59 = 23808 + tid;
         {
             uint64_t _scalar_bits_105;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_105) : "l"((const void*)(partial + (at_r_59))) : "memory");
+                : "=l"(_scalar_bits_105) : "l"((const void*)(partial + (23808 + tid))) : "memory");
             buf[27] = __longlong_as_double(_scalar_bits_105);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_59)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_60 = 5760 + tid;
         {
             uint64_t _scalar_bits_106;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_106) : "l"((const void*)(partial + (at_r_60))) : "memory");
+                : "=l"(_scalar_bits_106) : "l"((const void*)(partial + (5760 + tid))) : "memory");
             buf[28] = __longlong_as_double(_scalar_bits_106);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_60)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_61 = 11904 + tid;
         {
             uint64_t _scalar_bits_107;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_107) : "l"((const void*)(partial + (at_r_61))) : "memory");
+                : "=l"(_scalar_bits_107) : "l"((const void*)(partial + (11904 + tid))) : "memory");
             buf[29] = __longlong_as_double(_scalar_bits_107);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_61)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_62 = 18048 + tid;
         {
             uint64_t _scalar_bits_108;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_108) : "l"((const void*)(partial + (at_r_62))) : "memory");
+                : "=l"(_scalar_bits_108) : "l"((const void*)(partial + (18048 + tid))) : "memory");
             buf[30] = __longlong_as_double(_scalar_bits_108);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_62)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_63 = 24192 + tid;
         {
             uint64_t _scalar_bits_109;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_109) : "l"((const void*)(partial + (at_r_63))) : "memory");
+                : "=l"(_scalar_bits_109) : "l"((const void*)(partial + (24192 + tid))) : "memory");
             buf[31] = __longlong_as_double(_scalar_bits_109);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_63)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_8 = buf[0];
         tot_8 = tot_8 + buf[1];
         tot_8 = tot_8 + buf[2];
         tot_8 = tot_8 + buf[3];
         int at_w_8 = 3072 + tid;
         dwbuf[(at_w_8 / 384 / 8 * 384 + at_w_8 % 384) * 8 + at_w_8 / 384 % 8] = (float)tot_8;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_9 = buf[4];
         tot_9 = tot_9 + buf[5];
         tot_9 = tot_9 + buf[6];
         tot_9 = tot_9 + buf[7];
         int at_w_9 = 3456 + tid;
         dwbuf[(at_w_9 / 384 / 8 * 384 + at_w_9 % 384) * 8 + at_w_9 / 384 % 8] = (float)tot_9;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_10 = buf[8];
         tot_10 = tot_10 + buf[9];
         tot_10 = tot_10 + buf[10];
         tot_10 = tot_10 + buf[11];
         int at_w_10 = 3840 + tid;
         dwbuf[(at_w_10 / 384 / 8 * 384 + at_w_10 % 384) * 8 + at_w_10 / 384 % 8] = (float)tot_10;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_11 = buf[12];
         tot_11 = tot_11 + buf[13];
         tot_11 = tot_11 + buf[14];
         tot_11 = tot_11 + buf[15];
         int at_w_11 = 4224 + tid;
         dwbuf[(at_w_11 / 384 / 8 * 384 + at_w_11 % 384) * 8 + at_w_11 / 384 % 8] = (float)tot_11;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_12 = buf[16];
         tot_12 = tot_12 + buf[17];
         tot_12 = tot_12 + buf[18];
         tot_12 = tot_12 + buf[19];
         int at_w_12 = 4608 + tid;
         dwbuf[(at_w_12 / 384 / 8 * 384 + at_w_12 % 384) * 8 + at_w_12 / 384 % 8] = (float)tot_12;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_13 = buf[20];
         tot_13 = tot_13 + buf[21];
         tot_13 = tot_13 + buf[22];
         tot_13 = tot_13 + buf[23];
         int at_w_13 = 4992 + tid;
         dwbuf[(at_w_13 / 384 / 8 * 384 + at_w_13 % 384) * 8 + at_w_13 / 384 % 8] = (float)tot_13;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_14 = buf[24];
         tot_14 = tot_14 + buf[25];
         tot_14 = tot_14 + buf[26];
         tot_14 = tot_14 + buf[27];
         int at_w_14 = 5376 + tid;
         dwbuf[(at_w_14 / 384 / 8 * 384 + at_w_14 % 384) * 8 + at_w_14 / 384 % 8] = (float)tot_14;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_15 = buf[28];
         tot_15 = tot_15 + buf[29];
         tot_15 = tot_15 + buf[30];
         tot_15 = tot_15 + buf[31];
         int at_w_15 = 5760 + tid;
         dwbuf[(at_w_15 / 384 / 8 * 384 + at_w_15 % 384) * 8 + at_w_15 / 384 % 8] = (float)tot_15;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (6144 + at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (18432 + at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
         __syncthreads();
         int col_0 = tid * 4;
         if (col_0 < 6144) {

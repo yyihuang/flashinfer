@@ -143,12 +143,7 @@ kernel_cake_rmsnorm_train_baff9ecbafe7de1e6030(__nv_bfloat16* __restrict__ g, __
 
     extern __shared__ __align__(1024) char smem_raw[];
     int smem;
-#if __CUDA_ARCH__ == 1000
-    asm volatile("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }" : "=r"(smem) : "l"(smem_raw));
-    smem = make_warp_uniform(smem);
-#else
     smem = (int)(unsigned long long)__cvta_generic_to_shared(smem_raw);
-#endif
 
     const int mbar_base = smem;
     #define bars_addr (mbar_base + 0)
@@ -377,20 +372,12 @@ kernel_cake_rmsnorm_train_baff9ecbafe7de1e6030(__nv_bfloat16* __restrict__ g, __
                         "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                         " [%0], [%1], %2, [%3], %4;"
                         :: "r"(sbase + rg * 3072), "l"(reinterpret_cast<const uint8_t*>(g + g_srcg)), "r"((unsigned)(3072)), "r"(bars_addr + (s) * 8),
-#if __CUDA_ARCH__ == 1070
                            "l"(0x14F0000000000000ULL) : "memory");
-#else
-                           "l"(0x12F0000000000000ULL) : "memory");
-#endif
                     asm volatile(
                         "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                         " [%0], [%1], %2, [%3], %4;"
                         :: "r"(sbase + (rg + 4) * 3072), "l"(reinterpret_cast<const uint8_t*>(x + x_srcg)), "r"((unsigned)(3072)), "r"(bars_addr + (s) * 8),
-#if __CUDA_ARCH__ == 1070
                            "l"(0x14F0000000000000ULL) : "memory");
-#else
-                           "l"(0x12F0000000000000ULL) : "memory");
-#endif
                 }
             }
             ps[0] = ps[0] + 4;
@@ -584,20 +571,12 @@ kernel_cake_rmsnorm_train_baff9ecbafe7de1e6030(__nv_bfloat16* __restrict__ g, __
                             "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                             " [%0], [%1], %2, [%3], %4;"
                             :: "r"(sbase_1 + rg * 3072), "l"(reinterpret_cast<const uint8_t*>(g + g_srcg_1)), "r"((unsigned)(3072)), "r"(bars_addr + ((int)((unsigned int)g_step % 2)) * 8),
-#if __CUDA_ARCH__ == 1070
                                "l"(0x14F0000000000000ULL) : "memory");
-#else
-                               "l"(0x12F0000000000000ULL) : "memory");
-#endif
                         asm volatile(
                             "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                             " [%0], [%1], %2, [%3], %4;"
                             :: "r"(sbase_1 + (rg + 4) * 3072), "l"(reinterpret_cast<const uint8_t*>(x + x_srcg_1)), "r"((unsigned)(3072)), "r"(bars_addr + ((int)((unsigned int)g_step % 2)) * 8),
-#if __CUDA_ARCH__ == 1070
                                "l"(0x14F0000000000000ULL) : "memory");
-#else
-                               "l"(0x12F0000000000000ULL) : "memory");
-#endif
                     }
                 }
                 ps[0] = ps[0] + 4;
