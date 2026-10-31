@@ -2546,7 +2546,8 @@ _SLURM: _Slurm | None = None
 @pytest.fixture(scope="session")
 def slurm():
     global _SLURM
-    if os.environ.get("SLURM_PROCID") is None:
+    # no CUDA device (a CPU-only Slurm step): the spawn path's skips apply instead of a WORLD init that needs a device
+    if os.environ.get("SLURM_PROCID") is None or not torch.cuda.is_available():
         yield None
         return
     if _SLURM is None:

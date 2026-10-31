@@ -1125,6 +1125,63 @@ def test_row_cost_rule_is_the_default_and_the_per_rank_rules_stay_selectable() -
     ) == gp.row_cost_rank_10ns(((300, True),), HV, SM_COUNT, 1)
 
 
+def test_faster_schedule_rules_never_raise_a_ranks_P() -> None:
+    """The non-deterministic package's faster-schedule row rules (``"rank_lpt"``, ``"fill_down"``, ``"small_one"``)
+    start from the shipped ``"row_cost_lpt"`` vector and only lower a rank's ``P``: ``"fill_down"`` takes
+    ``min(row_cost_lpt, wave_fill)`` per rank, ``"small_one"`` runs ``P = 1`` on every rank exactly when
+    ``HV <= SMALL_ONE_HV_MAX`` and no fragment of any rank exceeds ``SMALL_ONE_NC_MAX`` chunks (else the shipped
+    vector), and every plan reports its rule and ``NSEG = n_frag * P``."""
+    assert {"rank_lpt", "fill_down", "small_one"} <= set(gp.ROW_RULES) <= set(gp.P_RULES)
+    tables = (
+        TABLE_P1_CP4_D,
+        TABLE_P1_CP2_C,
+        TABLE_P3_CP2_C,
+        (((130, True),) * 12,) * 8,  # (4,12)-like CP8 D: 12 short fragments per rank
+        (((237, True), (237, True), (100, False)),) * 4,  # Z-like: 237-chunk fragments
+        ((), ((150, True), (20, False))),  # a zero-token rank
+    )
+    for table in tables:
+        for HV in (6, 12, 24, 48):
+            ship = gp.kcp_plan_row(table, HV, SM_COUNT, p_rule="row_cost_lpt")
+            for rule in ("rank_lpt", "fill_down", "small_one"):
+                plans = gp.kcp_plan_row(table, HV, SM_COUNT, p_rule=rule)
+                assert len(plans) == len(ship)
+                for seg, base, t in zip(plans, ship, table, strict=True):
+                    assert seg.p_rule == rule and 1 <= seg.P <= base.P
+                    assert seg.NSEG == seg.n_frag * seg.P and seg.n_frag == len(t)
+            fill = tuple(
+                min(
+                    base.P,
+                    gp.kcp_plan(
+                        len(t),
+                        max((nc for nc, _ in t), default=0),
+                        HV,
+                        SM_COUNT,
+                        p_rule="wave_fill",
+                    ).P,
+                )
+                if t
+                else base.P
+                for base, t in zip(ship, table, strict=True)
+            )
+            assert fill == tuple(
+                seg.P for seg in gp.kcp_plan_row(table, HV, SM_COUNT, p_rule="fill_down")
+            )
+            small = HV <= gp.SMALL_ONE_HV_MAX and all(
+                nc <= gp.SMALL_ONE_NC_MAX for t in table for nc, _ in t
+            )
+            got = tuple(
+                seg.P for seg in gp.kcp_plan_row(table, HV, SM_COUNT, p_rule="small_one")
+            )
+            assert got == (
+                tuple(1 for _ in table) if small else tuple(seg.P for seg in ship)
+            )
+    # the (4,12)-like CP8 D table is the case small_one exists for: shipped P > 1, small_one P = 1
+    t = tables[3]
+    assert max(seg.P for seg in gp.kcp_plan_row(t, 12, SM_COUNT, p_rule="row_cost_lpt")) > 1
+    assert {seg.P for seg in gp.kcp_plan_row(t, 12, SM_COUNT, p_rule="small_one")} == {1}
+
+
 def test_row_cost_model_is_integer_and_crossing_aware() -> None:
     """The cost model: at ``P = 1`` a fragment that does not cross out pays the tape walk only, a crossing-out one the
     three walks; at ``P > 1`` both pay the three walks plus the weighted compose term; costs are exact integers in the
