@@ -40,6 +40,14 @@ it and costs at most ``MAX_ALL_SM_EXTRA_MS`` more than alone, far below the side
 kernel's ``ALL_SM_SPIN_MS`` lifetime.  Every side CTA records its SM, and a run
 counts only when the side kernel holds every SM.  The forward programs are the
 deterministic package's, whose stall test covers them.
+
+Beside a kernel holding shared memory on every SM (review R3, C3): one CTA per
+SM with ``ALL_SM_SMEM_KB`` of dynamic shared memory (max-shared carveout).
+Every shipped backward instance -- each window of every route, residual and
+FP32-weight routes included -- co-resides with it at least as well as the
+deterministic program at the same call (where that package serves the call),
+or waits for it and is listed in ``SMEM_WAIT_ABOVE``; the list matches the
+measurement exactly.
 """
 
 from __future__ import annotations
@@ -316,10 +324,12 @@ def _skip_if_whole_sm(kind: str, hidden: int, rows: int) -> None:
 _SPIN_KERNEL = "cake_rmsnorm_train_stall_spin"
 _SPIN_SOURCE = r"""
 extern "C" __global__ void cake_rmsnorm_train_stall_spin(unsigned long long ns, int* smids) {
+    extern __shared__ volatile int hold[];  // the launch's dynamic shared memory, held for the lifetime
     if (threadIdx.x == 0) {
         unsigned int smid;
         asm volatile("mov.u32 %0, %%smid;" : "=r"(smid));
         smids[blockIdx.x] = (int)smid;
+        hold[0] = (int)smid;
     }
     unsigned long long t0, t;
     asm volatile("mov.u64 %0, %%globaltimer;" : "=l"(t0));
@@ -339,9 +349,10 @@ def _checked(result):
 
 class _AllSmSpin:
     """A side kernel of one CTA per SM (NVRTC + driver API, so the preferred
-    shared-memory carveout can be set on it)."""
+    shared-memory carveout can be set on it), holding ``smem_bytes`` of dynamic
+    shared memory per CTA."""
 
-    def __init__(self, carveout: int) -> None:
+    def __init__(self, carveout: int, smem_bytes: int = 0) -> None:
         from cuda.bindings import driver, nvrtc
 
         self._driver = driver
@@ -370,6 +381,15 @@ class _AllSmSpin:
                 carveout,
             )
         )
+        self.smem_bytes = int(smem_bytes)
+        if self.smem_bytes:
+            _checked(
+                driver.cuFuncSetAttribute(
+                    self._func,
+                    driver.CUfunction_attribute.CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                    self.smem_bytes,
+                )
+            )
         self.sms = torch.cuda.get_device_properties(device).multi_processor_count
         self.smids = torch.full((self.sms,), -1, dtype=torch.int32, device=device)
 
@@ -388,7 +408,7 @@ class _AllSmSpin:
                 ALL_SM_THREADS,
                 1,
                 1,
-                0,
+                self.smem_bytes,
                 self._driver.CUstream(stream.cuda_stream),
                 params,
                 0,
@@ -431,8 +451,8 @@ def _alone(call):
     return start.elapsed_time(end), out
 
 
-def _all_sm_medians(call, carveout: int):
-    spin = _AllSmSpin(carveout)
+def _all_sm_medians(call, carveout: int, smem_bytes: int = 0):
+    spin = _AllSmSpin(carveout, smem_bytes)
     side = torch.cuda.Stream()
     for _ in range(WARMUP):
         _alone(call)
@@ -487,3 +507,145 @@ def test_backward_starts_beside_an_all_sm_kernel_with_the_max_shared_carveout(
         f"kernel with the max-shared carveout {busy_ms:.4f} ms (at most "
         f"{MAX_ALL_SM_EXTRA_MS} ms more; the side kernel lives {ALL_SM_SPIN_MS} ms)"
     )
+
+
+# R3 C3: side kernels holding shared memory on every SM (one CTA per SM, the
+# max-shared carveout), KB of dynamic shared memory per CTA.
+ALL_SM_SMEM_KB = (100, 132)
+# Backward instances that wait for such a side kernel where the deterministic
+# program at the same call does not (or that package does not serve the call):
+# (capability, hidden, residual, w dtype token, side KB) -> the token counts
+# above which the call waits.  Filled from the measurement (and the kernels'
+# shared-memory census); the test asserts the list matches it exactly.
+SMEM_WAIT_ABOVE: dict[tuple[tuple[int, int], int, bool, str, int], int] = {}
+
+
+def _instances() -> list[tuple[int, bool, str, int, str]]:
+    """``(hidden, residual, w dtype token, rows, form)`` of every window of every
+    backward route of the device (a call inside it), ``form`` "single" or "pair"."""
+    arch = loader.arch_for_capability(_capability())
+    out = []
+    for route, names in loader.ROUTES.get(arch, {}).items():
+        if not route.startswith("bwd"):
+            continue
+        hidden = int(route.rsplit("_h", 1)[1])
+        residual = "_residual" in route
+        token = "f32" if "_w32" in route else "bf16"
+        for name in names:
+            record = loader.MODULES[name]
+            rule = record["workspace_rule"]
+            if rule is None:
+                continue  # a dw reduce: launched with its main record
+            window = record["select_rule"]
+            above = 0 if window is None else int(window["above"])
+            at_most = None if window is None else window["at_most"]
+            rows = (
+                max(above + 1, min(2 * above, 65536))
+                if at_most is None
+                else (above + 1 + int(at_most)) // 2
+            )
+            form = "single" if rule["kind"] == "claim_sum_f64" else "pair"
+            out.append((hidden, residual, token, rows, form))
+    return sorted(set(out))
+
+
+def _det_backend():
+    try:
+        return cake_package("cake_rmsnorm_det_train")
+    except Exception:  # noqa: BLE001 - a vendored run has no det package
+        return None
+
+
+def _det_serves(det, hidden: int, residual: bool, token: str) -> bool:
+    return (
+        det is not None
+        and token == "bf16"
+        and det.cake_jit.route_applies(
+            device_capability=_capability(), hidden=hidden, kind="bwd", residual=residual
+        )
+    )
+
+
+@pytest.mark.parametrize("smem_kb", ALL_SM_SMEM_KB)
+def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) -> None:
+    """R3 C3 (see the module docstring): per shipped backward instance, the
+    extra time beside a side kernel holding ``smem_kb`` KB of shared memory on
+    every SM, against the deterministic program at the same call; an instance
+    waits when the extra exceeds ``MAX_ALL_SM_EXTRA_MS`` (the side kernel
+    lives ``ALL_SM_SPIN_MS``)."""
+    smem_bytes = smem_kb * 1024
+    optin = torch.cuda.get_device_properties(_device()).shared_memory_per_block_optin
+    if smem_bytes > optin:
+        pytest.skip(f"{smem_kb} KB exceeds the {optin} B a CTA may hold on this device")
+    det = _det_backend()
+    instances = _instances()
+    assert instances
+    rows_out, waits, regressions = [], {}, []
+    for hidden, residual, token, rows, form in instances:
+        x, w, g, g_h, rstd = _inputs(rows, hidden, residual)
+        if token == "f32":
+            w = w.float()
+        workspace = workspace_for(rows, hidden, _device(), residual=residual)
+
+        def call():
+            return tuple(t.clone() for t in _backward(x, w, g, g_h, rstd, workspace))
+
+        alone_ms, busy_ms, _alone_runs, _busy_runs = _all_sm_medians(
+            call, CARVEOUT_MAX_SHARED, smem_bytes
+        )
+        assert _workspace_clean(workspace, hidden, residual)
+        extra = busy_ms - alone_ms
+        waited = extra > MAX_ALL_SM_EXTRA_MS
+        det_extra = None
+        if _det_serves(det, hidden, residual, token):
+            det_ws = det.cake_rmsnorm_det_train_backward_workspace(
+                rows, hidden, _device(), residual=residual
+            )
+            kwargs = {"workspace": det_ws}
+            if g_h is not None:
+                kwargs["g_residual"] = g_h
+
+            def det_call():
+                out = det.cake_rmsnorm_det_train_backward(g, x, w, rstd, **kwargs)
+                return tuple(t.clone() for t in out)
+
+            det_alone, det_busy, _a, _b = _all_sm_medians(
+                det_call, CARVEOUT_MAX_SHARED, smem_bytes
+            )
+            det_extra = det_busy - det_alone
+        det_waited = det_extra is not None and det_extra > MAX_ALL_SM_EXTRA_MS
+        key = (_capability(), hidden, residual, token, smem_kb)
+        if waited and not det_waited:
+            waits.setdefault(key, []).append(rows)
+        if waited and det_extra is not None and not det_waited:
+            regressions.append((hidden, residual, token, rows, form))
+        rows_out.append(
+            f"SMEM_SIDE kb={smem_kb} hidden={hidden} residual={residual} w={token} "
+            f"rows={rows} form={form} alone_ms={alone_ms:.4f} busy_ms={busy_ms:.4f} "
+            f"extra_ms={extra:.4f} det_extra_ms="
+            + ("n/a" if det_extra is None else f"{det_extra:.4f}")
+        )
+    print("\n".join(rows_out))
+    listed = {
+        key: above for key, above in SMEM_WAIT_ABOVE.items() if key[0] == _capability() and key[4] == smem_kb
+    }
+    unlisted = {
+        key: rows
+        for key, rows in waits.items()
+        if key not in listed or min(rows) <= listed[key]
+    }
+    stale = []
+    for key, above in listed.items():
+        measured = [
+            rows
+            for hidden, residual, token, rows, _form in instances
+            if (hidden, residual, token) == key[1:4] and rows > above
+        ]
+        if measured and not set(measured) <= set(waits.get(key, [])):
+            stale.append((key, above, measured))
+    assert not unlisted, (
+        f"instances that wait beside a {smem_kb} KB all-SM kernel where the "
+        f"deterministic program does not (or it does not serve the call), not in "
+        f"SMEM_WAIT_ABOVE: {unlisted}; regressions against det: {regressions}"
+    )
+    assert not stale, f"SMEM_WAIT_ABOVE entries the measurement does not confirm: {stale}"
