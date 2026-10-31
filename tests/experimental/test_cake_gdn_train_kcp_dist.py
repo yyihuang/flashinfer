@@ -667,8 +667,8 @@ POISON_PAIRS = [
         "P2", "C1-cp2", "leak-D", "int1"
     ),  # contiguous 5 docs -> zigzag_per_document 3 docs
     PoisonPair(
-        "P4z", "C2-Z", "C2-D", "int1"
-    ),  # zigzag -> zigzag_per_document, one document
+        "P4z", "C2-C", "C2-Z", "int1"
+    ),  # contiguous -> zigzag, one document (zigzag and zigzag_per_document coincide for one document)
     PoisonPair("P4r", "C4a", "C4b", "int1"),  # ragged -> ragged with an empty rank
     PoisonPair(
         "P8", "A2", "K1-D8", "int3"

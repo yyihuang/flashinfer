@@ -130,6 +130,7 @@ P_RULES = (
     "one",
     "row_cost",
     "row_cost_lpt",
+    "rank_lpt",
 )  # P rules.  Per-rank rules (kcp_plan): "wave_fill1" = "wave" + the one-wave
 # fill on one-fragment ranks below the chain cap (the shipped default before "row_cost"); "wave" = the earlier rule (lever
 # L-C); "occ" = the design note §7.2 rule; "wave_fill" = the fill on every rank with n_frag <= 3 (implemented, not adopted);
@@ -165,7 +166,11 @@ ROW_COST_MARGIN_PCT = {"occ": 2, "one": 0}
 # (otherwise the whole row keeps that vector bitwise).  An unsegmented rank (delivered P = 1: no compose chain, the 64-wide
 # fwdh / dhu kernels) never enters the LPT replacement and keeps P = 1 -- the walk-step model does not carry the per-segment
 # work the first products add.  Selectable through `p_rule`; P_RULE_DEFAULT names the shipped rule.
-ROW_RULES = ("row_cost", "row_cost_lpt")
+ROW_RULES = ("row_cost", "row_cost_lpt", "rank_lpt")
+# "rank_lpt" (this package's faster schedule, #8063): every rank takes the smaller of its "row_cost_lpt" P and the LPT
+# argmin over its REAL fragment table (lpt_rank_P; every rank, not only the wave-regime ones), so ranks below the chain
+# cap whose occupancy P splits short fragments (two-fragment D ranks at HV = 48: P 2 -> 1; small-HV ranks) drop the
+# segments, compose chain and staging planes the model prices above the shorter walks.  It never raises a rank's P.
 ROW_COST_LPT_MARGIN_PCT = ROW_COST_MARGIN_PCT["occ"]
 # The row gate's margin, calibrated on the measured GB300 rows of record (per-row ABBA of the rule against the "row_cost"
 # plan at B1 and B3): the smallest value on a 0.5 % grid such that every measured row whose modelled slowest-rank walk-step
@@ -993,6 +998,17 @@ def kcp_plan_row(
             f"kcp_plan_row: p_rule must be one of {ROW_RULES} (the row rules), got {p_rule!r}"
         )
     tables = tuple(tuple((int(nc), bool(x)) for nc, x in table) for table in tables)
+    if p_rule == "rank_lpt":
+        shipped = kcp_plan_row(tables, HV, sm_count, P_bal=P_bal, p_rule="row_cost_lpt")
+        out = []
+        for seg, table in zip(shipped, tables, strict=True):
+            P_new = min(seg.P, lpt_rank_P(table, HV, sm_count)) if table else seg.P
+            out.append(
+                dataclasses.replace(
+                    seg, P=P_new, NSEG=seg.n_frag * P_new, p_rule="rank_lpt"
+                )
+            )
+        return tuple(out)
 
     def program(rule: str) -> tuple[KcpSegmentPlan, ...]:
         return tuple(
