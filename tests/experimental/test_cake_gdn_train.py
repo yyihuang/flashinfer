@@ -323,14 +323,12 @@ def _preps(stages) -> set[str]:
 # --------------------------------------------------------------------------- registry and manifest (no device)
 
 
-FUSED_TAIL_STAGES = (
-    "tail_g2",
-    "tail_g2_bf16",
-)  # two-CTA clusters: the two value heads of a key head
+# the fused cluster tails' cluster sizes: one CTA per value head of a key head
+FUSED_TAIL_STAGES = {"tail_g2": 2, "tail_g2_bf16": 2, "tail_g3": 3, "tail_g3_bf16": 3}
 
 
 def test_registry_records_are_well_formed() -> None:
-    assert len(cake_jit.STAGES) == 31 and len(set(cake_jit.STAGES)) == 31
+    assert len(cake_jit.STAGES) == 38 and len(set(cake_jit.STAGES)) == 38
     assert set(cake_chain.LAUNCH_ARGS) == set(cake_jit.STAGES)
     for arch in ARCHES:
         for stage in cake_jit.STAGES:
@@ -348,9 +346,7 @@ def test_registry_records_are_well_formed() -> None:
         assert rec["kernel_symbol"] == "kernel_" + rec["library"], name
         launch = rec["launch"]
         assert launch["cooperative"] is False and launch["use_pdl"] is False, name
-        assert launch["cluster"] == (
-            (2, 1, 1) if rec["stage"] in FUSED_TAIL_STAGES else (1, 1, 1)
-        ), name
+        assert launch["cluster"] == (FUSED_TAIL_STAGES.get(rec["stage"], 1), 1, 1), name
         assert len(launch["block"]) == 3 and launch["block"][0] % 32 == 0, name
         assert launch["dynamic_smem_bytes"] >= 0, name
         # the record's kernel parameters are the call site's, possibly reordered (the chain reorders them)
@@ -383,6 +379,8 @@ def test_scan_records_carry_the_planner_constants() -> None:
             and const["t_unit"] > 0
             and const["c_dvl"] > 0
         ), arch
+        gain, min_saving = cake_chain._sdt_constants(arch)
+        assert 0 < gain <= 1 and min_saving >= 0, arch
         ctas_per_sm, window = cake_chain._prep_tma_constants(arch)
         if arch == "sm_107a":  # window 1.0: no plain-prep band
             assert ctas_per_sm > 0 and window == 1.0, arch
@@ -593,6 +591,61 @@ def test_dhu_tc_rule_on_the_campaign_rows(arch, monkeypatch) -> None:
         assert rec["select"] is selected, (row, rec)
         if row == "r01":
             assert abs(rec["T_tc"] - r01_tc) < 0.1, rec
+
+
+# The split (64, 1) adjoint plans of the campaign rows and the #7074 packs on each device, and the ones whose pass 2
+# the split rule runs on dhu_tc2 (measured faster there; the other split plans keep the register pass 2).
+_REAL_3 = (5406, 3448, 3896)
+_REAL_7 = (4199, 2781, 4282, 4448, 4723, 5804, 3863)
+SDT_ROWS = (
+    ("r01", (4096,) * 4, 16),
+    ("r02", _REAL_3, 16),
+    ("r03", (4096,) * 8, 16),
+    ("r04", _REAL_7, 16),
+    ("r07", (16384,), 16),
+    ("r08", (4096,) * 4, 32),
+    ("r10", (16384,), 32),
+    ("issue", (131071, 87531, 43385), 6),
+    ("P3", (128147, 131027), 6),
+    ("P1", (126565, 32714, 33696, 15081, 22979, 10782), 6),
+    ("A16", (11000, 12000, 9768), 48),
+)
+_SDT_SPLIT_SM100 = {"r02", "r04", "r07", "r10", "issue", "P3", "P1"}
+SDT_SPLIT = {
+    "sm_100a": _SDT_SPLIT_SM100,
+    "sm_103a": _SDT_SPLIT_SM100,
+    "sm_107a": _SDT_SPLIT_SM100 | {"r01", "r03", "r08", "A16"},
+}
+# with the dv_local stage the register form needs priced in, every split (64, 1) row of these layouts runs pass 2 on
+# dhu_tc2 (sm_100a r07: a 41 us priced saving, above the 40 us floor)
+SDT_SELECTED = SDT_SPLIT
+
+
+@pytest.mark.parametrize("arch", sorted(RULE_DEVICES))
+def test_sdt_rule_on_the_split_rows(arch, monkeypatch) -> None:
+    props, _r01_tc = RULE_DEVICES[arch]
+    monkeypatch.setattr(cake_chain, "_device_props", lambda _index: props)
+    monkeypatch.setattr(cake_backend, "device_arch", lambda _index: arch)
+    split, selected = set(), set()
+    for row, seq_lens, num_v_heads in SDT_ROWS:
+        _fwd, bwd = cake_chain.scan_plans(
+            sum(seq_lens), len(seq_lens), num_v_heads, 0, seq_lens
+        )
+        chunks = tuple(-(-n // 64) for n in seq_lens)
+        if bwd.segment_len == 0 or max(chunks) <= bwd.segment_len:
+            continue
+        if tuple(bwd.config) != cake_chain.SDT_CONFIG:
+            continue
+        split.add(row)
+        rec = cake_chain.sdt_pricing(chunks, bwd.segment_len, num_v_heads, 0)
+        assert rec["select"] is (
+            rec["T_tc2"] <= rec["gain"] * rec["T_reg2"]
+            and rec["saving"] >= rec["min_saving"]
+        ), (row, rec)
+        if rec["select"]:
+            selected.add(row)
+    assert split == SDT_SPLIT[arch]
+    assert selected == SDT_SELECTED[arch]
 
 
 def test_two_stream_split_rule() -> None:
@@ -948,8 +1001,9 @@ def test_segments_beyond_the_prescan_capacity_raise(device) -> None:
         {"scan_config": (64, 1), "segment_chunks": 0, "dhu_scan": "tc"},
         {"scan_config": (32, 2), "segment_chunks": 4, "dhu_scan": "reg"},
         {"scan_config": (64, 1), "segment_chunks": 6, "dhu_scan": "reg"},
+        {"scan_config": (64, 1), "segment_chunks": 6, "dhu_scan": "tc"},
     ],
-    ids=["serial-32x2", "serial-dhu-tc", "split-32x2", "split-64x1"],
+    ids=["serial-32x2", "serial-dhu-tc", "split-32x2", "split-64x1", "split-64x1-tc"],
 )
 def test_table_routes_agree(pins, device) -> None:
     seq_lens = (1500, 77, 640)
@@ -1026,6 +1080,7 @@ def _small_device(monkeypatch, device, sm_count: int) -> None:
     )
     monkeypatch.setattr(cake_chain, "_META_FRONT", {})
     monkeypatch.setattr(cake_chain, "_DHU_AUTO", {})
+    monkeypatch.setattr(cake_chain, "_SDT_AUTO", {})
 
 
 def _record_streams(monkeypatch) -> list[tuple[str, int]]:
@@ -1690,16 +1745,21 @@ ALERT_CASES = (
     ((2, 4), {}, None),  # None: the rule's dispatch decides
     ((2, 6), {}, None),
     ((1, 3), {}, None),
-    ((2, 6), {"crossover0": True}, None),  # the rule with TAIL_MIN_CTAS = 0: the unordered tail
+    ((1, 4), {"crossover0": True}, None),  # the rule with TAIL_MIN_CTAS = 0: the unordered tail
     ((2, 4), {"tail": "tail_g2"}, False),
     ((2, 6), {"tail": "unfused"}, False),
+    ((2, 6), {"tail": "tail_g3"}, False),
+    ((2, 6), {"tail": "tail_bulk"}, True),
+    ((2, 6), {"tail": "tail_ordered"}, False),
+    ((2, 2), {"tail": "tail_bulk"}, False),
 )
 
 
 @pytest.mark.parametrize(
     "heads, pins, alerts",
     ALERT_CASES,
-    ids=["g2", "g3", "g4", "g1", "rule-g2", "rule-g3", "rule-g3-h1", "rule-g3-large", "g2-tail-g2", "g3-unfused"],
+    ids=["g2", "g3", "g4", "g1", "rule-g2", "rule-g3", "rule-g3-h1", "rule-g4-large", "g2-tail-g2", "g3-unfused",
+         "g3-tail-g3", "g3-bulk", "g3-ordered", "g1-bulk"],
 )
 def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(
     heads, pins, alerts, device, monkeypatch
@@ -1795,10 +1855,13 @@ def test_launches_are_this_packages_records(device, monkeypatch) -> None:
         )
 
 
-TAIL_STAGES = ("tail", "tail_bf16")
+PACKAGE_TAILS = ("tail", "tail_bulk", "tail_ordered")
+TAIL_STAGES = tuple(f + s for f in PACKAGE_TAILS for s in ("", "_bf16"))
 DET_TAIL_STAGES = (
     "tail_g2",
     "tail_g2_bf16",
+    "tail_g3",
+    "tail_g3_bf16",
     "dqkwg",
     "wy_bwd",
     "wy_bwd_bf16",
@@ -1813,16 +1876,18 @@ def _bits_zero(t: torch.Tensor) -> bool:
 
 
 def _assert_tail_workspaces_zero() -> None:
-    """Every pooled tail workspace and counter buffer of the package is zero, bit for bit."""
+    """Every pooled tail workspace and counter buffer of the package is zero, bit for bit (but the ordered merge's
+    slots, written before they are read)."""
     torch.cuda.synchronize()
     for key, buffers in cake_chain._POOLED.zeroed.items():
         for role, t in buffers.items():
-            assert _bits_zero(t), (key, role)
+            if role != "tail_ws_ordered":
+                assert _bits_zero(t), (key, role)
 
 
 def _record_tail_launches(monkeypatch, device) -> list[tuple[str, tuple]]:
-    """The (stage, grid) of every launch from here on; after each launch of the unordered tail, the workspace and the
-    counters it was given are zero (the launch's self-cleaning contract)."""
+    """The (stage, grid) of every launch from here on; after each launch of a package tail, the counters it was given
+    are zero, and so is the workspace of an unordered merge (the launch's self-cleaning contract)."""
     launches: list[tuple[str, tuple]] = []
     launch = cake_backend.launch_stage
     arch = cake_backend.device_arch(cake_chain._device_index(device))
@@ -1833,13 +1898,16 @@ def _record_tail_launches(monkeypatch, device) -> list[tuple[str, tuple]]:
         if stage in TAIL_STAGES:
             names = cake_backend.parameters(cake_backend.stage_record(stage, arch))
             ws, count = values[names.index("ws")], values[names.index("ws_count")]
+            ordered = stage.startswith("tail_ordered")
+            group = values[names.index("num_v_heads")] // values[names.index("num_heads")]
             torch.cuda.synchronize()
-            assert _bits_zero(ws) and _bits_zero(count), (stage, grid)
+            assert _bits_zero(count) and (ordered or _bits_zero(ws)), (stage, grid)
             assert (
                 ws.shape[1:] == (cake_chain.TAIL_TILE_FLOATS,)
                 and count.dtype == torch.uint32
             )
-            assert values[names.index("ws_tiles")] <= ws.shape[0] == count.shape[0]
+            assert values[names.index("ws_tiles")] <= count.shape[0]
+            assert ws.shape[0] == count.shape[0] * (group if ordered else 1), (stage, ws.shape, count.shape)
         return out
 
     monkeypatch.setattr(cake_backend, "launch_stage", checking)
@@ -1850,6 +1918,7 @@ def _num_chunks(seq_lens) -> int:
     return sum(-(-n // cake_chain.CHUNK) for n in seq_lens)
 
 
+@pytest.mark.parametrize("form", PACKAGE_TAILS)
 @pytest.mark.parametrize(
     "beta_dtype", [torch.float32, torch.bfloat16], ids=["fp32beta", "bf16beta"]
 )
@@ -1859,39 +1928,44 @@ def _num_chunks(seq_lens) -> int:
     ids=["g1", "g2", "g3", "g4", "h4-g2"],
 )
 def test_the_tail_serves_every_group_and_leaves_its_workspace_zero(
-    heads, beta_dtype, device, monkeypatch
+    heads, beta_dtype, form, device, monkeypatch
 ) -> None:
     seq_lens = TAIL_LAYOUT
     inputs = _inputs(seq_lens, heads, beta_dtype, device, seed=271)
     launches = _record_tail_launches(monkeypatch, device)
     for host_cache in (True, False):
         launches.clear()
-        got = _run(inputs, seq_lens, host_cache=host_cache, tail="tail")
+        got = _run(inputs, seq_lens, host_cache=host_cache, tail=form)
         stages = [stage for stage, _grid in launches]
-        tail = "tail_bf16" if beta_dtype == torch.bfloat16 else "tail"
-        assert tail in stages and not set(DET_TAIL_STAGES) & set(stages), stages
+        tail = form + ("_bf16" if beta_dtype == torch.bfloat16 else "")
+        assert tail in stages and not (set(DET_TAIL_STAGES) | set(TAIL_STAGES) - {tail}) & set(stages), stages
         grids = [grid for stage, grid in launches if stage == tail]
         assert sum(grid[0] for grid in grids) == _num_chunks(seq_lens) * heads[1], grids
         _assert_close_to_reference(got, _reference(inputs, seq_lens), OUTPUT_NAMES)
     _assert_tail_workspaces_zero()
 
 
+@pytest.mark.parametrize("form", PACKAGE_TAILS)
 @pytest.mark.parametrize("tiles", [1, 5, 16], ids=["tiles1", "tiles5", "tiles16"])
-def test_segmented_tail_launches_match_one_launch(tiles, device, monkeypatch) -> None:
-    # a workspace of `tiles` tiles: the chunk table in launches of max(1, tiles // H) chunks, in stream order
+def test_segmented_tail_launches_match_one_launch(tiles, form, device, monkeypatch) -> None:
+    # a workspace of `tiles` rows: the chunk table in launches of max(1, tiles // (H x slots)) chunks, in stream order
     seq_lens, heads = TAIL_LAYOUT, (2, 6)
+    slots = heads[1] // heads[0] if form == "tail_ordered" else 1
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=277)
-    whole = _run(inputs, seq_lens, tail="tail")
+    whole = _run(inputs, seq_lens, tail=form)
     monkeypatch.setattr(cake_chain, "TAIL_WORKSPACE_TILES", tiles)
     launches = _record_tail_launches(monkeypatch, device)
-    got = _run(inputs, seq_lens, tail="tail")
-    ranges, ws_tiles = cake_chain.tail_segments(_num_chunks(seq_lens), *heads)
-    assert ws_tiles == max(1, tiles // heads[0]) * heads[0] and len(ranges) > 1
-    assert [grid for stage, grid in launches if stage == "tail_bf16"] == [
+    got = _run(inputs, seq_lens, tail=form)
+    ranges, ws_tiles = cake_chain.tail_segments(_num_chunks(seq_lens), *heads, slots=slots)
+    assert ws_tiles == max(1, tiles // (heads[0] * slots)) * heads[0] and len(ranges) > 1
+    assert [grid for stage, grid in launches if stage == form + "_bf16"] == [
         ((b - a) * heads[1], 1, 1) for a, b in ranges
     ]
     for name in ("o", "dv", "dg", "dbeta"):
         assert torch.equal(got[name], whole[name]), name
+    if form == "tail_ordered":  # value-head order whatever the segments: the same bits
+        for name in ("dq", "dk"):
+            assert torch.equal(got[name], whole[name]), name
     _assert_within_budget(got, whole, ("dq", "dk"))
     _assert_close_to_reference(got, _reference(inputs, seq_lens), OUTPUT_NAMES)
     _assert_tail_workspaces_zero()
@@ -1902,19 +1976,20 @@ TAIL_RULE = {
     (2, 4): "tail_g2",
     (8, 16): "tail_g2",
     (16, 32): "tail_g2",
-    (1, 3): "tail",
-    (2, 6): "tail",
-    (16, 48): "tail",
+    (1, 3): "tail_g3",
+    (2, 6): "tail_g3",
+    (16, 48): "tail_g3",
     (2, 2): "tail",
     (16, 16): "tail",
     (1, 4): "tail",
     (4, 16): "tail",
 }
 # the stages a backward launches per tail (beyond the shared scans), and the ones it never launches
+_TAIL_SETS = {f: {f, f + "_bf16"} for f in (*PACKAGE_TAILS, "tail_g2", "tail_g3")}
+_TAIL_SETS["unfused"] = {"dqkwg", "finalize", "finalize_mlp"}
 TAIL_LAUNCHES = {
-    "tail": ({"tail", "tail_bf16"}, {"tail_g2", "tail_g2_bf16", "dqkwg", "finalize", "finalize_mlp"}),
-    "tail_g2": ({"tail_g2", "tail_g2_bf16"}, {"tail", "tail_bf16", "dqkwg", "finalize", "finalize_mlp"}),
-    "unfused": ({"dqkwg", "finalize", "finalize_mlp"}, {"tail", "tail_bf16", "tail_g2", "tail_g2_bf16"}),
+    form: (want, set().union(*(other for f, other in _TAIL_SETS.items() if f != form)))
+    for form, want in _TAIL_SETS.items()
 }
 
 
@@ -1927,7 +2002,8 @@ def test_the_dispatched_tail_runs(heads, min_tiles, device, monkeypatch) -> None
         monkeypatch.setattr(cake_chain, "TAIL_MIN_CTAS", min_tiles)
     inputs = _inputs(seq_lens, heads, torch.float32, device, seed=289)
     launches = _record_tail_launches(monkeypatch, device)
-    forms = [None, "tail", "unfused"] + (["tail_g2"] if heads[1] == 2 * heads[0] else [])
+    group = heads[1] // heads[0]
+    forms = [None, *PACKAGE_TAILS, "unfused"] + ([f"tail_g{group}"] if group in (2, 3) else [])
     for form in forms:
         launches.clear()
         got = _run(inputs, seq_lens, **({} if form is None else {"tail": form}))
@@ -1947,13 +2023,16 @@ def test_tail_segments_rule() -> None:
         16,
     )  # at least one chunk per launch
     assert rule(0, 2, 4) == ((), 0)
+    # the ordered merge: a tile is G slots, the rows bound G x the tiles
+    assert rule(17, 2, 6, tiles=12, slots=3) == (tuple((c, min(c + 2, 17)) for c in range(0, 17, 2)), 4)
     # the dispatch rule: the fastest tail measured per value-head group and size (B200 and GB300); large calls here
     assert {heads: cake_chain.tail_form(*heads) for heads in TAIL_RULE} == TAIL_RULE
     edge = cake_chain.TAIL_MIN_CTAS
-    for h, hv in ((1, 3), (2, 6), (2, 2), (4, 16)):
-        assert cake_chain.tail_form(h, hv, num_chunks=-(-edge // hv)) == "tail", (h, hv)
+    for h, hv in ((2, 2), (4, 16), (1, 4)):
+        assert cake_chain.tail_form(h, hv, num_chunks=-(-edge // hv)) == cake_chain.TAIL_DEFAULT, (h, hv)
         assert cake_chain.tail_form(h, hv, num_chunks=-(-edge // hv) - 1) == "unfused", (h, hv)
     assert cake_chain.tail_form(2, 4, num_chunks=1) == cake_chain.tail_form(2, 4) == "tail_g2"
+    assert cake_chain.tail_form(2, 6, num_chunks=1) == cake_chain.tail_form(2, 6) == "tail_g3"
     assert (
         cake_chain.tail_form(2, 4, "tail_g2") == "tail_g2"
         and cake_chain.tail_form(2, 6, "unfused") == "unfused"
@@ -1962,8 +2041,12 @@ def test_tail_segments_rule() -> None:
         ValueError, match="tail_g2 form serves a value-head group of two"
     ):
         cake_chain.tail_form(2, 6, "tail_g2")
+    with pytest.raises(
+        ValueError, match="tail_g3 form serves a value-head group of three"
+    ):
+        cake_chain.tail_form(2, 4, "tail_g3")
     with pytest.raises(ValueError, match="tail must be one of"):
-        cake_chain.make_options(tail="tail_g3")
+        cake_chain.make_options(tail="tail_g4")
     assert [cake_chain.tail_alerts("tail", 2, hv) for hv in (2, 4, 6)] == [
         False,
         True,
@@ -1972,21 +2055,28 @@ def test_tail_segments_rule() -> None:
     assert not cake_chain.tail_alerts("tail_g2", 2, 4) and not cake_chain.tail_alerts(
         "unfused", 2, 6
     )
+    assert cake_chain.tail_alerts("tail_bulk", 2, 6) and not cake_chain.tail_alerts("tail_bulk", 2, 2)
+    assert not cake_chain.tail_alerts("tail_ordered", 2, 6) and not cake_chain.tail_alerts("tail_g3", 2, 6)
 
 
+@pytest.mark.parametrize("form", PACKAGE_TAILS)
 @pytest.mark.parametrize(
     "heads", [(2, 4), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3", "g1", "g4"]
 )
-def test_the_tail_keeps_the_deterministic_bits_but_dq_dk(heads, device) -> None:
+def test_the_tail_keeps_the_deterministic_bits_but_dq_dk(heads, form, device) -> None:
     # o, dv, dg and dbeta have one writer each: the same bits as the deterministic package and as this package's
     # fixed-order tails; dq / dk round once after the FP32 group sum, within the budgets of both
     seq_lens = TAIL_LAYOUT
     inputs = _inputs(seq_lens, heads, torch.float32, device, seed=281)
-    got = _run(inputs, seq_lens, tail="tail")
+    got = _run(inputs, seq_lens, tail=form)
+    if form == "tail_ordered":  # the ordered merge: run-to-run deterministic
+        again = _run(inputs, seq_lens, tail=form)
+        assert all(torch.equal(got[name], again[name]) for name in OUTPUT_NAMES)
     det = _run(inputs, seq_lens, det=True)
     pinned = [_run(inputs, seq_lens, tail="unfused")]
-    if heads[1] == 2 * heads[0]:
-        pinned.append(_run(inputs, seq_lens, tail="tail_g2"))
+    group = heads[1] // heads[0]
+    if group in (2, 3):
+        pinned.append(_run(inputs, seq_lens, tail=f"tail_g{group}"))
     for name in ("o", "dv", "dg", "dbeta"):
         assert torch.equal(got[name], det[name]), name
         assert all(torch.equal(got[name], run[name]) for run in pinned), name
@@ -2028,6 +2118,97 @@ def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
     finally:
         cake_chain._POOLED.zeroed.clear()  # the next call creates zeroed buffers again
     _assert_within_budget(_run(inputs, seq_lens, streams=1, tail="tail"), good, OUTPUT_NAMES)
+
+
+def _assert_same_bits(got: dict, want: dict, names) -> None:
+    for name in names:
+        assert torch.equal(got[name], want[name]), name
+
+
+@pytest.mark.parametrize(
+    "beta_dtype", [torch.bfloat16, torch.float32], ids=["bf16beta", "fp32beta"]
+)
+@pytest.mark.parametrize("heads", [(2, 4), (2, 6)], ids=["g2", "g3"])
+def test_split_pass2_on_dhu_tc2_matches_the_register_pass2(
+    heads, beta_dtype, device, monkeypatch
+) -> None:
+    # a split (64, 1) plan's pass 2 on dhu_tc2 from the stitched segment states against the register pass 2 at the
+    # same segment table: the same bits on every output (the rule's fixed-order cluster tails at G = 2 / 3), with an
+    # initial state and a final-state gradient
+    seq_lens = (1500, 77, 640)
+    inputs = _inputs(seq_lens, heads, beta_dtype, device, seed=83)
+    gen = torch.Generator().manual_seed(89)
+    h0 = (
+        0.1 * torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen)
+    ).to(device)
+    dht = torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen).to(
+        device
+    )
+    launches = _record_streams(monkeypatch)
+    names = OUTPUT_NAMES + ("final_state", "dh0")
+    runs = {}
+    for scan in ("tc", "reg"):
+        start = len(launches)
+        runs[scan] = _run(inputs, seq_lens, initial_state=h0, output_final_state=True, dht=dht, scan_config=(64, 1),
+                          segment_chunks=6, dhu_scan=scan)  # fmt: skip
+        stages = [stage for stage, _stream in launches[start:]]
+        assert "stitch" in stages, stages
+        # the tc form: the fused pre-scan computes the dv_local tiles it reads, no dv_local stage
+        want = (
+            ("dhu_pre_dvl_r64k1", "dhu_tc2")
+            if scan == "tc"
+            else ("dv_local", "dhu_pre_r64k1", "dhu_r64k1")
+        )
+        other = (
+            ("dv_local", "dhu_pre_r64k1", "dhu_r64k1")
+            if scan == "tc"
+            else ("dhu_pre_dvl_r64k1", "dhu_tc2")
+        )
+        assert all(x in stages for x in want) and not any(x in stages for x in other), (
+            scan,
+            stages,
+        )
+    _assert_same_bits(runs["tc"], runs["reg"], names)
+    _assert_close_to_reference(runs["tc"], _reference(inputs, seq_lens, initial_state=h0, dht=dht), names)
+
+
+@pytest.mark.parametrize(
+    "beta_dtype", [torch.bfloat16, torch.float32], ids=["bf16beta", "fp32beta"]
+)
+@pytest.mark.parametrize("route", ["host", "device"])
+def test_group_of_three_tail_matches_the_unfused_tail(
+    route, beta_dtype, device, monkeypatch
+) -> None:
+    # HV = 3 H: the fused tail_g3 (the rule's tail at G = 3) against dqkwg + the WY pullback + each finalize (the
+    # "unfused" pin): the same bits on every output, with an initial state and a final-state gradient
+    seq_lens, heads = (1500, 77, 640, 1), (2, 6)
+    inputs = _inputs(seq_lens, heads, beta_dtype, device, seed=97)
+    gen = torch.Generator().manual_seed(101)
+    h0 = (
+        0.1 * torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen)
+    ).to(device)
+    dht = torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen).to(
+        device
+    )
+    stages = _record_launches(monkeypatch)
+    names = OUTPUT_NAMES + ("final_state", "dh0")
+    tail = "tail_g3_bf16" if beta_dtype == torch.bfloat16 else "tail_g3"
+    runs = {}
+    for fin in ("", "finalize", "finalize_mlp"):
+        start = len(stages)
+        pins = {"tail": "unfused", "finalize": fin} if fin else {}
+        runs[fin] = _run(inputs, seq_lens, route=route, initial_state=h0, output_final_state=True, dht=dht,
+                         **pins)  # fmt: skip
+        got = stages[start:]
+        if fin:
+            assert fin in got and "dqkwg" in got and tail not in got, (fin, got)
+        else:
+            assert tail in got and "dqkwg" not in got, got
+            assert not any(stage.startswith(("wy_bwd", "finalize")) for stage in got), (
+                got
+            )
+    _assert_same_bits(runs[""], runs["finalize"], names)
+    _assert_same_bits(runs[""], runs["finalize_mlp"], names)
 
 
 # #7038 / #7548 form: a one-thread sleep kernel resident on a side stream for the whole call; the gate is declared

@@ -27,16 +27,22 @@ the stitch for the segment start states).  The backward runs ``dv_local`` and
 the register scan of the adjoint state (with the pre-scan and the stitch on a
 split plan), or on a serial plan the tcgen05 adjoint scan with ``dv_local``
 fused (``dhu_tc2``) when its selection rule (:func:`dhu_tc_pricing`) prices it
-at most ``DHU_TC_GAIN`` of the register path; then the tail :func:`tail_form`
-dispatches: the package's ``tail``, one tcgen05 kernel per (chunk, value
-head) whose value heads add their FP32 ``dq`` / ``dk`` partials into a
-self-cleaning workspace tile of their (chunk, key head) with unordered
-reductions, the last arriving CTA running the finalize and rounding ``dq`` /
-``dk`` to BF16 once (:func:`tail_segments` bounds the workspace), or one of
-the deterministic package's fixed-order tails where it measures faster
-(``tail_g2`` for a value-head group of two; ``dqkwg``, the WY pullback and the
-finalize, "unfused", for other groups below ``TAIL_MIN_CTAS`` (chunk, value
-head) CTAs).  A host-built table lists the sequences longest first
+at most ``DHU_TC_GAIN`` of the register path; a split plan at ``SDT_CONFIG``
+on a host-built table runs its pass 2 on ``dhu_tc2`` from the stitched segment
+states when its rule (:func:`sdt_pricing`) prices that pass 2 below the
+register one, and then launches no ``dv_local``: its pre-scan
+(``dhu_pre_dvl_r64k1``) computes the ``dv_local`` tiles of the chunks it scans
+(the same bits); then the tail :func:`tail_form` dispatches: the package's
+tail, one tcgen05 kernel per (chunk, value head) whose value heads merge their
+FP32 ``dq`` / ``dk`` partials in a workspace tile of their (chunk, key head),
+the last arriving CTA running the finalize and rounding ``dq`` / ``dk`` to
+BF16 once (:func:`tail_segments` bounds the workspace), in one of three merges
+(``"tail"``: unordered ``red.global.add``; ``"tail_bulk"``: unordered
+``cp.reduce.async.bulk``; ``"tail_ordered"``: a slot per value head summed in
+value-head order), or one of the deterministic package's fixed-order tails
+where it measures faster (``tail_g2`` / ``tail_g3`` for a value-head group of
+two / three; ``dqkwg``, the WY pullback and the finalize, "unfused", for other
+groups below ``TAIL_MIN_CTAS`` (chunk, value head) CTAs).  A host-built table lists the sequences longest first
 (:func:`lpt_sequence_order`; every chunk keeps its token offset, the state rows
 are gathered into that order and the final state and its gradient scattered
 back) and ``fwd_ho`` walks the forward segments longest first
@@ -53,7 +59,8 @@ device's architecture (:func:`.cake_backend.launch_stage`); the stages a plan
 may use are the ones the registry delivers for that architecture.  The
 planner's per-configuration facts (the register scans' shared-memory figure,
 the chunks one pre-scan CTA covers) are the records' ``scan`` constants; the
-``dhu_tc2`` selection constants and the ``prep_tma`` dispatch window are those
+``dhu_tc2`` selection constants (serial plans and the split pass 2) and the
+``prep_tma`` dispatch window are those
 records' ``select`` tables.
 
 The chain makes no run-to-run bitwise promise: the tail of a value-head group
@@ -88,7 +95,11 @@ __all__ = [
     "PRESCAN_CONFIGS",
     "REG_SCAN_CONFIGS",
     "R_FORM_GROUPS",
+    "CLUSTER_TAILS",
+    "PACKAGE_TAILS",
+    "TAIL_DEFAULT",
     "TAIL_FORMS",
+    "UNORDERED_TAILS",
     "TAIL_MIN_CTAS",
     "TAIL_TILE_FLOATS",
     "TAIL_WORKSPACE_TILES",
@@ -111,6 +122,7 @@ __all__ = [
     "lpt_walk",
     "make_options",
     "scan_plans",
+    "sdt_pricing",
     "sequence_groups",
     "stage_set",
     "tail_alerts",
@@ -189,6 +201,8 @@ _DHU_ARGS = ("qn", "kn", "w", "do", "dv_local", "g_cs", "dht", "dh_out", "dv2", 
              "chunk_len", "seg_chunk_start", "seg_seq", "seq_chunk_start", "num_heads", "num_v_heads",
              "use_final_state_grad", "store_initial_state_grad", "scale")  # fmt: skip
 _DHU_PRE_ARGS = _DHU_ARGS + ("seg_flag", "warmup_thresh_log2")
+# the (64, 1) pre-scan that computes the dv_local tiles of its chunks in the CTA
+_DHU_PRE_DVL_ARGS = tuple(a for a in _DHU_PRE_ARGS if a != "dv_local")
 _DHU_TC2_ARGS = ("qn_tma", "kn_tma", "w_tma", "do_tma") + tuple(
     a for a in _DHU_ARGS[4:] if a != "dv_local"
 )
@@ -225,8 +239,15 @@ LAUNCH_ARGS: dict[str, tuple[str, ...]] = {
     "finalize_mlp": _FINALIZE_ARGS,
     "tail_g2": _TAIL_ARGS,
     "tail_g2_bf16": _TAIL_ARGS,
+    "tail_g3": _TAIL_ARGS,
+    "tail_g3_bf16": _TAIL_ARGS,
+    "dhu_pre_dvl_r64k1": _DHU_PRE_DVL_ARGS,
     "tail": _TAIL_RED_ARGS,
     "tail_bf16": _TAIL_RED_ARGS,
+    "tail_bulk": _TAIL_RED_ARGS,
+    "tail_bulk_bf16": _TAIL_RED_ARGS,
+    "tail_ordered": _TAIL_RED_ARGS,
+    "tail_ordered_bf16": _TAIL_RED_ARGS,
     **{f"fwd_h_r{vb}k{ks}": _FWD_H_ARGS for vb, ks in REG_SCAN_CONFIGS},
     **{f"fwd_h_r{vb}k{ks}_split": _FWD_H_SPLIT_ARGS for vb, ks in PRESCAN_CONFIGS},
     **{f"fwd_h_pre_r{vb}k{ks}": _FWD_H_PRE_ARGS for vb, ks in PRESCAN_CONFIGS},
@@ -293,7 +314,10 @@ FINALIZE_STAGES = ("finalize", "finalize_mlp")
 DHU_SCANS = ("reg", "tc")
 PREP_FORMS = ("plain", "tma")
 STREAM_COUNTS = (1, 2)
-TAIL_FORMS = ("tail", "tail_g2", "unfused")
+TAIL_FORMS = ("tail", "tail_bulk", "tail_ordered", "tail_g2", "tail_g3", "unfused")
+# the package tail's forms (its build keyword ``merge``: red, bulk, ordered) and the ones that merge in arrival order
+PACKAGE_TAILS = ("tail", "tail_bulk", "tail_ordered")
+UNORDERED_TAILS = ("tail", "tail_bulk")
 
 
 @dataclass(frozen=True)
@@ -305,7 +329,9 @@ class ChainOptions:
     CTA covers, 128, a plan that splits a sequence raises); ``finalize`` forces the finalize stage of the
     ``"unfused"`` tail; ``warmup_log2`` overrides the pre-scans' warm-up threshold; ``dhu_scan``
     forces the adjoint scan of a serial plan (``"reg"``: ``dv_local`` + the register scan, ``"tc"``: ``dhu_tc2``;
-    ``None``: the selection rule); ``prep`` forces the prep (``"plain"``: grid (chunks, HV); ``"tma"``: ``prep_tma``,
+    ``None``: the selection rule) and the pass 2 of a split ``SDT_CONFIG`` plan on a host-built table (``"reg"``:
+    ``dv_local`` + the register scan, ``"tc"``: ``dhu_tc2`` after the fused pre-scan; the same bits); ``prep``
+    forces the prep (``"plain"``: grid (chunks, HV); ``"tma"``: ``prep_tma``,
     grid (chunks, H), where q and k are 16-byte aligned; ``None``: the dispatch rule); ``save_state`` keeps the
     forward's ``w`` / ``u`` / ``h`` / ``v_new`` for the backward (else they are recomputed); ``host_cache`` keeps the
     chunk tables, the selection results and the per-stream workspaces between calls; ``lpt`` dispatches the
@@ -313,9 +339,11 @@ class ChainOptions:
     ``2`` to let a host-built table's serial scans run as two sequence groups on the caller's stream and a side stream
     where their rule (:func:`two_stream_split`) fills the last round (the same bits), ``1`` to keep every launch on
     the caller's stream; ``tail`` forces the backward tail (``None``: the rule of :func:`tail_form`): the package's
-    unordered ``"tail"``, or the deterministic package's fixed-order tails ``"tail_g2"`` (a value-head group of two)
-    and ``"unfused"`` (``dqkwg``, the WY pullback and the finalize), which round each value head's ``dq`` / ``dk``
-    partials to BF16 before their sum (``dv``, ``dg`` and ``dbeta`` are the same bits in every form).
+    tails ``"tail"`` (unordered ``red.global.add``), ``"tail_bulk"`` (unordered ``cp.reduce.async.bulk``) and
+    ``"tail_ordered"`` (value-head order), which sum the FP32 ``dq`` / ``dk`` partials, or the deterministic
+    package's fixed-order tails ``"tail_g2"`` / ``"tail_g3"`` (a value-head group of two / three) and ``"unfused"``
+    (``dqkwg``, the WY pullback and the finalize), which round each value head's ``dq`` / ``dk`` partials to BF16
+    before their sum (``dv``, ``dg`` and ``dbeta`` are the same bits in every form).
     """
 
     scan_config: tuple[int, int] | None = None
@@ -713,17 +741,22 @@ def finalize_stage(
     return "finalize"
 
 
-# The tail's workspace (a value-head group of two or more): FP32 (chunk, key head) tiles of 64 ``dq`` rows then 64
-# ``dk`` rows (65,536 bytes each) and one u32 arrival counter per tile, per (device, stream of the launch), zero when
-# created and left zero by every launch.  A backward launches its chunk table in segments of at most
-# ``TAIL_WORKSPACE_TILES // num_heads`` chunks (at least one), so a workspace holds at most
-# ``max(TAIL_WORKSPACE_TILES, num_heads)`` tiles.
+# The package tail's workspace (a value-head group of two or more), per (device, stream of the launch): FP32 rows of
+# 64 ``dq`` rows then 64 ``dk`` rows (65,536 bytes each), one per (chunk, key head) tile for the unordered merges (zero
+# when created and left zero by every launch), one per (chunk, value head) slot for ``"tail_ordered"`` (written before
+# it is read, a buffer of its own), and one u32 arrival counter per tile (zero when created, left zero by every
+# launch).  A backward launches its chunk table in segments of at most ``TAIL_WORKSPACE_TILES`` rows (at least one
+# chunk), so a workspace holds at most ``max(TAIL_WORKSPACE_TILES, num_v_heads)`` rows.
 TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
-TAIL_WORKSPACE_TILES = 1024
+TAIL_WORKSPACE_TILES = 4096
 # Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail (value-head groups other
 # than two): where the unordered tail's fused per-CTA chain is latency-bound it measured slower (GB300 crossovers:
 # G = 1 between 1024 and 2048 CTAs, G = 3 between 1536 and 2304, G = 4 between 512 and 1024).
 TAIL_MIN_CTAS = 2048
+# The fixed-order cluster tail the rule takes per value-head group, and the package tail (its merge) it takes elsewhere
+# from TAIL_MIN_CTAS CTAs on.
+CLUSTER_TAILS: dict[int, str] = {2: "tail_g2", 3: "tail_g3"}
+TAIL_DEFAULT = "tail"
 # The value-head groups whose adjoint dhu_tc2 scan runs as two sequence groups (two streams) feeding the fused tail
 # (the R form) where :func:`sequence_groups` splits it.
 R_FORM_GROUPS: tuple[int, ...] = (2,)
@@ -731,46 +764,50 @@ R_FORM_GROUPS: tuple[int, ...] = (2,)
 
 def tail_form(num_heads: int, num_v_heads: int, forced: str | None = None, *, num_chunks: int | None = None) -> str:
     """The backward tail of one call over ``num_chunks`` chunks (``None``: a large call): ``forced`` when given
-    (``"tail_g2"`` serves a value-head group of two), else the fastest tail measured for the call's value-head group
-    ``G = num_v_heads / num_heads`` and size (``benchmarks/bench_cake_gdn_train.py`` on B200 and GB300): the
-    fixed-order cluster tail ``"tail_g2"`` at ``G = 2``; otherwise the unordered ``"tail"`` from ``TAIL_MIN_CTAS``
-    (chunk, value head) CTAs on, the fixed-order ``"unfused"`` tail below."""
+    (``"tail_g2"`` / ``"tail_g3"`` serve a value-head group of two / three), else the fastest tail measured for the
+    call's value-head group ``G = num_v_heads / num_heads`` and size (``benchmarks/bench_cake_gdn_train.py`` on B200
+    and GB300): the fixed-order cluster tail of ``CLUSTER_TAILS`` for its group; otherwise the package tail
+    ``TAIL_DEFAULT`` from ``TAIL_MIN_CTAS`` (chunk, value head) CTAs on, the fixed-order ``"unfused"`` tail below."""
     if num_heads <= 0 or num_v_heads % num_heads != 0:
         raise ValueError(
             f"num_v_heads={num_v_heads} must be a positive multiple of num_heads={num_heads}"
         )
+    group = num_v_heads // num_heads
     if forced is None:
-        if num_v_heads == 2 * num_heads:
-            return "tail_g2"
+        if group in CLUSTER_TAILS:
+            return CLUSTER_TAILS[group]
         if num_chunks is not None and int(num_chunks) * num_v_heads < TAIL_MIN_CTAS:
             return "unfused"
-        return "tail"
+        return TAIL_DEFAULT
     if forced not in TAIL_FORMS:
         raise ValueError(f"tail={forced!r}")
-    if forced == "tail_g2" and num_v_heads != 2 * num_heads:
+    if forced == "tail_g2" and group != 2:
         raise ValueError("the tail_g2 form serves a value-head group of two")
+    if forced == "tail_g3" and group != 3:
+        raise ValueError("the tail_g3 form serves a value-head group of three")
     return forced
 
 
 def tail_alerts(form: str, num_heads: int, num_v_heads: int) -> bool:
     """Whether a backward with the tail ``form`` launches an unordered reduction, and so raises PyTorch's
-    determinism alert: the ``"tail"`` form of a value-head group of two or more (a group of one sums nothing across
-    CTAs, and the other forms are fixed-order)."""
-    return form == "tail" and num_v_heads > num_heads
+    determinism alert: the unordered package tails (``"tail"``, ``"tail_bulk"``) of a value-head group of two or more
+    (a group of one sums nothing across CTAs, and the other forms are fixed-order)."""
+    return form in UNORDERED_TAILS and num_v_heads > num_heads
 
 
-def tail_segments(num_chunks: int, num_heads: int, num_v_heads: int,
-                  tiles: int | None = None) -> tuple[tuple[tuple[int, int], ...], int]:  # fmt: skip
-    """The chunk ranges ``[c0, c1)`` the ``"tail"`` form launches in stream order over a chunk table of
-    ``num_chunks`` chunks, and the workspace tiles a launch may index: one launch and no tile at a value-head group
-    of one, else ranges of ``max(1, tiles // num_heads)`` chunks (``tiles`` defaults to ``TAIL_WORKSPACE_TILES``)."""
+def tail_segments(num_chunks: int, num_heads: int, num_v_heads: int, tiles: int | None = None, *,
+                  slots: int = 1) -> tuple[tuple[tuple[int, int], ...], int]:  # fmt: skip
+    """The chunk ranges ``[c0, c1)`` a package tail launches in stream order over a chunk table of ``num_chunks``
+    chunks, and the workspace tiles a launch may index: one launch and no tile at a value-head group of one, else
+    ranges of ``max(1, tiles // (num_heads * slots))`` chunks (``tiles``: the workspace rows, default
+    ``TAIL_WORKSPACE_TILES``; ``slots``: the rows of a tile, the group for ``"tail_ordered"``, else 1)."""
     num_chunks, num_heads = int(num_chunks), int(num_heads)
     if num_chunks <= 0:
         return (), 0
     if int(num_v_heads) == num_heads:
         return ((0, num_chunks),), 0
     cap = TAIL_WORKSPACE_TILES if tiles is None else int(tiles)
-    per = min(num_chunks, max(1, cap // num_heads))
+    per = min(num_chunks, max(1, cap // (num_heads * int(slots))))
     return tuple(
         (c, min(c + per, num_chunks)) for c in range(0, num_chunks, per)
     ), per * num_heads
@@ -1301,6 +1338,105 @@ def _dhu_tc_selected(
 
 
 # --------------------------------------------------------------------------- #
+# pass 2 of a split adjoint plan: dhu_tc2 from the stitched segment states, or the register scan
+# --------------------------------------------------------------------------- #
+# A split plan at ``SDT_CONFIG`` runs the pre-scan and the stitch, then pass 2 either as ``dv_local`` + the register
+# scan or on ``dhu_tc2`` (one CTA per (segment, value head), ``dv_local`` fused) from the stitched per-segment ``dht``;
+# on the ``dhu_tc2`` form the pre-scan is ``dhu_pre_dvl_r64k1``, which computes the ``dv_local`` tiles of the chunks it
+# scans, so no ``dv_local`` stage runs.  Both forms give the same bits at the same segment table.  The rule prices pass
+# 2 the way :func:`dhu_tc_pricing` prices a serial scan: T_tc2 = steps x t(n), steps the makespan of the segment table
+# at one CTA per (segment, value head) and one CTA per SM, n = min(segments x HV, SMs) and t(n) the ``dhu_tc2``
+# interpolation above; T_reg2 = SCAN_STEP_FACTOR[SDT_CONFIG] x the planner makespan of the register pass 2 x t_unit +
+# tiles x c_dvl / SMs (the ``dv_local`` stage that form needs, tiles = chunks x HV).  ``dhu_tc2`` runs pass 2 iff T_tc2
+# <= sdt_gain x T_reg2 and T_reg2 - T_tc2 >= sdt_min_saving (microseconds), both per-architecture constants of the
+# ``dhu_tc2`` record's ``select`` (an architecture without them keeps the register pass 2).  A device-built table has no
+# layout on the host: the register pass 2.
+SDT_CONFIG = (64, 1)
+SDT_PRESCAN = "dhu_pre_dvl_r64k1"
+SDT_CONSTANTS = ("sdt_gain", "sdt_min_saving")
+_SDT_AUTO: dict = {}
+_SDT_AUTO_LIMIT = 256
+
+
+@cache
+def _sdt_constants(arch: str) -> tuple[float, float] | None:
+    """``(sdt_gain, sdt_min_saving)`` of the ``dhu_tc2`` record's ``select`` for ``arch`` (``None``: none)."""
+    for found in cake_jit.MODULES.values():
+        if found["stage"] == "dhu_tc2" and arch in found["arches"]:
+            const = (found.get("select") or {}).get(arch)
+            if const is None or any(key not in const for key in SDT_CONSTANTS):
+                return None
+            return float(const["sdt_gain"]), float(const["sdt_min_saving"])
+    return None
+
+
+def sdt_pricing(chunks, segment_len: int, num_v_heads: int, device_index: int) -> dict:
+    """The rule's two sides for pass 2 of a split ``SDT_CONFIG`` plan of ``segment_len`` chunks over ``chunks`` (chunks
+    per sequence); ``select`` is the answer."""
+    arch = cake_backend.device_arch(int(device_index))
+    sm_count, _smem, _major = _device_props(device_index)
+    splits = tuple(max(1, -(-int(c) // int(segment_len))) for c in chunks)
+    n_tc = sum(splits) * int(num_v_heads)
+    rec: dict[str, Any] = {
+        "arch": arch,
+        "segment_len": int(segment_len),
+        "segments": sum(splits),
+        "tc2_ctas": n_tc,
+    }
+    found, sdt = _dhu_tc_constants(arch), _sdt_constants(arch)
+    if found is None or sdt is None:
+        rec["missing_constants"] = True
+        rec["select"] = False
+        return rec
+    const = dict(found)
+    gain, min_saving = sdt
+    vb, ks = SDT_CONFIG
+    reg_units = SCAN_STEP_FACTOR[SDT_CONFIG] * _scan_makespan(chunks, splits, int(num_v_heads) * (HEAD_DIM // vb),
+                                                              sm_count, _scan_residency("dhu", vb, ks, device_index))  # fmt: skip
+    steps_tc = _scan_makespan(chunks, splits, int(num_v_heads), sm_count, 1)
+    n = min(n_tc, sm_count)
+    low = DHU_TC_LOW_RESIDENT
+    t_n = const["t_lat"] + (const["t_full"] - const["t_lat"]) * min(
+        max((n - low) / (sm_count - low), 0.0), 1.0
+    )
+    tiles = sum(chunks) * int(num_v_heads)
+    t_dvl = tiles * const["c_dvl"] / sm_count
+    t_tc2, t_reg2 = steps_tc * t_n, reg_units * const["t_unit"] + t_dvl
+    rec.update(steps_tc=steps_tc, t_n=t_n, T_tc2=t_tc2, reg2_units=reg_units, T_dvl=t_dvl, T_reg2=t_reg2,
+               saving=t_reg2 - t_tc2, gain=gain, min_saving=min_saving)  # fmt: skip
+    rec["select"] = t_tc2 <= gain * t_reg2 and t_reg2 - t_tc2 >= min_saving
+    return rec
+
+
+def _sdt_selected(meta: ChunkMeta, segs: SegmentTable, num_v_heads: int, device_index: int, options: ChainOptions,
+                  arch: str) -> bool:  # fmt: skip
+    """Whether a split adjoint plan runs pass 2 on ``dhu_tc2``: a split ``SDT_CONFIG`` plan of a host-built table,
+    the ``dhu_scan`` pin, else the rule (see above)."""
+    if options.dhu_scan == "reg" or meta.seq_lens is None:
+        return False
+    if not (segs.segment_len > 0 and segs.num_segments > meta.num_seqs):
+        return False
+    if tuple(segs.scan_config) != SDT_CONFIG or not (
+        _available("dhu_tc2", arch) and _available(SDT_PRESCAN, arch)
+    ):
+        return False
+    if options.dhu_scan == "tc":
+        return True
+    key = (meta.seq_lens, int(num_v_heads), int(device_index), int(segs.segment_len))
+    hit = _SDT_AUTO.get(key) if options.host_cache else None
+    if hit is None:
+        chunks = tuple(-(-int(x) // CHUNK) for x in meta.seq_lens)
+        hit = bool(
+            sdt_pricing(chunks, segs.segment_len, num_v_heads, device_index)["select"]
+        )
+        if options.host_cache:
+            if len(_SDT_AUTO) >= _SDT_AUTO_LIMIT:
+                del _SDT_AUTO[next(iter(_SDT_AUTO))]
+            _SDT_AUTO[key] = hit
+    return hit
+
+
+# --------------------------------------------------------------------------- #
 # prep selection: prep_tma (TMA-staged q / k, one CTA per (chunk, key head)) or the plain prep
 # --------------------------------------------------------------------------- #
 # The rule: CTAs = chunks x H and slots = ctas_per_sm x SMs; the plain prep (grid (chunks, HV)) runs where prep_tma's
@@ -1804,13 +1940,17 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
     segs = meta.bwd_segments
     serial = not (segs.segment_len > 0 and segs.num_segments > meta.num_seqs)
     use_tc = serial and _dhu_tc_selected(meta, num_v_heads, index, options)
+    # a split plan's pass 2 on dhu_tc2: the fused pre-scan computes the dv_local tiles it reads, no dv_local stage
+    split_tc = not serial and _sdt_selected(
+        meta, segs, num_v_heads, index, options, arch
+    )
     # two sequence groups (R form): the tcgen05 serial scan feeding a fused tail, for the groups R_FORM_GROUPS names
     groups = (
         meta.bwd_groups
         if use_tc and form != "unfused" and num_v_heads // num_heads in R_FORM_GROUPS
         else None
     )
-    if not use_tc:
+    if not (use_tc or split_tc):
         dv_local = workspaces.take(table, "b_dv_local", token_hv, v.dtype, device)
         _launch("dv_local", meta.num_chunks, num_v_heads, 1, qn, kn, do, g_cs, dv_local, meta.chunk_start,
                 meta.chunk_len, num_heads, num_v_heads, scale)  # fmt: skip
@@ -1856,23 +1996,37 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
         seg_flag = workspaces.take(
             table, "b_seg_flag", (segs.num_segments, num_v_heads), torch.int32, device
         )
-        _launch(pre, segs.num_segments, num_v_heads, 2 * HEAD_DIM // vb, qn, kn, w, do, dv_local, g_cs, dht32, dh,
-                dv2, dh0, seg_state, meta.chunk_start, meta.chunk_len, segs.seg_chunk_start, segs.seg_seq,
-                meta.seq_chunk_start, num_heads, num_v_heads, use_dht, 0, scale, seg_flag,
-                warmup_thresh_log2(options))  # fmt: skip
+        if split_tc:
+            # the pre-scan with the dv_local tiles of its chunks computed in the CTA (the same seg_state / seg_flag)
+            _launch(SDT_PRESCAN, segs.num_segments, num_v_heads, 2 * HEAD_DIM // vb, qn, kn, w, do, g_cs, dht32, dh,
+                    dv2, dh0, seg_state, meta.chunk_start, meta.chunk_len, segs.seg_chunk_start, segs.seg_seq,
+                    meta.seq_chunk_start, num_heads, num_v_heads, use_dht, 0, scale, seg_flag,
+                    warmup_thresh_log2(options))  # fmt: skip
+        else:
+            _launch(pre, segs.num_segments, num_v_heads, 2 * HEAD_DIM // vb, qn, kn, w, do, dv_local, g_cs, dht32,
+                    dh, dv2, dh0, seg_state, meta.chunk_start, meta.chunk_len, segs.seg_chunk_start, segs.seg_seq,
+                    meta.seq_chunk_start, num_heads, num_v_heads, use_dht, 0, scale, seg_flag,
+                    warmup_thresh_log2(options))  # fmt: skip
         dh_end = workspaces.take(table, "b_dh_end", (segs.num_segments, num_v_heads, HEAD_DIM, HEAD_DIM),
                                  torch.float32, device)  # fmt: skip
         _launch("stitch", meta.num_seqs, num_v_heads, STITCH_VSPLIT, seg_state, dht32, dh_end, segs.seq_seg_start,
                 seg_flag, num_v_heads, use_dht, 1)  # fmt: skip
         dht32, use_dht = dh_end, 1
-    if not use_tc:
+    if split_tc:
+        # pass 2 on the tcgen05 scan: segment ``seg`` starts from dht[seg], the stitched dh_end[seg]; the first segment
+        # of a sequence stores its dh0 (the register pass 2's contract)
+        _launch("dhu_tc2", segs.num_segments, num_v_heads, 1, qn, kn, w, do, g_cs, dht32, dh, dv2, dh0, dh0,
+                meta.chunk_start, meta.chunk_len, segs.seg_chunk_start, segs.seg_seq, meta.seq_chunk_start, num_heads,
+                num_v_heads, use_dht, 1 if has_initial_state else 0, scale)  # fmt: skip
+    elif not use_tc:
         _launch(scan_stage, segs.num_segments, num_v_heads, HEAD_DIM // vb, qn, kn, w, do, dv_local, g_cs, dht32, dh,
                 dv2, dh0, dh0, meta.chunk_start, meta.chunk_len, segs.seg_chunk_start, segs.seg_seq,
                 meta.seq_chunk_start, num_heads, num_v_heads, use_dht, 1 if has_initial_state else 0, scale)  # fmt: skip
     dbeta_bf16 = dbeta_dtype == torch.bfloat16
     if form != "unfused":
-        # one kernel per (chunk, value head) for dqkwg, the WY pullback and the finalize: "tail" for every value-head
-        # group (its workspace bounded by segmented launches), or the cluster kernel of a group of two ("tail_g2")
+        # one kernel per (chunk, value head) for dqkwg, the WY pullback and the finalize: a package tail for every
+        # value-head group (its workspace bounded by segmented launches), or the cluster kernel of a group of two or
+        # three ("tail_g2" / "tail_g3")
         dv = torch.empty(v.shape, dtype=v.dtype, device=device)
         dbeta = torch.empty(forward.get("beta_shape") or (total_tokens, num_v_heads),
                             dtype=torch.bfloat16 if dbeta_bf16 else torch.float32, device=device)  # fmt: skip
@@ -1885,8 +2039,8 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
         )
         normalize = 1 if forward.get("normalize_qk", True) else 0
         rstd_q, rstd_k = forward["rstd_q"], forward["rstd_k"]
-        if form == "tail_g2":
-            stage = "tail_g2_bf16" if dbeta_bf16 else "tail_g2"
+        if form in ("tail_g2", "tail_g3"):
+            stage = form + ("_bf16" if dbeta_bf16 else "")
 
             def tail(c0, c1):
                 _launch(stage, (c1 - c0) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h[c0:c1],
@@ -1894,18 +2048,20 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
                         meta.chunk_len[c0:c1], num_heads, num_v_heads, scale, normalize)  # fmt: skip
 
         else:
-            stage = "tail_bf16" if dbeta_bf16 else "tail"
+            stage = form + ("_bf16" if dbeta_bf16 else "")
+            # "tail_ordered": a slot per (chunk, value head), left written (a buffer of its own); the unordered merges
+            # share the zero-kept tiles
+            slots, role = (num_v_heads // num_heads, "tail_ws_ordered") if form == "tail_ordered" else (1, "tail_ws")
 
             def tail(c0, c1):
                 # the workspace of the stream that launches (every tail runs on the caller's stream), and launches of
-                # at most its tiles in stream order
-                ranges, tiles = tail_segments(c1 - c0, num_heads, num_v_heads)
-                rows = max(tiles, 1)
+                # at most its rows in stream order
+                ranges, tiles = tail_segments(c1 - c0, num_heads, num_v_heads, slots=slots)
                 ws = workspaces.take_zeroed(
-                    index, "tail_ws", rows, (TAIL_TILE_FLOATS,), torch.float32, device
+                    index, role, max(tiles * slots, 1), (TAIL_TILE_FLOATS,), torch.float32, device
                 )
                 ws_count = workspaces.take_zeroed(
-                    index, "tail_count", rows, (), torch.uint32, device
+                    index, "tail_count", max(tiles, 1), (), torch.uint32, device
                 )
                 for s0, s1 in ranges:
                     a, b = c0 + s0, c0 + s1
@@ -2264,7 +2420,7 @@ def chunk_gated_delta_rule(
     the deterministic package within its accuracy budgets, not bitwise), and any other value raises ``ValueError``.
     With PyTorch's deterministic algorithms enabled (``torch.use_deterministic_algorithms(True)``) the forward runs
     as usual (fixed-order programs), and a backward that sums the ``dq`` / ``dk`` partials of a value-head group in
-    arrival order (the default tail at ``HV > H``; :func:`tail_alerts`) raises PyTorch's alert for an operation
+    arrival order (the unordered package tails at ``HV > H``; :func:`tail_alerts`) raises PyTorch's alert for an operation
     without a deterministic implementation, named ``ChunkGatedDeltaRuleFunction.backward``: ``RuntimeError``, or a
     ``UserWarning`` with ``warn_only=True``.  ``tail`` pins the backward tail (:class:`ChainOptions`).
     """

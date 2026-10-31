@@ -38,8 +38,11 @@ from ``--seed``:
 * ``control``: the non-deterministic package again -- the identical-program control;
 * ``det_dir``: another build of the deterministic package, imported from the package directory ``--det-dir`` (a
   standalone copy, for example a candidate build with prebuilt ``aot/`` libraries);
-* ``tail_g2`` / ``unfused``: the non-deterministic package with the fixed-order tail pinned (``tail="tail_g2"``, value-head
-  groups of two only: the arm is left out of other shapes; ``tail="unfused"``), the same forward as ``nondet``.
+* ``tail_g2`` / ``tail_g3`` / ``unfused``: the non-deterministic package with the fixed-order tail pinned
+  (``tail="tail_g2"`` / ``"tail_g3"``, value-head groups of two / three only: the arm is left out of other shapes;
+  ``tail="unfused"``), the same forward as ``nondet``;
+* ``tail_red`` / ``tail_bulk`` / ``tail_ordered``: the non-deterministic package with its own tail pinned in one merge
+  (``tail="tail"`` / ``"tail_bulk"`` / ``"tail_ordered"``), the same forward as ``nondet``.
 
 Protocol: ``--groups`` groups (at least 3).  In every group the arms run in the pattern ``[nondet, X, X, nondet]`` for
 every other arm ``X``, ``--base`` first (``--base control`` puts the control in the place of ``det``).  Every call takes
@@ -94,7 +97,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 HEAD_DIM = 128
 L2_FLUSH_BYTES = 256 << 20
 MIB = float(1 << 20)
-ARMS = ("det", "nondet", "control", "det_dir", "tail_g2", "unfused")
+ARMS = ("det", "nondet", "control", "det_dir", "tail_g2", "tail_g3", "unfused", "tail_red", "tail_bulk", "tail_ordered")
+# the pinned-tail arms and their pins; a cluster tail serves its value-head group only
+PIN_ARMS = {
+    "tail_g2": {"tail": "tail_g2"},
+    "tail_g3": {"tail": "tail_g3"},
+    "unfused": {"tail": "unfused"},
+    "tail_red": {"tail": "tail"},
+    "tail_bulk": {"tail": "tail_bulk"},
+    "tail_ordered": {"tail": "tail_ordered"},
+}
+GROUP_ARMS = {"tail_g2": 2, "tail_g3": 3}
 BASES = ("det", "control")
 BOUNDARIES = ("fwd", "bwd", "fwdbwd", "ckpt")
 
@@ -234,7 +247,7 @@ def _entry(arm: str) -> Callable[..., Any]:
         return _load_package_dir(DET_DIR).chunk_gated_delta_rule_det
     from flashinfer.experimental.cake.cake_gdn_train import chunk_gated_delta_rule
 
-    pins = {"tail_g2": {"tail": "tail_g2"}, "unfused": {"tail": "unfused"}}.get(arm, {})
+    pins = PIN_ARMS.get(arm, {})
     return functools.partial(chunk_gated_delta_rule, deterministic=False, **pins)
 
 
@@ -529,10 +542,9 @@ def run_shape(
     device: torch.device,
 ) -> dict[str, Any]:
     h, hv, seq_lens = SHAPES[shape_id]
-    if (
-        "tail_g2" in arms and hv != 2 * h
-    ):  # the cluster tail serves a value-head group of two only
-        arms = [arm for arm in arms if arm != "tail_g2"]
+    skip = {arm for arm, group in GROUP_ARMS.items() if hv != group * h}
+    if skip & set(arms):  # a cluster tail serves its value-head group only
+        arms = [arm for arm in arms if arm not in skip]
         pattern = [
             arm for x in arms if x != "nondet" for arm in ("nondet", x, x, "nondet")
         ]
@@ -639,7 +651,7 @@ def main() -> int:
     parser.add_argument(
         "--arms",
         default="det,nondet",
-        help="comma-separated arms of det, nondet, control, det_dir, tail_g2, unfused",
+        help="comma-separated arms of " + ", ".join(ARMS),
     )
     parser.add_argument(
         "--det-dir",
