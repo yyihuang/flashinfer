@@ -560,14 +560,11 @@ def _det_backend():
 
 
 def _det_serves(det, hidden: int, residual: bool) -> bool:
-    return (
-        det is not None
-        and det.cake_jit.route_applies(
-            device_capability=_capability(),
-            hidden=hidden,
-            kind="bwd",
-            residual=residual,
-        )
+    return det is not None and det.cake_jit.route_applies(
+        device_capability=_capability(),
+        hidden=hidden,
+        kind="bwd",
+        residual=residual,
     )
 
 
