@@ -469,9 +469,13 @@ def _rows_moved(a, b, rows: int) -> int:
     """Rows among the first ``rows`` whose ``y`` or ``rstd`` bits differ."""
     y_a, y_b = a[0][:rows].reshape(rows, -1), b[0][:rows].reshape(rows, -1)
     moved = (y_a.view(torch.int16) != y_b.view(torch.int16)).any(dim=1)
-    moved |= a[1][:rows].reshape(rows, -1).view(torch.int32).ne(
-        b[1][:rows].reshape(rows, -1).view(torch.int32)
-    ).any(dim=1)
+    moved |= (
+        a[1][:rows]
+        .reshape(rows, -1)
+        .view(torch.int32)
+        .ne(b[1][:rows].reshape(rows, -1).view(torch.int32))
+        .any(dim=1)
+    )
     return int(moved.sum().item())
 
 
@@ -517,9 +521,7 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
         if at_most is None:
             continue
         below, above_edge = calls.out(at_most), calls.out(at_most + 1)
-        y_diff, y_ulps, r_diff, r_ulps = _forward_difference(
-            below, above_edge, at_most
-        )
+        y_diff, y_ulps, r_diff, r_ulps = _forward_difference(below, above_edge, at_most)
         moved = _rows_moved(below, above_edge, at_most)
         measured = _forward_class(y_diff, y_ulps, r_diff, r_ulps)
         entry = listed.get(at_most)
