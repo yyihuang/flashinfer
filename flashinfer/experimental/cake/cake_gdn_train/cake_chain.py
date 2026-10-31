@@ -1775,7 +1775,7 @@ def stagger_groups(
     return tuple((s0, s1, first[s0], first[s1]) for s0, s1 in classes)
 
 
-_SIDE_STREAMS: dict[tuple[int, int], torch.cuda.Stream] = {}
+_SIDE_STREAMS: dict[tuple[int, ...], torch.cuda.Stream] = {}
 
 
 def _side_streams(
