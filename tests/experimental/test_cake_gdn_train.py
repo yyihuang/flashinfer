@@ -2312,8 +2312,14 @@ def test_tc_plan_rule(arch, monkeypatch) -> None:
         rec = cake_chain.tc_plan_pricing(chunks, num_v_heads, 0, bwd)
         if rec["select"]:
             assert rec["saving"] >= cake_chain.TC_PLAN_MIN_SAVING, (row, rec)
-            assert rec["best"]["T"] <= cake_chain.TC_PLAN_GAIN * rec["plan_T"], (row, rec)
-            assert 0 <= rec["segment_len"] <= cap and tuple(bwd.config) == cake_chain.SDT_CONFIG, (row, rec)
+            assert rec["best"]["T"] <= cake_chain.TC_PLAN_GAIN * rec["plan_T"], (
+                row,
+                rec,
+            )
+            assert (
+                0 <= rec["segment_len"] <= cap
+                and tuple(bwd.config) == cake_chain.SDT_CONFIG
+            ), (row, rec)
         if arch == "sm_103a":
             assert rec["select"] is replaced, (row, rec)
 
@@ -2342,7 +2348,10 @@ def test_tc_plan_changes_only_the_adjoint_table(heads, device, monkeypatch) -> N
     _assert_within_budget(runs[0], base, OUTPUT_NAMES)
     if rec["select"]:
         want = ("dhu_pre_dvl_r64k1", "dhu_tc2") if rec["segment_len"] else ("dhu_tc2",)
-        assert all(x in stages for x in want) and "dv_local" not in stages, (rec, stages)
+        assert all(x in stages for x in want) and "dv_local" not in stages, (
+            rec,
+            stages,
+        )
     else:  # the pricing keeps the planner's table: the same bits
         _assert_same_bits(runs[0], base, OUTPUT_NAMES)
     pins = {"scan_config": tuple(bwd.config), "segment_chunks": bwd.segment_len}

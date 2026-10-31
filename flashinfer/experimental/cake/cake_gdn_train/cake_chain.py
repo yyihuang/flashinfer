@@ -1474,7 +1474,14 @@ TC_PLAN_MIN_SAVING = 10.0
 TC_PLAN_STEP = {"sm_100a": (2.35, 2.44), "sm_103a": (2.17, 2.25)}
 
 
-def _tc_table_price(chunks, num_v_heads: int, segment_len: int, sm_count: int, const: dict, pre_residency: int) -> dict:
+def _tc_table_price(
+    chunks,
+    num_v_heads: int,
+    segment_len: int,
+    sm_count: int,
+    const: dict,
+    pre_residency: int,
+) -> dict:
     """The priced ``dhu_tc2`` form of one adjoint table (``segment_len`` 0 or not below the longest sequence: serial)."""
     if segment_len <= 0 or max(chunks) <= segment_len:
         splits = (1,) * len(chunks)
@@ -1495,15 +1502,30 @@ def _tc_table_price(chunks, num_v_heads: int, segment_len: int, sm_count: int, c
             * _wave_factor(tails * (HEAD_DIM // SDT_CONFIG[0]), sm_count, pre_residency)
             + STITCH_FIXED_CHUNKS + STITCH_COPY_CHUNKS * (max(splits) - 1)
         )  # fmt: skip
-        extra = units * const["t_unit"] + tails * PRESCAN_WARMUP_CHUNKS * const["c_dvl"] / sm_count
+        extra = (
+            units * const["t_unit"]
+            + tails * PRESCAN_WARMUP_CHUNKS * const["c_dvl"] / sm_count
+        )
     return {"segment_len": int(segment_len) if max(splits) > 1 else 0, "segments": sum(splits), "ctas": ctas,
             "steps": steps, "T_tc2": steps * t_n, "T_extra": extra, "T": steps * t_n + extra}  # fmt: skip
 
 
 @lru_cache(maxsize=1024)
-def _tc_plan_memo(chunks: tuple[int, ...], num_v_heads: int, device_index: int, plan: ScanPlan, props, arch: str,
-                  _gain: float, _min_saving: float) -> dict:
-    rec: dict[str, Any] = {"arch": arch, "select": False, "planner": [list(plan.config), plan.segment_len]}
+def _tc_plan_memo(
+    chunks: tuple[int, ...],
+    num_v_heads: int,
+    device_index: int,
+    plan: ScanPlan,
+    props,
+    arch: str,
+    _gain: float,
+    _min_saving: float,
+) -> dict:
+    rec: dict[str, Any] = {
+        "arch": arch,
+        "select": False,
+        "planner": [list(plan.config), plan.segment_len],
+    }
     found = _dhu_tc_constants(arch)
     if found is None or tuple(plan.config) != SDT_CONFIG:
         return rec
@@ -1515,17 +1537,27 @@ def _tc_plan_memo(chunks: tuple[int, ...], num_v_heads: int, device_index: int, 
     sm_count = props[0]
     pre_res = _scan_residency("dhu", *SDT_CONFIG, device_index)
     serial = plan.segment_len <= 0 or max(chunks) <= plan.segment_len
-    at = _tc_table_price(chunks, num_v_heads, 0 if serial else plan.segment_len, sm_count, const, pre_res)
+    at = _tc_table_price(
+        chunks, num_v_heads, 0 if serial else plan.segment_len, sm_count, const, pre_res
+    )
     if serial:
         rule = dhu_tc_pricing(chunks, num_v_heads, device_index)
-        plan_t = at["T"] if rule.get("select") else min(at["T"], rule.get("T_reg", math.inf))
+        plan_t = (
+            at["T"] if rule.get("select") else min(at["T"], rule.get("T_reg", math.inf))
+        )
     else:
         rule = sdt_pricing(chunks, plan.segment_len, num_v_heads, device_index)
-        plan_t = at["T"] if rule.get("select") else at["T_extra"] + rule.get("T_reg2", math.inf)
+        plan_t = (
+            at["T"]
+            if rule.get("select")
+            else at["T_extra"] + rule.get("T_reg2", math.inf)
+        )
     cap = _prescan_capacity("dhu", SDT_CONFIG)
     cands = [_tc_table_price(chunks, num_v_heads, 0, sm_count, const, pre_res)]
     for seg_len in range(MIN_SEGMENT_CHUNKS, min(cap, max(chunks) - 1) + 1):
-        cands.append(_tc_table_price(chunks, num_v_heads, seg_len, sm_count, const, pre_res))
+        cands.append(
+            _tc_table_price(chunks, num_v_heads, seg_len, sm_count, const, pre_res)
+        )
     best = min(cands, key=lambda c: (c["T"], -c["segment_len"]))
     rec.update(plan_T=plan_t, best=best, saving=plan_t - best["T"])
     rec["select"] = bool(
@@ -1537,13 +1569,22 @@ def _tc_plan_memo(chunks: tuple[int, ...], num_v_heads: int, device_index: int, 
     return rec
 
 
-def tc_plan_pricing(chunks, num_v_heads: int, device_index: int, plan: ScanPlan) -> dict:
+def tc_plan_pricing(
+    chunks, num_v_heads: int, device_index: int, plan: ScanPlan
+) -> dict:
     """The adjoint table priced for ``dhu_tc2`` against the planner's ``plan`` for a host layout of ``chunks`` (chunks
     per sequence); ``select`` is the answer and ``segment_len`` the table (0: serial).  See above."""
     return dict(
-        _tc_plan_memo(tuple(int(c) for c in chunks), int(num_v_heads), int(device_index), plan,
-                      _device_props(int(device_index)), cake_backend.device_arch(int(device_index)), TC_PLAN_GAIN,
-                      TC_PLAN_MIN_SAVING)  # fmt: skip
+        _tc_plan_memo(
+            tuple(int(c) for c in chunks),
+            int(num_v_heads),
+            int(device_index),
+            plan,
+            _device_props(int(device_index)),
+            cake_backend.device_arch(int(device_index)),
+            TC_PLAN_GAIN,
+            TC_PLAN_MIN_SAVING,
+        )  # fmt: skip
     )
 
 
@@ -2050,7 +2091,9 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
     token_hv = (total_tokens, num_v_heads, HEAD_DIM)
     segs = meta.bwd_segments
     serial = not (segs.segment_len > 0 and segs.num_segments > meta.num_seqs)
-    use_tc = serial and (meta.bwd_tc or _dhu_tc_selected(meta, num_v_heads, index, options))
+    use_tc = serial and (
+        meta.bwd_tc or _dhu_tc_selected(meta, num_v_heads, index, options)
+    )
     # a split plan's pass 2 on dhu_tc2: the fused pre-scan computes the dv_local tiles it reads, no dv_local stage
     split_tc = not serial and (
         meta.bwd_tc or _sdt_selected(meta, segs, num_v_heads, index, options, arch)
@@ -2428,12 +2471,21 @@ def _chunk_meta(
         bwd = plans[1]
         # a serial planner table that the two-stream rule groups keeps its form (the R form overlaps its scan with the
         # tail, which the pricing does not credit), with one stream too: both stream counts plan the same tables
-        grouped = (bwd.segment_len <= 0 or max(chunks) <= bwd.segment_len) and two_stream_split(
+        grouped = (
+            bwd.segment_len <= 0 or max(chunks) <= bwd.segment_len
+        ) and two_stream_split(
             len(chunks), int(num_v_heads), _device_props(int(index))[0]
         ) is not None
-        priced = None if grouped else tc_plan_pricing(chunks, int(num_v_heads), int(index), bwd)
+        priced = (
+            None
+            if grouped
+            else tc_plan_pricing(chunks, int(num_v_heads), int(index), bwd)
+        )
         if priced is not None and priced["select"]:
-            plans, bwd_tc = (plans[0], ScanPlan(SDT_CONFIG, priced["segment_len"])), True
+            plans, bwd_tc = (
+                (plans[0], ScanPlan(SDT_CONFIG, priced["segment_len"])),
+                True,
+            )
     meta = _host_chunk_meta(seq_lens, plans, int(index), options.lpt)
     if bwd_tc:
         meta = replace(meta, bwd_tc=True)

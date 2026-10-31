@@ -630,7 +630,10 @@ def run_shape(
         return record
     if "nondet" in forwards:
         record["stages_nondet"] = record_stages(forwards["nondet"], problem, device)
-        print(f"  stages nondet bwd: {_stage_counts(record['stages_nondet']['bwd'])}", flush=True)
+        print(
+            f"  stages nondet bwd: {_stage_counts(record['stages_nondet']['bwd'])}",
+            flush=True,
+        )
 
     record["memory"] = {
         arm: {**measure_memory(forwards[arm], problem, device), "pool_bytes": pool[arm]}
@@ -799,7 +802,10 @@ def main() -> int:
             path.write_text(json.dumps(report, indent=2) + "\n")
         torch.cuda.empty_cache()
     report["regressions"] = regressions(report["shapes"], args.boundaries)
-    print("\nregressions (nondet slower than the arm beyond the sum of both spreads):", flush=True)
+    print(
+        "\nregressions (nondet slower than the arm beyond the sum of both spreads):",
+        flush=True,
+    )
     for line in report["regressions"] or ["none"]:
         print(f"  {line}", flush=True)
     if args.json:
@@ -820,8 +826,10 @@ def regressions(records: list[dict[str, Any]], boundaries) -> list[str]:
                 x, n = arms[arm][b], arms["nondet"][b]
                 ratio = x["median_ms"] / n["median_ms"]
                 if ratio < 1.0 - (x["spread"] + n["spread"]):
-                    out.append(f"{rec['id']} {b}: {arm}/nondet = {ratio:.4f} (spreads {100 * x['spread']:.2f}% / "
-                               f"{100 * n['spread']:.2f}%)")
+                    out.append(
+                        f"{rec['id']} {b}: {arm}/nondet = {ratio:.4f} (spreads {100 * x['spread']:.2f}% / "
+                        f"{100 * n['spread']:.2f}%)"
+                    )
     return out
 
 
