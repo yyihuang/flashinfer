@@ -138,15 +138,21 @@ COLS_RULE_CHAINS = 24  # by_chains: <= 24 concurrent 128-column state chains -> 
 # composition reassociates FP32 products: the same precision class as the serial chain).
 TREE_FAMILIES = ("fwd", "adj_b1", "adj_c1")
 TREE_MIN_LEN = 6  # no blocked scan for chains shorter than this
-TREE_SLOTS_PER_SM = 2  # co-resident merge CTAs per SM (the merge records' __launch_bounds__(128, 2))
-TREE_CTAS_PER_CHAIN = 16  # c8 state chains (128 / 8 columns) and c16 map chains (256 / 16)
+TREE_SLOTS_PER_SM = (
+    2  # co-resident merge CTAs per SM (the merge records' __launch_bounds__(128, 2))
+)
+TREE_CTAS_PER_CHAIN = (
+    16  # c8 state chains (128 / 8 columns) and c16 map chains (256 / 16)
+)
 TREE_MAP_STEP = 1.5  # one map-mode step (twice the FFMA of a state step, the same operator load) in state steps
 TREE_LAUNCH_STEPS = 1.0  # one more stream-ordered launch, in state steps
 TREE_GAIN = 0.85  # engage when the modelled blocked scan is below this fraction of the serial chain
 TREE_BLOCKS = (2, 3, 4, 5, 6, 7, 8, 10, 12, 16)  # the block sizes the rule considers
 
 
-def owner_tree_block(lengths: Sequence[int], sm_count: int, forced: Any = "auto") -> int:
+def owner_tree_block(
+    lengths: Sequence[int], sm_count: int, forced: Any = "auto"
+) -> int:
     """The block size ``b`` of the K1 blocked scan of one owner-chain launch (``0``: the serial chain).  ``lengths``
     are the chains' element counts.  ``forced``: ``"off"`` -> 0, an int -> that block size (when some chain is longer
     than it), ``"auto"`` -> the rule: the smallest modelled time over :data:`TREE_BLOCKS` (in state steps, waves of
@@ -2113,9 +2119,7 @@ class _Tables:
         n_sum = n_x = 0
         for ci in range(ch.n_chains):
             e0, e1 = ch.chain_start[ci], ch.chain_start[ci + 1]
-            elems = [
-                (ch.elem_m[e], ch.elem_c[e], ch.elem_y[e]) for e in range(e0, e1)
-            ]
+            elems = [(ch.elem_m[e], ch.elem_c[e], ch.elem_y[e]) for e in range(e0, e1)]
             blocks = [elems[i : i + b] for i in range(0, len(elems), b)] or [[]]
             xs = list(range(n_x, n_x + len(blocks)))
             n_x += len(blocks)
@@ -2428,9 +2432,7 @@ class WorkspaceKcp:
         t = self._tapes.get(name)
         if t is None:
             if self.geometry is None or self.device is None:
-                raise KeyError(
-                    "WorkspaceKcp: no tape geometry bound (ensure() first)"
-                )
+                raise KeyError("WorkspaceKcp: no tape geometry bound (ensure() first)")
             R, NC_pad, HV, T = self.geometry
             shape, dtype = tape_spec(name, R=R, NC_pad=NC_pad, HV=HV, T=T)
             t = self._tapes[name] = _alloc(shape, dtype, self.device)
@@ -2663,7 +2665,9 @@ class CallKcp:
         self.merge_log: list[
             tuple[str, int, int, int | None]
         ] = []  # (family, ncols, n_chains, explicit cols)
-        self.tree_log: list[tuple[str, int]] = []  # K1: (owner family, block size) per blocked scan
+        self.tree_log: list[
+            tuple[str, int]
+        ] = []  # K1: (owner family, block size) per blocked scan
         self.scratch: dict[str, Any] = {}
         self.bufs: dict[str, torch.Tensor] = {}
         self.tapes: dict[
@@ -2971,17 +2975,38 @@ class CallKcp:
             self.merge(
                 f"{family}:tree_map",
                 chains=plan["map"],
-                spec={"m": spec["m"], "c": spec["c"], "x0": None, "y": "tree_sum", "tm": spec["tm"], "ws": 0},
+                spec={
+                    "m": spec["m"],
+                    "c": spec["c"],
+                    "x0": None,
+                    "y": "tree_sum",
+                    "tm": spec["tm"],
+                    "ws": 0,
+                },
             )
         self.merge(
             f"{family}:tree_state",
             chains=plan["state"],
-            spec={"m": "tree_sum", "c": "tree_sum", "x0": spec["x0"], "y": "tree_x", "tm": 1, "ws": 1},
+            spec={
+                "m": "tree_sum",
+                "c": "tree_sum",
+                "x0": spec["x0"],
+                "y": "tree_x",
+                "tm": 1,
+                "ws": 1,
+            },
         )
         self.merge(
             f"{family}:tree_walk",
             chains=plan["walk"],
-            spec={"m": spec["m"], "c": spec["c"], "x0": "tree_x", "y": spec["y"], "tm": spec["tm"], "ws": spec["ws"]},
+            spec={
+                "m": spec["m"],
+                "c": spec["c"],
+                "x0": "tree_x",
+                "y": spec["y"],
+                "tm": spec["tm"],
+                "ws": spec["ws"],
+            },
         )
         self.drop_bound("tree_sum")
         self.drop_bound("tree_x")

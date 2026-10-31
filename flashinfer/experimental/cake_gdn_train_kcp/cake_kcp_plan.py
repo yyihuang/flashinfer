@@ -478,9 +478,7 @@ def _validate_cut_points(cuts, length: int, pieces: int, doc: int) -> list[int]:
         )
     for a, b in zip(values, values[1:], strict=False):
         if b < a:
-            raise ValueError(
-                f"partition_kcp: cut_points[{doc}] must be non-decreasing"
-            )
+            raise ValueError(f"partition_kcp: cut_points[{doc}] must be non-decreasing")
     return values
 
 
@@ -602,9 +600,7 @@ def _finish(
         )
         for r, frs in enumerate(per_rank)
     )
-    return PartitionKcp(
-        world_size=W, layout=layout, cu_seqlens=cu, fragments=fragments
-    )
+    return PartitionKcp(world_size=W, layout=layout, cu_seqlens=cu, fragments=fragments)
 
 
 def partition_kcp(
@@ -626,9 +622,7 @@ def partition_kcp(
     cu = _as_cu_seqlens(cu_seqlens_global_cpu)
     W = int(world_size)
     if W < 1:
-        raise ValueError(
-            f"partition_kcp: world_size must be >= 1, got {world_size}"
-        )
+        raise ValueError(f"partition_kcp: world_size must be >= 1, got {world_size}")
     if fragments is not None:
         return _finish(cu, W, EXPLICIT_LAYOUT, _explicit_entries(cu, W, fragments))
     if layout not in LAYOUTS:
@@ -1519,9 +1513,7 @@ def _check_tile_offsets(name: str, values) -> None:
             )
 
 
-def _build_head_plan(
-    ctx: ContextKcp, HV: int, *, P: int | None = None
-) -> KcpHeadPlan:
+def _build_head_plan(ctx: ContextKcp, HV: int, *, P: int | None = None) -> KcpHeadPlan:
     part = ctx.partition
     W, r = part.world_size, ctx.rank
     HV = int(HV)
@@ -2209,9 +2201,7 @@ def build_context_kcp(
         )
     sm_count = int(sm_count)
     if sm_count < 1:
-        raise ValueError(
-            f"build_context_kcp: sm_count must be >= 1, got {sm_count}"
-        )
+        raise ValueError(f"build_context_kcp: sm_count must be >= 1, got {sm_count}")
     if p_rule not in P_RULES:
         raise ValueError(
             f"build_context_kcp: p_rule must be one of {P_RULES}, got {p_rule!r}"
