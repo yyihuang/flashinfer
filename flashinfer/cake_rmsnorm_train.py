@@ -93,10 +93,13 @@ that hold only some SMs cost it no more than the SMs they hold.  Setting
 ``cudaSharedmemCarveoutMaxShared`` on such a resident kernel lets the backward
 start beside it.  The windows that run the deterministic pair start and wait
 exactly as the deterministic backward does, including its whole-SM programs
-(see :mod:`flashinfer.cake_rmsnorm_det_train`).  Single-kernel programs that
-need a whole SM wait beside any kernel resident on every SM, whatever its
-carveout: [FI-8066 WHOLE-SM LIST: filled from the shipped backward kernels'
-register / shared-memory census before delivery].  A resident kernel that
+(see :mod:`flashinfer.cake_rmsnorm_det_train`).  Programs that need a whole SM
+wait beside any kernel resident on every SM, whatever its carveout: on R200
+(``sm_107a``) the backward of hidden 1536 and 4096 above 1024 tokens and of
+hidden 2048 above 256 tokens (deterministic-pair windows, FP32-weight twins
+included) and the forward of hidden 6144 above 4096 tokens; no single-kernel
+window of this package needs a whole SM at the token counts measured (256 to
+16384).  A resident kernel that
 holds a large dynamic shared-memory allocation on every SM delays the windows
 whose programs need more shared memory than it leaves, deterministic-pair
 windows included: ``cake_windows.SMEM_WAITS`` and the backward's notes list,

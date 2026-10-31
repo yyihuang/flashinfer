@@ -312,10 +312,16 @@ MAX_ALL_SM_EXTRA_MS = 1.0
 CARVEOUT_MAX_SHARED = 100
 # Programs that need a whole SM wait beside a kernel resident on every SM
 # whatever its carveout: (capability, kind, hidden) -> the token counts above
-# which the call does.  Filled from the shipped backward kernels' register /
-# shared-memory census, the same list :mod:`flashinfer.cake_rmsnorm_train`
-# documents (FI-8066 WHOLE-SM LIST).
-WHOLE_SM_ABOVE: dict[tuple[tuple[int, int], str, int], int] = {}
+# which the call does.  The list :mod:`flashinfer.cake_rmsnorm_train` documents:
+# on sm_107a the deterministic pair's whole-SM programs (the det package's
+# WHOLE_SM_ABOVE; this package runs the det pair in those windows, FP32-weight
+# twins included) and the det forward; no single-kernel window.
+WHOLE_SM_ABOVE: dict[tuple[tuple[int, int], str, int], int] = {
+    ((10, 7), "bwd", 1536): 1024,
+    ((10, 7), "bwd", 2048): 256,
+    ((10, 7), "bwd", 4096): 1024,
+    ((10, 7), "fwd", 6144): 4096,
+}
 
 
 def _skip_if_whole_sm(kind: str, hidden: int, rows: int) -> None:
