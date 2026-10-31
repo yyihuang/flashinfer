@@ -73,9 +73,11 @@ The names the training RMSNorm had before the deterministic package took its
 * ``deterministic=False`` runs this package's backward in the form its
   registry lists for each token-count window (the backward's docstring lists
   the windows). In the windows that ship the single-kernel form, one kernel per
-  call computes ``dx`` row by row as the deterministic backward does and adds
-  the ``dw`` sums of its CTAs into FP64 sums in the workspace, in the order the
-  CTAs finish: ``dw`` is not guaranteed bitwise reproducible; ``dx`` is. The
+  call computes ``dx`` row by row and adds the ``dw`` sums of its CTAs into
+  FP64 sums in the workspace, in the order the CTAs finish: ``dw`` is not
+  guaranteed bitwise reproducible; ``dx`` is, and it is within one BF16 ulp of
+  max(|dx|, rms(dx)) of the deterministic backward's ``dx`` (not always bitwise
+  equal to it). The
   other windows run the deterministic package's backward pair (main kernel and
   fixed-order reduce), rendered into this package. The backward workspace
   (``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``)
