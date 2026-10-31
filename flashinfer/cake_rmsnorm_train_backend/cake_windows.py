@@ -805,8 +805,9 @@ DET_PAIR_ROUTES: dict[str, dict[str, str]] = {
 
 # The shared-memory sizes (KB per CTA of a kernel resident on every SM) the co-residence of the
 # backward windows is measured beside, and per architecture and route the windows measured:
-# ``(above, at_most, KB)``, KB the smallest size beside which the window waits (None: it starts
-# beside every measured size); the exporter's ``SMEM_WAITS``, checked by the stall test.
+# ``(above, at_most, KB)``, KB the smallest size beside which the window waits on any measured
+# board of the architecture (None: it starts beside every measured size on every board); the
+# exporter's ``SMEM_WAITS``, checked by the stall test (no board waits below KB).
 SMEM_SIDE_KB = (100, 132)
 SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]] = {
     "sm_100a": {
