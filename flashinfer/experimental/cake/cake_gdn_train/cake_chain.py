@@ -729,7 +729,13 @@ TAIL_MIN_CTAS = 2048
 R_FORM_GROUPS: tuple[int, ...] = (2,)
 
 
-def tail_form(num_heads: int, num_v_heads: int, forced: str | None = None, *, num_chunks: int | None = None) -> str:
+def tail_form(
+    num_heads: int,
+    num_v_heads: int,
+    forced: str | None = None,
+    *,
+    num_chunks: int | None = None,
+) -> str:
     """The backward tail of one call over ``num_chunks`` chunks (``None``: a large call): ``forced`` when given
     (``"tail_g2"`` serves a value-head group of two), else the fastest tail measured for the call's value-head group
     ``G = num_v_heads / num_heads`` and size (``benchmarks/bench_cake_gdn_train.py`` on B200 and GB300): the
