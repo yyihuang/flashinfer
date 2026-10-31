@@ -215,9 +215,11 @@ def test_nondeterministic_request_is_refused_under_deterministic_algorithms(
     assert calls == []
     torch.use_deterministic_algorithms(True, warn_only=True)
     if call in ("forward", "autograd"):
-        with pytest.warns(UserWarning, match="running this package's forward"):
-            with pytest.raises(ValueError, match="CUDA"):
-                run()
+        with (
+            pytest.warns(UserWarning, match="running this package's forward"),
+            pytest.raises(ValueError, match="CUDA"),
+        ):
+            run()
         assert calls == []
     else:
         with pytest.warns(UserWarning, match="running the deterministic package"):
@@ -457,9 +459,12 @@ def test_nondeterministic_workspace_serves_every_call_up_to_its_rows(
         if all(r["workspace_rule"]["kind"] == "claim_sum_f64" for r in records):
             sums = max(r["workspace_rule"]["sum_bytes"] for r in records)
             for rows in (0, 1, 12345, 65536):
-                assert cake_rmsnorm_train_backward_workspace_bytes(
-                    rows, hidden, _device(), deterministic=False
-                ) == loader.SUMS_OFFSET + -(-sums // 256) * 256
+                assert (
+                    cake_rmsnorm_train_backward_workspace_bytes(
+                        rows, hidden, _device(), deterministic=False
+                    )
+                    == loader.SUMS_OFFSET + -(-sums // 256) * 256
+                )
         generator = torch.Generator(device=_device()).manual_seed(SEED + hidden)
         for rows in (257, 4096):
             ws = cake_rmsnorm_train_backward_workspace(
@@ -515,9 +520,7 @@ def _call(hidden, residual, w_dtype, tokens, ws, generator):
     w = (1.0 + 0.1 * _randn(hidden, generator=generator).float()).to(w_dtype)
     u = _randn(tokens, hidden, generator=generator) if residual else None
     gh = _randn(tokens, hidden, generator=generator) if residual else None
-    outputs = cake_rmsnorm_train_forward(
-        x, w, eps, residual=u, deterministic=False
-    )
+    outputs = cake_rmsnorm_train_forward(x, w, eps, residual=u, deterministic=False)
     normalized = outputs[2] if residual else x
     rstd = outputs[1]
     dx, dw = cake_rmsnorm_train_backward(
@@ -569,7 +572,12 @@ def test_a_stale_workspace_is_correct_after_the_fresh_form(no_determinism) -> No
     for hidden, residual, w_dtype, tokens in calls:
         ws.copy_(
             torch.randint(
-                1, 256, (nbytes,), dtype=torch.uint8, device=_device(), generator=generator
+                1,
+                256,
+                (nbytes,),
+                dtype=torch.uint8,
+                device=_device(),
+                generator=generator,
             )
         )
         ws.zero_()  # the documented fresh form
@@ -625,7 +633,9 @@ def test_a_single_kernel_window_launches_exactly_one_kernel(no_determinism) -> N
     g = _randn(tokens, hidden, generator=generator)
     w = _randn(hidden, generator=generator).to(w_dtype)
     gh = _randn(tokens, hidden, generator=generator) if residual else None
-    _y, rstd = cake_rmsnorm_train_forward(x, w, EPS.get(hidden, 1e-6), deterministic=False)
+    _y, rstd = cake_rmsnorm_train_forward(
+        x, w, EPS.get(hidden, 1e-6), deterministic=False
+    )
     ws = cake_rmsnorm_train_backward_workspace(
         tokens, hidden, _device(), residual=residual, deterministic=False
     )
@@ -634,7 +644,15 @@ def test_a_single_kernel_window_launches_exactly_one_kernel(no_determinism) -> N
 
     def call():
         cake_rmsnorm_train_backward(
-            g, x, w, rstd, deterministic=False, g_residual=gh, workspace=ws, dx=dx, dw=dw
+            g,
+            x,
+            w,
+            rstd,
+            deterministic=False,
+            g_residual=gh,
+            workspace=ws,
+            dx=dx,
+            dw=dw,
         )
 
     call()
@@ -675,7 +693,9 @@ def test_nd_autograd_gradients(heads: int, consumer: str, no_determinism) -> Non
     y = cake_rmsnorm(x, w, eps, deterministic=False)
     if consumer == "sum":
         loss = y.float().sum()
-        grad_y = torch.ones(tokens, heads, hidden, dtype=torch.float64, device=_device())
+        grad_y = torch.ones(
+            tokens, heads, hidden, dtype=torch.float64, device=_device()
+        )
     else:
         loss = (y.transpose(0, 1).float() * scale).sum()
         grad_y = scale.double().transpose(0, 1)

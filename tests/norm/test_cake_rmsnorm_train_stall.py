@@ -243,7 +243,9 @@ def test_backward_keeps_its_speed_beside_a_resident_kernel(
     dx_fresh, dw_fresh = _backward(x, w, g, g_h, rstd, None)
     assert torch.equal(dx_fresh, dx_ref), "a fresh workspace changed dx"
     assert _rel_l2(dw_fresh, dw_ref) <= DW_REL_L2, "a fresh workspace moved dw"
-    assert _workspace_clean(workspace, hidden, residual), "the workspace is not the kernels' state"
+    assert _workspace_clean(workspace, hidden, residual), (
+        "the workspace is not the kernels' state"
+    )
     assert _keeps_its_speed(alone_ms, busy_ms), (
         f"hidden={hidden} residual={residual} rows={rows}: backward alone {alone_ms:.4f} ms, "
         f"beside a resident one-thread kernel {busy_ms:.4f} ms: ratio {ratio:.3f} "
@@ -561,7 +563,10 @@ def _det_serves(det, hidden: int, residual: bool) -> bool:
     return (
         det is not None
         and det.cake_jit.route_applies(
-            device_capability=_capability(), hidden=hidden, kind="bwd", residual=residual
+            device_capability=_capability(),
+            hidden=hidden,
+            kind="bwd",
+            residual=residual,
         )
     )
 
@@ -630,7 +635,9 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) ->
         )
     print("\n".join(rows_out))
     listed = {
-        key: above for key, above in SMEM_WAIT_ABOVE.items() if key[0] == _capability() and key[4] == smem_kb
+        key: above
+        for key, above in SMEM_WAIT_ABOVE.items()
+        if key[0] == _capability() and key[4] == smem_kb
     }
     unlisted = {
         key: rows
@@ -651,4 +658,6 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) ->
         f"deterministic program does not (or it does not serve the call), not in "
         f"SMEM_WAIT_ABOVE: {unlisted}; regressions against det: {regressions}"
     )
-    assert not stale, f"SMEM_WAIT_ABOVE entries the measurement does not confirm: {stale}"
+    assert not stale, (
+        f"SMEM_WAIT_ABOVE entries the measurement does not confirm: {stale}"
+    )

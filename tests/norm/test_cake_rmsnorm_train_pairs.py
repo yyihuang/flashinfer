@@ -173,13 +173,22 @@ def test_backward_records_are_chunk_claiming_kernels_or_their_reduce() -> None:
                 continue
             assert record["workspace_rule"]["kind"] in loader.WORKSPACE_KINDS
             single = record["workspace_rule"]["kind"] == "claim_sum_f64"
-            assert 2 <= record["workspace_rule"]["counters"] <= (
-                loader.SINGLE_COUNTERS_BYTES if single else loader.COUNTERS_BYTES
-            ) // 4
+            # the claim ticket, then the completion counts (none for a single
+            # kernel that keeps no sums, the column form: one word)
+            assert (
+                1
+                <= record["workspace_rule"]["counters"]
+                <= (loader.SINGLE_COUNTERS_BYTES if single else loader.COUNTERS_BYTES)
+                // 4
+            )
             if single:
                 sum_bytes = record["workspace_rule"]["sum_bytes"]
-                assert 0 < sum_bytes <= loader.SUMS_BYTES and sum_bytes % 8 == 0
-                assert set(record["workspace_rule"]) == {"counters", "kind", "sum_bytes"}
+                assert 0 <= sum_bytes <= loader.SUMS_BYTES and sum_bytes % 8 == 0
+                assert set(record["workspace_rule"]) == {
+                    "counters",
+                    "kind",
+                    "sum_bytes",
+                }
             rule = record["grid_rule"]
             assert rule["kind"] == "claimed_chunks"
             assert rule["ctas_per_sm"] == min(
@@ -212,7 +221,8 @@ def _check_constant_offsets() -> None:
         ),
         default=0,
     )
-    assert loader.SUMS_BYTES == -(-largest // 256) * 256
+    expected = -(-largest // 256) * 256
+    assert expected == loader.SUMS_BYTES
 
 
 def _check_family_layout(arch: str, hidden: int, residual: bool, sms: int) -> int:
@@ -365,11 +375,12 @@ def test_a_family_mixing_both_forms_keeps_its_regions_apart(
 
     monkeypatch.setattr(loader, "sm_count", lambda device_index: 148)
     family = _with_single(monkeypatch, "bwd_h6144", 256, sizes)
-    assert list(
-        loader.selected_modules(family[0], 6144, "bwd", False, rows=1)
-    ) == ["test_single_0"]
+    assert list(loader.selected_modules(family[0], 6144, "bwd", False, rows=1)) == [
+        "test_single_0"
+    ]
     assert len(loader.selected_modules(family[0], 6144, "bwd", False, rows=257)) == 2
-    assert loader.SUMS_BYTES == 8 * 6144 * max(sizes)
+    expected = 8 * 6144 * max(sizes)
+    assert expected == loader.SUMS_BYTES
     assert _check_family_layout(*family, 148) == len(sizes)
 
 
