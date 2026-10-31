@@ -48,7 +48,6 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 }
 
 #define CAKE_INF CUDART_INF_F
-#define NUM_MAIN_STAGES 1
 #define THREADS 448
 
 #include <math_constants.h>
@@ -56,7 +55,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 extern "C" {
 
 __global__ __launch_bounds__(448) void
-kernel_cake_kimi_k3_tp12_tail_fbbd46e05f4bc0a48277(__nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ gemm_slice, __nv_bfloat16* __restrict__ out, long long* __restrict__ peer_ptrs, __nv_bfloat16* __restrict__ mcast_ptr, unsigned int* __restrict__ buffer_flags, int num_tokens, int rank, int my_col_begin, int my_cols, int gemm_plane_stride, int num_gemm_splits)
+kernel_cake_kimi_k3_tp12_tail_1a3bd8aff76060274b44(__nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ gemm_slice, __nv_bfloat16* __restrict__ out, long long* __restrict__ peer_ptrs, __nv_bfloat16* __restrict__ mcast_ptr, unsigned int* __restrict__ buffer_flags, int num_tokens, int rank, int my_col_begin, int my_cols, int gemm_plane_stride, int num_gemm_splits)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -686,7 +685,7 @@ kernel_cake_kimi_k3_tp12_tail_fbbd46e05f4bc0a48277(__nv_bfloat16* __restrict__ s
                     }
                     int gemm_index = token_b * my_cols + local_col;
                     float out_f32[8];
-                    float _vec_load_2[8];
+                    float _vec_load_3[8];
                     {
                         const uint4* _vptr_4 = reinterpret_cast<const uint4*>(gemm_slice + gemm_index + 0);
                         uint4 _vld_4[1];
@@ -696,13 +695,13 @@ kernel_cake_kimi_k3_tp12_tail_fbbd46e05f4bc0a48277(__nv_bfloat16* __restrict__ s
                             uint32_t* _vpairs_4 = reinterpret_cast<uint32_t*>(&_vld_4[_blk]);
                             #pragma unroll
                             for (int _pair = 0; _pair < 4; _pair++) {
-                                (&_vec_load_2[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_4[_pair]) << 16);
-                                (&_vec_load_2[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_4[_pair]) & 0xffff0000u);
+                                (&_vec_load_3[0 + _blk * 8 + _pair * 2])[0] = __uint_as_float(static_cast<uint32_t>(_vpairs_4[_pair]) << 16);
+                                (&_vec_load_3[0 + _blk * 8 + _pair * 2])[1] = __uint_as_float(static_cast<uint32_t>(_vpairs_4[_pair]) & 0xffff0000u);
                             }
                         }
                     }
                     for (int lane_1 = 0; lane_1 < 8; lane_1++) {
-                        out_f32[lane_1] = _unpack_bf16_0[lane_1] + _vec_load_2[lane_1];
+                        out_f32[lane_1] = _unpack_bf16_0[lane_1] + _vec_load_3[lane_1];
                     }
                     unsigned int out_f32_bf16[4];
                     #pragma unroll
@@ -710,7 +709,7 @@ kernel_cake_kimi_k3_tp12_tail_fbbd46e05f4bc0a48277(__nv_bfloat16* __restrict__ s
                         __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_f32[_lp*2 + 0], out_f32[_lp*2+1 + 0]));
                         out_f32_bf16[_lp] = *(uint32_t*)&_bf2;
                     }
-                    uint32_t _packed16_sanitize_0[4];
+                    uint32_t _packed16_sanitize_1[4];
                     #pragma unroll
                     for (int _p16s_word = 0; _p16s_word < 4; ++_p16s_word) {
                         uint32_t _p16s_carrier_5 = static_cast<uint32_t>(out_f32_bf16[_p16s_word]);
@@ -718,9 +717,9 @@ kernel_cake_kimi_k3_tp12_tail_fbbd46e05f4bc0a48277(__nv_bfloat16* __restrict__ s
                         uint32_t _p16s_hi_5 = (_p16s_carrier_5 >> 16) & 0x0000ffffu;
                         if (_p16s_lo_5 == 0x00008000u) _p16s_lo_5 = 0u;
                         if (_p16s_hi_5 == 0x00008000u) _p16s_hi_5 = 0u;
-                        _packed16_sanitize_0[_p16s_word] = _p16s_lo_5 | (_p16s_hi_5 << 16);
+                        _packed16_sanitize_1[_p16s_word] = _p16s_lo_5 | (_p16s_hi_5 << 16);
                     }
-                    reinterpret_cast<int4*>(mcast_ptr + (current_epoch_elements + stage_elements + (unsigned long long)(token_b * 7168 + col)))[0] = reinterpret_cast<int4*>(_packed16_sanitize_0)[0];
+                    reinterpret_cast<int4*>(mcast_ptr + (current_epoch_elements + stage_elements + (unsigned long long)(token_b * 7168 + col)))[0] = reinterpret_cast<int4*>(_packed16_sanitize_1)[0];
                 }
             }
         }

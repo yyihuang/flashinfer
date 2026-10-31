@@ -202,7 +202,7 @@ __device__ __forceinline__ void tmem_ld_x16(float* dst, int tmem_addr) {
 extern "C" {
 
 __global__ __launch_bounds__(320) __cluster_dims__(2,1,1) void
-kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUtensorMap A, const __grid_constant__ CUtensorMap WG, const __grid_constant__ CUtensorMap WD, const __grid_constant__ CUtensorMap WS, float* __restrict__ logits, __nv_bfloat16* __restrict__ latent, __nv_bfloat16* __restrict__ shared_act, float* __restrict__ ws, int* __restrict__ counters, int M, int m_tiles, int num_items, int full_items, int sk_ipc, int sk_max_seg, int sk_total)
+kernel_cake_kimi_k3_latent_moe_2b79722c6e823009fee7(const __grid_constant__ CUtensorMap A, const __grid_constant__ CUtensorMap WG, const __grid_constant__ CUtensorMap WD, const __grid_constant__ CUtensorMap WS, float* __restrict__ logits, __nv_bfloat16* __restrict__ latent, __nv_bfloat16* __restrict__ shared_act, float* __restrict__ ws, int* __restrict__ counters, int M, int m_tiles, int num_items, int full_items, int sk_ipc, int sk_max_seg, int sk_total)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -311,8 +311,24 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                     int rank_i = (int)this_bid % CTA_GROUP;
                     int lane_l = fd_cid / full_items;
                     int lane_r = fd_cid % full_items;
-                    int lo = lane_l * sk_total / sk_ipc;
-                    int hi = (lane_l + 1) * sk_total / sk_ipc;
+                    int fb_even = lane_l * sk_total / sk_ipc;
+                    int fb_on = ((full_items == 4 && sk_ipc == 19 && sk_total == 2688 && lane_l >= 0 && lane_l <= 19) ? 1 : 0);
+                    int fb_a = ((lane_l == 1) ? 134 : ((lane_l == 2) ? 277 : ((lane_l == 3) ? 420 : ((lane_l == 4) ? 561 : 704))));
+                    int fb_b = ((lane_l == 6) ? 847 : ((lane_l == 7) ? 990 : ((lane_l == 8) ? 1131 : ((lane_l == 9) ? 1273 : 1416))));
+                    int fb_c = ((lane_l == 11) ? 1559 : ((lane_l == 12) ? 1701 : ((lane_l == 13) ? 1845 : ((lane_l == 14) ? 1989 : 2132))));
+                    int fb_d = ((lane_l == 16) ? 2269 : ((lane_l == 17) ? 2406 : ((lane_l == 18) ? 2541 : 2688)));
+                    int fb_tab = ((lane_l == 0) ? 0 : ((lane_l <= 5) ? fb_a : ((lane_l <= 10) ? fb_b : ((lane_l <= 15) ? fb_c : fb_d))));
+                    int fb_v = ((fb_on == 1) ? fb_tab : fb_even);
+                    int lo = fb_v;
+                    int fb_even_0 = (lane_l + 1) * sk_total / sk_ipc;
+                    int fb_on_0 = ((full_items == 4 && sk_ipc == 19 && sk_total == 2688 && lane_l + 1 >= 0 && lane_l + 1 <= 19) ? 1 : 0);
+                    int fb_a_0 = ((lane_l + 1 == 1) ? 134 : ((lane_l + 1 == 2) ? 277 : ((lane_l + 1 == 3) ? 420 : ((lane_l + 1 == 4) ? 561 : 704))));
+                    int fb_b_0 = ((lane_l + 1 == 6) ? 847 : ((lane_l + 1 == 7) ? 990 : ((lane_l + 1 == 8) ? 1131 : ((lane_l + 1 == 9) ? 1273 : 1416))));
+                    int fb_c_0 = ((lane_l + 1 == 11) ? 1559 : ((lane_l + 1 == 12) ? 1701 : ((lane_l + 1 == 13) ? 1845 : ((lane_l + 1 == 14) ? 1989 : 2132))));
+                    int fb_d_0 = ((lane_l + 1 == 16) ? 2269 : ((lane_l + 1 == 17) ? 2406 : ((lane_l + 1 == 18) ? 2541 : 2688)));
+                    int fb_tab_0 = ((lane_l + 1 == 0) ? 0 : ((lane_l + 1 <= 5) ? fb_a_0 : ((lane_l + 1 <= 10) ? fb_b_0 : ((lane_l + 1 <= 15) ? fb_c_0 : fb_d_0))));
+                    int fb_v_0 = ((fb_on_0 == 1) ? fb_tab_0 : fb_even_0);
+                    int hi = fb_v_0;
                     int fd_pr = m_tiles / CTA_GROUP;
                     int fd_grp = fd_pr / full_items;
                     int fd_t0 = sk_max_seg / 2;
@@ -414,8 +430,24 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                     int rank_i_1 = (int)this_bid_m % CTA_GROUP;
                     int lane_l_1 = fd_cid_1 / full_items;
                     int lane_r_1 = fd_cid_1 % full_items;
-                    int lo_1 = lane_l_1 * sk_total / sk_ipc;
-                    int hi_1 = (lane_l_1 + 1) * sk_total / sk_ipc;
+                    int fb_even_1 = lane_l_1 * sk_total / sk_ipc;
+                    int fb_on_1 = ((full_items == 4 && sk_ipc == 19 && sk_total == 2688 && lane_l_1 >= 0 && lane_l_1 <= 19) ? 1 : 0);
+                    int fb_a_1 = ((lane_l_1 == 1) ? 134 : ((lane_l_1 == 2) ? 277 : ((lane_l_1 == 3) ? 420 : ((lane_l_1 == 4) ? 561 : 704))));
+                    int fb_b_1 = ((lane_l_1 == 6) ? 847 : ((lane_l_1 == 7) ? 990 : ((lane_l_1 == 8) ? 1131 : ((lane_l_1 == 9) ? 1273 : 1416))));
+                    int fb_c_1 = ((lane_l_1 == 11) ? 1559 : ((lane_l_1 == 12) ? 1701 : ((lane_l_1 == 13) ? 1845 : ((lane_l_1 == 14) ? 1989 : 2132))));
+                    int fb_d_1 = ((lane_l_1 == 16) ? 2269 : ((lane_l_1 == 17) ? 2406 : ((lane_l_1 == 18) ? 2541 : 2688)));
+                    int fb_tab_1 = ((lane_l_1 == 0) ? 0 : ((lane_l_1 <= 5) ? fb_a_1 : ((lane_l_1 <= 10) ? fb_b_1 : ((lane_l_1 <= 15) ? fb_c_1 : fb_d_1))));
+                    int fb_v_1 = ((fb_on_1 == 1) ? fb_tab_1 : fb_even_1);
+                    int lo_1 = fb_v_1;
+                    int fb_even_1_1 = (lane_l_1 + 1) * sk_total / sk_ipc;
+                    int fb_on_1_1 = ((full_items == 4 && sk_ipc == 19 && sk_total == 2688 && lane_l_1 + 1 >= 0 && lane_l_1 + 1 <= 19) ? 1 : 0);
+                    int fb_a_1_1 = ((lane_l_1 + 1 == 1) ? 134 : ((lane_l_1 + 1 == 2) ? 277 : ((lane_l_1 + 1 == 3) ? 420 : ((lane_l_1 + 1 == 4) ? 561 : 704))));
+                    int fb_b_1_1 = ((lane_l_1 + 1 == 6) ? 847 : ((lane_l_1 + 1 == 7) ? 990 : ((lane_l_1 + 1 == 8) ? 1131 : ((lane_l_1 + 1 == 9) ? 1273 : 1416))));
+                    int fb_c_1_1 = ((lane_l_1 + 1 == 11) ? 1559 : ((lane_l_1 + 1 == 12) ? 1701 : ((lane_l_1 + 1 == 13) ? 1845 : ((lane_l_1 + 1 == 14) ? 1989 : 2132))));
+                    int fb_d_1_1 = ((lane_l_1 + 1 == 16) ? 2269 : ((lane_l_1 + 1 == 17) ? 2406 : ((lane_l_1 + 1 == 18) ? 2541 : 2688)));
+                    int fb_tab_1_1 = ((lane_l_1 + 1 == 0) ? 0 : ((lane_l_1 + 1 <= 5) ? fb_a_1_1 : ((lane_l_1 + 1 <= 10) ? fb_b_1_1 : ((lane_l_1 + 1 <= 15) ? fb_c_1_1 : fb_d_1_1))));
+                    int fb_v_1_1 = ((fb_on_1_1 == 1) ? fb_tab_1_1 : fb_even_1_1);
+                    int hi_1 = fb_v_1_1;
                     int fd_pr_1 = m_tiles / CTA_GROUP;
                     int fd_grp_1 = fd_pr_1 / full_items;
                     int fd_t0_1 = sk_max_seg / 2;
@@ -523,8 +555,24 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                 int rank_i_2 = (int)this_bid_1 % CTA_GROUP;
                 int lane_l_2 = fd_cid_2 / full_items;
                 int lane_r_2 = fd_cid_2 % full_items;
-                int lo_2 = lane_l_2 * sk_total / sk_ipc;
-                int hi_2 = (lane_l_2 + 1) * sk_total / sk_ipc;
+                int fb_even_2 = lane_l_2 * sk_total / sk_ipc;
+                int fb_on_2 = ((full_items == 4 && sk_ipc == 19 && sk_total == 2688 && lane_l_2 >= 0 && lane_l_2 <= 19) ? 1 : 0);
+                int fb_a_2 = ((lane_l_2 == 1) ? 134 : ((lane_l_2 == 2) ? 277 : ((lane_l_2 == 3) ? 420 : ((lane_l_2 == 4) ? 561 : 704))));
+                int fb_b_2 = ((lane_l_2 == 6) ? 847 : ((lane_l_2 == 7) ? 990 : ((lane_l_2 == 8) ? 1131 : ((lane_l_2 == 9) ? 1273 : 1416))));
+                int fb_c_2 = ((lane_l_2 == 11) ? 1559 : ((lane_l_2 == 12) ? 1701 : ((lane_l_2 == 13) ? 1845 : ((lane_l_2 == 14) ? 1989 : 2132))));
+                int fb_d_2 = ((lane_l_2 == 16) ? 2269 : ((lane_l_2 == 17) ? 2406 : ((lane_l_2 == 18) ? 2541 : 2688)));
+                int fb_tab_2 = ((lane_l_2 == 0) ? 0 : ((lane_l_2 <= 5) ? fb_a_2 : ((lane_l_2 <= 10) ? fb_b_2 : ((lane_l_2 <= 15) ? fb_c_2 : fb_d_2))));
+                int fb_v_2 = ((fb_on_2 == 1) ? fb_tab_2 : fb_even_2);
+                int lo_2 = fb_v_2;
+                int fb_even_2_1 = (lane_l_2 + 1) * sk_total / sk_ipc;
+                int fb_on_2_1 = ((full_items == 4 && sk_ipc == 19 && sk_total == 2688 && lane_l_2 + 1 >= 0 && lane_l_2 + 1 <= 19) ? 1 : 0);
+                int fb_a_2_1 = ((lane_l_2 + 1 == 1) ? 134 : ((lane_l_2 + 1 == 2) ? 277 : ((lane_l_2 + 1 == 3) ? 420 : ((lane_l_2 + 1 == 4) ? 561 : 704))));
+                int fb_b_2_1 = ((lane_l_2 + 1 == 6) ? 847 : ((lane_l_2 + 1 == 7) ? 990 : ((lane_l_2 + 1 == 8) ? 1131 : ((lane_l_2 + 1 == 9) ? 1273 : 1416))));
+                int fb_c_2_1 = ((lane_l_2 + 1 == 11) ? 1559 : ((lane_l_2 + 1 == 12) ? 1701 : ((lane_l_2 + 1 == 13) ? 1845 : ((lane_l_2 + 1 == 14) ? 1989 : 2132))));
+                int fb_d_2_1 = ((lane_l_2 + 1 == 16) ? 2269 : ((lane_l_2 + 1 == 17) ? 2406 : ((lane_l_2 + 1 == 18) ? 2541 : 2688)));
+                int fb_tab_2_1 = ((lane_l_2 + 1 == 0) ? 0 : ((lane_l_2 + 1 <= 5) ? fb_a_2_1 : ((lane_l_2 + 1 <= 10) ? fb_b_2_1 : ((lane_l_2 + 1 <= 15) ? fb_c_2_1 : fb_d_2_1))));
+                int fb_v_2_1 = ((fb_on_2_1 == 1) ? fb_tab_2_1 : fb_even_2_1);
+                int hi_2 = fb_v_2_1;
                 int fd_pr_2 = m_tiles / CTA_GROUP;
                 int fd_grp_2 = fd_pr_2 / full_items;
                 int fd_t0_2 = sk_max_seg / 2;
@@ -558,6 +606,15 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                 int fo_cin = ((fl_klo > fl_kb && fo_all == 0) ? 1 : 0);
                 int fo_ti = ((fl_sp == 1 && fl_ke == NUM_K_ITERS && fl_khi == fl_ke && lo_2 >= fl_ub + fo_half) ? 1 : 0);
                 int fo_lprev = (lane_l_2 - 1) * sk_total / sk_ipc;
+                int fb_even_3 = (lane_l_2 - 1) * sk_total / sk_ipc;
+                int fb_on_3 = ((full_items == 4 && sk_ipc == 19 && sk_total == 2688 && lane_l_2 - 1 >= 0 && lane_l_2 - 1 <= 19) ? 1 : 0);
+                int fb_a_3 = ((lane_l_2 - 1 == 1) ? 134 : ((lane_l_2 - 1 == 2) ? 277 : ((lane_l_2 - 1 == 3) ? 420 : ((lane_l_2 - 1 == 4) ? 561 : 704))));
+                int fb_b_3 = ((lane_l_2 - 1 == 6) ? 847 : ((lane_l_2 - 1 == 7) ? 990 : ((lane_l_2 - 1 == 8) ? 1131 : ((lane_l_2 - 1 == 9) ? 1273 : 1416))));
+                int fb_c_3 = ((lane_l_2 - 1 == 11) ? 1559 : ((lane_l_2 - 1 == 12) ? 1701 : ((lane_l_2 - 1 == 13) ? 1845 : ((lane_l_2 - 1 == 14) ? 1989 : 2132))));
+                int fb_d_3 = ((lane_l_2 - 1 == 16) ? 2269 : ((lane_l_2 - 1 == 17) ? 2406 : ((lane_l_2 - 1 == 18) ? 2541 : 2688)));
+                int fb_tab_3 = ((lane_l_2 - 1 == 0) ? 0 : ((lane_l_2 - 1 <= 5) ? fb_a_3 : ((lane_l_2 - 1 <= 10) ? fb_b_3 : ((lane_l_2 - 1 <= 15) ? fb_c_3 : fb_d_3))));
+                int fb_v_3 = ((fb_on_3 == 1) ? fb_tab_3 : fb_even_3);
+                fo_lprev = fb_v_3;
                 int fo_fa = ((fo_all == 1 && fl_klo > 0 && fl_khi == NUM_K_ITERS) ? 1 : 0);
                 int fo_mid = ((fo_fa == 1 && fo_lprev > fl_ub) ? 1 : 0);
                 int fo_pre = fo_ti + fo_fa;
@@ -608,7 +665,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_4_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_4_0), "=r"(_ldv8_4_1), "=r"(_ldv8_4_2), "=r"(_ldv8_4_3), "=r"(_ldv8_4_4), "=r"(_ldv8_4_5), "=r"(_ldv8_4_6), "=r"(_ldv8_4_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 0) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_4_0), "=r"(_ldv8_4_1), "=r"(_ldv8_4_2), "=r"(_ldv8_4_3), "=r"(_ldv8_4_4), "=r"(_ldv8_4_5), "=r"(_ldv8_4_6), "=r"(_ldv8_4_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)(col_half * B_HALF_N * BLOCK_M)) + (0))) : "memory");
                             fill_regs[0 + 0] = __uint_as_float(_ldv8_4_0);
                             fill_regs[0 + 1] = __uint_as_float(_ldv8_4_1);
                             fill_regs[0 + 2] = __uint_as_float(_ldv8_4_2);
@@ -629,7 +686,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_5_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_5_0), "=r"(_ldv8_5_1), "=r"(_ldv8_5_2), "=r"(_ldv8_5_3), "=r"(_ldv8_5_4), "=r"(_ldv8_5_5), "=r"(_ldv8_5_6), "=r"(_ldv8_5_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 0) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_5_0), "=r"(_ldv8_5_1), "=r"(_ldv8_5_2), "=r"(_ldv8_5_3), "=r"(_ldv8_5_4), "=r"(_ldv8_5_5), "=r"(_ldv8_5_6), "=r"(_ldv8_5_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)(col_half * B_HALF_N * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs[8 + 0] = __uint_as_float(_ldv8_5_0);
                             fill_regs[8 + 1] = __uint_as_float(_ldv8_5_1);
                             fill_regs[8 + 2] = __uint_as_float(_ldv8_5_2);
@@ -650,7 +707,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_6_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_6_0), "=r"(_ldv8_6_1), "=r"(_ldv8_6_2), "=r"(_ldv8_6_3), "=r"(_ldv8_6_4), "=r"(_ldv8_6_5), "=r"(_ldv8_6_6), "=r"(_ldv8_6_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 16) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_6_0), "=r"(_ldv8_6_1), "=r"(_ldv8_6_2), "=r"(_ldv8_6_3), "=r"(_ldv8_6_4), "=r"(_ldv8_6_5), "=r"(_ldv8_6_6), "=r"(_ldv8_6_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 16) * BLOCK_M)) + (0))) : "memory");
                             fill_regs[16 + 0] = __uint_as_float(_ldv8_6_0);
                             fill_regs[16 + 1] = __uint_as_float(_ldv8_6_1);
                             fill_regs[16 + 2] = __uint_as_float(_ldv8_6_2);
@@ -671,7 +728,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_7_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_7_0), "=r"(_ldv8_7_1), "=r"(_ldv8_7_2), "=r"(_ldv8_7_3), "=r"(_ldv8_7_4), "=r"(_ldv8_7_5), "=r"(_ldv8_7_6), "=r"(_ldv8_7_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 16) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_7_0), "=r"(_ldv8_7_1), "=r"(_ldv8_7_2), "=r"(_ldv8_7_3), "=r"(_ldv8_7_4), "=r"(_ldv8_7_5), "=r"(_ldv8_7_6), "=r"(_ldv8_7_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 16) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs[24 + 0] = __uint_as_float(_ldv8_7_0);
                             fill_regs[24 + 1] = __uint_as_float(_ldv8_7_1);
                             fill_regs[24 + 2] = __uint_as_float(_ldv8_7_2);
@@ -692,7 +749,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_8_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_8_0), "=r"(_ldv8_8_1), "=r"(_ldv8_8_2), "=r"(_ldv8_8_3), "=r"(_ldv8_8_4), "=r"(_ldv8_8_5), "=r"(_ldv8_8_6), "=r"(_ldv8_8_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 32) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_8_0), "=r"(_ldv8_8_1), "=r"(_ldv8_8_2), "=r"(_ldv8_8_3), "=r"(_ldv8_8_4), "=r"(_ldv8_8_5), "=r"(_ldv8_8_6), "=r"(_ldv8_8_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 32) * BLOCK_M)) + (0))) : "memory");
                             fill_regs[32 + 0] = __uint_as_float(_ldv8_8_0);
                             fill_regs[32 + 1] = __uint_as_float(_ldv8_8_1);
                             fill_regs[32 + 2] = __uint_as_float(_ldv8_8_2);
@@ -713,7 +770,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_9_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_9_0), "=r"(_ldv8_9_1), "=r"(_ldv8_9_2), "=r"(_ldv8_9_3), "=r"(_ldv8_9_4), "=r"(_ldv8_9_5), "=r"(_ldv8_9_6), "=r"(_ldv8_9_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 32) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_9_0), "=r"(_ldv8_9_1), "=r"(_ldv8_9_2), "=r"(_ldv8_9_3), "=r"(_ldv8_9_4), "=r"(_ldv8_9_5), "=r"(_ldv8_9_6), "=r"(_ldv8_9_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 32) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs[40 + 0] = __uint_as_float(_ldv8_9_0);
                             fill_regs[40 + 1] = __uint_as_float(_ldv8_9_1);
                             fill_regs[40 + 2] = __uint_as_float(_ldv8_9_2);
@@ -734,7 +791,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_10_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_10_0), "=r"(_ldv8_10_1), "=r"(_ldv8_10_2), "=r"(_ldv8_10_3), "=r"(_ldv8_10_4), "=r"(_ldv8_10_5), "=r"(_ldv8_10_6), "=r"(_ldv8_10_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 48) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_10_0), "=r"(_ldv8_10_1), "=r"(_ldv8_10_2), "=r"(_ldv8_10_3), "=r"(_ldv8_10_4), "=r"(_ldv8_10_5), "=r"(_ldv8_10_6), "=r"(_ldv8_10_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 48) * BLOCK_M)) + (0))) : "memory");
                             fill_regs[48 + 0] = __uint_as_float(_ldv8_10_0);
                             fill_regs[48 + 1] = __uint_as_float(_ldv8_10_1);
                             fill_regs[48 + 2] = __uint_as_float(_ldv8_10_2);
@@ -755,7 +812,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_11_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_11_0), "=r"(_ldv8_11_1), "=r"(_ldv8_11_2), "=r"(_ldv8_11_3), "=r"(_ldv8_11_4), "=r"(_ldv8_11_5), "=r"(_ldv8_11_6), "=r"(_ldv8_11_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 0 + 48) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_11_0), "=r"(_ldv8_11_1), "=r"(_ldv8_11_2), "=r"(_ldv8_11_3), "=r"(_ldv8_11_4), "=r"(_ldv8_11_5), "=r"(_ldv8_11_6), "=r"(_ldv8_11_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 48) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs[56 + 0] = __uint_as_float(_ldv8_11_0);
                             fill_regs[56 + 1] = __uint_as_float(_ldv8_11_1);
                             fill_regs[56 + 2] = __uint_as_float(_ldv8_11_2);
@@ -765,7 +822,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             fill_regs[56 + 6] = __uint_as_float(_ldv8_11_6);
                             fill_regs[56 + 7] = __uint_as_float(_ldv8_11_7);
                         }
-                        tmem_st_x16_f32(fill_addr + col_half * B_HALF_N + 0, fill_regs);
+                        tmem_st_x16_f32(fill_addr + col_half * B_HALF_N, fill_regs);
                         tmem_st_x16_f32(fill_addr + col_half * B_HALF_N + 16, (fill_regs + 16));
                         tmem_st_x16_f32(fill_addr + col_half * B_HALF_N + 32, (fill_regs + 32));
                         tmem_st_x16_f32(fill_addr + col_half * B_HALF_N + 48, (fill_regs + 48));
@@ -780,7 +837,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_12_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_12_0), "=r"(_ldv8_12_1), "=r"(_ldv8_12_2), "=r"(_ldv8_12_3), "=r"(_ldv8_12_4), "=r"(_ldv8_12_5), "=r"(_ldv8_12_6), "=r"(_ldv8_12_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 0) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_12_0), "=r"(_ldv8_12_1), "=r"(_ldv8_12_2), "=r"(_ldv8_12_3), "=r"(_ldv8_12_4), "=r"(_ldv8_12_5), "=r"(_ldv8_12_6), "=r"(_ldv8_12_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64) * BLOCK_M)) + (0))) : "memory");
                             fill_regs[0 + 0] = __uint_as_float(_ldv8_12_0);
                             fill_regs[0 + 1] = __uint_as_float(_ldv8_12_1);
                             fill_regs[0 + 2] = __uint_as_float(_ldv8_12_2);
@@ -801,7 +858,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_13_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_13_0), "=r"(_ldv8_13_1), "=r"(_ldv8_13_2), "=r"(_ldv8_13_3), "=r"(_ldv8_13_4), "=r"(_ldv8_13_5), "=r"(_ldv8_13_6), "=r"(_ldv8_13_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 0) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_13_0), "=r"(_ldv8_13_1), "=r"(_ldv8_13_2), "=r"(_ldv8_13_3), "=r"(_ldv8_13_4), "=r"(_ldv8_13_5), "=r"(_ldv8_13_6), "=r"(_ldv8_13_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs[8 + 0] = __uint_as_float(_ldv8_13_0);
                             fill_regs[8 + 1] = __uint_as_float(_ldv8_13_1);
                             fill_regs[8 + 2] = __uint_as_float(_ldv8_13_2);
@@ -822,7 +879,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_14_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_14_0), "=r"(_ldv8_14_1), "=r"(_ldv8_14_2), "=r"(_ldv8_14_3), "=r"(_ldv8_14_4), "=r"(_ldv8_14_5), "=r"(_ldv8_14_6), "=r"(_ldv8_14_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 16) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_14_0), "=r"(_ldv8_14_1), "=r"(_ldv8_14_2), "=r"(_ldv8_14_3), "=r"(_ldv8_14_4), "=r"(_ldv8_14_5), "=r"(_ldv8_14_6), "=r"(_ldv8_14_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 16) * BLOCK_M)) + (0))) : "memory");
                             fill_regs[16 + 0] = __uint_as_float(_ldv8_14_0);
                             fill_regs[16 + 1] = __uint_as_float(_ldv8_14_1);
                             fill_regs[16 + 2] = __uint_as_float(_ldv8_14_2);
@@ -864,7 +921,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_16_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_16_0), "=r"(_ldv8_16_1), "=r"(_ldv8_16_2), "=r"(_ldv8_16_3), "=r"(_ldv8_16_4), "=r"(_ldv8_16_5), "=r"(_ldv8_16_6), "=r"(_ldv8_16_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 32) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_16_0), "=r"(_ldv8_16_1), "=r"(_ldv8_16_2), "=r"(_ldv8_16_3), "=r"(_ldv8_16_4), "=r"(_ldv8_16_5), "=r"(_ldv8_16_6), "=r"(_ldv8_16_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 32) * BLOCK_M)) + (0))) : "memory");
                             fill_regs[32 + 0] = __uint_as_float(_ldv8_16_0);
                             fill_regs[32 + 1] = __uint_as_float(_ldv8_16_1);
                             fill_regs[32 + 2] = __uint_as_float(_ldv8_16_2);
@@ -906,7 +963,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_18_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_18_0), "=r"(_ldv8_18_1), "=r"(_ldv8_18_2), "=r"(_ldv8_18_3), "=r"(_ldv8_18_4), "=r"(_ldv8_18_5), "=r"(_ldv8_18_6), "=r"(_ldv8_18_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 48) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_18_0), "=r"(_ldv8_18_1), "=r"(_ldv8_18_2), "=r"(_ldv8_18_3), "=r"(_ldv8_18_4), "=r"(_ldv8_18_5), "=r"(_ldv8_18_6), "=r"(_ldv8_18_7) : "l"((const void*)(ws + (fill_base + (unsigned long long)((col_half * B_HALF_N + 64 + 48) * BLOCK_M)) + (0))) : "memory");
                             fill_regs[48 + 0] = __uint_as_float(_ldv8_18_0);
                             fill_regs[48 + 1] = __uint_as_float(_ldv8_18_1);
                             fill_regs[48 + 2] = __uint_as_float(_ldv8_18_2);
@@ -990,7 +1047,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_20_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_20_0), "=r"(_ldv8_20_1), "=r"(_ldv8_20_2), "=r"(_ldv8_20_3), "=r"(_ldv8_20_4), "=r"(_ldv8_20_5), "=r"(_ldv8_20_6), "=r"(_ldv8_20_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 0) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_20_0), "=r"(_ldv8_20_1), "=r"(_ldv8_20_2), "=r"(_ldv8_20_3), "=r"(_ldv8_20_4), "=r"(_ldv8_20_5), "=r"(_ldv8_20_6), "=r"(_ldv8_20_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)(col_half * B_HALF_N * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[0 + 0] = __uint_as_float(_ldv8_20_0);
                             fill_regs_1[0 + 1] = __uint_as_float(_ldv8_20_1);
                             fill_regs_1[0 + 2] = __uint_as_float(_ldv8_20_2);
@@ -1011,7 +1068,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_21_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_21_0), "=r"(_ldv8_21_1), "=r"(_ldv8_21_2), "=r"(_ldv8_21_3), "=r"(_ldv8_21_4), "=r"(_ldv8_21_5), "=r"(_ldv8_21_6), "=r"(_ldv8_21_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 0) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_21_0), "=r"(_ldv8_21_1), "=r"(_ldv8_21_2), "=r"(_ldv8_21_3), "=r"(_ldv8_21_4), "=r"(_ldv8_21_5), "=r"(_ldv8_21_6), "=r"(_ldv8_21_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)(col_half * B_HALF_N * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs_1[8 + 0] = __uint_as_float(_ldv8_21_0);
                             fill_regs_1[8 + 1] = __uint_as_float(_ldv8_21_1);
                             fill_regs_1[8 + 2] = __uint_as_float(_ldv8_21_2);
@@ -1032,7 +1089,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_22_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_22_0), "=r"(_ldv8_22_1), "=r"(_ldv8_22_2), "=r"(_ldv8_22_3), "=r"(_ldv8_22_4), "=r"(_ldv8_22_5), "=r"(_ldv8_22_6), "=r"(_ldv8_22_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 16) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_22_0), "=r"(_ldv8_22_1), "=r"(_ldv8_22_2), "=r"(_ldv8_22_3), "=r"(_ldv8_22_4), "=r"(_ldv8_22_5), "=r"(_ldv8_22_6), "=r"(_ldv8_22_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 16) * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[16 + 0] = __uint_as_float(_ldv8_22_0);
                             fill_regs_1[16 + 1] = __uint_as_float(_ldv8_22_1);
                             fill_regs_1[16 + 2] = __uint_as_float(_ldv8_22_2);
@@ -1053,7 +1110,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_23_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_23_0), "=r"(_ldv8_23_1), "=r"(_ldv8_23_2), "=r"(_ldv8_23_3), "=r"(_ldv8_23_4), "=r"(_ldv8_23_5), "=r"(_ldv8_23_6), "=r"(_ldv8_23_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 16) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_23_0), "=r"(_ldv8_23_1), "=r"(_ldv8_23_2), "=r"(_ldv8_23_3), "=r"(_ldv8_23_4), "=r"(_ldv8_23_5), "=r"(_ldv8_23_6), "=r"(_ldv8_23_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 16) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs_1[24 + 0] = __uint_as_float(_ldv8_23_0);
                             fill_regs_1[24 + 1] = __uint_as_float(_ldv8_23_1);
                             fill_regs_1[24 + 2] = __uint_as_float(_ldv8_23_2);
@@ -1074,7 +1131,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_24_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_24_0), "=r"(_ldv8_24_1), "=r"(_ldv8_24_2), "=r"(_ldv8_24_3), "=r"(_ldv8_24_4), "=r"(_ldv8_24_5), "=r"(_ldv8_24_6), "=r"(_ldv8_24_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 32) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_24_0), "=r"(_ldv8_24_1), "=r"(_ldv8_24_2), "=r"(_ldv8_24_3), "=r"(_ldv8_24_4), "=r"(_ldv8_24_5), "=r"(_ldv8_24_6), "=r"(_ldv8_24_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 32) * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[32 + 0] = __uint_as_float(_ldv8_24_0);
                             fill_regs_1[32 + 1] = __uint_as_float(_ldv8_24_1);
                             fill_regs_1[32 + 2] = __uint_as_float(_ldv8_24_2);
@@ -1095,7 +1152,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_25_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_25_0), "=r"(_ldv8_25_1), "=r"(_ldv8_25_2), "=r"(_ldv8_25_3), "=r"(_ldv8_25_4), "=r"(_ldv8_25_5), "=r"(_ldv8_25_6), "=r"(_ldv8_25_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 32) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_25_0), "=r"(_ldv8_25_1), "=r"(_ldv8_25_2), "=r"(_ldv8_25_3), "=r"(_ldv8_25_4), "=r"(_ldv8_25_5), "=r"(_ldv8_25_6), "=r"(_ldv8_25_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 32) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs_1[40 + 0] = __uint_as_float(_ldv8_25_0);
                             fill_regs_1[40 + 1] = __uint_as_float(_ldv8_25_1);
                             fill_regs_1[40 + 2] = __uint_as_float(_ldv8_25_2);
@@ -1116,7 +1173,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_26_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_26_0), "=r"(_ldv8_26_1), "=r"(_ldv8_26_2), "=r"(_ldv8_26_3), "=r"(_ldv8_26_4), "=r"(_ldv8_26_5), "=r"(_ldv8_26_6), "=r"(_ldv8_26_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 48) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_26_0), "=r"(_ldv8_26_1), "=r"(_ldv8_26_2), "=r"(_ldv8_26_3), "=r"(_ldv8_26_4), "=r"(_ldv8_26_5), "=r"(_ldv8_26_6), "=r"(_ldv8_26_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 48) * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[48 + 0] = __uint_as_float(_ldv8_26_0);
                             fill_regs_1[48 + 1] = __uint_as_float(_ldv8_26_1);
                             fill_regs_1[48 + 2] = __uint_as_float(_ldv8_26_2);
@@ -1137,7 +1194,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_27_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_27_0), "=r"(_ldv8_27_1), "=r"(_ldv8_27_2), "=r"(_ldv8_27_3), "=r"(_ldv8_27_4), "=r"(_ldv8_27_5), "=r"(_ldv8_27_6), "=r"(_ldv8_27_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 0 + 48) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_27_0), "=r"(_ldv8_27_1), "=r"(_ldv8_27_2), "=r"(_ldv8_27_3), "=r"(_ldv8_27_4), "=r"(_ldv8_27_5), "=r"(_ldv8_27_6), "=r"(_ldv8_27_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 48) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs_1[56 + 0] = __uint_as_float(_ldv8_27_0);
                             fill_regs_1[56 + 1] = __uint_as_float(_ldv8_27_1);
                             fill_regs_1[56 + 2] = __uint_as_float(_ldv8_27_2);
@@ -1147,7 +1204,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             fill_regs_1[56 + 6] = __uint_as_float(_ldv8_27_6);
                             fill_regs_1[56 + 7] = __uint_as_float(_ldv8_27_7);
                         }
-                        tmem_st_x16_f32(pre_addr + col_half * B_HALF_N + 0, fill_regs_1);
+                        tmem_st_x16_f32(pre_addr + col_half * B_HALF_N, fill_regs_1);
                         tmem_st_x16_f32(pre_addr + col_half * B_HALF_N + 16, (fill_regs_1 + 16));
                         tmem_st_x16_f32(pre_addr + col_half * B_HALF_N + 32, (fill_regs_1 + 32));
                         tmem_st_x16_f32(pre_addr + col_half * B_HALF_N + 48, (fill_regs_1 + 48));
@@ -1162,7 +1219,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_28_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_28_0), "=r"(_ldv8_28_1), "=r"(_ldv8_28_2), "=r"(_ldv8_28_3), "=r"(_ldv8_28_4), "=r"(_ldv8_28_5), "=r"(_ldv8_28_6), "=r"(_ldv8_28_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 0) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_28_0), "=r"(_ldv8_28_1), "=r"(_ldv8_28_2), "=r"(_ldv8_28_3), "=r"(_ldv8_28_4), "=r"(_ldv8_28_5), "=r"(_ldv8_28_6), "=r"(_ldv8_28_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64) * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[0 + 0] = __uint_as_float(_ldv8_28_0);
                             fill_regs_1[0 + 1] = __uint_as_float(_ldv8_28_1);
                             fill_regs_1[0 + 2] = __uint_as_float(_ldv8_28_2);
@@ -1183,7 +1240,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_29_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_29_0), "=r"(_ldv8_29_1), "=r"(_ldv8_29_2), "=r"(_ldv8_29_3), "=r"(_ldv8_29_4), "=r"(_ldv8_29_5), "=r"(_ldv8_29_6), "=r"(_ldv8_29_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 0) * BLOCK_M) + 8) + (0))) : "memory");
+                                : "=r"(_ldv8_29_0), "=r"(_ldv8_29_1), "=r"(_ldv8_29_2), "=r"(_ldv8_29_3), "=r"(_ldv8_29_4), "=r"(_ldv8_29_5), "=r"(_ldv8_29_6), "=r"(_ldv8_29_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64) * BLOCK_M) + 8) + (0))) : "memory");
                             fill_regs_1[8 + 0] = __uint_as_float(_ldv8_29_0);
                             fill_regs_1[8 + 1] = __uint_as_float(_ldv8_29_1);
                             fill_regs_1[8 + 2] = __uint_as_float(_ldv8_29_2);
@@ -1204,7 +1261,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_30_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_30_0), "=r"(_ldv8_30_1), "=r"(_ldv8_30_2), "=r"(_ldv8_30_3), "=r"(_ldv8_30_4), "=r"(_ldv8_30_5), "=r"(_ldv8_30_6), "=r"(_ldv8_30_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 16) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_30_0), "=r"(_ldv8_30_1), "=r"(_ldv8_30_2), "=r"(_ldv8_30_3), "=r"(_ldv8_30_4), "=r"(_ldv8_30_5), "=r"(_ldv8_30_6), "=r"(_ldv8_30_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 16) * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[16 + 0] = __uint_as_float(_ldv8_30_0);
                             fill_regs_1[16 + 1] = __uint_as_float(_ldv8_30_1);
                             fill_regs_1[16 + 2] = __uint_as_float(_ldv8_30_2);
@@ -1246,7 +1303,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_32_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_32_0), "=r"(_ldv8_32_1), "=r"(_ldv8_32_2), "=r"(_ldv8_32_3), "=r"(_ldv8_32_4), "=r"(_ldv8_32_5), "=r"(_ldv8_32_6), "=r"(_ldv8_32_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 32) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_32_0), "=r"(_ldv8_32_1), "=r"(_ldv8_32_2), "=r"(_ldv8_32_3), "=r"(_ldv8_32_4), "=r"(_ldv8_32_5), "=r"(_ldv8_32_6), "=r"(_ldv8_32_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 32) * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[32 + 0] = __uint_as_float(_ldv8_32_0);
                             fill_regs_1[32 + 1] = __uint_as_float(_ldv8_32_1);
                             fill_regs_1[32 + 2] = __uint_as_float(_ldv8_32_2);
@@ -1288,7 +1345,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _ldv8_34_7;
                             asm volatile(
                                 "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-                                : "=r"(_ldv8_34_0), "=r"(_ldv8_34_1), "=r"(_ldv8_34_2), "=r"(_ldv8_34_3), "=r"(_ldv8_34_4), "=r"(_ldv8_34_5), "=r"(_ldv8_34_6), "=r"(_ldv8_34_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 48) * BLOCK_M) + 0) + (0))) : "memory");
+                                : "=r"(_ldv8_34_0), "=r"(_ldv8_34_1), "=r"(_ldv8_34_2), "=r"(_ldv8_34_3), "=r"(_ldv8_34_4), "=r"(_ldv8_34_5), "=r"(_ldv8_34_6), "=r"(_ldv8_34_7) : "l"((const void*)(ws + (fill_base_1 + (unsigned long long)((col_half * B_HALF_N + 64 + 48) * BLOCK_M)) + (0))) : "memory");
                             fill_regs_1[48 + 0] = __uint_as_float(_ldv8_34_0);
                             fill_regs_1[48 + 1] = __uint_as_float(_ldv8_34_1);
                             fill_regs_1[48 + 2] = __uint_as_float(_ldv8_34_2);
@@ -1380,7 +1437,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             "tcgen05.ld.sync.aligned.32x32b.x32.b32"
                             " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
                             : "=f"(fstore[0]), "=f"(fstore[1]), "=f"(fstore[2]), "=f"(fstore[3]), "=f"(fstore[4]), "=f"(fstore[5]), "=f"(fstore[6]), "=f"(fstore[7]), "=f"(fstore[8]), "=f"(fstore[9]), "=f"(fstore[10]), "=f"(fstore[11]), "=f"(fstore[12]), "=f"(fstore[13]), "=f"(fstore[14]), "=f"(fstore[15]), "=f"(fstore[16]), "=f"(fstore[17]), "=f"(fstore[18]), "=f"(fstore[19]), "=f"(fstore[20]), "=f"(fstore[21]), "=f"(fstore[22]), "=f"(fstore[23]), "=f"(fstore[24]), "=f"(fstore[25]), "=f"(fstore[26]), "=f"(fstore[27]), "=f"(fstore[28]), "=f"(fstore[29]), "=f"(fstore[30]), "=f"(fstore[31])
-                            : "r"(lane_addr + col_half * B_HALF_N + 0));
+                            : "r"(lane_addr + col_half * B_HALF_N));
                         asm volatile(
                             "tcgen05.ld.sync.aligned.32x32b.x32.b32"
                             " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
@@ -1398,7 +1455,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _stv8_36_7 = __float_as_uint(fstore[0 + 7]);
                             asm volatile(
                                 "st.global.v8.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8};"
-                                :: "l"((void*)(ws + (fsbase + (unsigned long long)((col_half * B_HALF_N + 0) * BLOCK_M)) + (0))), "r"(_stv8_36_0), "r"(_stv8_36_1), "r"(_stv8_36_2), "r"(_stv8_36_3), "r"(_stv8_36_4), "r"(_stv8_36_5), "r"(_stv8_36_6), "r"(_stv8_36_7) : "memory");
+                                :: "l"((void*)(ws + (fsbase + (unsigned long long)(col_half * B_HALF_N * BLOCK_M)) + (0))), "r"(_stv8_36_0), "r"(_stv8_36_1), "r"(_stv8_36_2), "r"(_stv8_36_3), "r"(_stv8_36_4), "r"(_stv8_36_5), "r"(_stv8_36_6), "r"(_stv8_36_7) : "memory");
                         }
                         {
                             unsigned _stv8_37_0 = __float_as_uint(fstore[8 + 0]);
@@ -1411,7 +1468,7 @@ kernel_cake_kimi_k3_latent_moe_7b34f7316c2dc17f093b(const __grid_constant__ CUte
                             unsigned _stv8_37_7 = __float_as_uint(fstore[8 + 7]);
                             asm volatile(
                                 "st.global.v8.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8};"
-                                :: "l"((void*)(ws + (fsbase + (unsigned long long)((col_half * B_HALF_N + 0) * BLOCK_M) + 8) + (0))), "r"(_stv8_37_0), "r"(_stv8_37_1), "r"(_stv8_37_2), "r"(_stv8_37_3), "r"(_stv8_37_4), "r"(_stv8_37_5), "r"(_stv8_37_6), "r"(_stv8_37_7) : "memory");
+                                :: "l"((void*)(ws + (fsbase + (unsigned long long)(col_half * B_HALF_N * BLOCK_M) + 8) + (0))), "r"(_stv8_37_0), "r"(_stv8_37_1), "r"(_stv8_37_2), "r"(_stv8_37_3), "r"(_stv8_37_4), "r"(_stv8_37_5), "r"(_stv8_37_6), "r"(_stv8_37_7) : "memory");
                         }
                         {
                             unsigned _stv8_38_0 = __float_as_uint(fstore[16 + 0]);

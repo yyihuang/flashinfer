@@ -377,13 +377,23 @@ def decode_tail_plan(
     arch: str = "sm_100a",
 ) -> dict[str, Any]:
     """Instance configuration of ``tail_decode_fused`` that the route of ``num_tokens`` tokens and ``num_partials``
-    routed partials at ``tp`` takes on an ``arch`` device of ``sm_count`` SMs: the cells of ``TAIL_SB_SPLIT_ROUTES``
-    for that part take the global-y instance of the table's N_PAD with the resident-B arithmetic, the routed partials
+    routed partials at ``tp`` takes on an ``arch`` device of ``sm_count`` SMs: the cells of
+    ``TAIL_STAGED_PARTIALS_ROUTES`` for that part take the TP8 staged-rows resident-B instance of the row with the
+    partials staged in shared memory (``staged_partials``), the cells of ``TAIL_SB_SPLIT_ROUTES`` for that part take
+    the global-y instance of the table's N_PAD with the resident-B arithmetic, the routed partials
     prefetched and each row split over the epilogue warps (``sb_split``), the few-token multi-partial rows of
     ``TAIL_SB_NORM_ROUTES`` the global-y instance of their N_PAD with the resident-B arithmetic (``sb_norm``), the
     cells of ``TAIL_PARTIAL_PREFETCH_ROUTES`` the instance the table names with the routed partials prefetched into L2
     (``partial_prefetch``), the cells of ``TAIL_SPLIT_FIN_ROUTES`` the split-finalize instance of one routed partial at
     the table's N_PAD, and every other row its own instance (``decode_tail_instance_plan``)."""
+    if tail_staged_partials(num_tokens, tp, num_partials, arch, sm_count):
+        plan = decode_tail_instance_plan(num_tokens, i_local, tp, 1, sm_count)
+        if not plan["smem_b1"] or not plan["rows_smem"] or plan["n_pad"] != 8:
+            raise AssertionError(
+                f"tp{tp} T={num_tokens} P={num_partials}: not the TP8 staged-rows resident-B instance"
+            )
+        plan["staged_partials"] = True
+        return plan
     split_n_pad = tail_sb_split_n_pad(num_tokens, tp, num_partials, arch, sm_count)
     if split_n_pad:
         plan = decode_tail_instance_plan(
@@ -637,13 +647,13 @@ def tail_sb_norm_n_pad(num_tokens: int, tp: int, num_partials: int) -> int:
 # that instance and, per part (SM count, architecture), per token count the fewest partials it serves there: the cells
 # where it measured faster than the route without it on that part (paired CUDA-graph timing, cold L2, both passes
 # beyond the A/A band), all of them cells whose route without it takes the resident-B arithmetic.  The TP1 rows serve
-# sm_103a parts only, the rows of 3 tokens on the 152-SM part from 9 partials.
+# sm_103a parts only.
 TAIL_SB_SPLIT_ROUTES: dict[int, tuple[int, dict[tuple[int, str], dict[int, int]]]] = {
     1: (
         32,
         {
             (148, "sm_103a"): {t: 8 for t in range(1, 9)},
-            (152, "sm_103a"): {t: 9 if t == 3 else 8 for t in range(1, 9)},
+            (152, "sm_103a"): {t: 8 for t in range(1, 9)},
         },
     ),
     8: (
@@ -672,6 +682,36 @@ def tail_sb_split_n_pad(
     if least is None:
         return 0
     return n_pad if int(num_partials) >= least else 0
+
+
+# Staged partials (``staged_partials``, symbol suffix ``_mp``): the TP8 staged-rows resident-B instance (``_sb_rs``)
+# with the TMA warp staging all P x T routed rows (P x T <= 8) in its row buffer, the four epilogue warps splitting
+# each row's chunks and summing the partials from shared memory in order with the resident-B statements, so ``y`` and
+# ``out`` are bitwise those of the resident-B arithmetic for every input.  ``TAIL_STAGED_PARTIALS_ROUTES`` maps a part
+# (SM count, architecture) to the TP8 token counts it serves and, per token count, the most partials (from 2): the
+# cells where it measured faster than the route without it on that part (paired CUDA-graph timing, cold L2, both
+# passes beyond the A/A band, with and without a preceding front launch).
+TAIL_STAGED_PARTIALS_ROUTES: dict[tuple[int, str], dict[int, int]] = {
+    (148, "sm_103a"): {1: 2},
+}
+
+
+def tail_staged_partials(
+    num_tokens: int,
+    tp: int,
+    num_partials: int,
+    arch: str = "sm_100a",
+    sm_count: int = SM_COUNT,
+) -> bool:
+    """Whether the TP8 staged-rows resident-B instance with staged partials serves the decode tail of ``num_tokens``
+    tokens and ``num_partials`` routed partials at ``tp`` on an ``arch`` device of ``sm_count`` SMs
+    (``TAIL_STAGED_PARTIALS_ROUTES``)."""
+    if int(tp) != 8:
+        return False
+    most = TAIL_STAGED_PARTIALS_ROUTES.get((int(sm_count), str(arch)), {}).get(
+        int(num_tokens)
+    )
+    return most is not None and 2 <= int(num_partials) <= most
 
 
 # Routed-partial L2 prefetch (``partial_prefetch``, symbol suffix ``_ppf``).  The resident-B tail instance and the
@@ -786,6 +826,7 @@ def decode_symbol(plan: dict[str, Any]) -> str:
         f"{'_upf' if plan.get('up_prefetch') else ''}{'_sbn' if plan.get('sb_norm') else ''}"
         f"{'_ppf' if plan.get('partial_prefetch') else ''}"
         f"{'_sbs' if plan.get('sb_split') else ''}"
+        f"{'_mp' if plan.get('staged_partials') else ''}"
     )
 
 

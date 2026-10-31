@@ -199,7 +199,7 @@ __device__ __forceinline__ void tcgen05_commit(int mbar_addr) {
 extern "C" {
 
 __global__ __launch_bounds__(192) __cluster_dims__(2,1,1) void
-kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUtensorMap A_R, const __grid_constant__ CUtensorMap A_L, const __grid_constant__ CUtensorMap A_S, const __grid_constant__ CUtensorMap A_2, const __grid_constant__ CUtensorMap B_1, const __grid_constant__ CUtensorMap B_2, float* __restrict__ out_r, __nv_bfloat16* __restrict__ out_l, __nv_bfloat16* __restrict__ out_s, unsigned int* __restrict__ counters, __nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ norm_w, __nv_bfloat16* __restrict__ y_out, unsigned long long* __restrict__ tl, int num_tokens, int k1_off, int num_partials, float eps)
+kernel_cake_kimi_k3_latent_moe_fe15086ca55d72a7aa73(const __grid_constant__ CUtensorMap A_R, const __grid_constant__ CUtensorMap A_L, const __grid_constant__ CUtensorMap A_S, const __grid_constant__ CUtensorMap A_2, const __grid_constant__ CUtensorMap B_1, const __grid_constant__ CUtensorMap B_2, float* __restrict__ out_r, __nv_bfloat16* __restrict__ out_l, __nv_bfloat16* __restrict__ out_s, unsigned int* __restrict__ counters, __nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ norm_w, __nv_bfloat16* __restrict__ y_out, unsigned long long* __restrict__ tl, int num_tokens, int k1_off, int num_partials, float eps)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -1771,8 +1771,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
             if (fin == 2) {
                 if (slot == 0) {
                     if (cls == 2) {
-                        int sf_tok_f_0 = 0 + lane_pair * 2 + 0;
-                        int sf_frow_f_0 = row_base + 0;
+                        int sf_tok_f_0 = lane_pair * 2;
+                        int sf_frow_f_0 = row_base;
                         float sf_gk_f_0 = (float)(__nv_bfloat16)red[0];
                         float sf_uk_f_0 = (float)(__nv_bfloat16)red[32];
                         float _exp2_128 = approx_exp2((-sf_gk_f_0) * 1.442695f);
@@ -1782,8 +1782,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_130 = tanhf(sf_uk_f_0 * 0.04f);
                         float sf_bb_f_0 = 25.0f * _tanh_130;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_0 * 768 + row_s + sf_frow_f_0)) + (0)) = (__nv_bfloat16)(sf_aa_f_0 * sf_bb_f_0);
-                        int sf_tok_f_1 = 0 + lane_pair * 2 + 1;
-                        int sf_frow_f_1 = row_base + 0;
+                        int sf_tok_f_1 = lane_pair * 2 + 1;
+                        int sf_frow_f_1 = row_base;
                         float sf_gk_f_1 = (float)(__nv_bfloat16)red[1];
                         float sf_uk_f_1 = (float)(__nv_bfloat16)red[33];
                         float _exp2_131 = approx_exp2((-sf_gk_f_1) * 1.442695f);
@@ -1793,7 +1793,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_133 = tanhf(sf_uk_f_1 * 0.04f);
                         float sf_bb_f_1 = 25.0f * _tanh_133;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_1 * 768 + row_s + sf_frow_f_1)) + (0)) = (__nv_bfloat16)(sf_aa_f_1 * sf_bb_f_1);
-                        int sf_tok_f_2 = 0 + lane_pair * 2 + 0;
+                        int sf_tok_f_2 = lane_pair * 2;
                         int sf_frow_f_2 = row_base + 8;
                         float sf_gk_f_2 = (float)(__nv_bfloat16)red[2];
                         float sf_uk_f_2 = (float)(__nv_bfloat16)red[34];
@@ -1804,7 +1804,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_136 = tanhf(sf_uk_f_2 * 0.04f);
                         float sf_bb_f_2 = 25.0f * _tanh_136;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_2 * 768 + row_s + sf_frow_f_2)) + (0)) = (__nv_bfloat16)(sf_aa_f_2 * sf_bb_f_2);
-                        int sf_tok_f_3 = 0 + lane_pair * 2 + 1;
+                        int sf_tok_f_3 = lane_pair * 2 + 1;
                         int sf_frow_f_3 = row_base + 8;
                         float sf_gk_f_3 = (float)(__nv_bfloat16)red[3];
                         float sf_uk_f_3 = (float)(__nv_bfloat16)red[35];
@@ -1815,8 +1815,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_139 = tanhf(sf_uk_f_3 * 0.04f);
                         float sf_bb_f_3 = 25.0f * _tanh_139;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_3 * 768 + row_s + sf_frow_f_3)) + (0)) = (__nv_bfloat16)(sf_aa_f_3 * sf_bb_f_3);
-                        int sf_tok_f_4 = 8 + lane_pair * 2 + 0;
-                        int sf_frow_f_4 = row_base + 0;
+                        int sf_tok_f_4 = 8 + lane_pair * 2;
+                        int sf_frow_f_4 = row_base;
                         float sf_gk_f_4 = (float)(__nv_bfloat16)red[4];
                         float sf_uk_f_4 = (float)(__nv_bfloat16)red[36];
                         float _exp2_140 = approx_exp2((-sf_gk_f_4) * 1.442695f);
@@ -1827,7 +1827,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_4 = 25.0f * _tanh_142;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_4 * 768 + row_s + sf_frow_f_4)) + (0)) = (__nv_bfloat16)(sf_aa_f_4 * sf_bb_f_4);
                         int sf_tok_f_5 = 8 + lane_pair * 2 + 1;
-                        int sf_frow_f_5 = row_base + 0;
+                        int sf_frow_f_5 = row_base;
                         float sf_gk_f_5 = (float)(__nv_bfloat16)red[5];
                         float sf_uk_f_5 = (float)(__nv_bfloat16)red[37];
                         float _exp2_143 = approx_exp2((-sf_gk_f_5) * 1.442695f);
@@ -1837,7 +1837,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_145 = tanhf(sf_uk_f_5 * 0.04f);
                         float sf_bb_f_5 = 25.0f * _tanh_145;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_5 * 768 + row_s + sf_frow_f_5)) + (0)) = (__nv_bfloat16)(sf_aa_f_5 * sf_bb_f_5);
-                        int sf_tok_f_6 = 8 + lane_pair * 2 + 0;
+                        int sf_tok_f_6 = 8 + lane_pair * 2;
                         int sf_frow_f_6 = row_base + 8;
                         float sf_gk_f_6 = (float)(__nv_bfloat16)red[6];
                         float sf_uk_f_6 = (float)(__nv_bfloat16)red[38];
@@ -1859,8 +1859,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_151 = tanhf(sf_uk_f_7 * 0.04f);
                         float sf_bb_f_7 = 25.0f * _tanh_151;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_7 * 768 + row_s + sf_frow_f_7)) + (0)) = (__nv_bfloat16)(sf_aa_f_7 * sf_bb_f_7);
-                        int sf_tok_f_8 = 16 + lane_pair * 2 + 0;
-                        int sf_frow_f_8 = row_base + 0;
+                        int sf_tok_f_8 = 16 + lane_pair * 2;
+                        int sf_frow_f_8 = row_base;
                         float sf_gk_f_8 = (float)(__nv_bfloat16)red[8];
                         float sf_uk_f_8 = (float)(__nv_bfloat16)red[40];
                         float _exp2_152 = approx_exp2((-sf_gk_f_8) * 1.442695f);
@@ -1871,7 +1871,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_8 = 25.0f * _tanh_154;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_8 * 768 + row_s + sf_frow_f_8)) + (0)) = (__nv_bfloat16)(sf_aa_f_8 * sf_bb_f_8);
                         int sf_tok_f_9 = 16 + lane_pair * 2 + 1;
-                        int sf_frow_f_9 = row_base + 0;
+                        int sf_frow_f_9 = row_base;
                         float sf_gk_f_9 = (float)(__nv_bfloat16)red[9];
                         float sf_uk_f_9 = (float)(__nv_bfloat16)red[41];
                         float _exp2_155 = approx_exp2((-sf_gk_f_9) * 1.442695f);
@@ -1881,7 +1881,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_157 = tanhf(sf_uk_f_9 * 0.04f);
                         float sf_bb_f_9 = 25.0f * _tanh_157;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_9 * 768 + row_s + sf_frow_f_9)) + (0)) = (__nv_bfloat16)(sf_aa_f_9 * sf_bb_f_9);
-                        int sf_tok_f_10 = 16 + lane_pair * 2 + 0;
+                        int sf_tok_f_10 = 16 + lane_pair * 2;
                         int sf_frow_f_10 = row_base + 8;
                         float sf_gk_f_10 = (float)(__nv_bfloat16)red[10];
                         float sf_uk_f_10 = (float)(__nv_bfloat16)red[42];
@@ -1903,8 +1903,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_163 = tanhf(sf_uk_f_11 * 0.04f);
                         float sf_bb_f_11 = 25.0f * _tanh_163;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_11 * 768 + row_s + sf_frow_f_11)) + (0)) = (__nv_bfloat16)(sf_aa_f_11 * sf_bb_f_11);
-                        int sf_tok_f_12 = 24 + lane_pair * 2 + 0;
-                        int sf_frow_f_12 = row_base + 0;
+                        int sf_tok_f_12 = 24 + lane_pair * 2;
+                        int sf_frow_f_12 = row_base;
                         float sf_gk_f_12 = (float)(__nv_bfloat16)red[12];
                         float sf_uk_f_12 = (float)(__nv_bfloat16)red[44];
                         float _exp2_164 = approx_exp2((-sf_gk_f_12) * 1.442695f);
@@ -1915,7 +1915,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_12 = 25.0f * _tanh_166;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_12 * 768 + row_s + sf_frow_f_12)) + (0)) = (__nv_bfloat16)(sf_aa_f_12 * sf_bb_f_12);
                         int sf_tok_f_13 = 24 + lane_pair * 2 + 1;
-                        int sf_frow_f_13 = row_base + 0;
+                        int sf_frow_f_13 = row_base;
                         float sf_gk_f_13 = (float)(__nv_bfloat16)red[13];
                         float sf_uk_f_13 = (float)(__nv_bfloat16)red[45];
                         float _exp2_167 = approx_exp2((-sf_gk_f_13) * 1.442695f);
@@ -1925,7 +1925,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_169 = tanhf(sf_uk_f_13 * 0.04f);
                         float sf_bb_f_13 = 25.0f * _tanh_169;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_13 * 768 + row_s + sf_frow_f_13)) + (0)) = (__nv_bfloat16)(sf_aa_f_13 * sf_bb_f_13);
-                        int sf_tok_f_14 = 24 + lane_pair * 2 + 0;
+                        int sf_tok_f_14 = 24 + lane_pair * 2;
                         int sf_frow_f_14 = row_base + 8;
                         float sf_gk_f_14 = (float)(__nv_bfloat16)red[14];
                         float sf_uk_f_14 = (float)(__nv_bfloat16)red[46];
@@ -1948,7 +1948,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_15 = 25.0f * _tanh_175;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_15 * 768 + row_s + sf_frow_f_15)) + (0)) = (__nv_bfloat16)(sf_aa_f_15 * sf_bb_f_15);
                     } else if (cls == 0) {
-                        *(reinterpret_cast<float*>(out_r + (0 + row_r + tid_1)) + (0)) = red[0];
+                        *(reinterpret_cast<float*>(out_r + (row_r + tid_1)) + (0)) = red[0];
                         *(reinterpret_cast<float*>(out_r + (896 + row_r + tid_1)) + (0)) = red[1];
                         *(reinterpret_cast<float*>(out_r + (1792 + row_r + tid_1)) + (0)) = red[2];
                         *(reinterpret_cast<float*>(out_r + (2688 + row_r + tid_1)) + (0)) = red[3];
@@ -1981,7 +1981,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         *(reinterpret_cast<float*>(out_r + (26880 + row_r + tid_1)) + (0)) = red[30];
                         *(reinterpret_cast<float*>(out_r + (27776 + row_r + tid_1)) + (0)) = red[31];
                     } else {
-                        *(reinterpret_cast<__nv_bfloat16*>(out_l + (0 + row_l + tid_1)) + (0)) = (__nv_bfloat16)red[0];
+                        *(reinterpret_cast<__nv_bfloat16*>(out_l + (row_l + tid_1)) + (0)) = (__nv_bfloat16)red[0];
                         *(reinterpret_cast<__nv_bfloat16*>(out_l + (3584 + row_l + tid_1)) + (0)) = (__nv_bfloat16)red[1];
                         *(reinterpret_cast<__nv_bfloat16*>(out_l + (7168 + row_l + tid_1)) + (0)) = (__nv_bfloat16)red[2];
                         *(reinterpret_cast<__nv_bfloat16*>(out_l + (10752 + row_l + tid_1)) + (0)) = (__nv_bfloat16)red[3];
@@ -2017,8 +2017,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                 }
                 if (slot == 1) {
                     if (cls == 2) {
-                        int sf_tok_f_16 = 32 + lane_pair * 2 + 0;
-                        int sf_frow_f_16 = row_base + 0;
+                        int sf_tok_f_16 = 32 + lane_pair * 2;
+                        int sf_frow_f_16 = row_base;
                         float sf_gk_f_16 = (float)(__nv_bfloat16)red[16];
                         float sf_uk_f_16 = (float)(__nv_bfloat16)red[48];
                         float _exp2_176 = approx_exp2((-sf_gk_f_16) * 1.442695f);
@@ -2029,7 +2029,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_16 = 25.0f * _tanh_178;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_16 * 768 + row_s + sf_frow_f_16)) + (0)) = (__nv_bfloat16)(sf_aa_f_16 * sf_bb_f_16);
                         int sf_tok_f_17 = 32 + lane_pair * 2 + 1;
-                        int sf_frow_f_17 = row_base + 0;
+                        int sf_frow_f_17 = row_base;
                         float sf_gk_f_17 = (float)(__nv_bfloat16)red[17];
                         float sf_uk_f_17 = (float)(__nv_bfloat16)red[49];
                         float _exp2_179 = approx_exp2((-sf_gk_f_17) * 1.442695f);
@@ -2039,7 +2039,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_181 = tanhf(sf_uk_f_17 * 0.04f);
                         float sf_bb_f_17 = 25.0f * _tanh_181;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_17 * 768 + row_s + sf_frow_f_17)) + (0)) = (__nv_bfloat16)(sf_aa_f_17 * sf_bb_f_17);
-                        int sf_tok_f_18 = 32 + lane_pair * 2 + 0;
+                        int sf_tok_f_18 = 32 + lane_pair * 2;
                         int sf_frow_f_18 = row_base + 8;
                         float sf_gk_f_18 = (float)(__nv_bfloat16)red[18];
                         float sf_uk_f_18 = (float)(__nv_bfloat16)red[50];
@@ -2061,8 +2061,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_187 = tanhf(sf_uk_f_19 * 0.04f);
                         float sf_bb_f_19 = 25.0f * _tanh_187;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_19 * 768 + row_s + sf_frow_f_19)) + (0)) = (__nv_bfloat16)(sf_aa_f_19 * sf_bb_f_19);
-                        int sf_tok_f_20 = 40 + lane_pair * 2 + 0;
-                        int sf_frow_f_20 = row_base + 0;
+                        int sf_tok_f_20 = 40 + lane_pair * 2;
+                        int sf_frow_f_20 = row_base;
                         float sf_gk_f_20 = (float)(__nv_bfloat16)red[20];
                         float sf_uk_f_20 = (float)(__nv_bfloat16)red[52];
                         float _exp2_188 = approx_exp2((-sf_gk_f_20) * 1.442695f);
@@ -2073,7 +2073,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_20 = 25.0f * _tanh_190;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_20 * 768 + row_s + sf_frow_f_20)) + (0)) = (__nv_bfloat16)(sf_aa_f_20 * sf_bb_f_20);
                         int sf_tok_f_21 = 40 + lane_pair * 2 + 1;
-                        int sf_frow_f_21 = row_base + 0;
+                        int sf_frow_f_21 = row_base;
                         float sf_gk_f_21 = (float)(__nv_bfloat16)red[21];
                         float sf_uk_f_21 = (float)(__nv_bfloat16)red[53];
                         float _exp2_191 = approx_exp2((-sf_gk_f_21) * 1.442695f);
@@ -2083,7 +2083,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_193 = tanhf(sf_uk_f_21 * 0.04f);
                         float sf_bb_f_21 = 25.0f * _tanh_193;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_21 * 768 + row_s + sf_frow_f_21)) + (0)) = (__nv_bfloat16)(sf_aa_f_21 * sf_bb_f_21);
-                        int sf_tok_f_22 = 40 + lane_pair * 2 + 0;
+                        int sf_tok_f_22 = 40 + lane_pair * 2;
                         int sf_frow_f_22 = row_base + 8;
                         float sf_gk_f_22 = (float)(__nv_bfloat16)red[22];
                         float sf_uk_f_22 = (float)(__nv_bfloat16)red[54];
@@ -2105,8 +2105,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_199 = tanhf(sf_uk_f_23 * 0.04f);
                         float sf_bb_f_23 = 25.0f * _tanh_199;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_23 * 768 + row_s + sf_frow_f_23)) + (0)) = (__nv_bfloat16)(sf_aa_f_23 * sf_bb_f_23);
-                        int sf_tok_f_24 = 48 + lane_pair * 2 + 0;
-                        int sf_frow_f_24 = row_base + 0;
+                        int sf_tok_f_24 = 48 + lane_pair * 2;
+                        int sf_frow_f_24 = row_base;
                         float sf_gk_f_24 = (float)(__nv_bfloat16)red[24];
                         float sf_uk_f_24 = (float)(__nv_bfloat16)red[56];
                         float _exp2_200 = approx_exp2((-sf_gk_f_24) * 1.442695f);
@@ -2117,7 +2117,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_24 = 25.0f * _tanh_202;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_24 * 768 + row_s + sf_frow_f_24)) + (0)) = (__nv_bfloat16)(sf_aa_f_24 * sf_bb_f_24);
                         int sf_tok_f_25 = 48 + lane_pair * 2 + 1;
-                        int sf_frow_f_25 = row_base + 0;
+                        int sf_frow_f_25 = row_base;
                         float sf_gk_f_25 = (float)(__nv_bfloat16)red[25];
                         float sf_uk_f_25 = (float)(__nv_bfloat16)red[57];
                         float _exp2_203 = approx_exp2((-sf_gk_f_25) * 1.442695f);
@@ -2127,7 +2127,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_205 = tanhf(sf_uk_f_25 * 0.04f);
                         float sf_bb_f_25 = 25.0f * _tanh_205;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_25 * 768 + row_s + sf_frow_f_25)) + (0)) = (__nv_bfloat16)(sf_aa_f_25 * sf_bb_f_25);
-                        int sf_tok_f_26 = 48 + lane_pair * 2 + 0;
+                        int sf_tok_f_26 = 48 + lane_pair * 2;
                         int sf_frow_f_26 = row_base + 8;
                         float sf_gk_f_26 = (float)(__nv_bfloat16)red[26];
                         float sf_uk_f_26 = (float)(__nv_bfloat16)red[58];
@@ -2149,8 +2149,8 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_211 = tanhf(sf_uk_f_27 * 0.04f);
                         float sf_bb_f_27 = 25.0f * _tanh_211;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_27 * 768 + row_s + sf_frow_f_27)) + (0)) = (__nv_bfloat16)(sf_aa_f_27 * sf_bb_f_27);
-                        int sf_tok_f_28 = 56 + lane_pair * 2 + 0;
-                        int sf_frow_f_28 = row_base + 0;
+                        int sf_tok_f_28 = 56 + lane_pair * 2;
+                        int sf_frow_f_28 = row_base;
                         float sf_gk_f_28 = (float)(__nv_bfloat16)red[28];
                         float sf_uk_f_28 = (float)(__nv_bfloat16)red[60];
                         float _exp2_212 = approx_exp2((-sf_gk_f_28) * 1.442695f);
@@ -2161,7 +2161,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float sf_bb_f_28 = 25.0f * _tanh_214;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_28 * 768 + row_s + sf_frow_f_28)) + (0)) = (__nv_bfloat16)(sf_aa_f_28 * sf_bb_f_28);
                         int sf_tok_f_29 = 56 + lane_pair * 2 + 1;
-                        int sf_frow_f_29 = row_base + 0;
+                        int sf_frow_f_29 = row_base;
                         float sf_gk_f_29 = (float)(__nv_bfloat16)red[29];
                         float sf_uk_f_29 = (float)(__nv_bfloat16)red[61];
                         float _exp2_215 = approx_exp2((-sf_gk_f_29) * 1.442695f);
@@ -2171,7 +2171,7 @@ kernel_cake_kimi_k3_latent_moe_933dc61db3de4f066da8(const __grid_constant__ CUte
                         float _tanh_217 = tanhf(sf_uk_f_29 * 0.04f);
                         float sf_bb_f_29 = 25.0f * _tanh_217;
                         *(reinterpret_cast<__nv_bfloat16*>(out_s + (sf_tok_f_29 * 768 + row_s + sf_frow_f_29)) + (0)) = (__nv_bfloat16)(sf_aa_f_29 * sf_bb_f_29);
-                        int sf_tok_f_30 = 56 + lane_pair * 2 + 0;
+                        int sf_tok_f_30 = 56 + lane_pair * 2;
                         int sf_frow_f_30 = row_base + 8;
                         float sf_gk_f_30 = (float)(__nv_bfloat16)red[30];
                         float sf_uk_f_30 = (float)(__nv_bfloat16)red[62];

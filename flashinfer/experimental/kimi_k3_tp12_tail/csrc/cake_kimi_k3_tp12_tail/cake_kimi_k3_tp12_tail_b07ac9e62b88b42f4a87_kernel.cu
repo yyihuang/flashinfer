@@ -48,7 +48,6 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 }
 
 #define CAKE_INF CUDART_INF_F
-#define NUM_MAIN_STAGES 1
 #define SMEM_STAGE0_OFF 0
 #define SMEM_STAGE0_STAGE_BYTES 14336
 #define SMEM_STAGE0_STRIDE 14336
@@ -60,7 +59,7 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 extern "C" {
 
 __global__ __launch_bounds__(448) void
-kernel_cake_kimi_k3_tp12_tail_6810b839a07c32c7d662(__nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ gemm_slice, __nv_bfloat16* __restrict__ out, long long* __restrict__ peer_ptrs, __nv_bfloat16* __restrict__ mcast_ptr, unsigned int* __restrict__ buffer_flags, int num_tokens, int rank, int my_col_begin, int my_cols, int gemm_plane_stride, int num_gemm_splits)
+kernel_cake_kimi_k3_tp12_tail_b07ac9e62b88b42f4a87(__nv_bfloat16* __restrict__ shared, __nv_bfloat16* __restrict__ gemm_slice, __nv_bfloat16* __restrict__ out, long long* __restrict__ peer_ptrs, __nv_bfloat16* __restrict__ mcast_ptr, unsigned int* __restrict__ buffer_flags, int num_tokens, int rank, int my_col_begin, int my_cols, int gemm_plane_stride, int num_gemm_splits)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);

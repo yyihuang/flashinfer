@@ -48,7 +48,6 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 }
 
 #define CAKE_INF CUDART_INF_F
-#define NUM_MAIN_STAGES 1
 #define THREADS 128
 #define LATENT 3584
 #define ROWS_PER_CTA 4
@@ -73,7 +72,7 @@ __device__ __forceinline__ void add_f32x2_inplace(float2* a, float2 b) {
 extern "C" {
 
 __global__ __launch_bounds__(128) void
-kernel_cake_kimi_k3_latent_moe_0a2cd6c2104b4424604a(__nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ norm_weight, __nv_bfloat16* __restrict__ y_out, int M, int num_partials, float eps)
+kernel_cake_kimi_k3_latent_moe_912c57b821d966ddadc2(__nv_bfloat16* __restrict__ routed, __nv_bfloat16* __restrict__ norm_weight, __nv_bfloat16* __restrict__ y_out, int M, int num_partials, float eps)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
