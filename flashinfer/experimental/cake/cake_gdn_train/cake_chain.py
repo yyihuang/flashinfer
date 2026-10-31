@@ -85,6 +85,7 @@ __all__ = [
     "HEAD_DIM",
     "PRESCAN_CONFIGS",
     "REG_SCAN_CONFIGS",
+    "R_FORM_GROUPS",
     "TAIL_FORMS",
     "TAIL_TILE_FLOATS",
     "TAIL_WORKSPACE_TILES",
@@ -717,6 +718,9 @@ def finalize_stage(
 # ``max(TAIL_WORKSPACE_TILES, num_heads)`` tiles.
 TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
 TAIL_WORKSPACE_TILES = 1024
+# The value-head groups whose adjoint dhu_tc2 scan runs as two sequence groups (two streams) feeding the fused tail
+# (the R form) where :func:`sequence_groups` splits it.
+R_FORM_GROUPS: tuple[int, ...] = (2,)
 
 
 def tail_form(num_heads: int, num_v_heads: int, forced: str | None = None) -> str:
@@ -754,7 +758,9 @@ def tail_segments(num_chunks: int, num_heads: int, num_v_heads: int,
         return ((0, num_chunks),), 0
     cap = TAIL_WORKSPACE_TILES if tiles is None else int(tiles)
     per = min(num_chunks, max(1, cap // num_heads))
-    return tuple((c, min(c + per, num_chunks)) for c in range(0, num_chunks, per)), per * num_heads
+    return tuple(
+        (c, min(c + per, num_chunks)) for c in range(0, num_chunks, per)
+    ), per * num_heads
 
 
 MIN_SEGMENT_CHUNKS = 4
@@ -1122,7 +1128,9 @@ class Workspaces:
         # self-cleaning buffers per (device, stream): zero when created, left zero by every launch that uses them
         self.zeroed: dict = {}
 
-    def take_zeroed(self, device_index: int, role: str, rows: int, row_shape: tuple, dtype, device) -> torch.Tensor:
+    def take_zeroed(
+        self, device_index: int, role: str, rows: int, row_shape: tuple, dtype, device
+    ) -> torch.Tensor:
         """The first ``rows`` rows of the ``role`` buffer of the current stream of ``device_index``: created (or grown)
         by ``torch.zeros`` on that stream, then reused without a memset, since every launch leaves it zero.  The
         stream is read at the launch, so launches that may run concurrently (other streams, a CUDA graph capture on
@@ -1130,7 +1138,11 @@ class Workspaces:
         key = (device_index, torch.cuda.current_stream(device_index).cuda_stream)
         buffers = self.zeroed.setdefault(key, {})
         buffer = buffers.get(role)
-        if buffer is None or buffer.shape[0] < rows or tuple(buffer.shape[1:]) != tuple(row_shape):
+        if (
+            buffer is None
+            or buffer.shape[0] < rows
+            or tuple(buffer.shape[1:]) != tuple(row_shape)
+        ):
             buffer = buffers[role] = _zeros((rows, *row_shape), dtype, device)
         return buffer[:rows]
 
@@ -1779,8 +1791,12 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
     segs = meta.bwd_segments
     serial = not (segs.segment_len > 0 and segs.num_segments > meta.num_seqs)
     use_tc = serial and _dhu_tc_selected(meta, num_v_heads, index, options)
-    # two sequence groups (R form): the tcgen05 serial scan feeding a fused tail of a value-head group of two
-    groups = meta.bwd_groups if use_tc and form != "unfused" and num_v_heads == 2 * num_heads else None
+    # two sequence groups (R form): the tcgen05 serial scan feeding a fused tail, for the groups R_FORM_GROUPS names
+    groups = (
+        meta.bwd_groups
+        if use_tc and form != "unfused" and num_v_heads // num_heads in R_FORM_GROUPS
+        else None
+    )
     if not use_tc:
         dv_local = workspaces.take(table, "b_dv_local", token_hv, v.dtype, device)
         _launch("dv_local", meta.num_chunks, num_v_heads, 1, qn, kn, do, g_cs, dv_local, meta.chunk_start,
@@ -1872,8 +1888,12 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None,
                 # at most its tiles in stream order
                 ranges, tiles = tail_segments(c1 - c0, num_heads, num_v_heads)
                 rows = max(tiles, 1)
-                ws = workspaces.take_zeroed(index, "tail_ws", rows, (TAIL_TILE_FLOATS,), torch.float32, device)
-                ws_count = workspaces.take_zeroed(index, "tail_count", rows, (), torch.uint32, device)
+                ws = workspaces.take_zeroed(
+                    index, "tail_ws", rows, (TAIL_TILE_FLOATS,), torch.float32, device
+                )
+                ws_count = workspaces.take_zeroed(
+                    index, "tail_count", rows, (), torch.uint32, device
+                )
                 for s0, s1 in ranges:
                     a, b = c0 + s0, c0 + s1
                     _launch(stage, (b - a) * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k, v_new, do, dv2, h[a:b],

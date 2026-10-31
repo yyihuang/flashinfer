@@ -518,9 +518,13 @@ def run_shape(
     device: torch.device,
 ) -> dict[str, Any]:
     h, hv, seq_lens = SHAPES[shape_id]
-    if "tail_g2" in arms and hv != 2 * h:  # the cluster tail serves a value-head group of two only
+    if (
+        "tail_g2" in arms and hv != 2 * h
+    ):  # the cluster tail serves a value-head group of two only
         arms = [arm for arm in arms if arm != "tail_g2"]
-        pattern = [arm for x in arms if x != "nondet" for arm in ("nondet", x, x, "nondet")]
+        pattern = [
+            arm for x in arms if x != "nondet" for arm in ("nondet", x, x, "nondet")
+        ]
     record: dict[str, Any] = {
         "id": shape_id,
         "H": h,
