@@ -81,7 +81,12 @@ kernel_cake_rmsnorm_train_d0bde38aa443d42a5f04(__nv_bfloat16* __restrict__ g, __
 
     extern __shared__ __align__(1024) char smem_raw[];
     int smem;
+#if __CUDA_ARCH__ == 1000
+    asm volatile("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }" : "=r"(smem) : "l"(smem_raw));
+    smem = make_warp_uniform(smem);
+#else
     smem = (int)(unsigned long long)__cvta_generic_to_shared(smem_raw);
+#endif
 
     const int bid = blockIdx.x;
     const int num_bids = gridDim.x;
@@ -782,82 +787,74 @@ kernel_cake_rmsnorm_train_d0bde38aa443d42a5f04(__nv_bfloat16* __restrict__ g, __
     __syncthreads();
     if (flags[2] != 0) {
         double buf[16];
-        int at_r_0 = tid;
         {
             uint64_t _scalar_bits_33;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_33) : "l"((const void*)(partial + (at_r_0))) : "memory");
+                : "=l"(_scalar_bits_33) : "l"((const void*)(partial + (tid))) : "memory");
             buf[0] = __longlong_as_double(_scalar_bits_33);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_0)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_1 = 512 + tid;
         {
             uint64_t _scalar_bits_34;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_34) : "l"((const void*)(partial + (at_r_1))) : "memory");
+                : "=l"(_scalar_bits_34) : "l"((const void*)(partial + (512 + tid))) : "memory");
             buf[1] = __longlong_as_double(_scalar_bits_34);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_1)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_2 = 1024 + tid;
         {
             uint64_t _scalar_bits_35;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_35) : "l"((const void*)(partial + (at_r_2))) : "memory");
+                : "=l"(_scalar_bits_35) : "l"((const void*)(partial + (1024 + tid))) : "memory");
             buf[2] = __longlong_as_double(_scalar_bits_35);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_2)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_3 = 1536 + tid;
         {
             uint64_t _scalar_bits_36;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_36) : "l"((const void*)(partial + (at_r_3))) : "memory");
+                : "=l"(_scalar_bits_36) : "l"((const void*)(partial + (1536 + tid))) : "memory");
             buf[3] = __longlong_as_double(_scalar_bits_36);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_3)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_4 = 256 + tid;
         {
             uint64_t _scalar_bits_37;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_37) : "l"((const void*)(partial + (at_r_4))) : "memory");
+                : "=l"(_scalar_bits_37) : "l"((const void*)(partial + (256 + tid))) : "memory");
             buf[4] = __longlong_as_double(_scalar_bits_37);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_4)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_5 = 768 + tid;
         {
             uint64_t _scalar_bits_38;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_38) : "l"((const void*)(partial + (at_r_5))) : "memory");
+                : "=l"(_scalar_bits_38) : "l"((const void*)(partial + (768 + tid))) : "memory");
             buf[5] = __longlong_as_double(_scalar_bits_38);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_5)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_6 = 1280 + tid;
         {
             uint64_t _scalar_bits_39;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_39) : "l"((const void*)(partial + (at_r_6))) : "memory");
+                : "=l"(_scalar_bits_39) : "l"((const void*)(partial + (1280 + tid))) : "memory");
             buf[6] = __longlong_as_double(_scalar_bits_39);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_6)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_7 = 1792 + tid;
         {
             uint64_t _scalar_bits_40;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_40) : "l"((const void*)(partial + (at_r_7))) : "memory");
+                : "=l"(_scalar_bits_40) : "l"((const void*)(partial + (1792 + tid))) : "memory");
             buf[7] = __longlong_as_double(_scalar_bits_40);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_7)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_0 = buf[0];
         tot_0 = tot_0 + buf[1];
         tot_0 = tot_0 + buf[2];
         tot_0 = tot_0 + buf[3];
         int at_w_0 = tid;
         dwbuf[(at_w_0 / 32 / 8 * 32 + at_w_0 % 32) * 8 + at_w_0 / 32 % 8] = (float)tot_0;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (512 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (1024 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (1536 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_1 = buf[4];
         tot_1 = tot_1 + buf[5];
         tot_1 = tot_1 + buf[6];
         tot_1 = tot_1 + buf[7];
         int at_w_1 = 256 + tid;
         dwbuf[(at_w_1 / 32 / 8 * 32 + at_w_1 % 32) * 8 + at_w_1 / 32 % 8] = (float)tot_1;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (512 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (1024 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (1536 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
         __syncthreads();
         int col_0 = tid * 4;
         if (col_0 < 512) {
