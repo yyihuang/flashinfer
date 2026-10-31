@@ -309,8 +309,14 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (256, 1024, "cake_rmsnorm_train_e5a3aa2548fc41ee0485"),
             (1024, None, "cake_rmsnorm_train_6325c474ad9955a319e9"),
         ),
-        "bwd_h256": ((0, None, "cake_rmsnorm_train_5450d39836b26cfd3256"),),
-        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_5e0c6208d4b426f79faa"),),
+        "bwd_h256": (
+            (0, 4608, "cake_rmsnorm_train_5450d39836b26cfd3256"),
+            (4608, None, "cake_rmsnorm_train_195c4317b51bb4ea1137"),
+        ),
+        "bwd_w32_h256": (
+            (0, 4608, "cake_rmsnorm_train_5e0c6208d4b426f79faa"),
+            (4608, None, "cake_rmsnorm_train_8de0131445eed6eeabb7"),
+        ),
         "bwd_h512": (
             (0, 1024, "cake_rmsnorm_train_09601d42628de24f6f87"),
             (1024, 4096, "cake_rmsnorm_train_8e7f4d811e55a351a22e"),
@@ -364,7 +370,9 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (4096, None, "cake_rmsnorm_train_626aed743358c27513f1"),
         ),
         "bwd_h5120": (
-            (0, 32768, "cake_rmsnorm_train_2fc4932fbde0bc848b32"),
+            (0, 320, "cake_rmsnorm_train_2fc4932fbde0bc848b32"),
+            (320, 896, "cake_rmsnorm_train_080e0a6c3b18e9bad790"),
+            (896, 32768, "cake_rmsnorm_train_2fc4932fbde0bc848b32"),
             (32768, None, "cake_rmsnorm_train_826e6a14a93bd988be4d"),
         ),
         "bwd_w32_h5120": (
@@ -372,16 +380,29 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (32768, None, "cake_rmsnorm_train_91a40f3094182a35c784"),
         ),
         "bwd_h6144": (
-            (0, 4096, "cake_rmsnorm_train_5c804aed7ad14b99e1d0"),
+            (0, 448, "cake_rmsnorm_train_5c804aed7ad14b99e1d0"),
+            (448, 1152, "cake_rmsnorm_train_44508df7dab2ab688f85"),
+            (1152, 4096, "cake_rmsnorm_train_5c804aed7ad14b99e1d0"),
             (4096, None, "cake_rmsnorm_train_322574af704b51aef0bb"),
         ),
-        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_0dcdc563be377247044e"),),
+        "bwd_residual_h6144": (
+            (0, 2304, "cake_rmsnorm_train_864e84f3d874f850c091"),
+            (2304, 2816, "cake_rmsnorm_train_0dcdc563be377247044e"),
+            (2816, 4608, "cake_rmsnorm_train_115dcc719a6de4b079f1"),
+            (4608, 5632, "cake_rmsnorm_train_0dcdc563be377247044e"),
+            (5632, None, "cake_rmsnorm_train_115dcc719a6de4b079f1"),
+        ),
         "bwd_w32_h6144": (
-            (0, 4096, "cake_rmsnorm_train_41b80b6af97974feb181"),
+            (0, 320, "cake_rmsnorm_train_41b80b6af97974feb181"),
+            (320, 1152, "cake_rmsnorm_train_b3e6531e46667901ab91"),
+            (1152, 4096, "cake_rmsnorm_train_41b80b6af97974feb181"),
             (4096, None, "cake_rmsnorm_train_9a8c0396edd85d4d545e"),
         ),
         "bwd_w32_residual_h6144": (
-            (0, None, "cake_rmsnorm_train_56f988dde54db37f09d9"),
+            (0, 320, "cake_rmsnorm_train_56f988dde54db37f09d9"),
+            (320, 2304, "cake_rmsnorm_train_71d36617003ab7742a77"),
+            (2304, 5632, "cake_rmsnorm_train_56f988dde54db37f09d9"),
+            (5632, None, "cake_rmsnorm_train_3c390339fa8c82311a0a"),
         ),
     },
     "sm_107a": {
@@ -550,7 +571,7 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
 
 # Per architecture and route: the upper edge of every window but the last and the measured
 # class of the outputs across it: "same" (bitwise identical on the common rows), "ulp" (the
-# forward's one-ulp differences), "unmeasured".
+# forward's ulp differences of the notes), "unmeasured".
 EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
     "sm_100a": {
         "fwd_h1536": ((1536, "ulp"), (3584, "same"), (6144, "same")),
@@ -665,8 +686,8 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_w32_h6144": ((1024, "unmeasured"), (6144, "unmeasured")),
         "fwd_residual_h6144": ((256, "same"), (1024, "ulp")),
         "fwd_w32_residual_h6144": ((256, "same"), (1024, "ulp")),
-        "bwd_h256": (),
-        "bwd_w32_h256": (),
+        "bwd_h256": ((4608, "unmeasured"),),
+        "bwd_w32_h256": ((4608, "unmeasured"),),
         "bwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (32768, "unmeasured")),
         "bwd_w32_h512": (
             (1024, "unmeasured"),
@@ -703,12 +724,25 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
             (1024, "unmeasured"),
             (4096, "unmeasured"),
         ),
-        "bwd_h5120": ((32768, "unmeasured"),),
+        "bwd_h5120": ((320, "unmeasured"), (896, "unmeasured"), (32768, "unmeasured")),
         "bwd_w32_h5120": ((32768, "unmeasured"),),
-        "bwd_h6144": ((4096, "unmeasured"),),
-        "bwd_residual_h6144": (),
-        "bwd_w32_h6144": ((4096, "unmeasured"),),
-        "bwd_w32_residual_h6144": (),
+        "bwd_h6144": ((448, "unmeasured"), (1152, "unmeasured"), (4096, "unmeasured")),
+        "bwd_residual_h6144": (
+            (2304, "unmeasured"),
+            (2816, "unmeasured"),
+            (4608, "unmeasured"),
+            (5632, "unmeasured"),
+        ),
+        "bwd_w32_h6144": (
+            (320, "unmeasured"),
+            (1152, "unmeasured"),
+            (4096, "unmeasured"),
+        ),
+        "bwd_w32_residual_h6144": (
+            (320, "unmeasured"),
+            (2304, "unmeasured"),
+            (5632, "unmeasured"),
+        ),
     },
     "sm_107a": {
         "fwd_h1536": ((2048, "ulp"), (12288, "same")),
@@ -795,20 +829,14 @@ EDGE_CLASSES = ["same", "ulp", "dx", "unmeasured"]
 DET_PAIR_ROUTES: dict[str, dict[str, str]] = {
     "sm_100a": {},
     "sm_103a": {
-        "bwd_h256": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_w32_h256": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_h512": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_w32_h512": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_h1536": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_w32_h1536": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_h2048": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_w32_h2048": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_h4096": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_w32_h4096": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_h6144": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_w32_h6144": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_residual_h6144": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
-        "bwd_w32_residual_h6144": "FI bench ratio >= 1 at edaf2fa5 for the shipped small-T singles (GB300: H512 T256 1.66, T1024 1.58, H1536 T256 1.62), lanes/Q/evidence/fisuite/gb300; no window until the eval-layer FI bench on GB300 (lanes/Q/req/e001)",
+        "bwd_h512": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
+        "bwd_w32_h512": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
+        "bwd_h1536": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
+        "bwd_w32_h1536": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
+        "bwd_h2048": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
+        "bwd_w32_h2048": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
+        "bwd_h4096": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
+        "bwd_w32_h4096": "FI bench ratio >= 1 at 5f0611b3 (GB300 152-SM, CUDA-graph span, 2 sessions) at every measured T, lanes/Q/evidence/sm_103a-eval.tsv (e001)",
     },
     "sm_107a": {
         "bwd_h256": "no FI-bench window yet on R200: the eval-layer FI bench on the 216-SM board decides (lanes/Q/req/e001); K section C (eager, Hecate 212-SM) is not a FI-bench result",
@@ -917,6 +945,31 @@ SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]]
     },
 }
 
+# Per architecture and route: the token-count ranges ``(above, at_most)`` whose program needs a
+# whole SM and waits beside any kernel resident on every SM, whatever its carveout: the
+# deterministic package's whole-SM programs in this package's det-pair windows and forward
+# (the exporter's ``DET_WHOLE_SM``; no single-kernel window); ``WHOLE_SM_REMEDY`` the
+# deterministic facade's remedy.  The stall tests count these as not measured (det-inherited).
+WHOLE_SM: dict[str, dict[str, tuple[tuple[int, int | None], ...]]] = {
+    "sm_103a": {
+        "bwd_residual_h6144": ((2304, 2816), (4608, 5632)),
+        "bwd_w32_residual_h6144": ((0, 320), (2304, 5632)),
+    },
+    "sm_107a": {
+        "fwd_h6144": ((4096, None),),
+        "fwd_w32_h6144": ((4096, None),),
+        "bwd_h1536": ((1024, None),),
+        "bwd_w32_h1536": ((1024, None),),
+        "bwd_h2048": ((256, None),),
+        "bwd_w32_h2048": ((256, None),),
+        "bwd_h4096": ((1024, None),),
+        "bwd_w32_h4096": ((1024, None),),
+        "bwd_residual_h6144": ((0, None),),
+        "bwd_w32_residual_h6144": ((0, None),),
+    },
+}
+WHOLE_SM_REMEDY = "Beside those, leave some SMs free of the resident kernel."
+
 NOTES = """
 Each route -- one architecture, hidden size and direction -- ships one or more programs
 and selects one per call from the token count ``T``: the program whose window
@@ -924,7 +977,8 @@ and selects one per call from the token count ``T``: the program whose window
 the table below lists them).  The forward programs are the deterministic package's,
 with its windows: within one window a row's ``y`` and ``rstd`` do not depend on ``T``,
 and across a forward edge between programs of different per-row thread groups ``rstd``
-may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
+moves by at most two FP32 ulps on up to about 14 % of the rows and ``y`` by at most
+one BF16 ulp (measured on B200).  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
 by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
 FP64 column sums in a scheduling-dependent order: its ``dw`` is
@@ -942,7 +996,8 @@ and selects one per call from the token count ``T``: the program whose window
 the table below lists them).  The forward programs are the deterministic package's,
 with its windows: within one window a row's ``y`` and ``rstd`` do not depend on ``T``,
 and across a forward edge between programs of different per-row thread groups ``rstd``
-may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
+moves by at most two FP32 ulps on up to about 14 % of the rows and ``y`` by at most
+one BF16 ulp (measured on B200).  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
 by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
 FP64 column sums in a scheduling-dependent order: its ``dw`` is
@@ -953,11 +1008,19 @@ package, where that pair is the faster form.
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
 8 hex digits of its name).  The mark after a window names the measured outcome
 at its upper edge: ``=`` bitwise-identical outputs on the common rows across it, ``~``
-the forward's one-ulp differences, ``?`` not yet measured.
+the forward's ulp differences (see above), ``?`` not yet measured.
 
 The FP32-weight routes (``fwd_w32_...``) select among the FP32-weight twins of the
 same programs over the same windows and are not listed; a route re-cut for the FP32
 weight (another twin in a window) is listed with its own windows.
+
+Programs that need a whole SM wait beside any kernel resident on every SM, whatever
+its carveout: the deterministic package's whole-SM programs where this package runs
+them (``WHOLE_SM``: det-pair windows and forward programs; no single-kernel window).
+Beside those, leave some SMs free of the resident kernel.
+
+* ``sm_107a`` ``fwd_h6144``: (4096, inf)
+* ``sm_107a`` ``fwd_w32_h6144``: (4096, inf)
 
 * ``sm_100a`` ``fwd_h1536``: (0, 1536] 1ea88523 ~ (1536, 3584] 2fdbab2a =
   (3584, 6144] 7de1e510 = (6144, inf) 2fdbab2a
@@ -1033,7 +1096,8 @@ and selects one per call from the token count ``T``: the program whose window
 the table below lists them).  The forward programs are the deterministic package's,
 with its windows: within one window a row's ``y`` and ``rstd`` do not depend on ``T``,
 and across a forward edge between programs of different per-row thread groups ``rstd``
-may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
+moves by at most two FP32 ulps on up to about 14 % of the rows and ``y`` by at most
+one BF16 ulp (measured on B200).  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
 by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
 FP64 column sums in a scheduling-dependent order: its ``dw`` is
@@ -1044,7 +1108,7 @@ package, where that pair is the faster form.
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
 8 hex digits of its name).  The mark after a window names the measured outcome
 at its upper edge: ``=`` bitwise-identical outputs on the common rows across it, ``~``
-the forward's one-ulp differences, ``?`` not yet measured.
+the forward's ulp differences (see above), ``?`` not yet measured.
 
 The FP32-weight routes (``bwd_w32_...``) select among the FP32-weight twins of the
 same programs over the same windows and are not listed; a route re-cut for the FP32
@@ -1078,6 +1142,22 @@ route not listed is unmeasured.
 * ``sm_100a`` ``bwd_w32_h6144``: (0, 1408] >= 132, (1408, 4096] >= 132, (4096, 5632] >= 132, (5632, 57344] >= 100, (57344, inf) >= 132
 * ``sm_100a`` ``bwd_w32_residual_h6144``: (0, 1408] >= 100, (1408, inf) >= 100
 
+Programs that need a whole SM wait beside any kernel resident on every SM, whatever
+its carveout: the deterministic package's whole-SM programs where this package runs
+them (``WHOLE_SM``: det-pair windows and forward programs; no single-kernel window).
+Beside those, leave some SMs free of the resident kernel.
+
+* ``sm_103a`` ``bwd_residual_h6144``: (2304, 2816], (4608, 5632]
+* ``sm_103a`` ``bwd_w32_residual_h6144``: (0, 320], (2304, 5632]
+* ``sm_107a`` ``bwd_h1536``: (1024, inf)
+* ``sm_107a`` ``bwd_w32_h1536``: (1024, inf)
+* ``sm_107a`` ``bwd_h2048``: (256, inf)
+* ``sm_107a`` ``bwd_w32_h2048``: (256, inf)
+* ``sm_107a`` ``bwd_h4096``: (1024, inf)
+* ``sm_107a`` ``bwd_w32_h4096``: (1024, inf)
+* ``sm_107a`` ``bwd_residual_h6144``: (0, inf)
+* ``sm_107a`` ``bwd_w32_residual_h6144``: (0, inf)
+
 * ``sm_100a`` ``bwd_h256``: (0, inf) 195c4317
 * ``sm_100a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
   (1024, 1280] 123db0b2 (det pair) ? (1280, inf) d0bde38a
@@ -1097,7 +1177,7 @@ route not listed is unmeasured.
 * ``sm_100a`` ``bwd_h6144``: (0, 1152] 44508df7 ? (1152, 4096] 5c804aed (det pair) ?
   (4096, 7168] b93bf060 (det pair) ? (7168, inf) 07942294
 * ``sm_100a`` ``bwd_residual_h6144``: (0, 1408] 864e84f3 ? (1408, inf) 4ed5e6fb
-* ``sm_103a`` ``bwd_h256``: (0, inf) 5450d398 (det pair)
+* ``sm_103a`` ``bwd_h256``: (0, 4608] 5450d398 (det pair) ? (4608, inf) 195c4317
 * ``sm_103a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
   (1024, 4096] 8e7f4d81 (det pair) ? (4096, 32768] 274b0055 (det pair) ?
   (32768, inf) cfaae3ce (det pair)
@@ -1110,10 +1190,13 @@ route not listed is unmeasured.
 * ``sm_103a`` ``bwd_h4096``: (0, 256] 50044ee3 (det pair) ?
   (256, 1024] ad2bb26e (det pair) ? (1024, 4096] 24643edc (det pair) ?
   (4096, inf) 35a0b0ca (det pair)
-* ``sm_103a`` ``bwd_h5120``: (0, 32768] 2fc4932f (det pair) ? (32768, inf) 826e6a14
-* ``sm_103a`` ``bwd_h6144``: (0, 4096] 5c804aed (det pair) ?
-  (4096, inf) 322574af (det pair)
-* ``sm_103a`` ``bwd_residual_h6144``: (0, inf) 0dcdc563 (det pair)
+* ``sm_103a`` ``bwd_h5120``: (0, 320] 2fc4932f (det pair) ? (320, 896] 080e0a6c ?
+  (896, 32768] 2fc4932f (det pair) ? (32768, inf) 826e6a14
+* ``sm_103a`` ``bwd_h6144``: (0, 448] 5c804aed (det pair) ? (448, 1152] 44508df7 ?
+  (1152, 4096] 5c804aed (det pair) ? (4096, inf) 322574af (det pair)
+* ``sm_103a`` ``bwd_residual_h6144``: (0, 2304] 864e84f3 ?
+  (2304, 2816] 0dcdc563 (det pair) ? (2816, 4608] 115dcc71 ?
+  (4608, 5632] 0dcdc563 (det pair) ? (5632, inf) 115dcc71
 * ``sm_107a`` ``bwd_h256``: (0, inf) 5450d398 (det pair)
 * ``sm_107a`` ``bwd_h512``: (0, 1024] 3feed502 (det pair) ?
   (1024, 4096] 3feed502 (det pair) ? (4096, 16384] dfaf378a (det pair) ?
@@ -1145,4 +1228,6 @@ __all__ = [
     "SECTIONS",
     "SMEM_SIDE_KB",
     "SMEM_WAITS",
+    "WHOLE_SM",
+    "WHOLE_SM_REMEDY",
 ]
