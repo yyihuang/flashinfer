@@ -7,8 +7,10 @@ run-to-run bitwise promise.  Where its backward runs the unordered tail (see
 Chain), it sums the `dq` / `dk` partials of the value heads of a key head in
 the arrival order of their CTAs, so `dq` and `dk` match the deterministic
 package `flashinfer.experimental.cake_gdn_det_train` within that package's
-accuracy budgets, not bitwise.  The output, `dv`, `dg`, `dbeta`, the final
-state and the initial-state gradient have the deterministic package's bits.
+accuracy budgets, not bitwise.  The output and the final state have the
+deterministic package's bits.  `dv`, `dg`, `dbeta` and the initial-state
+gradient have them too, except where the backward takes the adjoint table
+priced for `dhu_tc2` (see Chain); they then match within the same budgets.
 
 Both the API and the backend are experimental: no compatibility guarantee.
 SM100 (B200 / GB200), SM103 (B300 / GB300) and SM107 (R200) are the supported
@@ -116,7 +118,17 @@ split `(64, 1)` plan runs the second pass of its adjoint scan on `dhu_tc2`,
 from the stitched segment states, where a second cost rule prices it at most
 0.95 of `dv_local` plus the register pass and, on `sm_100a`, at least 40 us
 cheaper; its pre-scan then computes the `dv_local` tiles of its chunks itself,
-so no `dv_local` stage runs.  Both forms give the same bits.  Then one of six
+so no `dv_local` stage runs.  Both forms give the same bits.  On a host-built
+table without plan pins, this package may also replace the planner's adjoint
+table (priced for the register scans) by the table priced for `dhu_tc2`
+itself: the serial table or a `(64, 1)` split table of any segment length,
+priced as the makespan of one CTA per (segment, value head) times the
+`dhu_tc2` step time plus the pre-scan and stitch terms.  It takes that table
+when it saves at least 10 us and 5 % of the priced adjoint pass, and runs it
+on `dhu_tc2`; a serial table that the two-stream rule groups keeps its form.
+The forward is unchanged.  A different adjoint table changes the bits of the
+backward outputs (other segment boundaries), so the deterministic package's
+bits need its table: pin `scan_config` / `segment_chunks`.  Then one of six
 tails computes `dq`, `dk`, `dv`, `dg` and `dbeta`.  The call's
 value-head group `G = HV / H` and its (chunk, value head) CTAs select the
 fastest one measured on B200 and GB300 (the production rows, packs, source

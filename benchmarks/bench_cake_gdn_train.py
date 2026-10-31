@@ -44,6 +44,10 @@ from ``--seed``:
 * ``tail_red`` / ``tail_bulk`` / ``tail_ordered``: the non-deterministic package with its own tail pinned in one merge
   (``tail="tail"`` / ``"tail_bulk"`` / ``"tail_ordered"``), the same forward as ``nondet``.
 
+Per shape, one untimed forward + backward of ``nondet`` with the package's launches recorded prints the stages its
+backward runs (``stages nondet bwd``: the tail form, the adjoint table and its scan); at the end the bench lists every
+(shape, boundary) where ``nondet`` is slower than ``det`` / ``det_dir`` by more than the two spreads.
+
 Protocol: ``--groups`` groups (at least 3).  In every group the arms run in the pattern ``[nondet, X, X, nondet]`` for
 every other arm ``X``, ``--base`` first (``--base control`` puts the control in the place of ``det``).  Every call takes
 ``--warmup`` untimed iterations, then ``--samples`` timed ones (at least 8); every iteration follows an L2 flush (a
@@ -362,6 +366,44 @@ def check_outputs(
     return finite, diff, pool
 
 
+def record_stages(
+    forward: Callable[..., torch.Tensor], problem: Problem, device: torch.device
+) -> dict[str, list[str]]:
+    """One untimed forward + backward of ``forward`` (the non-deterministic arm) with the package's launches recorded:
+    the stages, in launch order, of its forward and its backward on this shape (the launch recorder that shows which
+    tail and which adjoint table the measured rows run)."""
+    from flashinfer.experimental.cake.cake_gdn_train import cake_backend
+
+    launches: list[str] = []
+    launch = cake_backend.launch_stage
+
+    def recording(stage, *rest, **kwargs):
+        launches.append(stage)
+        return launch(stage, *rest, **kwargs)
+
+    leaves, do = problem.leaves, problem.do
+    _clear_grads(leaves)
+    cake_backend.launch_stage = recording
+    try:
+        o = forward(*leaves)
+        fwd = list(launches)
+        launches.clear()
+        torch.autograd.backward(o, do)
+        torch.cuda.synchronize(device)
+        bwd = list(launches)
+    finally:
+        cake_backend.launch_stage = launch
+        _clear_grads(leaves)
+    return {"fwd": fwd, "bwd": bwd}
+
+
+def _stage_counts(stages: list[str]) -> str:
+    counts: dict[str, int] = {}
+    for stage in stages:
+        counts[stage] = counts.get(stage, 0) + 1
+    return ", ".join(f"{stage} x{n}" for stage, n in counts.items())
+
+
 def measure_memory(
     forward: Callable[..., torch.Tensor], problem: Problem, device: torch.device
 ) -> dict[str, int]:
@@ -586,6 +628,9 @@ def run_shape(
     if not all(finite.values()):
         record["skipped"] = "non-finite output or input gradient: not timed"
         return record
+    if "nondet" in forwards:
+        record["stages_nondet"] = record_stages(forwards["nondet"], problem, device)
+        print(f"  stages nondet bwd: {_stage_counts(record['stages_nondet']['bwd'])}", flush=True)
 
     record["memory"] = {
         arm: {**measure_memory(forwards[arm], problem, device), "pool_bytes": pool[arm]}
@@ -753,7 +798,31 @@ def main() -> int:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(report, indent=2) + "\n")
         torch.cuda.empty_cache()
+    report["regressions"] = regressions(report["shapes"], args.boundaries)
+    print("\nregressions (nondet slower than the arm beyond the sum of both spreads):", flush=True)
+    for line in report["regressions"] or ["none"]:
+        print(f"  {line}", flush=True)
+    if args.json:
+        Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
     return status
+
+
+def regressions(records: list[dict[str, Any]], boundaries) -> list[str]:
+    """The (shape, boundary, arm) cells where the non-deterministic arm is slower than the ``det`` / ``det_dir`` arm by
+    more than the sum of the two arms' spreads (X_ms / nondet_ms below 1 - spread)."""
+    out = []
+    for rec in records:
+        arms = rec.get("arms") or {}
+        for arm in ("det", "det_dir"):
+            if arm not in arms:
+                continue
+            for b in boundaries:
+                x, n = arms[arm][b], arms["nondet"][b]
+                ratio = x["median_ms"] / n["median_ms"]
+                if ratio < 1.0 - (x["spread"] + n["spread"]):
+                    out.append(f"{rec['id']} {b}: {arm}/nondet = {ratio:.4f} (spreads {100 * x['spread']:.2f}% / "
+                               f"{100 * n['spread']:.2f}%)")
+    return out
 
 
 if __name__ == "__main__":

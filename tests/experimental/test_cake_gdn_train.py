@@ -2125,9 +2125,13 @@ def test_tail_segments_rule() -> None:
 @pytest.mark.parametrize(
     "heads", [(2, 4), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3", "g1", "g4"]
 )
-def test_the_tail_keeps_the_deterministic_bits_but_dq_dk(heads, form, device) -> None:
+def test_the_tail_keeps_the_deterministic_bits_but_dq_dk(
+    heads, form, device, monkeypatch
+) -> None:
     # o, dv, dg and dbeta have one writer each: the same bits as the deterministic package and as this package's
-    # fixed-order tails; dq / dk round once after the FP32 group sum, within the budgets of both
+    # fixed-order tails; dq / dk round once after the FP32 group sum, within the budgets of both (the planner's
+    # tables, as the deterministic package plans them)
+    monkeypatch.setattr(cake_chain, "TC_PLAN", False)
     seq_lens = TAIL_LAYOUT
     inputs = _inputs(seq_lens, heads, torch.float32, device, seed=281)
     got = _run(inputs, seq_lens, tail=form)
@@ -2275,6 +2279,76 @@ def test_group_of_three_tail_matches_the_unfused_tail(
             )
     _assert_same_bits(runs[""], runs["finalize"], names)
     _assert_same_bits(runs[""], runs["finalize_mlp"], names)
+
+
+# the tc-priced adjoint table (TC_PLAN): (row, seq_lens, HV, replaced on sm_103a, 152 SMs; measured faster there)
+TC_PLAN_ROWS = (
+    ("r01", (4096,) * 4, 16, True),
+    ("r02", _REAL_3, 16, True),
+    ("r03", (4096,) * 8, 16, False),
+    ("r04", _REAL_7, 16, False),
+    ("r07", (16384,), 16, True),
+    ("r08", (4096,) * 4, 32, False),
+    ("r10", (16384,), 32, True),
+    ("issue", (131071, 87531, 43385), 6, True),
+    ("P3", (128147, 131027), 6, True),
+    ("P1", (126565, 32714, 33696, 15081, 22979, 10782), 6, True),
+    ("A16", (11000, 12000, 9768), 48, False),
+    ("64x4096", (4096,) * 64, 6, False),
+)
+
+
+@pytest.mark.parametrize("arch", sorted(RULE_DEVICES))
+def test_tc_plan_rule(arch, monkeypatch) -> None:
+    props, _r01_tc = RULE_DEVICES[arch]
+    monkeypatch.setattr(cake_chain, "_device_props", lambda _index: props)
+    monkeypatch.setattr(cake_backend, "device_arch", lambda _index: arch)
+    cap = cake_chain._prescan_capacity("dhu", cake_chain.SDT_CONFIG)
+    for row, seq_lens, num_v_heads, replaced in TC_PLAN_ROWS:
+        chunks = tuple(-(-n // 64) for n in seq_lens)
+        _fwd, bwd = cake_chain.scan_plans(
+            sum(seq_lens), len(seq_lens), num_v_heads, 0, seq_lens
+        )
+        rec = cake_chain.tc_plan_pricing(chunks, num_v_heads, 0, bwd)
+        if rec["select"]:
+            assert rec["saving"] >= cake_chain.TC_PLAN_MIN_SAVING, (row, rec)
+            assert rec["best"]["T"] <= cake_chain.TC_PLAN_GAIN * rec["plan_T"], (row, rec)
+            assert 0 <= rec["segment_len"] <= cap and tuple(bwd.config) == cake_chain.SDT_CONFIG, (row, rec)
+        if arch == "sm_103a":
+            assert rec["select"] is replaced, (row, rec)
+
+
+@pytest.mark.parametrize("heads", [(8, 16), (8, 24)], ids=["g2", "g3"])
+def test_tc_plan_changes_only_the_adjoint_table(heads, device, monkeypatch) -> None:
+    # one 16384-token sequence (the r07 form; gates kept above the floors with TC_PLAN_GAIN = 1, no saving floor):
+    # the tc-priced adjoint table leaves the forward's bits, runs on dhu_tc2 (no dv_local stage), repeats bitwise
+    # (fixed-order cluster tails) and stays within the budgets of the planner's table; a plan pin keeps the planner
+    seq_lens = (16384,)
+    index = cake_chain._device_index(device)
+    monkeypatch.setattr(cake_chain, "TC_PLAN_MIN_SAVING", 0.0)
+    monkeypatch.setattr(cake_chain, "TC_PLAN_GAIN", 1.0)
+    monkeypatch.setattr(cake_chain, "_META_FRONT", {})
+    _fwd, bwd = cake_chain.scan_plans(16384, 1, heads[1], index, seq_lens)
+    rec = cake_chain.tc_plan_pricing((256,), heads[1], index, bwd)
+    inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=307)
+    monkeypatch.setattr(cake_chain, "TC_PLAN", False)
+    base = _run(inputs, seq_lens)
+    monkeypatch.setattr(cake_chain, "TC_PLAN", True)
+    launches = _record_streams(monkeypatch)
+    runs = [_run(inputs, seq_lens) for _ in range(2)]
+    stages = [stage for stage, _stream in launches]
+    assert torch.equal(runs[0]["o"], base["o"])
+    _assert_same_bits(runs[1], runs[0], OUTPUT_NAMES)
+    _assert_within_budget(runs[0], base, OUTPUT_NAMES)
+    if rec["select"]:
+        want = ("dhu_pre_dvl_r64k1", "dhu_tc2") if rec["segment_len"] else ("dhu_tc2",)
+        assert all(x in stages for x in want) and "dv_local" not in stages, (rec, stages)
+    else:  # the pricing keeps the planner's table: the same bits
+        _assert_same_bits(runs[0], base, OUTPUT_NAMES)
+    pins = {"scan_config": tuple(bwd.config), "segment_chunks": bwd.segment_len}
+    on = _run(inputs, seq_lens, **pins)
+    monkeypatch.setattr(cake_chain, "TC_PLAN", False)
+    _assert_same_bits(on, _run(inputs, seq_lens, **pins), OUTPUT_NAMES)
 
 
 # #7038 / #7548 form: a one-thread sleep kernel resident on a side stream for the whole call; the gate is declared

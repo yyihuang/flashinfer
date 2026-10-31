@@ -103,6 +103,10 @@ __all__ = [
     "TAIL_MIN_CTAS",
     "TAIL_TILE_FLOATS",
     "TAIL_WORKSPACE_TILES",
+    "TC_PLAN",
+    "TC_PLAN_GAIN",
+    "TC_PLAN_MIN_SAVING",
+    "TC_PLAN_STEP",
     "ChainOptions",
     "ChunkGatedDeltaRuleFunction",
     "ChunkMeta",
@@ -1454,16 +1458,20 @@ def _sdt_selected(meta: ChunkMeta, segs: SegmentTable, num_v_heads: int, device_
 # ``TC_PLAN`` a host-built table without plan pins whose planner configuration is ``SDT_CONFIG`` may instead take the
 # table priced for ``dhu_tc2`` itself.  Candidates: the serial table and the ``SDT_CONFIG`` split tables of ``L``
 # chunks (``MIN_SEGMENT_CHUNKS`` to the pre-scan capacity), each priced (microseconds) T = makespan(segments x HV CTAs,
-# one per SM) x t(n) (the ``dhu_tc2`` interpolation of :func:`sdt_pricing`) + the register planner's pre-scan and
-# stitch terms x ``t_unit`` + the ``dv_local`` tiles of the pre-scan's warm-up window.  The planner's table is priced
+# one per SM) x t(n) (the ``dhu_tc2`` interpolation of :func:`sdt_pricing` over ``TC_PLAN_STEP``) + the register
+# planner's pre-scan and stitch terms x ``t_unit`` + the ``dv_local`` tiles of the pre-scan's warm-up window.  The planner's table is priced
 # in the form its rules run (tcgen05, or the register pass with ``dv_local``), and the cheapest candidate replaces it
 # when it saves at least ``TC_PLAN_MIN_SAVING`` us and a fraction ``1 - TC_PLAN_GAIN``; the backward then runs the
 # candidate on ``dhu_tc2``.  A serial planner table that the two-stream rule groups (:func:`two_stream_split`) keeps
 # its form: its scan overlaps the tail (the R form), which the pricing does not credit.  Another table moves the warm-up truncation and the stitch points, so the bits follow the
 # plan: plan pins keep the planner's table.
-TC_PLAN = False
+TC_PLAN = True
 TC_PLAN_GAIN = 0.95
 TC_PLAN_MIN_SAVING = 10.0
+# The dhu_tc2 step time (microseconds) at low and full residency that prices these tables, measured (CUPTI kernel
+# durations of L = 64 tables, 3 to 288 CTAs: B200 2.32-2.44, GB300 2.15-2.26 per step); an architecture not listed takes
+# the dhu_tc2 record's t_lat / t_full.
+TC_PLAN_STEP = {"sm_100a": (2.35, 2.44), "sm_103a": (2.17, 2.25)}
 
 
 def _tc_table_price(chunks, num_v_heads: int, segment_len: int, sm_count: int, const: dict, pre_residency: int) -> dict:
@@ -1493,9 +1501,8 @@ def _tc_table_price(chunks, num_v_heads: int, segment_len: int, sm_count: int, c
 
 
 @lru_cache(maxsize=1024)
-def _tc_plan_memo(chunks: tuple[int, ...], num_v_heads: int, device_index: int, plan: ScanPlan, props,
+def _tc_plan_memo(chunks: tuple[int, ...], num_v_heads: int, device_index: int, plan: ScanPlan, props, arch: str,
                   _gain: float, _min_saving: float) -> dict:
-    arch = cake_backend.device_arch(device_index)
     rec: dict[str, Any] = {"arch": arch, "select": False, "planner": [list(plan.config), plan.segment_len]}
     found = _dhu_tc_constants(arch)
     if found is None or tuple(plan.config) != SDT_CONFIG:
@@ -1503,6 +1510,8 @@ def _tc_plan_memo(chunks: tuple[int, ...], num_v_heads: int, device_index: int, 
     if not (_available("dhu_tc2", arch) and _available(SDT_PRESCAN, arch)):
         return rec
     const = dict(found)
+    if arch in TC_PLAN_STEP:
+        const["t_lat"], const["t_full"] = TC_PLAN_STEP[arch]
     sm_count = props[0]
     pre_res = _scan_residency("dhu", *SDT_CONFIG, device_index)
     serial = plan.segment_len <= 0 or max(chunks) <= plan.segment_len
@@ -1533,7 +1542,8 @@ def tc_plan_pricing(chunks, num_v_heads: int, device_index: int, plan: ScanPlan)
     per sequence); ``select`` is the answer and ``segment_len`` the table (0: serial).  See above."""
     return dict(
         _tc_plan_memo(tuple(int(c) for c in chunks), int(num_v_heads), int(device_index), plan,
-                      _device_props(int(device_index)), TC_PLAN_GAIN, TC_PLAN_MIN_SAVING)  # fmt: skip
+                      _device_props(int(device_index)), cake_backend.device_arch(int(device_index)), TC_PLAN_GAIN,
+                      TC_PLAN_MIN_SAVING)  # fmt: skip
     )
 
 
@@ -2417,12 +2427,10 @@ def _chunk_meta(
         chunks = tuple(-(-int(n) // CHUNK) for n in seq_lens)
         bwd = plans[1]
         # a serial planner table that the two-stream rule groups keeps its form (the R form overlaps its scan with the
-        # tail, which the pricing does not credit)
-        grouped = (
-            options.streams == 2
-            and (bwd.segment_len <= 0 or max(chunks) <= bwd.segment_len)
-            and two_stream_split(len(chunks), int(num_v_heads), _device_props(int(index))[0]) is not None
-        )
+        # tail, which the pricing does not credit), with one stream too: both stream counts plan the same tables
+        grouped = (bwd.segment_len <= 0 or max(chunks) <= bwd.segment_len) and two_stream_split(
+            len(chunks), int(num_v_heads), _device_props(int(index))[0]
+        ) is not None
         priced = None if grouped else tc_plan_pricing(chunks, int(num_v_heads), int(index), bwd)
         if priced is not None and priced["select"]:
             plans, bwd_tc = (plans[0], ScanPlan(SDT_CONFIG, priced["segment_len"])), True
