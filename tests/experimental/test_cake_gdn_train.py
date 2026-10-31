@@ -47,10 +47,10 @@ from torch.utils.checkpoint import checkpoint
 
 from tests.test_helpers.cake_package import cake_package
 
-cake_backend = cake_package("cake_gdn_train", "cake_backend")
-cake_chain = cake_package("cake_gdn_train", "cake_chain")
-cake_jit = cake_package("cake_gdn_train", "cake_jit")
-cake_gdn_train = cake_package("cake_gdn_train")
+cake_backend = cake_package("cake.cake_gdn_train", "cake_backend")
+cake_chain = cake_package("cake.cake_gdn_train", "cake_chain")
+cake_jit = cake_package("cake.cake_gdn_train", "cake_jit")
+cake_gdn_train = cake_package("cake.cake_gdn_train")
 # The deterministic package: the same-input comparison point (never a source of budgets).
 cake_gdn_det_train = cake_package("cake_gdn_det_train")
 det_backend = cake_package("cake_gdn_det_train", "cake_backend")
