@@ -32,8 +32,8 @@ Beside the all-SM kernel a call starts when it costs at most
 ``MAX_ALL_SM_EXTRA_MS`` more than alone (the side kernel lives
 ``ALL_SM_SPIN_MS``).  A call that waits is not a pass (parent ruling R6.2): it
 is reported as "not measured (det-inherited)" -- a pytest skip -- only when its
-window is in the package's whole-SM list (``WHOLE_SM_ABOVE``, the list the
-facade documents) and the call runs the deterministic package's program (a
+window is in the package's whole-SM list (``cake_windows.WHOLE_SM``, the list
+the facade documents) and the call runs the deterministic package's program (a
 forward or a deterministic-pair backward window whose program id equals the one
 the deterministic package selects at the same token count; an FP32-weight twin
 through its BF16 owner route, same form); the deterministic package's own call
@@ -46,11 +46,9 @@ alone (bitwise for a deterministic pair), the workspace at rest.
 
 from __future__ import annotations
 
-import ast
 import ctypes
 import functools
 import statistics
-from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -163,54 +161,28 @@ def _skip_unless_route(hidden: int, residual: bool, w: str, kind: str) -> None:
 # --------------------------------------------------------------------------- the whole-SM list
 
 
-def _whole_sm_above() -> dict[tuple[str, str, str], int]:
-    """The package's whole-SM list as ``(arch, kind, route key) -> rows above
-    which the call needs a whole SM``: ``cake_windows.WHOLE_SM_ABOVE`` (``{arch:
-    {route key: above}}``) when the package exports it, else the backend stall
-    suite's ``WHOLE_SM_ABOVE`` (``{(capability, kind, hidden): above}``, every
-    residual flag and weight dtype of that width), read from its source."""
-    table = getattr(windows_table, "WHOLE_SM_ABOVE", None)
-    out: dict[tuple[str, str, str], int] = {}
-    if table is not None:
-        for arch, routes in table.items():
-            for key, above in routes.items():
-                out[(arch, key.split("_", 1)[0], key)] = int(above)
-        return out
-    source = Path(__file__).with_name("test_cake_rmsnorm_train_stall.py")
-    if not source.exists():
-        return out
-    for node in ast.parse(source.read_text()).body:
-        target = (
-            node.target
-            if isinstance(node, ast.AnnAssign)
-            else (
-                node.targets[0]
-                if isinstance(node, ast.Assign) and len(node.targets) == 1
-                else None
-            )
-        )
-        if (
-            isinstance(target, ast.Name)
-            and target.id == "WHOLE_SM_ABOVE"
-            and node.value
-        ):
-            for (capability, kind, hidden), above in ast.literal_eval(
-                node.value
-            ).items():
-                arch = loader.arch_for_capability(capability)
-                for residual in (False, True):
-                    for w in ("bf16", "f32"):
-                        key = loader.route_key(int(hidden), kind, residual, w)
-                        out[(arch, kind, key)] = int(above)
-    return out
+def _whole_sm_ranges() -> dict[tuple[str, str], tuple[tuple[int, Optional[int]], ...]]:
+    """The package's whole-SM list, ``cake_windows.WHOLE_SM``, as ``(arch, route
+    key) -> ((above, at_most), ...)``: the token-count ranges whose program needs
+    a whole SM (the deterministic package's whole-SM programs in this package's
+    det-pair windows and forward, FP32-weight twins included)."""
+    return {
+        (arch, key): tuple(ranges)
+        for arch, routes in windows_table.WHOLE_SM.items()
+        for key, ranges in routes.items()
+    }
 
 
-WHOLE_SM_ABOVE = _whole_sm_above()
+WHOLE_SM = _whole_sm_ranges()
 
 
 def _listed_whole_sm(kind: str, key: str, rows: int) -> Optional[int]:
-    above = WHOLE_SM_ABOVE.get((_arch(), kind, key))
-    return above if above is not None and rows > above else None
+    """The lower edge of the ``WHOLE_SM`` range of ``key`` that holds ``rows``,
+    else ``None``."""
+    for above, at_most in WHOLE_SM.get((_arch(), key), ()):
+        if rows > above and (at_most is None or rows <= at_most):
+            return above
+    return None
 
 
 # --------------------------------------------------------------------------- inputs and calls

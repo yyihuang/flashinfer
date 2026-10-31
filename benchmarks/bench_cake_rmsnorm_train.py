@@ -414,7 +414,7 @@ def bench_mode(
     checkpoint_retained = (
         torch.cuda.memory_allocated()
         - base
-        - sum(t.numel() * t.element_size() for t in checkpointed)
+        - sum(t.untyped_storage().nbytes() for t in checkpointed)
     )
     del checkpointed
     entry["memory"] = {
