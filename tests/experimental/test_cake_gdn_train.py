@@ -802,6 +802,8 @@ CASES = (
     ("tail-g2-pin", (100, 640, 77, 300), (2, 4), torch.float32, "host", {"tail": "tail_g2"}, True),
     ("unfused-pin-g2-device", (300, 1000), (2, 4), torch.bfloat16, "device", {"tail": "unfused"}, True),
     ("tail-g4-device", (100, 640, 77, 300), (1, 4), torch.bfloat16, "device", {}, True),
+    ("tail-red-g2-pin", (100, 640, 77, 300), (2, 4), torch.bfloat16, "host", {"tail": "tail"}, True),
+    ("tail-red-g3-h1-pin", (100, 640, 77, 300), (1, 3), torch.float32, "device", {"tail": "tail"}, True),
     ("recompute", (100, 640, 77, 300), (2, 6), torch.bfloat16, "host", {"save_state": False}, True),
     ("uncached", (100, 640, 77, 300), (2, 6), torch.float32, "device", {"host_cache": False}, True),
     ("no-l2norm", (200, 513), (2, 6), torch.bfloat16, "host", {}, False),
@@ -1688,6 +1690,7 @@ ALERT_CASES = (
     ((2, 4), {}, None),  # None: the rule's dispatch decides
     ((2, 6), {}, None),
     ((1, 3), {}, None),
+    ((2, 6), {"crossover0": True}, None),  # the rule with TAIL_MIN_CTAS = 0: the unordered tail
     ((2, 4), {"tail": "tail_g2"}, False),
     ((2, 6), {"tail": "unfused"}, False),
 )
@@ -1696,15 +1699,19 @@ ALERT_CASES = (
 @pytest.mark.parametrize(
     "heads, pins, alerts",
     ALERT_CASES,
-    ids=["g2", "g3", "g4", "g1", "rule-g2", "rule-g3", "rule-g3-h1", "g2-tail-g2", "g3-unfused"],
+    ids=["g2", "g3", "g4", "g1", "rule-g2", "rule-g3", "rule-g3-h1", "rule-g3-large", "g2-tail-g2", "g3-unfused"],
 )
 def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(
-    heads, pins, alerts, device
+    heads, pins, alerts, device, monkeypatch
 ) -> None:
     # the alert follows the dispatched tail: it fires iff the backward launches the unordered one
     seq_lens = (300, 77)
+    pins = dict(pins)
+    if pins.pop("crossover0", False):
+        monkeypatch.setattr(cake_chain, "TAIL_MIN_CTAS", 0)
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=251)
-    dispatched = cake_chain.tail_alerts(cake_chain.tail_form(*heads, pins.get("tail")), *heads)
+    form = cake_chain.tail_form(*heads, pins.get("tail"), num_chunks=_num_chunks(seq_lens))
+    dispatched = cake_chain.tail_alerts(form, *heads)
     if alerts is None:
         alerts = dispatched
     assert dispatched is alerts
@@ -1890,6 +1897,46 @@ def test_segmented_tail_launches_match_one_launch(tiles, device, monkeypatch) ->
     _assert_tail_workspaces_zero()
 
 
+# (H, HV) -> the tail the rule dispatches
+TAIL_RULE = {
+    (2, 4): "tail_g2",
+    (8, 16): "tail_g2",
+    (16, 32): "tail_g2",
+    (1, 3): "tail",
+    (2, 6): "tail",
+    (16, 48): "tail",
+    (2, 2): "tail",
+    (16, 16): "tail",
+    (1, 4): "tail",
+    (4, 16): "tail",
+}
+# the stages a backward launches per tail (beyond the shared scans), and the ones it never launches
+TAIL_LAUNCHES = {
+    "tail": ({"tail", "tail_bf16"}, {"tail_g2", "tail_g2_bf16", "dqkwg", "finalize", "finalize_mlp"}),
+    "tail_g2": ({"tail_g2", "tail_g2_bf16"}, {"tail", "tail_bf16", "dqkwg", "finalize", "finalize_mlp"}),
+    "unfused": ({"dqkwg", "finalize", "finalize_mlp"}, {"tail", "tail_bf16", "tail_g2", "tail_g2_bf16"}),
+}
+
+
+@pytest.mark.parametrize("min_tiles", [None, 0], ids=["rule", "crossover0"])
+@pytest.mark.parametrize("heads", [(2, 4), (1, 3), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3-h1", "g3", "g1", "g4"])
+def test_the_dispatched_tail_runs(heads, min_tiles, device, monkeypatch) -> None:
+    # without a pin the backward launches the tail the rule names, and only that one; the pins launch theirs
+    seq_lens = TAIL_LAYOUT
+    if min_tiles is not None:
+        monkeypatch.setattr(cake_chain, "TAIL_MIN_CTAS", min_tiles)
+    inputs = _inputs(seq_lens, heads, torch.float32, device, seed=289)
+    launches = _record_tail_launches(monkeypatch, device)
+    forms = [None, "tail", "unfused"] + (["tail_g2"] if heads[1] == 2 * heads[0] else [])
+    for form in forms:
+        launches.clear()
+        got = _run(inputs, seq_lens, **({} if form is None else {"tail": form}))
+        stages = {stage for stage, _grid in launches}
+        want, never = TAIL_LAUNCHES[form or cake_chain.tail_form(*heads, num_chunks=_num_chunks(seq_lens))]
+        assert stages & want and not stages & never, (form, sorted(stages))
+        _assert_close_to_reference(got, _reference(inputs, seq_lens), OUTPUT_NAMES)
+
+
 def test_tail_segments_rule() -> None:
     rule = cake_chain.tail_segments
     assert rule(17, 2, 2) == (((0, 17),), 0)  # a group of one: one launch, no workspace
@@ -1900,7 +1947,13 @@ def test_tail_segments_rule() -> None:
         16,
     )  # at least one chunk per launch
     assert rule(0, 2, 4) == ((), 0)
-    assert cake_chain.tail_form(2, 4) == "tail" and cake_chain.tail_form(2, 2) == "tail"
+    # the dispatch rule: the fastest tail measured per value-head group and size (B200 and GB300); large calls here
+    assert {heads: cake_chain.tail_form(*heads) for heads in TAIL_RULE} == TAIL_RULE
+    edge = cake_chain.TAIL_MIN_CTAS
+    for h, hv in ((1, 3), (2, 6), (2, 2), (4, 16)):
+        assert cake_chain.tail_form(h, hv, num_chunks=-(-edge // hv)) == "tail", (h, hv)
+        assert cake_chain.tail_form(h, hv, num_chunks=-(-edge // hv) - 1) == "unfused", (h, hv)
+    assert cake_chain.tail_form(2, 4, num_chunks=1) == cake_chain.tail_form(2, 4) == "tail_g2"
     assert (
         cake_chain.tail_form(2, 4, "tail_g2") == "tail_g2"
         and cake_chain.tail_form(2, 6, "unfused") == "unfused"
