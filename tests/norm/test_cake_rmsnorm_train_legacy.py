@@ -74,6 +74,12 @@ PREVIOUS_ALIASES = {
 PREVIOUS_PUBLIC = tuple(sorted({*PREVIOUS_ALL, *PREVIOUS_ALIASES}))
 # The deterministic object each previous name was.
 DET_OBJECT = {name: PREVIOUS_ALIASES.get(name, name) for name in PREVIOUS_PUBLIC}
+# Names only the deterministic package defines: on the new module they are the
+# deterministic objects themselves (the other previous names are this package's
+# objects, deterministic by default).
+DET_NAMED = tuple(
+    name for name in PREVIOUS_ALL if name == DET_OBJECT[name] and "det" in name.lower()
+)
 # (parameter, kind, default) of every previous callable (``inspect`` kinds; ``None``
 # default: no default), by its deterministic name; the previous facade's three
 # decorated entry points and the backend's helpers.
@@ -152,12 +158,19 @@ def _previous_object(name: str):
 @pytest.mark.parametrize("namespace", sorted(NAMESPACES))
 def test_previous_public_attribute_is_reachable(namespace: str, name: str) -> None:
     """Every public attribute of the previous module / package resolves on the
-    new one (``getattr``), as it did before."""
+    new one (``getattr``), as it did before; a deterministic-named attribute
+    resolves to the deterministic object itself (parent ruling R7.2: lazy
+    re-exports of the deterministic sibling)."""
     module = _namespace(namespace)
     assert hasattr(module, name), (
         f"{NAMESPACES[namespace]}.{name} was public before the non-deterministic "
         f"package (the deterministic {DET_OBJECT[name]}) and is not reachable now"
     )
+    if name in DET_NAMED:
+        sibling = det_facade if namespace == "facade" else det_backend
+        assert getattr(module, name) is getattr(sibling, name), (
+            f"{NAMESPACES[namespace]}.{name} is not {sibling.__name__}.{name}"
+        )
     print(f"LEGACY reachable {namespace} {name}")
 
 

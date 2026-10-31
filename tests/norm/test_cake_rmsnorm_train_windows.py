@@ -226,10 +226,13 @@ def _edges(hidden: int, residual: bool, w: str, kind: str) -> dict[int, str]:
     return dict(windows_table.EDGES.get(_arch(), {}).get(key, ()))
 
 
-# The documented ``ulp`` edge class (the package notes): across a forward edge
-# ``rstd`` moves by at most one FP32 ulp and ``y`` by at most one BF16 ulp.
+# The ``ulp`` edge class of a forward edge (parent ruling R7.1, the package notes
+# to match): ``rstd`` moves by at most two FP32 ulps (a different reduction order
+# on each side; measured on B200 on up to ~14 % of the common rows) and ``y`` by
+# at most one BF16 ulp.  Each edge reports its largest moves and the fraction of
+# the common rows that moved (``EDGE_FWD ... rows_moved=``).
 FWD_EDGE_Y_ULPS = 1
-FWD_EDGE_RSTD_ULPS = 1
+FWD_EDGE_RSTD_ULPS = 2
 
 
 def _classify(differing: int, ulps: int, word: str) -> str:
@@ -462,6 +465,16 @@ def _forward_difference(a, b, rows: int) -> tuple[int, int, int, int]:
     return y_diff, y_ulps, r_diff, r_ulps
 
 
+def _rows_moved(a, b, rows: int) -> int:
+    """Rows among the first ``rows`` whose ``y`` or ``rstd`` bits differ."""
+    y_a, y_b = a[0][:rows].reshape(rows, -1), b[0][:rows].reshape(rows, -1)
+    moved = (y_a.view(torch.int16) != y_b.view(torch.int16)).any(dim=1)
+    moved |= a[1][:rows].reshape(rows, -1).view(torch.int32).ne(
+        b[1][:rows].reshape(rows, -1).view(torch.int32)
+    ).any(dim=1)
+    return int(moved.sum().item())
+
+
 @pytest.mark.parametrize(("hidden", "residual", "w"), list(_route_params()))
 def test_forward_is_token_count_invariant_within_windows_and_edges_are_classified(
     hidden: int, residual: bool, w: str
@@ -470,7 +483,8 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
     rows are the same bits at both ends and the middle; per edge: the class
     (``same`` / ``ulp`` / beyond: ``y<k>/rstd<m>``) holds against
     ``cake_windows.EDGES`` (``ulp``: ``FWD_EDGE_Y_ULPS`` BF16 ulps of ``y``,
-    ``FWD_EDGE_RSTD_ULPS`` FP32 ulps of ``rstd``, as the package notes state)."""
+    ``FWD_EDGE_RSTD_ULPS`` FP32 ulps of ``rstd``: parent ruling R7.1); each
+    edge reports its largest moves and the fraction of rows that moved."""
     _skip_unless_route(hidden, residual, w, "fwd")
     route_windows = ref.windows(loader, _arch(), hidden, "fwd", residual, w)
     largest = max(
@@ -502,9 +516,11 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
     for _above, at_most, _library in route_windows:
         if at_most is None:
             continue
+        below, above_edge = calls.out(at_most), calls.out(at_most + 1)
         y_diff, y_ulps, r_diff, r_ulps = _forward_difference(
-            calls.out(at_most), calls.out(at_most + 1), at_most
+            below, above_edge, at_most
         )
+        moved = _rows_moved(below, above_edge, at_most)
         measured = _forward_class(y_diff, y_ulps, r_diff, r_ulps)
         entry = listed.get(at_most)
         if not _consistent(entry, measured):
@@ -513,7 +529,8 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
             )
         lines.append(
             f"EDGE_FWD {_arch()} {key} edge={at_most} listed={entry} measured={measured} "
-            f"y_differing={y_diff} y_max_ulps={y_ulps} rstd_differing={r_diff} rstd_max_ulps={r_ulps}"
+            f"y_differing={y_diff} y_max_ulps={y_ulps} rstd_differing={r_diff} rstd_max_ulps={r_ulps} "
+            f"rows_moved={moved}/{at_most} ({100.0 * moved / at_most:.1f} %)"
         )
         if entry in (None, "unmeasured"):
             lines.append(f"EDGES_MEASURED {_arch()} {key} ({at_most}, {measured!r})")
