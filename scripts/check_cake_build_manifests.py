@@ -335,6 +335,12 @@ PACKAGES: tuple[Package, ...] = (
         refs_generic,
     ),
     Package(
+        "flashinfer.cake_rmsnorm_train_backend",
+        "flashinfer/cake_rmsnorm_train_backend",
+        "cake_jit.py",
+        refs_generic,
+    ),
+    Package(
         "flashinfer.cake_causal_conv1d_train_backend",
         "flashinfer/cake_causal_conv1d_train_backend",
         "cake_jit.py",

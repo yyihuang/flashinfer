@@ -62,6 +62,59 @@ fusion and an autograd wrapper.
     cake_rmsnorm_det_train_backward_workspace
     CakeRMSNormDetFunction
 
+Training RMSNorm, opt-in non-deterministic weight gradient (Cake)
+-----------------------------------------------------------------
+
+The names the training RMSNorm had before the deterministic package took its
+``det`` names. Every entry point takes ``deterministic`` (default ``True``):
+
+* ``deterministic=True`` runs the deterministic package above and returns its
+  bits.
+* ``deterministic=False`` runs this package's backward: one kernel per call
+  computes ``dx`` row by row as the deterministic backward does and adds the
+  FP32 ``dw`` sums of its CTAs with atomics. ``dw`` can differ in its last
+  bits between calls; ``dx`` does not. The backward workspace holds only claim
+  counters (``cake_rmsnorm_train_backward_workspace_bytes(...,
+  deterministic=False)``), which the kernel returns to zero.
+* Under ``torch.use_deterministic_algorithms(True)``, ``deterministic=False``
+  raises ``RuntimeError``; with ``warn_only=True`` it warns and runs the
+  deterministic kernels.
+
+.. currentmodule:: flashinfer.cake_rmsnorm_train
+
+.. autosummary::
+    :toctree: ../generated
+
+    cake_rmsnorm
+    cake_rmsnorm_train_forward
+    cake_rmsnorm_train_backward
+    cake_rmsnorm_train_backward_workspace_bytes
+    cake_rmsnorm_train_backward_workspace
+    CakeRMSNormFunction
+    is_cake_rmsnorm_train_supported
+
+.. list-table:: Names before the ``det`` rename and their deterministic names
+    :header-rows: 1
+
+    * - Name (``deterministic=True`` by default)
+      - Deterministic name (always deterministic)
+    * - ``flashinfer.cake_rmsnorm_train``
+      - ``flashinfer.cake_rmsnorm_det_train``
+    * - ``cake_rmsnorm``
+      - ``cake_rmsnorm_det``
+    * - ``cake_rmsnorm_train_forward``
+      - ``cake_rmsnorm_det_train_forward``
+    * - ``cake_rmsnorm_train_backward``
+      - ``cake_rmsnorm_det_train_backward``
+    * - ``cake_rmsnorm_train_backward_workspace_bytes``
+      - ``cake_rmsnorm_det_train_backward_workspace_bytes``
+    * - ``cake_rmsnorm_train_backward_workspace``
+      - ``cake_rmsnorm_det_train_backward_workspace``
+    * - ``CakeRMSNormFunction``
+      - ``CakeRMSNormDetFunction``
+    * - ``is_cake_rmsnorm_train_supported``
+      - ``is_cake_rmsnorm_det_train_supported``
+
 Training SiLU-gated RMSNorm (Cake)
 ----------------------------------
 
