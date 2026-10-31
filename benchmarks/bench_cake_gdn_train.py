@@ -35,7 +35,9 @@ from ``--seed``:
 
 * ``det``: the deterministic package;
 * ``nondet``: the non-deterministic package, the reference arm of every ratio;
-* ``control``: the non-deterministic package again -- the identical-program control.
+* ``control``: the non-deterministic package again -- the identical-program control;
+* ``det_dir``: another build of the deterministic package, imported from the package directory ``--det-dir`` (a
+  standalone copy, for example a candidate build with prebuilt ``aot/`` libraries).
 
 Protocol: ``--groups`` groups (at least 3).  In every group the arms run in the pattern ``[nondet, X, X, nondet]`` for
 every other arm ``X``, ``--base`` first (``--base control`` puts the control in the place of ``det``).  Every call takes
@@ -90,7 +92,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 HEAD_DIM = 128
 L2_FLUSH_BYTES = 256 << 20
 MIB = float(1 << 20)
-ARMS = ("det", "nondet", "control")
+ARMS = ("det", "nondet", "control", "det_dir")
 BASES = ("det", "control")
 BOUNDARIES = ("fwd", "bwd", "fwdbwd", "ckpt")
 
@@ -163,12 +165,38 @@ def parse_names(text: str, choices: tuple[str, ...], flag: str) -> list[str]:
 # Arms and inputs
 
 
+# The package directory of the ``det_dir`` arm (``--det-dir``).
+DET_DIR: str | None = None
+
+
+def _load_package_dir(path: str) -> Any:
+    """Import a standalone package from its directory under the directory's name."""
+    import importlib.util
+
+    root = Path(path).resolve()
+    if root.name in sys.modules:
+        return sys.modules[root.name]
+    spec = importlib.util.spec_from_file_location(
+        root.name, root / "__init__.py", submodule_search_locations=[str(root)]
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"--det-dir {path}: not a package directory")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[root.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _entry(arm: str) -> Callable[..., Any]:
     """The GDN entry point of an arm, the package imported on first use (``--list`` needs no GPU and no package)."""
     if arm == "det":
         from flashinfer.experimental.cake_gdn_det_train import chunk_gated_delta_rule_det
 
         return chunk_gated_delta_rule_det
+    if arm == "det_dir":
+        if DET_DIR is None:
+            raise SystemExit("the det_dir arm needs --det-dir")
+        return _load_package_dir(DET_DIR).chunk_gated_delta_rule_det
     from flashinfer.experimental.cake.cake_gdn_train import chunk_gated_delta_rule
 
     return functools.partial(chunk_gated_delta_rule, deterministic=False)
@@ -491,7 +519,8 @@ def main() -> int:
     parser.add_argument(
         "--shapes", default="rows,packs,pairs", help="comma-separated set names (rows, packs, pairs) or shape ids"
     )
-    parser.add_argument("--arms", default="det,nondet", help="comma-separated arms of det, nondet, control")
+    parser.add_argument("--arms", default="det,nondet", help="comma-separated arms of det, nondet, control, det_dir")
+    parser.add_argument("--det-dir", default=None, help="package directory of the det_dir arm (a deterministic build)")
     parser.add_argument("--base", default="det", choices=BASES, help="the B arm of the headline ratio base / nondet")
     parser.add_argument(
         "--boundaries", default=",".join(BOUNDARIES), help="comma-separated boundaries of fwd, bwd, fwdbwd, ckpt"
@@ -512,6 +541,10 @@ def main() -> int:
         args.boundaries = parse_names(args.boundaries, BOUNDARIES, "--boundaries")
     except ValueError as err:
         parser.error(str(err))
+    global DET_DIR
+    DET_DIR = args.det_dir
+    if "det_dir" in requested and DET_DIR is None:
+        parser.error("the det_dir arm needs --det-dir")
     if args.groups < 3 or args.samples < 8 or args.warmup < 0:
         parser.error("the protocol takes at least 3 groups, 8 samples per call and a non-negative warmup")
     if not torch.cuda.is_available():
