@@ -737,9 +737,9 @@ and across a forward edge between programs of different per-row thread groups ``
 may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
 by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
-FP64 column sums in a scheduling-dependent order: its ``dw`` is not bitwise
-reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs the
-deterministic package's main kernel and fixed-order dw reduce, rendered into this
+FP64 column sums in a scheduling-dependent order: its ``dw`` is
+not bitwise reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs
+the deterministic package's main kernel and fixed-order dw reduce, rendered into this
 package, where that pair is the faster form.
 """
 
@@ -755,9 +755,9 @@ and across a forward edge between programs of different per-row thread groups ``
 may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
 by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
-FP64 column sums in a scheduling-dependent order: its ``dw`` is not bitwise
-reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs the
-deterministic package's main kernel and fixed-order dw reduce, rendered into this
+FP64 column sums in a scheduling-dependent order: its ``dw`` is
+not bitwise reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs
+the deterministic package's main kernel and fixed-order dw reduce, rendered into this
 package, where that pair is the faster form.
 
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
@@ -846,9 +846,9 @@ and across a forward edge between programs of different per-row thread groups ``
 may move by one FP32 ulp and ``y`` by one BF16 ulp on a few rows.  A backward window
 (``deterministic=False``) runs one of two forms.  The single kernel computes ``dx`` row
 by row as the deterministic backward does and adds the ``dw`` sums of its CTAs into
-FP64 column sums in a scheduling-dependent order: its ``dw`` is not bitwise
-reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs the
-deterministic package's main kernel and fixed-order dw reduce, rendered into this
+FP64 column sums in a scheduling-dependent order: its ``dw`` is
+not bitwise reproducible, even for a fixed ``T``.  A window marked ``(det pair)`` runs
+the deterministic package's main kernel and fixed-order dw reduce, rendered into this
 package, where that pair is the faster form.
 
 The windows per architecture and route, ``(above, at_most]`` and the program (the first
