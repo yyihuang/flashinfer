@@ -490,8 +490,14 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (256, 1024, "cake_rmsnorm_train_e5a3aa2548fc41ee0485"),
             (1024, None, "cake_rmsnorm_train_6325c474ad9955a319e9"),
         ),
-        "bwd_h256": ((0, None, "cake_rmsnorm_train_5450d39836b26cfd3256"),),
-        "bwd_w32_h256": ((0, None, "cake_rmsnorm_train_5e0c6208d4b426f79faa"),),
+        "bwd_h256": (
+            (0, 3584, "cake_rmsnorm_train_5450d39836b26cfd3256"),
+            (3584, None, "cake_rmsnorm_train_195c4317b51bb4ea1137"),
+        ),
+        "bwd_w32_h256": (
+            (0, 3584, "cake_rmsnorm_train_5e0c6208d4b426f79faa"),
+            (3584, None, "cake_rmsnorm_train_8de0131445eed6eeabb7"),
+        ),
         "bwd_h512": (
             (0, 1024, "cake_rmsnorm_train_3feed5026e1156d2fba2"),
             (1024, 4096, "cake_rmsnorm_train_3feed5026e1156d2fba2"),
@@ -549,10 +555,18 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
             (24576, None, "cake_rmsnorm_train_dd795e849940a49d0d29"),
         ),
         "bwd_h6144": ((0, None, "cake_rmsnorm_train_5d292172df772adb17ae"),),
-        "bwd_residual_h6144": ((0, None, "cake_rmsnorm_train_0dcdc563be377247044e"),),
+        "bwd_residual_h6144": (
+            (0, 448, "cake_rmsnorm_train_0dcdc563be377247044e"),
+            (448, 3584, "cake_rmsnorm_train_864e84f3d874f850c091"),
+            (3584, 7168, "cake_rmsnorm_train_0dcdc563be377247044e"),
+            (7168, None, "cake_rmsnorm_train_87d2866c1ea3bcc08b13"),
+        ),
         "bwd_w32_h6144": ((0, None, "cake_rmsnorm_train_7d2f6707bfa3d2cd60bb"),),
         "bwd_w32_residual_h6144": (
-            (0, None, "cake_rmsnorm_train_56f988dde54db37f09d9"),
+            (0, 448, "cake_rmsnorm_train_56f988dde54db37f09d9"),
+            (448, 3584, "cake_rmsnorm_train_71d36617003ab7742a77"),
+            (3584, 7168, "cake_rmsnorm_train_56f988dde54db37f09d9"),
+            (7168, None, "cake_rmsnorm_train_647589443d4915ca8fde"),
         ),
     },
 }
@@ -749,8 +763,8 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "fwd_w32_h6144": ((1024, "same"), (4096, "same")),
         "fwd_residual_h6144": ((256, "ulp"), (1024, "ulp")),
         "fwd_w32_residual_h6144": ((256, "ulp"), (1024, "ulp")),
-        "bwd_h256": (),
-        "bwd_w32_h256": (),
+        "bwd_h256": ((3584, "unmeasured"),),
+        "bwd_w32_h256": ((3584, "unmeasured"),),
         "bwd_h512": ((1024, "unmeasured"), (4096, "unmeasured"), (16384, "unmeasured")),
         "bwd_w32_h512": (
             (1024, "unmeasured"),
@@ -774,9 +788,17 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
         "bwd_h5120": ((4096, "unmeasured"), (24576, "unmeasured")),
         "bwd_w32_h5120": ((4096, "unmeasured"), (24576, "unmeasured")),
         "bwd_h6144": (),
-        "bwd_residual_h6144": (),
+        "bwd_residual_h6144": (
+            (448, "unmeasured"),
+            (3584, "unmeasured"),
+            (7168, "unmeasured"),
+        ),
         "bwd_w32_h6144": (),
-        "bwd_w32_residual_h6144": (),
+        "bwd_w32_residual_h6144": (
+            (448, "unmeasured"),
+            (3584, "unmeasured"),
+            (7168, "unmeasured"),
+        ),
     },
 }
 
@@ -798,20 +820,16 @@ DET_PAIR_ROUTES: dict[str, dict[str, str]] = {
         "bwd_w32_h4096": "no single kernel beats the det pair in the FI bench (GB300, 152 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
     },
     "sm_107a": {
-        "bwd_h256": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_w32_h256": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_h512": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_w32_h512": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_h1536": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_w32_h1536": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_h2048": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_w32_h2048": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_h4096": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_w32_h4096": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_h6144": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_w32_h6144": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_residual_h6144": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
-        "bwd_w32_residual_h6144": "no single-kernel window is measured on R200 (216 SMs) yet, so the det pair serves every token count",
+        "bwd_h512": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_w32_h512": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_h1536": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_w32_h1536": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_h2048": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_w32_h2048": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_h4096": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_w32_h4096": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_h6144": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
+        "bwd_w32_h6144": "no single kernel beats the det pair in the FI bench (R200, 216 SMs, CUDA-graph span, 2 sessions) at any measured T of this route",
     },
 }
 
@@ -905,8 +923,8 @@ WHOLE_SM: dict[str, dict[str, tuple[tuple[int, int | None], ...]]] = {
         "bwd_w32_h2048": ((256, None),),
         "bwd_h4096": ((1024, None),),
         "bwd_w32_h4096": ((1024, None),),
-        "bwd_residual_h6144": ((0, None),),
-        "bwd_w32_residual_h6144": ((0, None),),
+        "bwd_residual_h6144": ((0, 448), (3584, 7168)),
+        "bwd_w32_residual_h6144": ((0, 448), (3584, 7168)),
     },
 }
 WHOLE_SM_REMEDY = "Beside those, leave some SMs free of the resident kernel."
@@ -1096,8 +1114,8 @@ Beside those, leave some SMs free of the resident kernel.
 * ``sm_107a`` ``bwd_w32_h2048``: (256, inf)
 * ``sm_107a`` ``bwd_h4096``: (1024, inf)
 * ``sm_107a`` ``bwd_w32_h4096``: (1024, inf)
-* ``sm_107a`` ``bwd_residual_h6144``: (0, inf)
-* ``sm_107a`` ``bwd_w32_residual_h6144``: (0, inf)
+* ``sm_107a`` ``bwd_residual_h6144``: (0, 448], (3584, 7168]
+* ``sm_107a`` ``bwd_w32_residual_h6144``: (0, 448], (3584, 7168]
 
 * ``sm_100a`` ``bwd_h256``: (0, inf) 195c4317
 * ``sm_100a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) =
@@ -1137,7 +1155,7 @@ Beside those, leave some SMs free of the resident kernel.
 * ``sm_103a`` ``bwd_residual_h6144``: (0, 2304] 864e84f3 ?
   (2304, 2816] 0dcdc563 (det pair) ? (2816, 4608] 115dcc71 ?
   (4608, 5632] 0dcdc563 (det pair) ? (5632, inf) 115dcc71
-* ``sm_107a`` ``bwd_h256``: (0, inf) 5450d398 (det pair)
+* ``sm_107a`` ``bwd_h256``: (0, 3584] 5450d398 (det pair) ? (3584, inf) 195c4317
 * ``sm_107a`` ``bwd_h512``: (0, 1024] 3feed502 (det pair) ?
   (1024, 4096] 3feed502 (det pair) ? (4096, 16384] dfaf378a (det pair) ?
   (16384, inf) eb141cc9 (det pair)
@@ -1152,7 +1170,8 @@ Beside those, leave some SMs free of the resident kernel.
 * ``sm_107a`` ``bwd_h5120``: (0, 4096] 838c077d (det pair) ?
   (4096, 24576] 6816fb80 (det pair) ? (24576, inf) f94f8c33
 * ``sm_107a`` ``bwd_h6144``: (0, inf) 5d292172 (det pair)
-* ``sm_107a`` ``bwd_residual_h6144``: (0, inf) 0dcdc563 (det pair)
+* ``sm_107a`` ``bwd_residual_h6144``: (0, 448] 0dcdc563 (det pair) ?
+  (448, 3584] 864e84f3 ? (3584, 7168] 0dcdc563 (det pair) ? (7168, inf) 87d2866c
 """
 
 SECTIONS: dict[str, str] = {"fwd": FORWARD_SECTION, "bwd": BACKWARD_SECTION}
