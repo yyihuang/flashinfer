@@ -108,7 +108,23 @@ ROWS: dict[str, tuple[int, int, tuple[int, ...]]] = {
     "r06_real15x4.3k_h8": (
         8,
         16,
-        (2756, 4479, 4053, 4052, 5896, 4229, 5238, 3013, 4429, 4175, 3743, 4029, 5404, 3129, 5875),
+        (
+            2756,
+            4479,
+            4053,
+            4052,
+            5896,
+            4229,
+            5238,
+            3013,
+            4429,
+            4175,
+            3743,
+            4029,
+            5404,
+            3129,
+            5875,
+        ),
     ),
     "r07_1x16384_h8": (8, 16, (16384,)),
     "r08_4x4096_h16": (16, 32, (4096,) * 4),
@@ -147,7 +163,9 @@ def parse_shapes(text: str) -> list[str]:
         elif token in SHAPES:
             ids.append(token)
         else:
-            raise ValueError(f"unknown shape or set {token!r} (sets: {', '.join(SETS)}; --list prints the ids)")
+            raise ValueError(
+                f"unknown shape or set {token!r} (sets: {', '.join(SETS)}; --list prints the ids)"
+            )
     if not ids:
         raise ValueError("--shapes selects no shape")
     return list(dict.fromkeys(ids))
@@ -157,7 +175,9 @@ def parse_names(text: str, choices: tuple[str, ...], flag: str) -> list[str]:
     names = [t.strip() for t in text.split(",") if t.strip()]
     unknown = [n for n in names if n not in choices]
     if unknown or not names:
-        raise ValueError(f"{flag} takes a comma-separated subset of {', '.join(choices)} (got {text!r})")
+        raise ValueError(
+            f"{flag} takes a comma-separated subset of {', '.join(choices)} (got {text!r})"
+        )
     return list(dict.fromkeys(names))
 
 
@@ -190,7 +210,9 @@ def _load_package_dir(path: str) -> Any:
 def _entry(arm: str) -> Callable[..., Any]:
     """The GDN entry point of an arm, the package imported on first use (``--list`` needs no GPU and no package)."""
     if arm == "det":
-        from flashinfer.experimental.cake_gdn_det_train import chunk_gated_delta_rule_det
+        from flashinfer.experimental.cake_gdn_det_train import (
+            chunk_gated_delta_rule_det,
+        )
 
         return chunk_gated_delta_rule_det
     if arm == "det_dir":
@@ -203,13 +225,17 @@ def _entry(arm: str) -> Callable[..., Any]:
 
 
 class Problem(NamedTuple):
-    leaves: tuple[torch.Tensor, ...]  # q, k, v, g, beta: autograd leaves shared by every arm
+    leaves: tuple[
+        torch.Tensor, ...
+    ]  # q, k, v, g, beta: autograd leaves shared by every arm
     do: torch.Tensor  # the upstream gradient of o
     cu_seqlens: torch.Tensor  # int32 offsets on the device
     cu_seqlens_cpu: torch.Tensor  # the same offsets on the host
 
 
-def make_problem(h: int, hv: int, seq_lens: tuple[int, ...], seed: int, device: torch.device) -> Problem:
+def make_problem(
+    h: int, hv: int, seq_lens: tuple[int, ...], seed: int, device: torch.device
+) -> Problem:
     """``q, k`` BF16 ``[1, T, H, 128]`` (L2-normalised in the kernel), ``v, do`` BF16 ``[1, T, HV, 128]``, ``g`` FP32
     ``[1, T, HV]`` (natural-log decay, ``logsigmoid`` of a normal: negative) and ``beta`` FP32 ``[1, T, HV]`` in
     (0, 1), drawn on the device from ``seed``."""
@@ -236,7 +262,16 @@ def make_forward(arm: str, problem: Problem) -> Callable[..., torch.Tensor]:
     cu, cu_cpu = problem.cu_seqlens, problem.cu_seqlens_cpu
 
     def forward(q, k, v, g, beta):
-        o, _ = entry(q, k, v, g, beta, cu_seqlens=cu, cu_seqlens_cpu=cu_cpu, use_qk_l2norm_in_kernel=True)
+        o, _ = entry(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            cu_seqlens=cu,
+            cu_seqlens_cpu=cu_cpu,
+            use_qk_l2norm_in_kernel=True,
+        )
         return o
 
     return forward
@@ -257,7 +292,9 @@ def _block_bytes(t: torch.Tensor) -> int:
 
 
 def check_outputs(
-    forwards: dict[str, Callable[..., torch.Tensor]], problem: Problem, device: torch.device
+    forwards: dict[str, Callable[..., torch.Tensor]],
+    problem: Problem,
+    device: torch.device,
 ) -> tuple[dict[str, bool], float | None, dict[str, int]]:
     """One forward + backward per arm: whether the output and the input gradients are finite, the relative difference
     ``max|o_nondet - o_det| / max|o_det|`` (when both arms run) and the net memory each arm's first call leaves
@@ -287,7 +324,9 @@ def check_outputs(
     return finite, diff, pool
 
 
-def measure_memory(forward: Callable[..., torch.Tensor], problem: Problem, device: torch.device) -> dict[str, int]:
+def measure_memory(
+    forward: Callable[..., torch.Tensor], problem: Problem, device: torch.device
+) -> dict[str, int]:
     """Bytes relative to the baseline (inputs allocated, no graph, no gradient): retained after the forward with the
     graph alive and peak during forward + backward, for the plain and the checkpointed forward."""
     leaves, do = problem.leaves, problem.do
@@ -307,10 +346,14 @@ def measure_memory(forward: Callable[..., torch.Tensor], problem: Problem, devic
         torch.cuda.reset_peak_memory_stats(device)
         o = run()
         torch.cuda.synchronize(device)
-        result[prefix + "retained_bytes"] = torch.cuda.memory_allocated(device) - baseline
+        result[prefix + "retained_bytes"] = (
+            torch.cuda.memory_allocated(device) - baseline
+        )
         torch.autograd.backward(o, do)
         torch.cuda.synchronize(device)
-        result[prefix + "peak_temp_bytes"] = torch.cuda.max_memory_allocated(device) - baseline
+        result[prefix + "peak_temp_bytes"] = (
+            torch.cuda.max_memory_allocated(device) - baseline
+        )
         del o
     _clear_grads(leaves)
     return result
@@ -321,11 +364,17 @@ def measure_memory(forward: Callable[..., torch.Tensor], problem: Problem, devic
 
 
 class Step(NamedTuple):
-    prepare: Callable[[], Any]  # untimed, before the L2 flush; its result is passed to ``timed``
-    timed: Callable[[Any], Any]  # the timed region; its result (a graph for ``fwd``) is freed after the end event
+    prepare: Callable[
+        [], Any
+    ]  # untimed, before the L2 flush; its result is passed to ``timed``
+    timed: Callable[
+        [Any], Any
+    ]  # the timed region; its result (a graph for ``fwd``) is freed after the end event
 
 
-def make_step(forward: Callable[..., torch.Tensor], problem: Problem, boundary: str) -> Step:
+def make_step(
+    forward: Callable[..., torch.Tensor], problem: Problem, boundary: str
+) -> Step:
     leaves, do = problem.leaves, problem.do
 
     def clear() -> None:
@@ -353,7 +402,10 @@ def make_step(forward: Callable[..., torch.Tensor], problem: Problem, boundary: 
 
 
 def _sample(
-    step: Step, flush: torch.Tensor, events: tuple[torch.cuda.Event, torch.cuda.Event], device: torch.device
+    step: Step,
+    flush: torch.Tensor,
+    events: tuple[torch.cuda.Event, torch.cuda.Event],
+    device: torch.device,
 ) -> float:
     """Milliseconds of one timed iteration: prepare, flush the L2, synchronize, then time ``step.timed``."""
     state = step.prepare()
@@ -384,13 +436,22 @@ def _stats(steady: list[list[float]]) -> dict[str, Any]:
 
 
 def run_protocol(
-    steps: dict[str, Step], pattern: list[str], args: argparse.Namespace, flush: torch.Tensor, device: torch.device
+    steps: dict[str, Step],
+    pattern: list[str],
+    args: argparse.Namespace,
+    flush: torch.Tensor,
+    device: torch.device,
 ) -> dict[str, dict[str, Any]]:
     """The grouped ABBA protocol of one boundary: per arm the statistics of its steady samples and the raw calls."""
     arms = list(dict.fromkeys(pattern))
-    steady: dict[str, list[list[float]]] = {arm: [[] for _ in range(args.groups)] for arm in arms}
+    steady: dict[str, list[list[float]]] = {
+        arm: [[] for _ in range(args.groups)] for arm in arms
+    }
     calls: dict[str, list[dict[str, Any]]] = {arm: [] for arm in arms}
-    events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+    events = (
+        torch.cuda.Event(enable_timing=True),
+        torch.cuda.Event(enable_timing=True),
+    )
     last: str | None = None
     for group in range(args.groups):
         for arm in pattern:
@@ -401,10 +462,14 @@ def run_protocol(
                 if i < args.warmup:
                     continue
                 times.append(ms)
-                if i > 0 or previous == arm:  # the iteration dispatched before this one ran the same arm
+                if (
+                    i > 0 or previous == arm
+                ):  # the iteration dispatched before this one ran the same arm
                     steady[arm][group].append(ms)
             last = arm
-            calls[arm].append({"group": group, "previous": previous, "samples_ms": times})
+            calls[arm].append(
+                {"group": group, "previous": previous, "samples_ms": times}
+            )
     return {arm: {**_stats(steady[arm]), "calls": calls[arm]} for arm in arms}
 
 
@@ -450,40 +515,67 @@ def run_shape(
     device: torch.device,
 ) -> dict[str, Any]:
     h, hv, seq_lens = SHAPES[shape_id]
-    record: dict[str, Any] = {"id": shape_id, "H": h, "HV": hv, "seq_lens": list(seq_lens), "T": sum(seq_lens)}
-    print(f"\n== {shape_id}: H={h} HV={hv} docs={len(seq_lens)} T={sum(seq_lens)}", flush=True)
+    record: dict[str, Any] = {
+        "id": shape_id,
+        "H": h,
+        "HV": hv,
+        "seq_lens": list(seq_lens),
+        "T": sum(seq_lens),
+    }
+    print(
+        f"\n== {shape_id}: H={h} HV={hv} docs={len(seq_lens)} T={sum(seq_lens)}",
+        flush=True,
+    )
     problem = make_problem(h, hv, seq_lens, args.seed, device)
     forwards = {arm: make_forward(arm, problem) for arm in arms}
     finite, diff, pool = check_outputs(forwards, problem, device)
     record["finite"] = finite
     record["rel_max_diff_o_nondet_det"] = diff
-    verdicts = " ".join(f"{arm}={'ok' if ok else 'NOT FINITE'}" for arm, ok in finite.items())
+    verdicts = " ".join(
+        f"{arm}={'ok' if ok else 'NOT FINITE'}" for arm, ok in finite.items()
+    )
     diff_text = "n/a" if diff is None else f"{diff:.3e}"
-    print(f"  check: {verdicts} | max|o_nondet - o_det| / max|o_det| = {diff_text}", flush=True)
+    print(
+        f"  check: {verdicts} | max|o_nondet - o_det| / max|o_det| = {diff_text}",
+        flush=True,
+    )
     if not all(finite.values()):
         record["skipped"] = "non-finite output or input gradient: not timed"
         return record
 
     record["memory"] = {
-        arm: {**measure_memory(forwards[arm], problem, device), "pool_bytes": pool[arm]} for arm in arms
+        arm: {**measure_memory(forwards[arm], problem, device), "pool_bytes": pool[arm]}
+        for arm in arms
     }
     others = [arm for arm in arms if arm != "nondet"]
     timings: dict[str, dict[str, dict[str, Any]]] = {}
     for boundary in args.boundaries:
         steps = {arm: make_step(forwards[arm], problem, boundary) for arm in arms}
         timings[boundary] = run_protocol(steps, pattern, args, flush, device)
-    record["arms"] = {arm: {b: timings[b][arm] for b in args.boundaries} for arm in arms}
+    record["arms"] = {
+        arm: {b: timings[b][arm] for b in args.boundaries} for arm in arms
+    }
     record["ratios"] = {
-        b: {f"{x}/nondet": timings[b][x]["median_ms"] / timings[b]["nondet"]["median_ms"] for x in others}
+        b: {
+            f"{x}/nondet": timings[b][x]["median_ms"]
+            / timings[b]["nondet"]["median_ms"]
+            for x in others
+        }
         for b in args.boundaries
     }
-    record["ratio_base_over_nondet"] = {b: record["ratios"][b][f"{args.base}/nondet"] for b in args.boundaries}
+    record["ratio_base_over_nondet"] = {
+        b: record["ratios"][b][f"{args.base}/nondet"] for b in args.boundaries
+    }
     _print_shape(record, arms, others, args.boundaries)
     return record
 
 
-def _print_shape(record: dict[str, Any], arms: list[str], others: list[str], boundaries: list[str]) -> None:
-    head = [f"{arm + ' ms':>12s} {'spread':>7s}" for arm in arms] + [f"{x + '/nondet':>15s}" for x in others]
+def _print_shape(
+    record: dict[str, Any], arms: list[str], others: list[str], boundaries: list[str]
+) -> None:
+    head = [f"{arm + ' ms':>12s} {'spread':>7s}" for arm in arms] + [
+        f"{x + '/nondet':>15s}" for x in others
+    ]
     print(f"  {'boundary':8s} | " + " | ".join(head))
     for b in boundaries:
         cells = [
@@ -509,7 +601,9 @@ def _print_shape(record: dict[str, Any], arms: list[str], others: list[str], bou
 def _list_shapes() -> None:
     for set_name, shapes in SETS.items():
         for shape_id, (h, hv, seq_lens) in shapes.items():
-            print(f"{set_name:6s} {shape_id:26s} H={h:<3d} HV={hv:<3d} docs={len(seq_lens):<3d} T={sum(seq_lens)}")
+            print(
+                f"{set_name:6s} {shape_id:26s} H={h:<3d} HV={hv:<3d} docs={len(seq_lens):<3d} T={sum(seq_lens)}"
+            )
 
 
 def main() -> int:
@@ -517,20 +611,52 @@ def main() -> int:
         description="Cake GDN training step on one GPU: the deterministic package against the non-deterministic one."
     )
     parser.add_argument(
-        "--shapes", default="rows,packs,pairs", help="comma-separated set names (rows, packs, pairs) or shape ids"
+        "--shapes",
+        default="rows,packs,pairs",
+        help="comma-separated set names (rows, packs, pairs) or shape ids",
     )
-    parser.add_argument("--arms", default="det,nondet", help="comma-separated arms of det, nondet, control, det_dir")
-    parser.add_argument("--det-dir", default=None, help="package directory of the det_dir arm (a deterministic build)")
-    parser.add_argument("--base", default="det", choices=BASES, help="the B arm of the headline ratio base / nondet")
     parser.add_argument(
-        "--boundaries", default=",".join(BOUNDARIES), help="comma-separated boundaries of fwd, bwd, fwdbwd, ckpt"
+        "--arms",
+        default="det,nondet",
+        help="comma-separated arms of det, nondet, control, det_dir",
     )
-    parser.add_argument("--groups", type=int, default=5, help="measurement groups (at least 3)")
-    parser.add_argument("--samples", type=int, default=10, help="timed iterations per call (at least 8)")
-    parser.add_argument("--warmup", type=int, default=3, help="untimed iterations per call")
-    parser.add_argument("--seed", type=int, default=0, help="seed of the inputs (drawn once per shape)")
-    parser.add_argument("--json", type=str, default=None, help="write the report here (rewritten after every shape)")
-    parser.add_argument("--list", action="store_true", help="print the shape ids and exit")
+    parser.add_argument(
+        "--det-dir",
+        default=None,
+        help="package directory of the det_dir arm (a deterministic build)",
+    )
+    parser.add_argument(
+        "--base",
+        default="det",
+        choices=BASES,
+        help="the B arm of the headline ratio base / nondet",
+    )
+    parser.add_argument(
+        "--boundaries",
+        default=",".join(BOUNDARIES),
+        help="comma-separated boundaries of fwd, bwd, fwdbwd, ckpt",
+    )
+    parser.add_argument(
+        "--groups", type=int, default=5, help="measurement groups (at least 3)"
+    )
+    parser.add_argument(
+        "--samples", type=int, default=10, help="timed iterations per call (at least 8)"
+    )
+    parser.add_argument(
+        "--warmup", type=int, default=3, help="untimed iterations per call"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=0, help="seed of the inputs (drawn once per shape)"
+    )
+    parser.add_argument(
+        "--json",
+        type=str,
+        default=None,
+        help="write the report here (rewritten after every shape)",
+    )
+    parser.add_argument(
+        "--list", action="store_true", help="print the shape ids and exit"
+    )
     args = parser.parse_args()
     if args.list:
         _list_shapes()
@@ -546,7 +672,9 @@ def main() -> int:
     if "det_dir" in requested and DET_DIR is None:
         parser.error("the det_dir arm needs --det-dir")
     if args.groups < 3 or args.samples < 8 or args.warmup < 0:
-        parser.error("the protocol takes at least 3 groups, 8 samples per call and a non-negative warmup")
+        parser.error(
+            "the protocol takes at least 3 groups, 8 samples per call and a non-negative warmup"
+        )
     if not torch.cuda.is_available():
         raise SystemExit("a CUDA device is required")
 
@@ -563,7 +691,13 @@ def main() -> int:
         flush=True,
     )
     flush = torch.empty(L2_FLUSH_BYTES, dtype=torch.uint8, device=device)
-    report: dict[str, Any] = {"env": env, "args": vars(args), "arms": arms, "pattern": pattern, "shapes": []}
+    report: dict[str, Any] = {
+        "env": env,
+        "args": vars(args),
+        "arms": arms,
+        "pattern": pattern,
+        "shapes": [],
+    }
     status = 0
     for shape_id in shapes:
         record = run_shape(shape_id, arms, pattern, args, flush, device)
