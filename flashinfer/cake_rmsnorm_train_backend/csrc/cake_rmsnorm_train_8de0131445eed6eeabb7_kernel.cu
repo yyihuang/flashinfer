@@ -570,26 +570,24 @@ kernel_cake_rmsnorm_train_8de0131445eed6eeabb7(__nv_bfloat16* __restrict__ g, __
     __syncthreads();
     if (flags[2] != 0) {
         double buf[4];
-        int at_r_0 = tid;
         {
             uint64_t _scalar_bits_26;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_26) : "l"((const void*)(partial + (at_r_0))) : "memory");
+                : "=l"(_scalar_bits_26) : "l"((const void*)(partial + (tid))) : "memory");
             buf[0] = __longlong_as_double(_scalar_bits_26);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_0)) = (unsigned long long)((unsigned long long)(0.0));
-        int at_r_1 = 256 + tid;
         {
             uint64_t _scalar_bits_27;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_27) : "l"((const void*)(partial + (at_r_1))) : "memory");
+                : "=l"(_scalar_bits_27) : "l"((const void*)(partial + (256 + tid))) : "memory");
             buf[1] = __longlong_as_double(_scalar_bits_27);
         }
-        *reinterpret_cast<unsigned long long*>(partial + (at_r_1)) = (unsigned long long)((unsigned long long)(0.0));
         double tot_0 = buf[0];
         tot_0 = tot_0 + buf[1];
         int at_w_0 = tid;
         dwbuf[(at_w_0 / 32 / 8 * 32 + at_w_0 % 32) * 8 + at_w_0 / 32 % 8] = (float)tot_0;
+        *reinterpret_cast<unsigned long long*>(partial + (at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (256 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
         __syncthreads();
         int col_0 = tid * 4;
         if (col_0 < 256) {
