@@ -546,13 +546,13 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
         ),
         "bwd_h5120": (
             (0, 4096, "cake_rmsnorm_train_838c077df3a6d35d55b7"),
-            (4096, 24576, "cake_rmsnorm_train_6816fb80e97380f1bcbc"),
-            (24576, None, "cake_rmsnorm_train_f94f8c33e2c9c8e89fc3"),
+            (4096, 32768, "cake_rmsnorm_train_6816fb80e97380f1bcbc"),
+            (32768, None, "cake_rmsnorm_train_f94f8c33e2c9c8e89fc3"),
         ),
         "bwd_w32_h5120": (
             (0, 4096, "cake_rmsnorm_train_cd612de56c0985bb4caa"),
-            (4096, 24576, "cake_rmsnorm_train_468cc4d1b8128187b4b3"),
-            (24576, None, "cake_rmsnorm_train_dd795e849940a49d0d29"),
+            (4096, 32768, "cake_rmsnorm_train_468cc4d1b8128187b4b3"),
+            (32768, None, "cake_rmsnorm_train_dd795e849940a49d0d29"),
         ),
         "bwd_h6144": ((0, None, "cake_rmsnorm_train_5d292172df772adb17ae"),),
         "bwd_residual_h6144": (
@@ -785,8 +785,8 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
             (1024, "unmeasured"),
             (4096, "unmeasured"),
         ),
-        "bwd_h5120": ((4096, "unmeasured"), (24576, "unmeasured")),
-        "bwd_w32_h5120": ((4096, "unmeasured"), (24576, "unmeasured")),
+        "bwd_h5120": ((4096, "unmeasured"), (32768, "unmeasured")),
+        "bwd_w32_h5120": ((4096, "unmeasured"), (32768, "unmeasured")),
         "bwd_h6144": (),
         "bwd_residual_h6144": (
             (448, "unmeasured"),
@@ -1168,7 +1168,7 @@ Beside those, leave some SMs free of the resident kernel.
   (256, 1024] a647fccc (det pair) ? (1024, 4096] d41a514f (det pair) ?
   (4096, inf) ee4a9053 (det pair)
 * ``sm_107a`` ``bwd_h5120``: (0, 4096] 838c077d (det pair) ?
-  (4096, 24576] 6816fb80 (det pair) ? (24576, inf) f94f8c33
+  (4096, 32768] 6816fb80 (det pair) ? (32768, inf) f94f8c33
 * ``sm_107a`` ``bwd_h6144``: (0, inf) 5d292172 (det pair)
 * ``sm_107a`` ``bwd_residual_h6144``: (0, 448] 0dcdc563 (det pair) ?
   (448, 3584] 864e84f3 ? (3584, 7168] 0dcdc563 (det pair) ? (7168, inf) 87d2866c
