@@ -192,6 +192,28 @@ captured in a CUDA graph (warm it up first, like any captured call).  Every
 tail runs on the caller's stream.
 `streams=1` keeps every launch on the caller's stream.
 
+## Speed against the deterministic package
+
+`benchmarks/bench_cake_gdn_train.py` times this package against
+`flashinfer.experimental.cake_gdn_det_train` on its rows, packs, head pairs
+and group shapes (ABBA order, CUDA events, the L2 flushed before every call),
+prints the stages each backward launched, and lists at the end every shape and
+boundary where this package is slower than the other arm by more than the sum
+of the two spreads.  Backward time of the deterministic package over this
+package's (above 1: this package is faster):
+
+| shapes | what this package runs differently | B200 | GB300 |
+|---|---|---|---|
+| `g1_*`, `g4_*` (`G` 1 or 4, at least 2048 chunks x `HV`) | the `"tail"` tail (and the priced table on the `4x4096` ones) | 1.23-1.29 | 1.28-1.37 |
+| `r01`, `r02`, `r07`, `r10`, the `(2, 6)` packs `issue`, `P3`, `P1`, the pairs `(8, 24)`, `(4, 12)`, `(2, 6)`; `r04` and `(1, 3)` on B200 | the adjoint table priced for `dhu_tc2` | 0.995-1.15 | 1.03-1.15 |
+| the other shapes | nothing: the deterministic package's programs and tables | 0.98-1.00 | 0.99-1.00 |
+
+Slower than the deterministic package beyond the sum of the spreads: the B200
+forward of `g4_4x4096_h4` (0.7 %), whose forward runs the same programs.
+Within the spreads, shapes measure up to 1.9 %
+(`r09_16x4096_h16`, B200) and 1.2 % (`g3_16x4096_h1`, GB300) slower in the
+backward, and the forward of every shape between 2.2 % slower and 0.4 % faster.
+
 ## Plan pins (keyword-only)
 
 | keyword | default | effect |
