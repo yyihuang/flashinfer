@@ -34,9 +34,11 @@ Every entry point takes ``deterministic`` (default ``True``):
   that package's results.
 * ``deterministic=False`` runs this package's kernels: the same forward programs
   (the forward has no cross-row reduction) and one backward kernel whose
-  persistent CTAs claim row chunks, write ``dx`` and add their FP32 ``dw``
-  partials into ``dw`` with atomics.  ``dx`` is computed as the deterministic
-  backward computes it; ``dw`` may differ between calls in its last bits.  This
+  persistent CTAs claim row chunks, write ``dx`` and add their per-column
+  ``dw`` sums into FP64 sums in the workspace in the order they finish; the CTA
+  that finishes last rounds the sums into ``dw``.  ``dx`` is computed as the
+  deterministic backward computes it; ``dw`` is not guaranteed bitwise
+  reproducible (the order of the FP64 additions depends on scheduling).  This
   path also accepts ``[..., H]`` inputs whose leading dimensions collapse into
   rows (for example a ``[T, heads, 256]`` per-head view sharing one ``w[256]``)
   and an FP32 weight on the routes that ship the FP32-weight programs.
@@ -45,8 +47,9 @@ Every entry point takes ``deterministic`` (default ``True``):
   the deterministic kernels.  A call that asks for determinism never runs the
   non-deterministic kernels.
 
-All kernels use FP32 statistics and accumulation with IEEE division and
-square root (no fast-math).  Inputs and outputs are BF16; ``rstd`` and ``dw``
+All kernels use FP32 statistics and accumulation (the non-deterministic
+``dw`` sums across CTAs in FP64) with IEEE division and square root (no
+fast-math).  Inputs and outputs are BF16; ``rstd`` and ``dw``
 are FP32.  Row-strided inputs (``x``, ``residual``, ``g``, ``g_residual``)
 are accepted when ``stride(1) == 1``, ``stride(0)`` is a multiple of eight
 elements and the storage is aligned (32 bytes for the forward inputs, 16 for
@@ -54,11 +57,13 @@ the backward); outputs are contiguous.  The token count ``T`` is a runtime
 scalar: it may change between calls, ``T == 1`` is supported and ``T == 0``
 returns empty outputs (a zero ``dw``) without launching.
 
-The non-deterministic backward's workspace is a few self-resetting counters
+The non-deterministic backward's workspace is a few counters and one FP64 sum
+per column, all left at zero by the kernel
 (``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``
-bytes, whatever ``T`` and ``H``): zero it once, reuse it across calls, token
-counts, widths and CUDA Graph replays, and give each stream that may run a
-backward at the same time its own buffer.  The kernel zeroes ``dw`` itself.
+bytes, ``256 + 8 * H`` whatever ``T``): zero it once, reuse it across calls,
+token counts, widths up to its own and CUDA Graph replays, and give each stream
+that may run a backward at the same time its own buffer.  The kernel writes all
+of ``dw``.
 
 Usage::
 
@@ -71,7 +76,7 @@ Usage::
     y = cake_rmsnorm(x, w, eps, deterministic=False)
     y, h_new = cake_rmsnorm(h, w, eps, residual=u, deterministic=False)  # fused add
 
-    # caller-owned non-deterministic workspace (counters only)
+    # caller-owned non-deterministic workspace (counters + FP64 column sums)
     ws = cake_rmsnorm_train_backward_workspace(T, H, x.device, deterministic=False)
     dx, dw = cake_rmsnorm_train_backward(g, x, w, rstd, deterministic=False, workspace=ws)
 """

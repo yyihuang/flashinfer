@@ -291,19 +291,23 @@ def test_nondeterministic_flag_selects_this_package(
 
 
 @requires_device
-def test_nondeterministic_workspace_is_counters_only(no_determinism) -> None:
-    nbytes = cake_rmsnorm_train_backward_workspace_bytes(
-        1, 512, _device(), deterministic=False
-    )
-    assert nbytes == loader.COUNTERS_BYTES + loader.PARTIAL_STUB_BYTES
-    for rows, hidden in ((1, 512), (65536, 6144), (12345, 2048)):
-        assert (
-            cake_rmsnorm_train_backward_workspace_bytes(
-                rows, hidden, _device(), deterministic=False
-            )
-            == nbytes
+def test_nondeterministic_workspace_is_counters_and_column_sums(
+    no_determinism,
+) -> None:
+    for hidden in (512, 2048, 6144):
+        nbytes = cake_rmsnorm_train_backward_workspace_bytes(
+            1, hidden, _device(), deterministic=False
         )
+        assert nbytes == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden
+        for rows in (0, 1, 12345, 65536):
+            assert (
+                cake_rmsnorm_train_backward_workspace_bytes(
+                    rows, hidden, _device(), deterministic=False
+                )
+                == nbytes
+            )
     ws = cake_rmsnorm_train_backward_workspace(
         4096, 4096, _device(), deterministic=False
     )
-    assert ws.dtype == torch.uint8 and ws.numel() == nbytes and not bool(ws.any())
+    assert ws.dtype == torch.uint8 and not bool(ws.any())
+    assert ws.numel() == loader.COUNTERS_BYTES + loader.SUM_BYTES * 4096

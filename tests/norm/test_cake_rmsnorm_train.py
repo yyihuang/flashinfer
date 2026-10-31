@@ -42,6 +42,7 @@ level are ``test_cake_rmsnorm_train_api.py``'s.
 from __future__ import annotations
 
 import functools
+import statistics
 
 import pytest
 import torch
@@ -77,6 +78,7 @@ REPEATS = 20
 RSTD_REL_L2 = 1e-5
 DW_REL_L2 = 1e-4
 DW_ATOL = 1e-4
+DW_RTOL = 1e-4
 ATOL = 1e-2
 RTOL = 1e-2
 SEED = 8066
@@ -214,17 +216,30 @@ def _assert_bf16_close(actual, reference, label: str) -> None:
     torch.testing.assert_close(a / scale, b / scale, atol=ATOL, rtol=RTOL, msg=label)
 
 
+# (label, kernel dw rel-L2, eager-FP32-path dw rel-L2) of every dw case checked in this process; the paired
+# "not worse than eager FP32" reading is an aggregate over the matrix (the last test of this module).
+_DW_ERRORS: list[tuple[str, float, float]] = []
+
+
 def _assert_dw(dw, dw_ref, g, x, rstd, label: str) -> float:
-    """dw against the FP64 reference: rel-L2 <= 1e-4 and every element within 1e-4 of the reference relative to
-    its column's magnitude ``sum_t |g x r|`` (the scale of the FP32 additions); returns the rel-L2."""
+    """dw against the FP64 reference: rel-L2 <= 1e-4 and every element within ``atol = rtol = 1e-4`` of the
+    reference (the deterministic package's per-element criterion); records the paired eager FP32 path's rel-L2
+    for the aggregate gate and returns the kernel's."""
     assert dw.dtype == torch.float32 and dw.is_contiguous(), label
     assert torch.isfinite(dw).all(), f"{label} has non-finite values"
     error = _rel_l2(dw, dw_ref)
     assert error <= DW_REL_L2, f"{label}: dw rel-L2 {error:.3e} > {DW_REL_L2:.0e}"
-    magnitude = (g.double() * x.double() * rstd.double().unsqueeze(-1)).abs()
-    magnitude = magnitude.reshape(-1, x.shape[-1]).sum(0).clamp_min(1.0)
-    worst = ((dw.double() - dw_ref) / magnitude).abs().max().item() if dw.numel() else 0.0
-    assert worst <= DW_ATOL, f"{label}: dw element error {worst:.3e} of its column > {DW_ATOL:.0e}"
+    diff = (dw.double() - dw_ref).abs()
+    bad = diff > DW_ATOL + DW_RTOL * dw_ref.abs()
+    if bool(bad.any()):
+        at = int(diff.argmax())
+        raise AssertionError(
+            f"{label}: {int(bad.sum())} dw elements outside atol=rtol=1e-4 "
+            f"(worst column {at}: {float(dw[at]):.9g} vs {float(dw_ref[at]):.9g})"
+        )
+    hidden = x.shape[-1]
+    eager_fp32 = (g.float() * x.float() * rstd.float().unsqueeze(-1)).reshape(-1, hidden).sum(0)
+    _DW_ERRORS.append((label, error, _rel_l2(eager_fp32, dw_ref)))
     return error
 
 
@@ -324,7 +339,7 @@ def test_repeated_launches(hidden: int, rows: int) -> None:
         assert torch.equal(dx, dx0), "dx changed between launches"
         worst = max(worst, _assert_dw(dw, dw_ref, g, normalized, rstd, f"repeat h={hidden} T={rows}"))
         spread = max(spread, (dw - dw0).abs().max().item())
-        assert not bool(ws.any()), "the workspace counters are not back to zero"
+        assert not bool(ws.any()), "the workspace (counters, FP64 sums) is not back to zero"
     print(f"DW_WORST hidden={hidden} rows={rows} rel_l2={worst:.3e} max_abs_spread={spread:.3e}")
 
 
@@ -362,7 +377,7 @@ def test_garbage_filled_dw_is_overwritten(hidden: int) -> None:
 
 
 def test_workspace_reused_across_shapes_without_reset() -> None:
-    ws = workspace_for(1, 256, _device())
+    ws = workspace_for(1, max(HIDDEN_SIZES), _device())
     for hidden, rows in ((512, 7), (4096, 16385), (2048, 1), (6144, 65536), (1536, 257), (512, 4096)):
         if not all(_routes(hidden, kind, False) for kind in ("fwd", "bwd")):
             continue
@@ -373,7 +388,7 @@ def test_workspace_reused_across_shapes_without_reset() -> None:
         _assert_bf16_close(dx, dx_ref, f"dx h={hidden} T={rows}")
         _assert_dw(dw, dw_ref, g, x, rstd, f"dw h={hidden} T={rows}")
         torch.cuda.synchronize()
-        assert not bool(ws.any()), f"counters not reset after h={hidden} T={rows}"
+        assert not bool(ws.any()), f"workspace not back to zero after h={hidden} T={rows}"
 
 
 def test_two_streams_with_their_own_workspaces() -> None:
@@ -510,3 +525,19 @@ def test_checkpoint_replays_the_same_forward() -> None:
     if w32 is not None:
         run(w32)
         assert w32.grad.dtype == torch.float32
+
+
+def test_dw_not_worse_than_eager_fp32_over_the_matrix() -> None:
+    """Aggregate dw gate: the kernel's dw error is not worse than the eager FP32 path ``(g x r).sum(0)`` over the
+    checked matrix (median ratio kernel / eager over every dw case this process checked).  Runs last; skipped
+    when the module's dw cases did not run in this process (``-k`` selection)."""
+    if len(_DW_ERRORS) < 8:
+        pytest.skip("needs the dw cases of this module in the same process")
+    ratios = [(k / e) if e > 0 else (0.0 if k == 0 else float("inf")) for _label, k, e in _DW_ERRORS]
+    median = statistics.median(ratios)
+    worst = max(_DW_ERRORS, key=lambda item: item[1])
+    print(f"DW_VS_EAGER cases={len(ratios)} median_ratio={median:.3f} worst={worst[1]:.3e} at {worst[0]}")
+    assert median <= 1.0, (
+        f"median dw error ratio kernel/eager-FP32 {median:.3f} > 1 over {len(ratios)} cases "
+        f"(worst kernel rel-L2 {worst[1]:.3e} at {worst[0]})"
+    )

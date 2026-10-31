@@ -24,8 +24,9 @@ deterministic package :mod:`flashinfer.cake_rmsnorm_det_train_backend` with the
 same arguments, so the default call returns that package's bits.
 ``deterministic=False`` runs this package's kernels: the forward programs of
 the deterministic package (rendered here; the forward has no cross-row
-reduction) and one backward kernel that adds the FP32 ``dw`` partials of its
-CTAs with atomics, so ``dw`` is not bitwise reproducible.  The stable,
+reduction) and one backward kernel whose CTAs add their ``dw`` sums into FP64
+workspace sums in the order they finish, so ``dw`` is not guaranteed bitwise
+reproducible.  The stable,
 ``@flashinfer_api``-decorated entry points and the full user-facing
 documentation live in :mod:`flashinfer.cake_rmsnorm_train`; import that module.
 """
@@ -85,8 +86,8 @@ def _resolve_deterministic(deterministic: bool, api: str) -> bool:
     if not torch.are_deterministic_algorithms_enabled():
         return False
     message = (
-        f"flashinfer.{api}(deterministic=False) adds the weight gradient with FP32 "
-        "atomics in a scheduling-dependent order, but "
+        f"flashinfer.{api}(deterministic=False) sums the weight gradient over the "
+        "CTAs in a scheduling-dependent order, but "
         "torch.use_deterministic_algorithms(True) is in effect; call it with "
         f"deterministic=True or use flashinfer.{_DET_NAMES[api]}"
     )
@@ -382,13 +383,16 @@ def _copy_back(pairs: list[tuple[torch.Tensor, Optional[torch.Tensor]]]) -> None
             user_buffer.copy_(kernel_buffer.reshape(user_buffer.shape))
 
 
-def _workspace_bytes(device: torch.device) -> int:
-    """Bytes of this package's backward workspace: the counter table and the
-    line the kernel's unused ``partial`` parameter is bound to (every route's
-    records declare at most ``cake_jit.COUNTERS_BYTES // 4`` counters)."""
+def _workspace_bytes(hidden: int, device: torch.device) -> int:
+    """Bytes of this package's backward workspace of width ``hidden``: the
+    counter table and one FP64 sum per column (every route's records declare at
+    most ``cake_jit.COUNTERS_BYTES // 4`` counters)."""
 
     _device_arch(device)
-    return int(_loader.COUNTERS_BYTES + _loader.PARTIAL_STUB_BYTES)
+    hidden = int(hidden)
+    if hidden <= 0:
+        raise ValueError("hidden must be positive")
+    return int(_loader.COUNTERS_BYTES + _loader.SUM_BYTES * hidden)
 
 
 def cake_rmsnorm_train_backward_workspace_bytes(
@@ -408,13 +412,14 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     per chunk and grows with ``rows``
     (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward_workspace_bytes`).
     The non-deterministic backward needs its ``uint32`` chunk-claim and
-    completion counters only: ``cake_jit.COUNTERS_BYTES +
-    cake_jit.PARTIAL_STUB_BYTES`` bytes whatever ``rows`` and ``hidden``.  The
-    counters must be zero on first use (allocate with ``torch.zeros`` or use
-    :func:`cake_rmsnorm_train_backward_workspace`); the kernels leave them zero,
-    so the same buffer is reusable across calls, token counts, widths and CUDA
-    Graph replays without host writes.  Backward calls that may run at the
-    same time (on different streams) need one buffer each.
+    completion counters and one FP64 sum per column:
+    ``cake_jit.COUNTERS_BYTES + cake_jit.SUM_BYTES * hidden`` bytes whatever
+    ``rows``.  The buffer must be zero on first use (allocate with
+    ``torch.zeros`` or use :func:`cake_rmsnorm_train_backward_workspace`); the
+    kernel leaves it zero, so the same buffer is reusable across calls, token
+    counts, widths up to the one it was sized for and CUDA Graph replays
+    without host writes.  Backward calls that may run at the same time (on
+    different streams) need one buffer each.
     """
 
     if _resolve_deterministic(
@@ -426,7 +431,7 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     device = torch.device(device)
     if int(rows) < 0:
         raise ValueError("rows must be non-negative")
-    return _workspace_bytes(device)
+    return _workspace_bytes(hidden, device)
 
 
 def cake_rmsnorm_train_backward_workspace(
@@ -456,7 +461,7 @@ def _workspace_views(
     rows: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor, dict[str, int]]:
-    """``(the FP32 word bound to the unused ``partial`` parameter, the counters, the layout)``."""
+    """``(the FP64 column sums bound to ``partial``, the counters, the layout)``."""
 
     layout = _loader.workspace_layout(record, rows, device_index=_device_index(device))
     if not isinstance(workspace, torch.Tensor):
@@ -479,7 +484,7 @@ def _workspace_views(
             "(cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False))"
         )
     begin = layout["partial_offset"]
-    partial = workspace[begin : begin + 4].view(torch.float32)
+    partial = workspace[begin : begin + layout["partial_bytes"]].view(torch.float64)
     begin = layout["counters_offset"]
     counters = workspace[begin : begin + 4 * max(layout["counters"], 1)].view(
         torch.uint32
@@ -754,15 +759,15 @@ def _backward(
     record = _loader.MODULES[names[0]]
     if workspace is None:
         workspace = torch.zeros(
-            _workspace_bytes(device), dtype=torch.uint8, device=device
+            _workspace_bytes(hidden, device), dtype=torch.uint8, device=device
         )
     partial, counters, layout = _workspace_views(
         workspace, record, rows=rows, device=device
     )
     # The plain kernel keeps the residual-gradient parameters in its signature
     # and never reads them: bind them to ``g`` exactly like the source launcher.
-    # The kernel zeroes ``dw`` itself (the CTA that draws the first chunk) before
-    # any CTA adds into it, so a caller's ``dw`` buffer may hold anything.
+    # The CTA that finishes last stores all of ``dw`` from the workspace sums, so
+    # a caller's ``dw`` buffer may hold anything.
     g_h = g_residual if has_residual else g
     values: dict[str, object] = {
         "g": g,
@@ -826,11 +831,11 @@ def cake_rmsnorm_train_backward(
         (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward`):
         ``dw`` through a fixed row-chunk partition and a fixed-order reduction,
         bitwise reproducible for a given token count on a given architecture.
-        ``False`` runs one kernel that writes ``dx`` and adds the FP32 ``dw``
-        partials of its CTAs into ``dw`` with atomics: ``dx`` is computed as the
-        deterministic kernel computes it, but ``dw`` may differ from call to call
-        in its last bits (the order of the FP32 additions depends on
-        scheduling).  ``False`` is refused with ``RuntimeError`` while
+        ``False`` runs one kernel that writes ``dx`` and adds the ``dw`` sums of
+        its CTAs into FP64 sums in the workspace, which the CTA that finishes
+        last rounds into ``dw``: ``dx`` is computed as the deterministic kernel
+        computes it; the order of the FP64 additions depends on scheduling, so
+        ``dw`` is not guaranteed bitwise reproducible.  ``False`` is refused with ``RuntimeError`` while
         ``torch.use_deterministic_algorithms(True)`` is in effect; with
         ``warn_only=True`` it warns and runs the deterministic backward.
     g_residual : torch.Tensor, optional
@@ -955,8 +960,9 @@ def cake_rmsnorm(
     deterministic : bool
         ``True`` (default): the deterministic package in both directions, the
         bits of :func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det`.
-        ``False``: this package's kernels, whose weight gradient is added with
-        FP32 atomics and is not bitwise reproducible; refused while
+        ``False``: this package's kernels, whose weight gradient is summed over
+        the CTAs in a scheduling-dependent order and is not guaranteed bitwise
+        reproducible; refused while
         ``torch.use_deterministic_algorithms(True)`` is in effect (with
         ``warn_only=True``: a warning, then the deterministic kernels).
 

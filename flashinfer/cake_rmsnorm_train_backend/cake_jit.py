@@ -32,9 +32,10 @@ A route is the ordered list of module records one public call may launch; a
 call launches exactly one of them.  ``fwd`` / ``fwd_residual`` run the forward
 programs of the deterministic package (the forward has no cross-row reduction);
 ``bwd`` / ``bwd_residual`` run one kernel whose persistent CTAs claim row chunks
-from a counter in the workspace, write ``dx`` and add their FP32 ``dw``
-partials into ``dw`` with atomics (the CTA that draws the first chunk zeroes
-``dw`` first), so ``dw`` is not bitwise reproducible.  No launch is
+from a counter in the workspace, write ``dx`` and add their per-column ``dw``
+sums into the workspace's FP64 sums with bulk reductions in the order they
+finish; the CTA that finishes last stores ``dw``, the FP32 rounding of the
+sums, so ``dw`` is not guaranteed bitwise reproducible.  No launch is
 cooperative, so a backward never waits for the whole device.  Token counts are
 runtime scalars, so a changed number of rows never recompiles anything.
 
@@ -3817,8 +3818,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_46f51338c6f926913fd1": {
@@ -3850,8 +3851,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_6643d57c6d06d97591ea": {
@@ -3883,8 +3884,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_e4fcc22eaf0f41c41733": {
@@ -3916,8 +3917,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_c1fd076f1d546c738faa": {
@@ -3949,8 +3950,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_e54e7b6e14559821fa59": {
@@ -3982,8 +3983,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_22dd3e26be3e6e967b8d": {
@@ -4015,8 +4016,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_c01d393ae1c5a5345fa7": {
@@ -4048,8 +4049,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_840520351132359f4477": {
@@ -4081,8 +4082,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_74673c6e9720e22a03e1": {
@@ -4114,8 +4115,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_04c86dbf2404c816c348": {
@@ -4147,8 +4148,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_3b125d2bc50aabcdc8ed": {
@@ -4180,8 +4181,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_5b1b62335a0652c9f3b1": {
@@ -4213,8 +4214,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_72d0946fe83c0c605957": {
@@ -4246,8 +4247,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_1d84f082dd3ae27ed963": {
@@ -4279,8 +4280,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
     "cake_rmsnorm_train_b68265b368a076a73620": {
@@ -4312,8 +4313,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "rows_between",
         },
         "workspace_rule": {
-            "counters": 4,
-            "kind": "claim_counters",
+            "counters": 2,
+            "kind": "claim_sum_f64",
         },
     },
 }
@@ -4989,15 +4990,16 @@ def _round_up(value: int, multiple: int) -> int:
 
 
 # The backward workspace is its ``uint32`` counter table (64 words at most, one
-# 256-byte line) and one more 256-byte line whose first FP32 word the host binds
-# to the kernel's ``partial`` parameter, which the kernel never reads or writes
-# (the parameter keeps the kernel signature of the deterministic main kernel).
-# No FP32 partial rows: the kernel adds its ``dw`` partials into ``dw`` with
-# FP32 atomics.  The counters must be zero when the buffer is first used; the
-# kernel resets every counter word it uses before it exits, so one buffer
-# serves calls of every token count and width without a host write between them.
+# 256-byte line) and, after it, one FP64 sum per column (``SUM_BYTES`` bytes
+# each), which the host binds to the kernel's ``partial`` parameter: the CTAs
+# add their per-column sums into it with FP64 bulk reductions in the order they
+# finish, and the CTA that finishes last stores ``dw`` (the FP32 rounding of the
+# sums).  The counters and the sums must be zero when the buffer is first used;
+# the last CTA zeroes the sums and the kernel resets every counter word it uses
+# before it exits, so one buffer of the widest width serves calls of every token
+# count and width without a host write between them.
 COUNTERS_BYTES = 256
-PARTIAL_STUB_BYTES = 256
+SUM_BYTES = 8
 
 
 @functools.cache
@@ -5198,7 +5200,7 @@ def chunking(
     """
 
     rule = record["workspace_rule"]
-    if rule is None or rule["kind"] != "claim_counters":
+    if rule is None or rule["kind"] != "claim_sum_f64":
         raise ValueError(f"module kernel_{record['kernel']} owns no backward workspace")
     grid = record["grid_rule"]
     if grid["kind"] != "claimed_chunks":
@@ -5216,13 +5218,13 @@ def workspace_layout(
     """Byte layout of the caller-owned backward workspace of one module.
 
     The workspace is one CUDA ``uint8`` buffer: the ``uint32`` counters in its
-    first :data:`COUNTERS_BYTES` bytes, then :data:`PARTIAL_STUB_BYTES` bytes
-    whose first FP32 word the host binds to the kernel's unused ``partial``
-    parameter.  The size depends on neither ``rows`` nor the width, so one
-    buffer serves every call.  The counters must be zero when the buffer is
-    first used and the kernel leaves them zero, so no host write is needed
-    between launches or CUDA Graph replays.  ``n_chunks`` and ``slots`` follow
-    ``record``, the module launched.
+    first :data:`COUNTERS_BYTES` bytes, then the module's ``hidden`` FP64 column
+    sums (``partial``, :data:`SUM_BYTES` bytes each).  The size depends on the
+    width only, not on ``rows``, so a buffer of the widest width serves every
+    call.  The counters and the sums must be zero when the buffer is first used
+    and the kernel leaves them zero, so no host write is needed between launches
+    or CUDA Graph replays.  ``n_chunks`` and ``slots`` follow ``record``, the
+    module launched.
     """
 
     rule = record["workspace_rule"]
@@ -5239,7 +5241,8 @@ def workspace_layout(
         "counters": counters,
         "counters_offset": 0,
         "partial_offset": COUNTERS_BYTES,
-        "total_bytes": COUNTERS_BYTES + PARTIAL_STUB_BYTES,
+        "partial_bytes": SUM_BYTES * int(record["hidden"]),
+        "total_bytes": COUNTERS_BYTES + SUM_BYTES * int(record["hidden"]),
     }
 
 
@@ -5332,9 +5335,9 @@ __all__ = [
     "LOGICAL_TENSORS",
     "MAX_HALVING",
     "MODULES",
-    "PARTIAL_STUB_BYTES",
     "ROUTES",
     "ROW_ALIGNMENT_ELEMENTS",
+    "SUM_BYTES",
     "TAIL_DIV",
     "WEIGHT_DTYPES",
     "arch_for_capability",

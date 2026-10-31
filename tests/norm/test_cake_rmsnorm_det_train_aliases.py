@@ -138,7 +138,7 @@ def test_old_package_is_self_contained() -> None:
     assert modules and all(name.startswith("cake_rmsnorm_train_") for name in modules)
     assert all(
         record["workspace_rule"] is None
-        or record["workspace_rule"]["kind"] == "claim_counters"
+        or record["workspace_rule"]["kind"] == "claim_sum_f64"
         for record in modules.values()
     )
     old_dir = Path(legacy_backend.__file__).parent

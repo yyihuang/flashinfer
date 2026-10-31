@@ -15,7 +15,8 @@ limitations under the License.
 
 The host plan of the non-deterministic RMSNorm training package without a
 device: every route tiles the positive token counts, a backward route launches
-one chunk-claiming kernel per call whose workspace is its counters only, the
+one chunk-claiming kernel per call whose workspace is its counters and one
+FP64 sum per column, the
 chunk table the host passes covers the rows exactly, the windows module is the
 registry's, and ``build.json`` builds every library the registry launches.
 """
@@ -71,8 +72,8 @@ def test_backward_records_are_single_chunk_claiming_kernels() -> None:
             if kind == "fwd":
                 assert record["workspace_rule"] is None
                 continue
-            assert record["workspace_rule"]["kind"] == "claim_counters"
-            assert 3 <= record["workspace_rule"]["counters"] <= loader.COUNTERS_BYTES // 4
+            assert record["workspace_rule"]["kind"] == "claim_sum_f64"
+            assert 2 <= record["workspace_rule"]["counters"] <= loader.COUNTERS_BYTES // 4
             rule = record["grid_rule"]
             assert rule["kind"] == "claimed_chunks"
             assert rule["ctas_per_sm"] == min(
@@ -106,9 +107,11 @@ def test_chunk_tables_cover_the_rows(sms: int, monkeypatch: pytest.MonkeyPatch) 
             assert layout["n_chunks"] == len(table)
             assert table[0][0] == 0 and table[-1][1] == rows
             assert all(a[1] == b[0] for a, b in zip(table, table[1:], strict=False))
-            assert layout["total_bytes"] == loader.COUNTERS_BYTES + loader.PARTIAL_STUB_BYTES
+            assert layout["partial_bytes"] == loader.SUM_BYTES * record["hidden"]
+            assert layout["total_bytes"] == loader.COUNTERS_BYTES + layout["partial_bytes"]
             assert layout["counters_offset"] == 0
             assert layout["partial_offset"] == loader.COUNTERS_BYTES
+            assert layout["partial_offset"] % 256 == 0  # bulk-reduction destination alignment
             grid = loader.launch_grid(record, rows, device_index=0)
             assert grid == (min(slots, len(table)), 1, 1)
 
