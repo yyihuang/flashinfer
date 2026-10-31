@@ -1724,7 +1724,7 @@ def _stagger_classes(chunks: tuple[int, ...], num_v_heads: int, sm_count: int, m
     n = len(chunks)
     if n < 2 or n * num_v_heads > sm_count or sum(chunks) * num_v_heads < min_tiles:
         return None
-    if any(a < b for a, b in zip(chunks, chunks[1:])):
+    if any(a < b for a, b in zip(chunks[:-1], chunks[1:], strict=True)):
         return None
     starts = [0]
     for s in range(1, n):
@@ -1736,20 +1736,31 @@ def _stagger_classes(chunks: tuple[int, ...], num_v_heads: int, sm_count: int, m
     filled = 0.0  # SM-us of tail work that runs beside the longest class's scan
     for g in range(1, len(starts)):
         # class g's tail may start when its longest sequence finished; its SMs stay free until the longest class ends
-        filled += (chunks[0] - chunks[starts[g]]) * step_us * (bounds[g + 1] - bounds[g]) * num_v_heads
+        filled += (
+            (chunks[0] - chunks[starts[g]])
+            * step_us
+            * (bounds[g + 1] - bounds[g])
+            * num_v_heads
+        )
     # the SMs the one-round scan leaves idle, from the end of the shortest class (the last one) on
     filled += (chunks[0] - chunks[starts[-1]]) * step_us * (sm_count - n * num_v_heads)
-    filled = min(filled, sum(chunks[starts[1]:]) * num_v_heads * tail_sm_us)
+    filled = min(filled, sum(chunks[starts[1] :]) * num_v_heads * tail_sm_us)
     if filled / sm_count < min_saving:
         return None
     return tuple((bounds[g], bounds[g + 1]) for g in range(len(starts)))
 
 
-def stagger_groups(meta: ChunkMeta, num_v_heads: int, sm_count: int) -> tuple[tuple[int, int, int, int], ...] | None:
+def stagger_groups(
+    meta: ChunkMeta, num_v_heads: int, sm_count: int
+) -> tuple[tuple[int, int, int, int], ...] | None:
     """The staggered classes ``(s0, s1, c0, c1)`` (segments and chunk rows) of a host-built table's one-round serial
     adjoint scan (:func:`_stagger_classes`), longest first; ``None``: one launch each."""
     segs = meta.bwd_segments
-    if meta.seq_lens is None or segs.num_segments != meta.num_seqs or segs.walk is not None:
+    if (
+        meta.seq_lens is None
+        or segs.num_segments != meta.num_seqs
+        or segs.walk is not None
+    ):
         return None
     order = meta.order if meta.order is not None else range(meta.num_seqs)
     chunks = tuple(-(-meta.seq_lens[seq] // CHUNK) for seq in order)
@@ -1767,7 +1778,9 @@ def stagger_groups(meta: ChunkMeta, num_v_heads: int, sm_count: int) -> tuple[tu
 _SIDE_STREAMS: dict[tuple[int, int], torch.cuda.Stream] = {}
 
 
-def _side_streams(device_index: int, main: torch.cuda.Stream, count: int) -> list[torch.cuda.Stream]:
+def _side_streams(
+    device_index: int, main: torch.cuda.Stream, count: int
+) -> list[torch.cuda.Stream]:
     """``count`` side streams forked from ``main``: the first is :func:`_side_stream`'s, the others are created once per
     (device, caller stream, rank) the same way."""
     streams = [_side_stream(device_index, main)]
@@ -2190,7 +2203,11 @@ def _backward(
     # the staggered form (STAGGER): a one-round serial dhu_tc2 table of unequal sequences feeding a cluster tail
     stagger = (
         stagger_groups(meta, num_v_heads, _device_props(index)[0])
-        if STAGGER and use_tc and groups is None and options.streams == 2 and form in CLUSTER_TAIL_STAGES
+        if STAGGER
+        and use_tc
+        and groups is None
+        and options.streams == 2
+        and form in CLUSTER_TAIL_STAGES
         else None
     )
     if not (use_tc or split_tc):

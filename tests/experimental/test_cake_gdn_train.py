@@ -1259,13 +1259,21 @@ def test_stagger_classes_rule() -> None:
     classes = cake_chain._stagger_classes
     # (16, 48) (11000, 12000, 9768) longest first on B200 / GB300: three classes, about 40 us filled
     for sm_count in (148, 152):
-        assert classes((188, 172, 153), 48, sm_count, 8, 3, 2.4, 10.0, 20.0, 8192) == ((0, 1), (1, 2), (2, 3))
+        assert classes((188, 172, 153), 48, sm_count, 8, 3, 2.4, 10.0, 20.0, 8192) == (
+            (0, 1),
+            (1, 2),
+            (2, 3),
+        )
     # (1, 3): below the tile floor; one class; two rounds; not longest first; the last class takes the rest
     assert classes((188, 172, 153), 3, 148, 8, 3, 2.4, 10.0, 20.0, 8192) is None
     assert classes((172, 172, 172), 48, 148, 8, 3, 2.4, 10.0, 0.0, 0) is None
     assert classes((64,) * 64, 6, 148, 8, 3, 2.4, 10.0, 0.0, 0) is None
     assert classes((153, 188), 48, 148, 8, 3, 2.4, 10.0, 0.0, 0) is None
-    assert classes((16, 10, 5, 2), 6, 32, 3, 3, 2.4, 10.0, 0.0, 0) == ((0, 1), (1, 2), (2, 4))
+    assert classes((16, 10, 5, 2), 6, 32, 3, 3, 2.4, 10.0, 0.0, 0) == (
+        (0, 1),
+        (1, 2),
+        (2, 4),
+    )
     assert classes((16, 10, 5, 2), 6, 32, 3, 2, 2.4, 10.0, 0.0, 0) == ((0, 1), (1, 4))
     # the estimate: below the saving floor, and capped by the shorter classes' tail work
     assert classes((188, 172, 153), 48, 148, 8, 3, 2.4, 10.0, 60.0, 0) is None
@@ -1279,8 +1287,12 @@ def test_staggered_form_matches_one_launch(heads, device, monkeypatch) -> None:
     _stagger_rule(monkeypatch)
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=89)
     gen = torch.Generator().manual_seed(97)
-    h0 = (0.1 * torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen)).to(device)
-    dht = torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen).to(device)
+    h0 = (
+        0.1 * torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen)
+    ).to(device)
+    dht = torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen).to(
+        device
+    )
     tail = "tail_g3" if heads[1] == 3 * heads[0] else "tail_g2"
     main = torch.cuda.current_stream(device).cuda_stream
     launches = _record_streams(monkeypatch)
@@ -1289,7 +1301,16 @@ def test_staggered_form_matches_one_launch(heads, device, monkeypatch) -> None:
     for on in (True, False, True):
         monkeypatch.setattr(cake_chain, "STAGGER", on)
         start = len(launches)
-        runs.append(_run(inputs, seq_lens, initial_state=h0, output_final_state=True, dht=dht, **STREAM_PINS))
+        runs.append(
+            _run(
+                inputs,
+                seq_lens,
+                initial_state=h0,
+                output_final_state=True,
+                dht=dht,
+                **STREAM_PINS,
+            )
+        )
         bwd = [
             (stage.removesuffix("_bf16"), stream)
             for stage, stream in launches[start:]
@@ -1316,7 +1337,10 @@ def test_staggered_form_under_cuda_graph_capture(device, monkeypatch) -> None:
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=101)
     eager = _run(inputs, seq_lens, **STREAM_PINS)
     monkeypatch.setattr(cake_chain, "STAGGER", True)
-    leaves = {name: inputs[name].detach().clone().requires_grad_(True) for name in ("q", "k", "v", "g", "beta")}
+    leaves = {
+        name: inputs[name].detach().clone().requires_grad_(True)
+        for name in ("q", "k", "v", "g", "beta")
+    }
     cu = _cu(seq_lens)
     cu_seqlens = torch.tensor(cu, dtype=torch.int64, device=device)
     cu_seqlens_cpu = torch.tensor(cu, dtype=torch.int64)
@@ -1347,7 +1371,10 @@ def test_staggered_form_under_cuda_graph_capture(device, monkeypatch) -> None:
     for _ in range(2):
         graph.replay()
     torch.cuda.synchronize()
-    got = {"o": o, **{"d" + name: leaves[name].grad for name in ("q", "k", "v", "g", "beta")}}
+    got = {
+        "o": o,
+        **{"d" + name: leaves[name].grad for name in ("q", "k", "v", "g", "beta")},
+    }
     for name in OUTPUT_NAMES:
         assert torch.equal(got[name], eager[name]), name
     assert len(launches) == len(captured)  # replays launch nothing from the host
