@@ -732,6 +732,13 @@ EDGE_CLASSES = ["same", "ulp", "dx", "unmeasured"]
 # window (the exporter's ``DET_PAIR_ROUTES``; the registry gate test reads this table).
 DET_PAIR_ROUTES: dict[str, dict[str, str]] = {}
 
+# The shared-memory sizes (KB per CTA of a kernel resident on every SM) the co-residence of the
+# backward windows is measured beside, and per architecture and route the windows measured:
+# ``(above, at_most, KB)``, KB the smallest size beside which the window waits (None: it starts
+# beside every measured size); the exporter's ``SMEM_WAITS``, checked by the stall test.
+SMEM_SIDE_KB = (100, 132)
+SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]] = {}
+
 NOTES = """
 Each route -- one architecture, hidden size and direction -- ships one or more programs
 and selects one per call from the token count ``T``: the program whose window
@@ -868,6 +875,13 @@ weight (another twin in a window) is listed with its own windows.
 A backward window marked ``(det pair)`` runs the deterministic package's main kernel
 (the program named) and its dw reduce; the others run the single kernel.
 
+Beside a kernel that holds shared memory on every SM (one CTA per SM with a large
+dynamic shared-memory allocation), a backward window waits until that kernel exits
+when the shared memory it leaves is too small for the window's program.  Measured with
+100 / 132 KB per CTA (``SMEM_WAITS``): ``>= K`` after a window means it waits beside
+K KB or more, ``-`` that it starts beside every measured size; an architecture or
+route not listed is unmeasured.  Beside such a kernel, leave some SMs free of it.
+
 * ``sm_100a`` ``bwd_h256``: (0, inf) 5450d398 (det pair)
 * ``sm_100a`` ``bwd_h512``: (0, 1024] 09601d42 (det pair) ?
   (1024, 4096] 123db0b2 (det pair) ? (4096, 32768] ad1a5a3c (det pair) ?
@@ -932,4 +946,6 @@ __all__ = [
     "NOTES",
     "PROGRAM_WINDOWS",
     "SECTIONS",
+    "SMEM_SIDE_KB",
+    "SMEM_WAITS",
 ]

@@ -584,7 +584,11 @@ def cake_rmsnorm_train_backward_workspace_bytes(
 
     ``deterministic`` is resolved as the backward resolves it (see
     :func:`cake_rmsnorm_train_backward`), so the buffer fits the kernels the
-    backward call with the same flag runs.  The deterministic package's
+    backward call with the same flag runs.  Under
+    ``torch.use_deterministic_algorithms(True, warn_only=True)``,
+    ``deterministic=False`` warns and returns the deterministic package's size;
+    the backward call of that fallback does not use a caller's workspace (it
+    passes none to the deterministic package, which allocates its own).  The deterministic package's
     workspace holds its chunk-claim counters and one FP32 ``dw`` partial row
     per chunk and grows with ``rows``
     (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward_workspace_bytes`).
@@ -633,7 +637,9 @@ def cake_rmsnorm_train_backward_workspace(
     residual: bool = False,
     deterministic: bool = True,
 ) -> torch.Tensor:
-    """Allocate a zero-initialized backward workspace (see ``..._workspace_bytes``)."""
+    """Allocate a zero-initialized backward workspace (see ``..._workspace_bytes``,
+    including its ``warn_only`` fallback: a warning and the deterministic
+    package's workspace, which that fallback's backward does not use)."""
 
     api = "cake_rmsnorm_train_backward_workspace"
     mode = _resolve_deterministic(deterministic, api)
@@ -1104,7 +1110,9 @@ def cake_rmsnorm_train_backward(
         this call (with ``deterministic=False`` one buffer serves calls of any
         hidden size, residual flag and weight dtype it is large enough for; see
         :func:`cake_rmsnorm_train_backward_workspace_bytes`).  The call issues
-        no memset, copy or synchronization on it.  When omitted, the call
+        no memset, copy or synchronization on it.  Under the ``warn_only``
+        fallback of ``deterministic=False`` it is not used: the deterministic
+        backward runs with a workspace of its own.  When omitted, the call
         allocates and zero-fills one: a caching-allocator call, one fill kernel
         (about 3 us on B200) and about 35 us of host time per call.  One buffer
         per backward that may run concurrently (on another stream).

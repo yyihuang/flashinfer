@@ -42,13 +42,12 @@ counts only when the side kernel holds every SM.  The forward programs are the
 deterministic package's, whose stall test covers them.
 
 Beside a kernel holding shared memory on every SM (review R3, C3): one CTA per
-SM with ``ALL_SM_SMEM_KB`` of dynamic shared memory (max-shared carveout).
-Every shipped backward instance -- each window of every route, residual and
-FP32-weight routes included -- co-resides with it at least as well as the
-deterministic program it replaces at the same call (for an FP32-weight twin:
-the deterministic program of its BF16 owner, called with the BF16 weight; where
-that package serves the width and residual flag), or waits for it and is listed
-in ``SMEM_WAIT_ABOVE``; the list matches the measurement exactly.
+SM with each of ``cake_windows.SMEM_SIDE_KB`` KB of dynamic shared memory
+(max-shared carveout).  For every shipped backward window -- every route,
+residual and FP32-weight routes included -- the smallest of those sizes beside
+which the call waits is the package's documented ``cake_windows.SMEM_WAITS``
+entry (the list covers every window and matches the measurement exactly); the
+deterministic program the window replaces is measured for reference.
 """
 
 from __future__ import annotations
@@ -513,19 +512,15 @@ def test_backward_starts_beside_an_all_sm_kernel_with_the_max_shared_carveout(
 
 
 # R3 C3: side kernels holding shared memory on every SM (one CTA per SM, the
-# max-shared carveout), KB of dynamic shared memory per CTA.
-ALL_SM_SMEM_KB = (100, 132)
-# Backward instances that wait for such a side kernel where the deterministic
-# program at the same call does not (or that package does not serve the call):
-# (capability, hidden, residual, w dtype token, side KB) -> the token counts
-# above which the call waits.  Filled from the measurement (and the kernels'
-# shared-memory census); the test asserts the list matches it exactly.
-SMEM_WAIT_ABOVE: dict[tuple[tuple[int, int], int, bool, str, int], int] = {}
+# max-shared carveout), KB of dynamic shared memory per CTA: the sizes of the
+# package's measured list (``cake_windows.SMEM_SIDE_KB`` / ``SMEM_WAITS``).
+windows = cake_package("cake_rmsnorm_train", "cake_windows")
 
 
-def _instances() -> list[tuple[int, bool, str, int, str]]:
-    """``(hidden, residual, w dtype token, rows, form)`` of every window of every
-    backward route of the device (a call inside it), ``form`` "single" or "pair"."""
+def _instances() -> list[tuple[str, int, bool, str, int, int | None, int, str]]:
+    """``(route, hidden, residual, w dtype token, above, at_most, rows, form)``
+    of every window of every backward route of the device (``rows`` the middle
+    token count of the window), ``form`` "single" or "pair"."""
     arch = loader.arch_for_capability(_capability())
     out = []
     for route, names in loader.ROUTES.get(arch, {}).items():
@@ -548,8 +543,8 @@ def _instances() -> list[tuple[int, bool, str, int, str]]:
                 else (above + 1 + int(at_most)) // 2
             )
             form = "single" if rule["kind"] == "claim_sum_f64" else "pair"
-            out.append((hidden, residual, token, rows, form))
-    return sorted(set(out))
+            out.append((route, hidden, residual, token, above, at_most, rows, form))
+    return sorted(set(out), key=lambda item: (item[0], item[4]))
 
 
 def _det_backend():
@@ -568,22 +563,39 @@ def _det_serves(det, hidden: int, residual: bool) -> bool:
     )
 
 
-@pytest.mark.parametrize("smem_kb", ALL_SM_SMEM_KB)
-def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) -> None:
-    """R3 C3 (see the module docstring): per shipped backward instance, the
-    extra time beside a side kernel holding ``smem_kb`` KB of shared memory on
-    every SM, against the deterministic program at the same call; an instance
-    waits when the extra exceeds ``MAX_ALL_SM_EXTRA_MS`` (the side kernel
-    lives ``ALL_SM_SPIN_MS``)."""
-    smem_bytes = smem_kb * 1024
+def _waits_beside(call, smem_kb: int) -> tuple[bool, float]:
+    """Whether ``call`` waits for an all-SM kernel holding ``smem_kb`` KB per
+    CTA, and its extra time (ms) beside it over alone."""
+    alone_ms, busy_ms, _alone, _busy = _all_sm_medians(
+        call, CARVEOUT_MAX_SHARED, smem_kb * 1024
+    )
+    extra = busy_ms - alone_ms
+    return extra > MAX_ALL_SM_EXTRA_MS, extra
+
+
+def test_backward_beside_an_all_sm_kernel_holding_shared_memory() -> None:
+    """R3 C3 (see the module docstring): per shipped backward window, the
+    smallest of ``SMEM_SIDE_KB`` beside which the call waits (extra time above
+    ``MAX_ALL_SM_EXTRA_MS``; the side kernel lives ``ALL_SM_SPIN_MS``) is the
+    package's documented ``SMEM_WAITS`` entry, and every window of the device's
+    architecture has one.  The deterministic program the window replaces (for an
+    FP32-weight twin: its BF16 owner's, called with the BF16 weight; where the
+    det package serves the call) is measured beside it for reference."""
     optin = torch.cuda.get_device_properties(_device()).shared_memory_per_block_optin
-    if smem_bytes > optin:
-        pytest.skip(f"{smem_kb} KB exceeds the {optin} B a CTA may hold on this device")
+    sizes = tuple(kb for kb in windows.SMEM_SIDE_KB if kb * 1024 <= optin)
+    if not sizes:
+        pytest.skip(f"no side size of {windows.SMEM_SIDE_KB} KB fits {optin} B per CTA")
+    arch = loader.arch_for_capability(_capability())
+    listed = {
+        (route, above, at_most): kb
+        for route, spans in windows.SMEM_WAITS.get(arch, {}).items()
+        for above, at_most, kb in spans
+    }
     det = _det_backend()
     instances = _instances()
     assert instances
-    rows_out, waits, regressions = [], {}, []
-    for hidden, residual, token, rows, form in instances:
+    report, mismatched, unmeasured, regressions = [], [], [], []
+    for route, hidden, residual, token, above, at_most, rows, form in instances:
         x, w, g, g_h, rstd = _inputs(rows, hidden, residual)
         if token == "f32":
             w = w.float()
@@ -592,16 +604,15 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) ->
         def call():
             return tuple(t.clone() for t in _backward(x, w, g, g_h, rstd, workspace))
 
-        alone_ms, busy_ms, _alone_runs, _busy_runs = _all_sm_medians(
-            call, CARVEOUT_MAX_SHARED, smem_bytes
-        )
+        level, extras = None, []
+        for kb in sizes:
+            waited, extra = _waits_beside(call, kb)
+            extras.append(extra)
+            if waited and level is None:
+                level = kb
         assert _workspace_clean(workspace, hidden, residual)
-        extra = busy_ms - alone_ms
-        waited = extra > MAX_ALL_SM_EXTRA_MS
-        det_extra = None
+        det_level, det_extras = None, []
         if _det_serves(det, hidden, residual):
-            # the det program the instance replaces: an FP32-weight twin's is its
-            # BF16 owner's, called with the BF16 weight
             w_det = w.to(torch.bfloat16)
             det_ws = det.cake_rmsnorm_det_train_backward_workspace(
                 rows, hidden, _device(), residual=residual
@@ -614,47 +625,38 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory(smem_kb: int) ->
                 out = det.cake_rmsnorm_det_train_backward(g, x, w_det, rstd, **kwargs)
                 return tuple(t.clone() for t in out)
 
-            det_alone, det_busy, _a, _b = _all_sm_medians(
-                det_call, CARVEOUT_MAX_SHARED, smem_bytes
+            for kb in sizes:
+                waited, extra = _waits_beside(det_call, kb)
+                det_extras.append(extra)
+                if waited and det_level is None:
+                    det_level = kb
+        key = (route, above, at_most)
+        if key not in listed:
+            unmeasured.append((key, level))
+        elif listed[key] != level:
+            mismatched.append((key, listed[key], level))
+        if level is not None and det_extras and (det_level is None or det_level > level):
+            regressions.append((key, level, det_level))
+        report.append(
+            f"SMEM_SIDE {arch} {route} ({above}, {at_most}] rows={rows} form={form} "
+            f"waits_from_kb={level} extra_ms="
+            + "/".join(f"{e:.4f}" for e in extras)
+            + " det_waits_from_kb="
+            + (
+                f"{det_level} det_extra_ms=" + "/".join(f"{e:.4f}" for e in det_extras)
+                if det_extras
+                else "n/a"
             )
-            det_extra = det_busy - det_alone
-        det_waited = det_extra is not None and det_extra > MAX_ALL_SM_EXTRA_MS
-        key = (_capability(), hidden, residual, token, smem_kb)
-        if waited and not det_waited:
-            waits.setdefault(key, []).append(rows)
-        if waited and det_extra is not None and not det_waited:
-            regressions.append((hidden, residual, token, rows, form))
-        rows_out.append(
-            f"SMEM_SIDE kb={smem_kb} hidden={hidden} residual={residual} w={token} "
-            f"rows={rows} form={form} alone_ms={alone_ms:.4f} busy_ms={busy_ms:.4f} "
-            f"extra_ms={extra:.4f} det_extra_ms="
-            + ("n/a" if det_extra is None else f"{det_extra:.4f}")
         )
-    print("\n".join(rows_out))
-    listed = {
-        key: above
-        for key, above in SMEM_WAIT_ABOVE.items()
-        if key[0] == _capability() and key[4] == smem_kb
-    }
-    unlisted = {
-        key: rows
-        for key, rows in waits.items()
-        if key not in listed or min(rows) <= listed[key]
-    }
-    stale = []
-    for key, above in listed.items():
-        measured = [
-            rows
-            for hidden, residual, token, rows, _form in instances
-            if (hidden, residual, token) == key[1:4] and rows > above
-        ]
-        if measured and not set(measured) <= set(waits.get(key, [])):
-            stale.append((key, above, measured))
-    assert not unlisted, (
-        f"instances that wait beside a {smem_kb} KB all-SM kernel where the "
-        f"deterministic program does not (or it does not serve the call), not in "
-        f"SMEM_WAIT_ABOVE: {unlisted}; regressions against det: {regressions}"
+    print("\n".join(report))
+    for key, level in unmeasured:
+        print(f"SMEM_WAITS_MEASURED {arch} {key[0]} ({key[1]}, {key[2]}, {level})")
+    print(f"SMEM_REGRESSIONS_VS_DET {regressions}")
+    assert not mismatched, (
+        f"SMEM_WAITS entries the measurement contradicts (key, listed KB, measured "
+        f"KB): {mismatched}"
     )
-    assert not stale, (
-        f"SMEM_WAIT_ABOVE entries the measurement does not confirm: {stale}"
+    assert not unmeasured, (
+        f"{len(unmeasured)} backward windows of {arch} have no SMEM_WAITS entry "
+        f"(measured levels printed as SMEM_WAITS_MEASURED): {unmeasured[:6]}"
     )

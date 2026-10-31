@@ -87,9 +87,11 @@ The names the training RMSNorm had before the deterministic package took its
 * Under ``torch.use_deterministic_algorithms(True)``, ``deterministic=False``
   raises ``RuntimeError``. With ``warn_only=True`` it warns; the forward runs
   this package's (deterministic) forward programs and the backward runs the
-  deterministic package with its own workspace, or raises one ``RuntimeError``
-  when that package cannot serve the call (``[..., H]`` inputs, an FP32
-  weight, a width or residual route it does not export).
+  deterministic package with its own workspace (a caller's ``workspace`` is
+  not used), or raises one ``RuntimeError`` when that package cannot serve the
+  call (``[..., H]`` inputs, an FP32 weight, a width or residual route it does
+  not export). The workspace helpers with ``deterministic=False`` warn and
+  return the deterministic package's workspace in that mode.
 
 .. currentmodule:: flashinfer.cake_rmsnorm_train
 

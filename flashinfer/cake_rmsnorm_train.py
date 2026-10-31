@@ -96,7 +96,12 @@ exactly as the deterministic backward does, including its whole-SM programs
 (see :mod:`flashinfer.cake_rmsnorm_det_train`).  Single-kernel programs that
 need a whole SM wait beside any kernel resident on every SM, whatever its
 carveout: [FI-8066 WHOLE-SM LIST: filled from the shipped backward kernels'
-register / shared-memory census before delivery].
+register / shared-memory census before delivery].  A resident kernel that
+holds a large dynamic shared-memory allocation on every SM delays the windows
+whose programs need more shared memory than it leaves, deterministic-pair
+windows included: ``cake_windows.SMEM_WAITS`` and the backward's notes list,
+per architecture, route and window, the measured allocation from which the
+window waits (``cake_windows.SMEM_SIDE_KB``: the sizes measured).
 Beside those, leave some SMs free of the resident kernel.  The forward programs
 are the deterministic package's; see :mod:`flashinfer.cake_rmsnorm_det_train`.
 
