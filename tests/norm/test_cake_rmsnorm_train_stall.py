@@ -45,9 +45,12 @@ Beside a kernel holding shared memory on every SM (review R3, C3): one CTA per
 SM with each of ``cake_windows.SMEM_SIDE_KB`` KB of dynamic shared memory
 (max-shared carveout).  For every shipped backward window -- every route,
 residual and FP32-weight routes included -- the smallest of those sizes beside
-which the call waits is the package's documented ``cake_windows.SMEM_WAITS``
-entry (the list covers every window and matches the measurement exactly); the
-deterministic program the window replaces is measured for reference.
+which the call waits is at least the package's documented
+``cake_windows.SMEM_WAITS`` entry.  The list covers every window; its entry is
+the most restrictive level measured on the architecture's boards (the smallest
+size beside which any of them waits), so a board waits at that size or only at
+a larger one, never at a smaller one.  The deterministic program the window
+replaces is measured for reference.
 """
 
 from __future__ import annotations
@@ -573,11 +576,20 @@ def _waits_beside(call, smem_kb: int) -> tuple[bool, float]:
     return extra > MAX_ALL_SM_EXTRA_MS, extra
 
 
+def _waits_below(measured: int | None, listed: int | None) -> bool:
+    """Whether a window measured to wait from ``measured`` KB waits beside a
+    smaller side allocation than its ``listed`` level allows (None: no wait at
+    any measured size)."""
+    return measured is not None and (listed is None or measured < listed)
+
+
 def test_backward_beside_an_all_sm_kernel_holding_shared_memory() -> None:
     """R3 C3 (see the module docstring): per shipped backward window, the
     smallest of ``SMEM_SIDE_KB`` beside which the call waits (extra time above
-    ``MAX_ALL_SM_EXTRA_MS``; the side kernel lives ``ALL_SM_SPIN_MS``) is the
-    package's documented ``SMEM_WAITS`` entry, and every window of the device's
+    ``MAX_ALL_SM_EXTRA_MS``; the side kernel lives ``ALL_SM_SPIN_MS``) is not
+    below the package's documented ``SMEM_WAITS`` entry (the most restrictive
+    level over the architecture's measured boards; a board that waits only at a
+    larger size prints ``SMEM_WAITS_LOOSER``), and every window of the device's
     architecture has one.  The deterministic program the window replaces (for an
     FP32-weight twin: its BF16 owner's, called with the BF16 weight; where the
     det package serves the call) is measured beside it for reference."""
@@ -594,7 +606,7 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory() -> None:
     det = _det_backend()
     instances = _instances()
     assert instances
-    report, mismatched, unmeasured, regressions = [], [], [], []
+    report, mismatched, looser, unmeasured, regressions = [], [], [], [], []
     for route, hidden, residual, token, above, at_most, rows, form in instances:
         x, w, g, g_h, rstd = _inputs(rows, hidden, residual)
         if token == "f32":
@@ -633,8 +645,10 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory() -> None:
         key = (route, above, at_most)
         if key not in listed:
             unmeasured.append((key, level))
-        elif listed[key] != level:
+        elif _waits_below(level, listed[key]):
             mismatched.append((key, listed[key], level))
+        elif listed[key] != level:
+            looser.append((key, listed[key], level))
         if (
             level is not None
             and det_extras
@@ -652,13 +666,18 @@ def test_backward_beside_an_all_sm_kernel_holding_shared_memory() -> None:
                 else "n/a"
             )
         )
-    print("\n".join(report))
+    print("\n" + "\n".join(report))  # own line: pytest -s prints progress dots before it
+    for key, listed_kb, level in looser:
+        print(
+            f"SMEM_WAITS_LOOSER {arch} {key[0]} ({key[1]}, {key[2]}) "
+            f"listed={listed_kb} measured={level}"
+        )
     for key, level in unmeasured:
         print(f"SMEM_WAITS_MEASURED {arch} {key[0]} ({key[1]}, {key[2]}, {level})")
     print(f"SMEM_REGRESSIONS_VS_DET {regressions}")
     assert not mismatched, (
-        f"SMEM_WAITS entries the measurement contradicts (key, listed KB, measured "
-        f"KB): {mismatched}"
+        f"windows that wait beside less shared memory than their SMEM_WAITS entry "
+        f"allows (key, listed KB, measured KB): {mismatched}"
     )
     assert not unmeasured, (
         f"{len(unmeasured)} backward windows of {arch} have no SMEM_WAITS entry "
