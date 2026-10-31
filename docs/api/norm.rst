@@ -77,10 +77,11 @@ The names the training RMSNorm had before the deterministic package took its
   order the CTAs finish: ``dw`` is not guaranteed bitwise reproducible; ``dx``
   is. Where it is faster, the deterministic package's backward pair (main
   kernel and fixed-order reduce), rendered into this package, runs instead. The backward
-  workspace holds claim counters, the FP64 column sums and, for the pair
-  windows, the partial rows
-  (``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``);
-  the kernels return the counters and the sums to zero.
+  workspace (one per hidden size and residual flag;
+  ``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``)
+  holds the pair's counters, the single kernel's state (counters and two halves
+  of FP64 column sums) and, for the pair windows, the partial rows; zeroed once,
+  the kernels keep it valid across calls with no host write.
 * Under ``torch.use_deterministic_algorithms(True)``, ``deterministic=False``
   raises ``RuntimeError``; with ``warn_only=True`` it warns and runs the
   deterministic kernels.

@@ -304,17 +304,41 @@ def test_nondeterministic_flag_selects_this_package(
     assert float(rel) <= 1e-4, float(rel)
 
 
+def _workspace_clean(ws: torch.Tensor, hidden: int, residual: bool = False) -> bool:
+    """The kernels' state between calls of one family: the det pair counters
+    zero; per single-kernel state region the claim ticket and the unused counter
+    words zero, the count's low 31 bits zero and the half its bit 31 selects (the
+    next launch's) all zero -- the other half keeps the last launch's sums; a det
+    pair's partial rows are scratch."""
+    torch.cuda.synchronize()
+    if bool(ws[: loader.COUNTERS_BYTES].any()):
+        return False
+    arch = loader.device_arch(ws.device.index or 0)
+    for (counters, replicas, halves), offset in loader.single_regions(
+        arch, hidden, residual
+    ):
+        words = ws[offset : offset + 4 * counters].view(torch.int32).tolist()
+        if words[0] != 0 or words[1] & 0x7FFFFFFF or any(words[2:]):
+            return False
+        begin = offset + loader.SINGLE_COUNTERS_BYTES
+        sums = ws[begin : begin + loader.SUM_BYTES * hidden * replicas * halves]
+        sums = sums.view(torch.float64).view(replicas, halves, hidden)
+        if bool(sums[:, (words[1] >> 31) & 1 if halves > 1 else 0].any()):
+            return False
+    return True
+
+
 @requires_device
 def test_nondeterministic_workspace_serves_every_call_up_to_its_rows(
     no_determinism,
 ) -> None:
     """The non-deterministic workspace of ``rows`` serves every backward call of
-    at most ``rows`` tokens without a reset (the counters and the FP64 sums back
-    at zero after each); a width whose windows all run the single kernel needs
-    its counters and FP64 column sums whatever ``rows``."""
+    its width of at most ``rows`` tokens without a host write (after each call it
+    holds the kernels' state: the pair counters zero, every single-kernel state
+    region ready for its next launch); a width whose windows all run the single
+    kernel needs the pair counters and its state regions whatever ``rows``."""
 
     arch = loader.device_arch(_device().index or 0)
-    sums = loader.COUNTERS_BYTES + loader.SUMS_BYTES
     for hidden in (512, 2048, 6144):
         if hidden not in loader.supported_hidden_sizes(arch):
             continue
@@ -325,14 +349,10 @@ def test_nondeterministic_workspace_serves_every_call_up_to_its_rows(
             if loader.MODULES[name]["workspace_rule"] is not None
         ]
         if all(r["workspace_rule"]["kind"] == "claim_sum_f64" for r in records):
-            replicas = max(r["workspace_rule"].get("replicas", 1) for r in records)
             for rows in (0, 1, 12345, 65536):
-                assert (
-                    cake_rmsnorm_train_backward_workspace_bytes(
-                        rows, hidden, _device(), deterministic=False
-                    )
-                    == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden * replicas
-                )
+                assert cake_rmsnorm_train_backward_workspace_bytes(
+                    rows, hidden, _device(), deterministic=False
+                ) == loader.COUNTERS_BYTES + loader.single_bytes(arch, hidden, False)
         generator = torch.Generator(device=_device()).manual_seed(SEED + hidden)
         for rows in (257, 4096):
             ws = cake_rmsnorm_train_backward_workspace(
@@ -355,5 +375,4 @@ def test_nondeterministic_workspace_serves_every_call_up_to_its_rows(
                 ref = (g.double() * x.double() * rstd.double().unsqueeze(-1)).sum(0)
                 rel = (dw.double() - ref).norm() / ref.norm().clamp_min(1e-30)
                 assert float(rel) <= 1e-4, (hidden, rows, tokens, float(rel))
-                torch.cuda.synchronize()
-                assert not bool(ws[:sums].any()), (hidden, rows, tokens)
+                assert _workspace_clean(ws, hidden), (hidden, rows, tokens)

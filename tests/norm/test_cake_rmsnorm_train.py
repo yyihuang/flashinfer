@@ -30,9 +30,9 @@ deterministic package serves the same call, ``dx`` is compared with its ``dx``
 and ``dw`` with its ``dw``.  The matrix covers token counts from 0 to 65536
 (irregular counts included), row-strided inputs, the residual-add fusion, the
 FP32-weight routes, the ``[..., H]`` views (the per-head ``H = 256`` query and
-key views), a garbage-filled ``dw`` buffer, a workspace reused across shapes
-without a reset (its counters and FP64 sums back to zero after every launch), two streams with
-their own workspaces, CUDA Graph capture and replay and the autograd wrapper
+key views), a garbage-filled ``dw`` buffer, a workspace reused across the token
+counts, windows and weight dtypes of a width without a host write (holding only
+the kernels' state after every launch), two streams with their own workspaces, CUDA Graph capture and replay and the autograd wrapper
 (non-reentrant checkpointing included).
 
 This suite exercises the backend packages alone, through
@@ -242,11 +242,28 @@ def record_launches(monkeypatch: pytest.MonkeyPatch):
     yield
 
 
-def _workspace_clean(ws: torch.Tensor) -> bool:
-    """The counters and the FP64 sums of a workspace are zero (a det pair's
-    partial rows after them are scratch)."""
+def _workspace_clean(ws: torch.Tensor, hidden: int, residual: bool = False) -> bool:
+    """The kernels' state between calls of one family: the det pair counters
+    zero; per single-kernel state region the claim ticket and the unused counter
+    words zero, the count's low 31 bits zero and the half its bit 31 selects (the
+    next launch's) all zero -- the other half keeps the last launch's sums; a det
+    pair's partial rows are scratch."""
     torch.cuda.synchronize()
-    return not bool(ws[: loader.COUNTERS_BYTES + loader.SUMS_BYTES].any())
+    if bool(ws[: loader.COUNTERS_BYTES].any()):
+        return False
+    arch = loader.device_arch(ws.device.index or 0)
+    for (counters, replicas, halves), offset in loader.single_regions(
+        arch, hidden, residual
+    ):
+        words = ws[offset : offset + 4 * counters].view(torch.int32).tolist()
+        if words[0] != 0 or words[1] & 0x7FFFFFFF or any(words[2:]):
+            return False
+        begin = offset + loader.SINGLE_COUNTERS_BYTES
+        sums = ws[begin : begin + loader.SUM_BYTES * hidden * replicas * halves]
+        sums = sums.view(torch.float64).view(replicas, halves, hidden)
+        if bool(sums[:, (words[1] >> 31) & 1 if halves > 1 else 0].any()):
+            return False
+    return True
 
 
 def _bytes(rows: int, hidden: int, residual: bool = False) -> int:
@@ -383,8 +400,8 @@ def test_repeated_launches(hidden: int, rows: int) -> None:
             _assert_dw(dw, dw_ref, g, normalized, rstd, f"repeat h={hidden} T={rows}"),
         )
         spread = max(spread, (dw - dw0).abs().max().item())
-        assert _workspace_clean(ws), (
-            "the workspace (counters, FP64 sums) is not back to zero"
+        assert _workspace_clean(ws, hidden), (
+            "the workspace state is not the kernels' (counters, FP64 sums)"
         )
     print(
         f"DW_WORST hidden={hidden} rows={rows} rel_l2={worst:.3e} max_abs_spread={spread:.3e}"
@@ -433,37 +450,38 @@ def test_garbage_filled_dw_is_overwritten(hidden: int) -> None:
         assert _rel_l2(dw, dw_ref) <= DW_REL_L2
 
 
-def test_workspace_reused_across_shapes_without_reset() -> None:
-    shapes = [
-        (hidden, rows)
-        for hidden, rows in (
-            (512, 7),
-            (4096, 16385),
-            (2048, 1),
-            (6144, 65536),
-            (1536, 257),
-            (512, 4096),
-        )
-        if all(_routes(hidden, kind, False) for kind in ("fwd", "bwd"))
+def test_workspace_reused_across_token_counts_and_weight_dtypes_without_reset() -> None:
+    """One buffer of a width, zeroed once, serves that width's calls of every
+    token count up to its rows, every window and both weight dtypes; zeroed again,
+    the same bytes serve another width."""
+    widths = [
+        h
+        for h in (512, 2048, 6144)
+        if _routes(h, "fwd", False) and _routes(h, "bwd", False)
     ]
-    if not shapes:
-        pytest.skip("no exported route of the shapes here")
-    # one buffer of every shape's size (the largest), zeroed once
+    if not widths:
+        pytest.skip("no exported route of the widths here")
     ws = torch.zeros(
-        max(_bytes(rows, hidden) for hidden, rows in shapes),
+        max(_bytes(65536, hidden) for hidden in widths),
         dtype=torch.uint8,
         device=_device(),
     )
-    for hidden, rows in shapes:
-        x, _u, g, _g_h, w = _case(hidden, rows)
-        _y, rstd = forward(x, w, EPS[hidden])
-        dx, dw = backward(g, x, w, rstd, workspace=ws)
-        dx_ref, dw_ref = _reference_backward(g, x, w, rstd)
-        _assert_bf16_close(dx, dx_ref, f"dx h={hidden} T={rows}")
-        _assert_dw(dw, dw_ref, g, x, rstd, f"dw h={hidden} T={rows}")
-        assert _workspace_clean(ws), (
-            f"workspace not back to zero after h={hidden} T={rows}"
+    for hidden in widths:
+        ws.zero_()  # a buffer serves one width (and residual flag) at a time
+        w_dtypes = [torch.bfloat16] + (
+            [torch.float32] if _routes(hidden, "bwd", False, "f32") else []
         )
+        for index, rows in enumerate((7, 65536, 1, 257, 16385, 4096, 2)):
+            x, _u, g, _g_h, w = _case(
+                hidden, rows, w_dtype=w_dtypes[index % len(w_dtypes)]
+            )
+            _y, rstd = forward(x, w, EPS[hidden])
+            dx, dw = backward(g, x, w, rstd, workspace=ws)
+            dx_ref, dw_ref = _reference_backward(g, x, w, rstd)
+            label = f"h={hidden} T={rows} w={w.dtype}"
+            _assert_bf16_close(dx, dx_ref, f"dx {label}")
+            _assert_dw(dw, dw_ref, g, x, rstd, f"dw {label}")
+            assert _workspace_clean(ws, hidden), f"workspace state after {label}"
 
 
 def test_two_streams_with_their_own_workspaces() -> None:
@@ -489,7 +507,7 @@ def test_two_streams_with_their_own_workspaces() -> None:
         x, g, w, rstd, dx_ref, dw_ref = refs[index % len(refs)]
         _assert_bf16_close(dx, dx_ref, f"stream dx {index}")
         _assert_dw(dw, dw_ref, g, x, rstd, f"stream dw {index}")
-    assert all(_workspace_clean(ws) for ws in workspaces)
+    assert all(_workspace_clean(ws, hidden) for ws in workspaces)
 
 
 @pytest.mark.parametrize("hidden", (512, 6144))
@@ -516,7 +534,7 @@ def test_cuda_graph_capture_and_replay(hidden: int) -> None:
             and torch.equal(out_dx, dx)
         )
         assert _rel_l2(out_dw, dw) <= DW_REL_L2
-        assert _workspace_clean(ws)
+        assert _workspace_clean(ws, hidden)
 
 
 # --------------------------------------------------------------------------- [..., H] views

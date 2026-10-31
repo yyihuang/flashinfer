@@ -18,13 +18,23 @@ non-deterministic weight gradient (``deterministic=False``) against the same
 entry points with the deterministic default (``deterministic=True``: the
 deterministic package's main kernel and its fixed-order ``dw`` reduction).
 
-Every row reports forward, backward and their sum in microseconds for both
-modes, the deterministic / non-deterministic time ratio and the achieved GB/s
-of the non-deterministic mode over the logical byte volume (forward
-``4TH + 4T``, backward ``6TH + 4T + 4H``; the residual routes add ``4TH`` /
-``2TH``, an FP32 weight ``2H`` per read).  Timing uses CUPTI kernel activity
-with a cold L2 (``flashinfer.testing.bench_gpu_time(enable_cupti=True)``); a
-mode that launches several kernels reports the sum of their GPU time.  The
+Every row reports forward, backward and their sum for both modes: the GPU
+time of the kernels one call launches, the deterministic / non-deterministic
+GPU-time ratio, the achieved GB/s of the non-deterministic mode over the logical
+byte volume (forward ``4TH + 4T``, backward ``6TH + 4T + 4H``; the residual
+routes add ``4TH`` / ``2TH``, an FP32 weight ``2H`` per read) and, separately,
+the host time of one call.  GPU time: one call (preallocated outputs and
+workspace) is captured in a CUDA graph and every replay is timed with CUPTI
+kernel activity and a cold L2
+(``flashinfer.testing.bench_gpu_time(graph.replay, enable_cupti=True)``): the
+span from the first kernel's start to the last kernel's end, with the call's
+kernels launched back to back as in a captured training step, so no host
+launch gap between two kernels of a call is counted.  Host time: the median
+wall time of one call with the stream idle before it (the Python and launch
+work of the call; an eager training step that does not capture the call pays
+the larger of the two per call).  The ``--json`` file also keeps the CUPTI span
+of an eager call made right after a stream synchronize (``<fwd|bwd>_eager_ms``),
+which does include the host gap between the kernels of a two-kernel call.  The
 ``form`` column names the backward form the non-deterministic call runs for the
 row's token count: ``single`` (one kernel) or ``det pair`` (the deterministic
 package's main kernel and dw reduce, rendered into the non-deterministic
@@ -41,6 +51,7 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import time
 from typing import Callable, Optional
 
 import torch
@@ -69,11 +80,48 @@ MODES = (("det", True), ("nondet", False))
 
 
 def _time(fn: Callable[[], object]) -> float:
-    """Median GPU time (ms) of ``fn`` over its kernels, cold L2, CUPTI."""
+    """Median CUPTI span (ms) of ``fn``'s kernels, each call made right after a
+    stream synchronize, cold L2 (includes host gaps between its kernels)."""
 
     return float(
         statistics.median(bench_gpu_time(fn, enable_cupti=True, cold_l2_cache=True))
     )
+
+
+def _gpu_time(fn: Callable[[], object]) -> tuple[float, str]:
+    """``(median GPU time in ms, timer)`` of the kernels one ``fn`` call
+    launches: the call captured in a CUDA graph, each replay timed by CUPTI
+    (``"cupti"``; CUDA events, ``"events"``, if CUPTI reports no kernel of the
+    graph launch) with a cold L2."""
+
+    side = torch.cuda.Stream()
+    side.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(side):
+        fn()
+    torch.cuda.current_stream().wait_stream(side)
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        fn()
+    torch.cuda.synchronize()
+    try:
+        return _time(graph.replay), "cupti"
+    except ValueError:  # no CUPTI kernel records for a graph launch: CUDA events
+        return float(
+            statistics.median(bench_gpu_time(graph.replay, cold_l2_cache=True))
+        ), "events"
+
+
+def _host_time(fn: Callable[[], object], runs: int = 50) -> float:
+    """Median wall time (ms) of one ``fn`` call with the stream idle before it."""
+
+    times = []
+    for _ in range(runs):
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        fn()
+        times.append((time.perf_counter() - start) * 1e3)
+    torch.cuda.synchronize()
+    return float(statistics.median(times))
 
 
 def _bytes(mode: str, rows: int, hidden: int, *, residual: bool, w_bytes: int) -> int:
@@ -177,9 +225,15 @@ def bench_row(
             fwd()
             bwd(g, g_h)
             torch.cuda.synchronize()
-            entry["fwd_ms"] = _time(fwd)
-            entry["bwd_ms"] = _time(lambda bwd=bwd: bwd(g, g_h))
+            call_bwd = lambda bwd=bwd: bwd(g, g_h)  # noqa: E731
+            entry["fwd_ms"], entry["fwd_timer"] = _gpu_time(fwd)
+            entry["bwd_ms"], entry["bwd_timer"] = _gpu_time(call_bwd)
             entry["step_ms"] = entry["fwd_ms"] + entry["bwd_ms"]
+            entry["fwd_host_ms"] = _host_time(fwd)
+            entry["bwd_host_ms"] = _host_time(call_bwd)
+            entry["step_host_ms"] = entry["fwd_host_ms"] + entry["bwd_host_ms"]
+            entry["fwd_eager_ms"] = _time(fwd)
+            entry["bwd_eager_ms"] = _time(call_bwd)
             for mode in ("fwd", "bwd", "step"):
                 nbytes = _bytes(mode, rows, hidden, residual=residual, w_bytes=w_bytes)
                 entry[f"{mode}_gbps"] = nbytes / (entry[f"{mode}_ms"] * 1e-3) / 1e9
@@ -211,11 +265,16 @@ def _format(result: dict) -> list[str]:
             )
         ratio = result.get(f"{mode}_det_over_nondet")
         gbps = result["modes"].get("nondet", {}).get(f"{mode}_gbps")
+        host = [
+            result["modes"].get(name, {}).get(f"{mode}_host_ms") for name, _ in MODES
+        ]
         lines.append(
             f"H={result['hidden']:5d} T={result['rows']:6d} {mode:4s}{tag:9s} | "
             + " | ".join(cells)
             + (" |    -  " if ratio is None else f" | {ratio:5.2f}x")
             + ("" if gbps is None else f" | nondet {gbps:7.0f} GB/s")
+            + " | host "
+            + " / ".join("-" if v is None else f"{v * 1e3:.1f}" for v in host)
             + (f" | {result['form']}" if mode == "bwd" else "")
         )
     return lines
@@ -249,7 +308,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         raise SystemExit(
             "cake_rmsnorm_train(deterministic=False) has no exported route on this device"
         )
-    print("columns (us): det | nondet | det/nondet | nondet GB/s | bwd form")
+    print(
+        "columns: GPU us det | nondet (CUDA-graph replay, CUPTI, cold L2) | det/nondet "
+        "| nondet GB/s | host us det / nondet (one call) | bwd form"
+    )
     plans = [(h, r, False) for h in args.hidden for r in args.rows]
     if args.residual:
         plans += [(6144, r, True) for r in args.rows if 6144 in args.hidden]

@@ -430,7 +430,8 @@ def _workspace_bytes(
 ) -> int:
     """Bytes of this package's backward workspace of width ``hidden`` for up to
     ``rows`` tokens on ``device``: the largest layout of the records the
-    width's backward routes (both weight dtypes) run for those token counts."""
+    family's backward routes (``hidden``, ``residual``, both weight dtypes) run
+    for those token counts."""
 
     arch = _device_arch(device)
     hidden, rows = int(hidden), max(int(rows), 1)
@@ -453,7 +454,12 @@ def _workspace_bytes(
     return max(
         int(
             _loader.workspace_layout(
-                record, rows, device_index=device_index, capacity_record=capacity
+                record,
+                rows,
+                device_index=device_index,
+                residual=residual,
+                arch=arch,
+                capacity_record=capacity,
             )["total_bytes"]
         )
         for record in owners
@@ -476,21 +482,24 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     workspace holds its chunk-claim counters and one FP32 ``dw`` partial row
     per chunk and grows with ``rows``
     (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward_workspace_bytes`).
-    The non-deterministic workspace is the largest layout of the backward
-    records this width runs for up to ``rows`` tokens (both weight dtypes):
-    its ``uint32`` counters (``cake_jit.COUNTERS_BYTES``), then, for a window
-    that runs the single kernel, its FP64 column sums
-    (``cake_jit.SUM_BYTES * hidden * replicas`` bytes whatever ``rows``;
-    ``replicas`` is one unless the record's workspace rule says more) and, for a
-    window that runs the deterministic pair, its FP32 partial rows after the
-    package's widest sums (``cake_jit.SUMS_BYTES``), which grow with ``rows``
-    (``cake_jit.workspace_layout``).  The buffer must be zero on first use
-    (allocate with ``torch.zeros`` or use
-    :func:`cake_rmsnorm_train_backward_workspace`); the kernels leave the
-    counters and the sums zero, so the same buffer is reusable across calls,
-    token counts up to ``rows``, windows and CUDA Graph replays without host
-    writes, and across widths when it holds each width's size.  Backward calls
-    that may run at the same time (on different streams) need one buffer each.
+    The non-deterministic workspace serves one family -- ``hidden`` and
+    ``residual``, both weight dtypes -- and is the largest layout of the
+    backward records the family runs for up to ``rows`` tokens
+    (``cake_jit.workspace_layout``): the deterministic pairs' ``uint32``
+    counters (``cake_jit.COUNTERS_BYTES``), one state region per single-kernel
+    sum shape of the family (``cake_jit.SINGLE_COUNTERS_BYTES`` of counters
+    and ``replicas`` copies of two halves of ``hidden`` FP64 column sums,
+    whatever ``rows``; ``cake_jit.single_bytes``) and, when a window up to
+    ``rows`` runs the deterministic pair, its FP32 partial rows, which grow with
+    ``rows``.  The buffer must be zero on first use (allocate with
+    ``torch.zeros`` or use :func:`cake_rmsnorm_train_backward_workspace`).
+    After that the kernels keep it valid with no host write: the pair kernels
+    leave their counters at zero and the single kernel keeps its state (which
+    half of the sums the next launch adds into) in its region, so the same
+    buffer serves the family's calls, token counts up to ``rows``, windows and
+    CUDA Graph replays.  Zeroing it again between calls is harmless; using it
+    for another hidden size or residual flag is not.  Backward calls that may
+    run at the same time (on different streams) need one buffer each.
     """
 
     if _resolve_deterministic(
@@ -531,15 +540,21 @@ def _workspace_views(
     *,
     rows: int,
     device: torch.device,
+    residual: bool,
     capacity: Optional[dict],
 ) -> tuple[torch.Tensor, torch.Tensor, dict[str, int]]:
     """``(the region bound to ``partial``, the counters, the layout)`` of the
-    launched workspace owner ``record``: the FP64 column sums of a single
-    kernel, the FP32 ``[n_chunks, hidden]`` partial rows of a pair main kernel
-    (``capacity``: the routes' pair record of the largest capacity)."""
+    launched workspace owner ``record`` of the ``residual`` family: the FP64
+    column sums of a single kernel's state region, the FP32
+    ``[n_chunks, hidden]`` partial rows of a pair main kernel (``capacity``: the
+    routes' pair record of the largest capacity)."""
 
     layout = _loader.workspace_layout(
-        record, rows, device_index=_device_index(device), capacity_record=capacity
+        record,
+        rows,
+        device_index=_device_index(device),
+        residual=residual,
+        capacity_record=capacity,
     )
     if not isinstance(workspace, torch.Tensor):
         raise TypeError("workspace must be a torch.Tensor")
@@ -858,7 +873,12 @@ def _backward(
         _backward_owners(arch, hidden, has_residual, rows), rows, _device_index(device)
     )
     partial, counters, layout = _workspace_views(
-        workspace, record, rows=rows, device=device, capacity=capacity
+        workspace,
+        record,
+        rows=rows,
+        device=device,
+        residual=has_residual,
+        capacity=capacity,
     )
     # The plain kernels keep the residual-gradient parameters in their signature
     # and never read them: bind them to ``g`` exactly like the source launcher.
@@ -946,9 +966,12 @@ def cake_rmsnorm_train_backward(
     workspace : torch.Tensor, optional
         Caller-owned ``uint8`` buffer from
         :func:`cake_rmsnorm_train_backward_workspace` called with the same
-        ``deterministic`` flag (and, for the deterministic backward, sized for at
-        least this many rows); allocated when omitted.  One buffer per backward
-        that may run concurrently (on another stream).
+        ``deterministic`` flag, sized for at least this many rows (with
+        ``deterministic=False`` also for this hidden size and residual flag: it
+        carries the single kernel's state from call to call).  When omitted, the
+        call allocates and zero-fills one (an allocator call and a fill
+        kernel).  One buffer per backward that may run concurrently (on
+        another stream).
     dx, dw : torch.Tensor, optional
         Preallocated outputs: BF16 ``dx`` of ``x``'s shape and FP32 ``[H]``.
         Contiguous aligned buffers are written directly; any other layout

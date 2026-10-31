@@ -62,13 +62,19 @@ returns empty outputs (a zero ``dw``) without launching.
 
 The non-deterministic backward's workspace
 (``cake_rmsnorm_train_backward_workspace_bytes(T, H, ..., deterministic=False)``
-bytes) holds a few counters, the single kernel's FP64 column sums
-(``1024 + 8 * H`` bytes whatever ``T`` when every window of the width runs the
-single kernel) and, when a window up to ``T`` runs the deterministic pair, its
-FP32 partial rows after them.  The kernels leave the counters and the sums at
-zero: zero the buffer once, reuse it across calls, token counts up to ``T``,
-windows and CUDA Graph replays, and give each stream that may run a backward at
-the same time its own buffer.  The backward writes all of ``dw``.
+bytes) serves one hidden size and residual flag (both weight dtypes).  It holds
+the deterministic pair's counters, the single kernel's state -- a few counters
+and two halves of FP64 column sums per sum shape, ``1024 + 256 + 16 * R * H``
+bytes whatever ``T`` (``R`` sum replicas) when every window runs one
+single-kernel shape -- and, when a window up to ``T`` runs the deterministic
+pair, its FP32 partial rows.  Zero the buffer once: the kernels keep it valid
+(the pair's counters back at zero, the single kernel's half selector and the
+half its next launch adds into ready), so it serves calls of token counts up to
+``T``, windows and CUDA Graph replays with no host write.  Zeroing it again is
+harmless; sharing it with another width or residual flag is not.  Give each
+stream that may run a backward at the same time its own buffer.  A call without
+a workspace allocates and zero-fills one (an allocator call and a fill kernel).
+The backward writes all of ``dw``.
 
 Beside kernels resident on other streams (``deterministic=False``): the backward
 kernel needs part of its SM's shared memory, registers for its CTA and one CTA
@@ -78,9 +84,12 @@ carveout therefore delays the backward's start until that kernel exits; kernels
 that hold only some SMs cost it no more than the SMs they hold.  Setting
 ``cudaFuncAttributePreferredSharedMemoryCarveout`` to
 ``cudaSharedmemCarveoutMaxShared`` on such a resident kernel lets the backward
-start beside it.  Programs that need a whole SM wait beside any kernel resident
-on every SM, whatever its carveout: [FI-8066 WHOLE-SM LIST: filled from the
-shipped backward kernels' register / shared-memory census before delivery].
+start beside it.  The windows that run the deterministic pair start and wait
+exactly as the deterministic backward does, including its whole-SM programs
+(see :mod:`flashinfer.cake_rmsnorm_det_train`).  Single-kernel programs that
+need a whole SM wait beside any kernel resident on every SM, whatever its
+carveout: [FI-8066 WHOLE-SM LIST: filled from the shipped backward kernels'
+register / shared-memory census before delivery].
 Beside those, leave some SMs free of the resident kernel.  The forward programs
 are the deterministic package's; see :mod:`flashinfer.cake_rmsnorm_det_train`.
 

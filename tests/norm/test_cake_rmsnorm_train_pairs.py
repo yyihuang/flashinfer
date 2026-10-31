@@ -15,13 +15,14 @@ limitations under the License.
 
 The host plan of the non-deterministic RMSNorm training package without a
 device: every route tiles the positive token counts; a backward window launches
-either one single kernel (workspace rule ``claim_sum_f64``: its counters and
-one FP64 sum per column) or the deterministic package's pair (a
-``chunk_partials`` main kernel, then its dw reduce), and the launch count of
-every window is the registry's; the chunk table the host passes covers the rows
-exactly; the workspace regions of the two forms never overlap; the windows
-module is the registry's; and ``build.json`` builds every library the registry
-launches.
+either one single kernel (workspace rule ``claim_sum_f64``: a state region of
+counters and two halves of FP64 column sums) or the deterministic package's
+pair (a ``chunk_partials`` main kernel, then its dw reduce), and the launch
+count of every window is the registry's; the chunk table the host passes covers
+the rows exactly; the workspace regions of a family (the pair counters, one
+state region per single-kernel sum shape, the pair partial rows) never overlap,
+also for a family that mixes both forms; the windows module is the registry's;
+and ``build.json`` builds every library the registry launches.
 """
 
 from __future__ import annotations
@@ -169,9 +170,12 @@ def test_backward_records_are_chunk_claiming_kernels_or_their_reduce() -> None:
                 assert record["logical"]["partial"] == "partial"
                 continue
             assert record["workspace_rule"]["kind"] in loader.WORKSPACE_KINDS
-            assert (
-                2 <= record["workspace_rule"]["counters"] <= loader.COUNTERS_BYTES // 4
-            )
+            single = record["workspace_rule"]["kind"] == "claim_sum_f64"
+            assert 2 <= record["workspace_rule"]["counters"] <= (
+                loader.SINGLE_COUNTERS_BYTES if single else loader.COUNTERS_BYTES
+            ) // 4
+            if single:
+                assert record["workspace_rule"]["halves"] == 2
             rule = record["grid_rule"]
             assert rule["kind"] == "claimed_chunks"
             assert rule["ctas_per_sm"] == min(
@@ -183,62 +187,178 @@ def test_backward_records_are_chunk_claiming_kernels_or_their_reduce() -> None:
             assert record["logical"]["partial"] == "partial"
 
 
+def _check_family_layout(arch: str, hidden: int, residual: bool, sms: int) -> int:
+    """The workspace layout of every workspace owner of one family for a range of
+    token counts; returns the number of single-kernel owners checked."""
+
+    regions = loader.single_regions(arch, hidden, residual)
+    state = loader.COUNTERS_BYTES + loader.single_bytes(arch, hidden, residual)
+    # the state regions follow the pair counters back to back, one per shape
+    at = loader.COUNTERS_BYTES
+    for (_counters, replicas, halves), offset in regions:
+        assert offset == at and offset % 256 == 0, (arch, hidden, residual, regions)
+        at += loader.SINGLE_COUNTERS_BYTES + -(
+            -loader.SUM_BYTES * hidden * replicas * halves // 256
+        ) * 256
+    assert at == state
+    assert len({shape for shape, _offset in regions}) == len(regions)
+    singles = 0
+    for w_dtype in loader.weight_dtypes(arch, hidden, "bwd", residual):
+        for name in loader.route_modules(arch, hidden, "bwd", residual, w_dtype):
+            record = loader.MODULES[name]
+            if record["workspace_rule"] is None:
+                continue
+            rule = record["grid_rule"]
+            single = record["workspace_rule"]["kind"] == "claim_sum_f64"
+            singles += single
+            for rows in (1, 2, 7, 64, 257, 1000, 4096, 16385, 65536):
+                layout = loader.workspace_layout(
+                    record, rows, device_index=0, residual=residual, arch=arch
+                )
+                slots = rule["ctas_per_sm"] * sms
+                assert layout["slots"] == slots
+                table = loader.chunk_table(
+                    rows, slots, rule["rows_per_issue"], *loader.chunk_taper(rule)
+                )
+                assert layout["n_chunks"] == len(table)
+                assert table[0][0] == 0 and table[-1][1] == rows
+                assert all(a[1] == b[0] for a, b in zip(table, table[1:], strict=False))
+                # bulk-reduction destination / partial row alignment
+                assert layout["partial_offset"] % 256 == 0
+                if single:
+                    workspace = record["workspace_rule"]
+                    shape = (
+                        workspace["counters"],
+                        workspace.get("replicas", 1),
+                        workspace["halves"],
+                    )
+                    offset = dict(regions)[shape]
+                    assert layout["counters_offset"] == offset
+                    assert 4 * layout["counters"] <= loader.SINGLE_COUNTERS_BYTES
+                    assert (
+                        layout["partial_offset"]
+                        == offset + loader.SINGLE_COUNTERS_BYTES
+                    )
+                    assert (
+                        layout["partial_bytes"]
+                        == loader.SUM_BYTES * hidden * shape[1] * shape[2]
+                    )
+                    assert layout["total_bytes"] == state
+                else:
+                    # the pair counters first, the partial rows after every state
+                    # region: a pair call never touches a single kernel's state
+                    assert layout["counters_offset"] == 0
+                    assert 4 * layout["counters"] <= loader.COUNTERS_BYTES
+                    assert layout["partial_offset"] == state
+                    assert layout["capacity_chunks"] >= layout["n_chunks"]
+                    assert (
+                        layout["partial_bytes"]
+                        == 4 * layout["capacity_chunks"] * hidden
+                    )
+                    assert (
+                        layout["total_bytes"]
+                        >= layout["partial_offset"] + layout["partial_bytes"]
+                    )
+                grid = loader.launch_grid(record, rows, device_index=0)
+                assert grid == (min(slots, len(table)), 1, 1)
+    return singles
+
+
 @pytest.mark.parametrize("sms", SM_COUNTS)
 def test_chunk_tables_cover_the_rows(sms: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(loader, "sm_count", lambda device_index: sms)
-    seen = set()
-    for record in loader.MODULES.values():
-        if record["workspace_rule"] is None:
-            continue
-        rule = record["grid_rule"]
-        key = (rule["ctas_per_sm"], rule["rows_per_issue"], *loader.chunk_taper(rule))
-        if key in seen:
-            continue
-        seen.add(key)
-        for rows in (1, 2, 7, 64, 257, 1000, 4096, 16385, 65536):
-            layout = loader.workspace_layout(record, rows, device_index=0)
-            slots = rule["ctas_per_sm"] * sms
-            assert layout["slots"] == slots
-            table = loader.chunk_table(
-                rows, slots, rule["rows_per_issue"], *loader.chunk_taper(rule)
-            )
-            assert layout["n_chunks"] == len(table)
-            assert table[0][0] == 0 and table[-1][1] == rows
-            assert all(a[1] == b[0] for a, b in zip(table, table[1:], strict=False))
-            assert layout["counters_offset"] == 0
-            assert 4 * layout["counters"] <= loader.COUNTERS_BYTES
-            # bulk-reduction destination / partial row alignment
-            assert layout["partial_offset"] % 256 == 0
-            if record["workspace_rule"]["kind"] == "claim_sum_f64":
-                replicas = record["workspace_rule"].get("replicas", 1)
-                assert (
-                    layout["partial_bytes"]
-                    == loader.SUM_BYTES * record["hidden"] * replicas
-                    <= loader.SUMS_BYTES
-                )
-                assert layout["partial_offset"] == loader.COUNTERS_BYTES
-                assert (
-                    layout["total_bytes"]
-                    == loader.COUNTERS_BYTES + layout["partial_bytes"]
-                )
-            else:
-                # the partial rows after the widest FP64 sums of the package: a
-                # pair call never writes the sums a single call needs zero
-                assert (
-                    layout["partial_offset"]
-                    == loader.COUNTERS_BYTES + loader.SUMS_BYTES
-                )
-                assert layout["capacity_chunks"] >= layout["n_chunks"]
-                assert (
-                    layout["partial_bytes"]
-                    == 4 * layout["capacity_chunks"] * record["hidden"]
-                )
-                assert (
-                    layout["total_bytes"]
-                    >= layout["partial_offset"] + layout["partial_bytes"]
-                )
-            grid = loader.launch_grid(record, rows, device_index=0)
-            assert grid == (min(slots, len(table)), 1, 1)
+    families = {
+        (arch, hidden, residual)
+        for arch, route in _routes()
+        for kind, hidden, residual, _w_dtype in [_parse(route)]
+        if kind == "bwd"
+    }
+    assert families
+    for family in sorted(families):
+        _check_family_layout(*family, sms)
+
+
+def _with_single(
+    monkeypatch: pytest.MonkeyPatch, route: str, at_most: int, replicas: tuple[int, ...]
+) -> tuple[str, int, bool]:
+    """Put single-kernel records into the first ``at_most`` tokens of an sm_100a
+    route (one per entry of ``replicas``, splitting that window; the det pair keeps
+    the rest) of a copy of the registry; returns the family."""
+
+    kind, hidden, residual, _w_dtype = _parse(route)
+    modules = dict(loader.MODULES)
+    routes = {arch: dict(by_route) for arch, by_route in loader.ROUTES.items()}
+    names = list(routes["sm_100a"][route])
+    pair = next(
+        n for n in names if modules[n]["workspace_rule"]["kind"] == "chunk_partials"
+    )
+    singles, above = [], 0
+    for index, count in enumerate(replicas):
+        top = at_most * (index + 1) // len(replicas)
+        record = json.loads(json.dumps(modules[pair]))
+        record["workspace_rule"] = {
+            "counters": 2,
+            "halves": 2,
+            "kind": "claim_sum_f64",
+            **({"replicas": count} if count != 1 else {}),
+        }
+        record["select_rule"] = {"above": above, "at_most": top, "kind": "rows_between"}
+        name = f"test_single_{index}"
+        modules[name] = record
+        singles.append(name)
+        above = top
+    kept = []
+    for name in names:
+        record = modules[name]
+        low, high = _window(record)
+        if high is not None and high <= at_most:
+            continue  # a window the singles now cover (its main record and dw reduce)
+        if low < at_most:
+            record = json.loads(json.dumps(record))
+            record["select_rule"] = {
+                "above": at_most,
+                "at_most": high,
+                "kind": "rows_between",
+            }
+            modules[name] = record
+        kept.append(name)
+    mains = [n for n in kept if modules[n]["role"] != "bwd_reduce"]
+    reduces = [n for n in kept if modules[n]["role"] == "bwd_reduce"]
+    routes["sm_100a"][route] = [*singles, *mains, *reduces]
+    monkeypatch.setattr(loader, "MODULES", modules)
+    monkeypatch.setattr(loader, "ROUTES", routes)
+    loader.single_regions.cache_clear()
+    return "sm_100a", hidden, residual
+
+
+@pytest.mark.parametrize("replicas", [(1,), (4,), (4, 4), (4, 2)])
+def test_a_family_mixing_both_forms_keeps_its_regions_apart(
+    replicas: tuple[int, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shipped registry may route every window to the det pair, so the
+    single-kernel layout is checked on a copy whose bwd_h6144 route runs single
+    kernels up to 256 tokens: one state region per sum shape (two single kernels
+    of one shape share it), the pair counters before it and the pair partial rows
+    after every region, and the bytes helper's layout covers both forms."""
+
+    monkeypatch.setattr(loader, "sm_count", lambda device_index: 148)
+    try:
+        family = _with_single(monkeypatch, "bwd_h6144", 256, replicas)
+        assert list(
+            loader.selected_modules(family[0], 6144, "bwd", False, rows=1)
+        ) == ["test_single_0"]
+        assert len(loader.selected_modules(family[0], 6144, "bwd", False, rows=257)) == 2
+        regions = loader.single_regions(*family)
+        assert [shape[1] for shape, _offset in regions] == list(
+            dict.fromkeys(replicas)
+        )
+        assert _check_family_layout(*family, 148) == len(replicas)
+        assert loader.single_bytes(*family) == sum(
+            loader.SINGLE_COUNTERS_BYTES + 16 * 6144 * count
+            for count in dict.fromkeys(replicas)
+        )
+    finally:
+        loader.single_regions.cache_clear()
 
 
 def test_windows_module_is_the_registry() -> None:

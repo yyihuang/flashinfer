@@ -30,9 +30,11 @@ resident is at most ``MAX_RATIO`` times the median of seven calls alone, or at
 most ``MAX_EXTRA_MS`` above it (the alone and busy calls alternate in pairs).
 ``dx`` is bitwise equal across the alone and busy calls, a fresh-workspace
 call and launch grids other than the production one; ``dw`` stays within the
-package's budget against the first call in every one of them; the workspace's
-counters and FP64 sums are zero after every call (a det pair's partial rows
-after them are scratch).
+package's budget against the first call in every one of them; after every
+call the workspace holds the kernels' state and nothing else: the det pair
+counters zero and, per single-kernel state region, the claim ticket zero, the
+count's low bits zero and the sum half the next launch adds into zero (a det
+pair's partial rows are scratch).
 
 Beside a kernel resident on every SM (#7548 item 2): with the side kernel's
 preferred carveout set to the maximum shared memory, the backward starts beside
@@ -161,12 +163,28 @@ def _rel_l2(actual: torch.Tensor, reference: torch.Tensor) -> float:
     return (a - b).norm().item() / den if den > 0 else (a - b).norm().item()
 
 
-def _workspace_is_zero(workspace: torch.Tensor) -> bool:
-    """The counters and the FP64 sums are zero (the partial rows of a det pair
-    after them are scratch the main kernel overwrites)."""
+def _workspace_clean(ws: torch.Tensor, hidden: int, residual: bool = False) -> bool:
+    """The kernels' state between calls of one family: the det pair counters
+    zero; per single-kernel state region the claim ticket and the unused counter
+    words zero, the count's low 31 bits zero and the half its bit 31 selects (the
+    next launch's) all zero -- the other half keeps the last launch's sums; a det
+    pair's partial rows are scratch."""
     torch.cuda.synchronize()
-    clean = loader.COUNTERS_BYTES + loader.SUMS_BYTES
-    return int(torch.count_nonzero(workspace[:clean])) == 0
+    if bool(ws[: loader.COUNTERS_BYTES].any()):
+        return False
+    arch = loader.device_arch(ws.device.index or 0)
+    for (counters, replicas, halves), offset in loader.single_regions(
+        arch, hidden, residual
+    ):
+        words = ws[offset : offset + 4 * counters].view(torch.int32).tolist()
+        if words[0] != 0 or words[1] & 0x7FFFFFFF or any(words[2:]):
+            return False
+        begin = offset + loader.SINGLE_COUNTERS_BYTES
+        sums = ws[begin : begin + loader.SUM_BYTES * hidden * replicas * halves]
+        sums = sums.view(torch.float64).view(replicas, halves, hidden)
+        if bool(sums[:, (words[1] >> 31) & 1 if halves > 1 else 0].any()):
+            return False
+    return True
 
 
 def _timed(
@@ -233,7 +251,7 @@ def test_backward_keeps_its_speed_beside_a_resident_kernel(
     dx_fresh, dw_fresh = _backward(x, w, g, g_h, rstd, None)
     assert torch.equal(dx_fresh, dx_ref), "a fresh workspace changed dx"
     assert _rel_l2(dw_fresh, dw_ref) <= DW_REL_L2, "a fresh workspace moved dw"
-    assert _workspace_is_zero(workspace), "the workspace is not back to zero"
+    assert _workspace_clean(workspace, hidden, residual), "the workspace is not the kernels' state"
     assert _keeps_its_speed(alone_ms, busy_ms), (
         f"hidden={hidden} residual={residual} rows={rows}: backward alone {alone_ms:.4f} ms, "
         f"beside a resident one-thread kernel {busy_ms:.4f} ms: ratio {ratio:.3f} "
@@ -277,8 +295,8 @@ def test_outputs_do_not_depend_on_the_launch_grid(
         assert _rel_l2(dw, dw_ref) <= DW_REL_L2, (
             f"hidden={hidden} rows={rows}: dw moved at grid / {divisor}"
         )
-        assert _workspace_is_zero(workspace), (
-            f"workspace not back to zero at grid / {divisor}"
+        assert _workspace_clean(workspace, hidden, residual), (
+            f"the workspace is not the kernels' state at grid / {divisor}"
         )
     monkeypatch.setattr(loader, "launch_grid", production)
 
@@ -480,7 +498,7 @@ def test_backward_starts_beside_an_all_sm_kernel_with_the_max_shared_carveout(
         assert _rel_l2(dw, dw_ref) <= DW_REL_L2, (
             f"hidden={hidden} rows={rows}: dw moved beside the all-SM kernel"
         )
-    assert _workspace_is_zero(workspace)
+    assert _workspace_clean(workspace, hidden, residual)
     assert busy_ms - alone_ms <= MAX_ALL_SM_EXTRA_MS, (
         f"hidden={hidden} rows={rows}: backward alone {alone_ms:.4f} ms, beside an all-SM "
         f"kernel with the max-shared carveout {busy_ms:.4f} ms (at most "
