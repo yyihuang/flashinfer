@@ -518,7 +518,9 @@ def _check(
         f"forward {label} launched {fwd_launched}"
     )
     expected = _window_records(hidden, "bwd", residual, w_token, rows)
-    assert records == expected, f"backward {label} launched {records}, window {expected}"
+    assert records == expected, (
+        f"backward {label} launched {records}, window {expected}"
+    )
     form = _form(expected)
     _assert_dw(dw, dw_ref, g, normalized, rstd, f"dw {label}", form)
     return Case(x, u, g, g_h, w, eps, rstd, normalized, dx, dw, dw_ref, records, form)
@@ -601,9 +603,7 @@ def test_program_window_edges(hidden: int, residual: bool, w: str) -> None:
         launched.update(_window_records(hidden, "fwd", residual, w, rows))
         forms.append(f"{rows}:{case.form}")
     for kind in ("fwd", "bwd"):
-        names = set(
-            loader.ROUTES[_arch()][loader.route_key(hidden, kind, residual, w)]
-        )
+        names = set(loader.ROUTES[_arch()][loader.route_key(hidden, kind, residual, w)])
         assert names <= launched, f"{kind} programs never launched: {names - launched}"
     print(f"EDGES h={hidden} res={residual} w={w} {' '.join(forms)}")
 
@@ -731,9 +731,7 @@ def _repeat_params():
     for hidden in HIDDEN_SIZES:
         for rows in (257, 16385, 65536):
             for w in W_DTYPES:
-                yield pytest.param(
-                    hidden, rows, False, w, id=f"h{hidden}-T{rows}-{w}"
-                )
+                yield pytest.param(hidden, rows, False, w, id=f"h{hidden}-T{rows}-{w}")
     for rows in (7, 257, 16385, 65536):
         for w in W_DTYPES:
             yield pytest.param(6144, rows, True, w, id=f"res-h6144-T{rows}-{w}")
@@ -762,7 +760,12 @@ def test_repeated_launches_against_fp64_and_det(
     label = f"repeat h={hidden} T={rows} res={residual} w={w}"
     for _ in range(REPEATS):
         (dx, dw), records = _run_backward(
-            case.g, case.normalized, case.w, case.rstd, g_residual=case.g_h, workspace=ws
+            case.g,
+            case.normalized,
+            case.w,
+            case.rstd,
+            g_residual=case.g_h,
+            workspace=ws,
         )
         assert records == case.records, f"{label}: launched {records}"
         assert torch.equal(dx, case.dx), f"{label}: dx changed between launches"
@@ -843,7 +846,9 @@ def test_per_head_256_views(view: str, w: str) -> None:
         worst = max(worst, error)
         spread = max(spread, (dw - dw0).abs().max().item())
         assert _workspace_at_rest(ws)
-    dx2, _dw2 = backward(g.reshape(-1, 256), x.reshape(-1, 256), w_tensor, rstd.reshape(-1))
+    dx2, _dw2 = backward(
+        g.reshape(-1, 256), x.reshape(-1, 256), w_tensor, rstd.reshape(-1)
+    )
     assert torch.equal(dx0.reshape(-1, 256), dx2)
     print(
         f"DW_WORST per-head view={view} w={w} rows={rows * heads} form={form} "
@@ -863,7 +868,9 @@ def test_garbage_filled_dw_is_overwritten(hidden: int, w: str) -> None:
         dw = torch.full((hidden,), fill, device=_device())
         _dx2, dw_out = backward(case.g, case.x, case.w, case.rstd, dw=dw)
         assert dw_out is dw and torch.isfinite(dw).all()
-        _assert_dw(dw, case.dw_ref, case.g, case.x, case.rstd, f"dw fill={fill}", case.form)
+        _assert_dw(
+            dw, case.dw_ref, case.g, case.x, case.rstd, f"dw fill={fill}", case.form
+        )
 
 
 def _reuse_call(ws, hidden, residual, w, rows, key):
@@ -983,7 +990,9 @@ def test_cuda_graph_capture_and_replay(hidden: int, residual: bool, w: str, rows
     torch.cuda.synchronize()
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.graph(graph):
-        forward(x, weight, eps, residual=u, out=out_y, rstd=out_rstd, residual_out=out_h)
+        forward(
+            x, weight, eps, residual=u, out=out_y, rstd=out_rstd, residual_out=out_h
+        )
         backward(
             g,
             out_h if residual else x,
@@ -1062,7 +1071,9 @@ def test_autograd_matches_fp64(hidden: int, residual: bool, w: str) -> None:
     if residual:
         assert torch.equal(ua.grad, xa.grad)
     form = _form(_window_records(hidden, "bwd", residual, w, rows))
-    _assert_autograd_dw(wa.grad, weight, dw_ref, g, normalized, rstd, "autograd dw", form)
+    _assert_autograd_dw(
+        wa.grad, weight, dw_ref, g, normalized, rstd, "autograd dw", form
+    )
 
 
 @pytest.mark.parametrize(("hidden", "residual", "w"), list(_autograd_params()))
@@ -1154,7 +1165,8 @@ def test_autograd_saves_only_its_inputs_and_rstd(hidden: int, residual: bool, w:
     )
     # the outputs plus the FP32 rstd (allocator blocks of 512 bytes)
     assert held <= outputs_bytes + 4 * rows + 2048, (held, outputs_bytes)
-    del saved, others
+    saved.clear()  # drop this test's references to the saved tensors
+    others.clear()
     if residual:
         torch.autograd.backward(outputs, (g, g_h))
     else:
@@ -1162,7 +1174,9 @@ def test_autograd_saves_only_its_inputs_and_rstd(hidden: int, residual: bool, w:
     del outputs, y, normalized
     torch.cuda.synchronize()
     grads = [xa.grad, wa.grad] + ([ua.grad] if residual else [])
-    storages = {t.untyped_storage().data_ptr(): t.untyped_storage().nbytes() for t in grads}
+    storages = {
+        t.untyped_storage().data_ptr(): t.untyped_storage().nbytes() for t in grads
+    }
     grads_bytes = sum(storages.values())
     left = torch.cuda.memory_allocated() - base
     assert left <= grads_bytes + 2048, (
@@ -1325,22 +1339,30 @@ def test_argument_validation(hidden: int) -> None:
         (lambda: forward(x, weight[: hidden // 2], eps), "w shape"),
         (lambda: forward(x.cpu(), weight.cpu(), eps), "cpu"),
         (
-            lambda: forward(x, weight, eps, out=torch.empty(rows, hidden, device=device)),
+            lambda: forward(
+                x, weight, eps, out=torch.empty(rows, hidden, device=device)
+            ),
             "out dtype",
         ),
         (
-            lambda: forward(x.view(rows, 4, hidden // 4).transpose(1, 2), weight[:4], eps),
+            lambda: forward(
+                x.view(rows, 4, hidden // 4).transpose(1, 2), weight[:4], eps
+            ),
             "non-collapsible N-D",
         ),
         (lambda: backward(g, x, weight, rstd.double()), "rstd dtype"),
         (lambda: backward(g, x, weight, rstd[:-1]), "rstd shape"),
         (lambda: backward(g[:-1], x, weight, rstd), "g shape"),
         (
-            lambda: backward(g, x, weight, rstd, dx=torch.empty(rows, hidden, device=device)),
+            lambda: backward(
+                g, x, weight, rstd, dx=torch.empty(rows, hidden, device=device)
+            ),
             "dx dtype",
         ),
         (
-            lambda: backward(g, x, weight, rstd, dw=torch.empty(hidden + 1, device=device)),
+            lambda: backward(
+                g, x, weight, rstd, dw=torch.empty(hidden + 1, device=device)
+            ),
             "dw shape",
         ),
         (
@@ -1355,7 +1377,10 @@ def test_argument_validation(hidden: int) -> None:
     needed = _bytes(rows, hidden)
     workspaces = [
         (torch.zeros(256, dtype=torch.uint8, device=device), "tiny"),
-        (torch.zeros(loader.COUNTERS_BYTES, dtype=torch.uint8, device=device), "counters only"),
+        (
+            torch.zeros(loader.COUNTERS_BYTES, dtype=torch.uint8, device=device),
+            "counters only",
+        ),
         (torch.zeros(needed // 4, dtype=torch.float32, device=device), "dtype"),
         (torch.zeros(needed, dtype=torch.uint8), "cpu"),
         (torch.zeros(needed + 512, dtype=torch.uint8, device=device)[1:], "unaligned"),
@@ -1364,7 +1389,10 @@ def test_argument_validation(hidden: int) -> None:
     if _form(_window_records(hidden, "bwd", False, "bf16", rows)) == "pair":
         # the documented size of a pair window's call is that call's own layout
         workspaces.append(
-            (torch.zeros(needed - 256, dtype=torch.uint8, device=device), "one block short")
+            (
+                torch.zeros(needed - 256, dtype=torch.uint8, device=device),
+                "one block short",
+            )
         )
     for ws, why in workspaces:
         _refused(
@@ -1388,7 +1416,9 @@ def test_every_library_carries_its_architecture_floor_and_flags() -> None:
     for arch, flags in manifest["arch_flags"].items():
         assert flags == [GENCODE[arch]], (arch, flags)
     requires = manifest["common"]["requires"]["cuda_toolkit"]["min"]
-    assert requires == min(MIN_CUDA.values(), key=lambda v: tuple(map(int, v.split("."))))
+    assert requires == min(
+        MIN_CUDA.values(), key=lambda v: tuple(map(int, v.split(".")))
+    )
     libraries = cake_build.libraries_by_name()
     per_arch = {arch: 0 for arch in loader.ARCHES}
     for name, entry in libraries.items():
@@ -1416,7 +1446,9 @@ def test_every_library_carries_its_architecture_floor_and_flags() -> None:
         assert hidden in loader.HIDDEN_SIZES and kind in loader.KINDS, key
     print(
         "MANIFEST "
-        + " ".join(f"{arch}:{MIN_CUDA[arch]}:{per_arch[arch]}libs" for arch in loader.ARCHES)
+        + " ".join(
+            f"{arch}:{MIN_CUDA[arch]}:{per_arch[arch]}libs" for arch in loader.ARCHES
+        )
         + f" routes={len(first)}"
     )
 

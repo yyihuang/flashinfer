@@ -343,7 +343,15 @@ def bench_mode(
 
     def bwd():
         return cake_rmsnorm_train_backward(
-            g, normalized, w, rstd, g_residual=g_h, workspace=workspace, dx=dx, dw=dw, **kw
+            g,
+            normalized,
+            w,
+            rstd,
+            g_residual=g_h,
+            workspace=workspace,
+            dx=dx,
+            dw=dw,
+            **kw,
         )
 
     try:
@@ -377,17 +385,14 @@ def bench_mode(
     base = torch.cuda.memory_allocated()
     outputs = cake_rmsnorm(xa, wa, eps, residual=ua, **kw)
     torch.cuda.synchronize()
-    outputs_bytes = sum(t.numel() * t.element_size() for t in (outputs if residual else (outputs,)))
+    outputs_bytes = sum(
+        t.numel() * t.element_size() for t in (outputs if residual else (outputs,))
+    )
     saved = torch.cuda.memory_allocated() - base - outputs_bytes
 
-    def autograd_backward():
-        if residual:
-            torch.autograd.backward(outputs, (g, g_h))
-        else:
-            outputs.backward(g)
-
-    ag_peak, _ag_kept = _memory(autograd_backward)
-    del outputs, xa, wa, ua
+    tensors = outputs if residual else (outputs,)
+    grads = (g, g_h) if residual else (g,)
+    ag_peak, _ag_kept = _memory(lambda: torch.autograd.backward(tensors, grads))
     entry["memory"] = {
         "workspace_bytes": int(workspace_bytes),
         "fwd_default_peak_bytes": fwd_peak,
@@ -414,7 +419,9 @@ def _meta(device, session: str) -> dict:
     return {
         "schema": SCHEMA,
         "session": session,
-        "time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "time": datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
         "device": torch.cuda.get_device_name(device),
         "capability": list(torch.cuda.get_device_capability(device)),
         "sm_count": props.multi_processor_count,
@@ -518,7 +525,8 @@ def report(paths: list[str]) -> tuple[list[dict], str]:
             return "-" if not summary else f"{summary['median']:.1f}"
 
         per_session = " / ".join(
-            f"{value:.2f}" for _s, value in sorted(nondet.get("bwd_sessions", {}).items())
+            f"{value:.2f}"
+            for _s, value in sorted(nondet.get("bwd_sessions", {}).items())
         )
         kernels = ", ".join(
             f"{count}x{name[-20:]}" for name, count in nondet.get("bwd_kernels", [])
@@ -565,7 +573,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=["bf16"],
         help="weight dtypes (f32: the FP32-weight routes)",
     )
-    parser.add_argument("--iters", type=int, default=200, help="CUPTI replays per phase")
+    parser.add_argument(
+        "--iters", type=int, default=200, help="CUPTI replays per phase"
+    )
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--host-runs", type=int, default=50)
     parser.add_argument("--session", type=str, default="s1", help="session tag")
@@ -602,61 +612,56 @@ def main(argv: Optional[list[str]] = None) -> int:
     ]
     if args.residual and 6144 in args.hidden:
         plans += [(6144, rows, True, w) for w in args.w_dtype for rows in args.rows]
-    handle = open(args.jsonl, "a") if args.jsonl else None
     print(
         "H T res w form | mode: fwd / bwd / 2xfwd+bwd GPU us (median, CUPTI span) | "
         "host bwd us | workspace KiB | kernels of one bwd"
     )
-    try:
-        for hidden, rows, residual, w_token in plans:
-            if not is_cake_rmsnorm_train_supported(device, hidden, deterministic=False):
-                print(f"H={hidden}: no exported non-deterministic route, skipped")
-                continue
-            form = _form(device, hidden, rows, residual, w_token)
-            for mode, deterministic in MODES:
-                entry = bench_mode(
-                    hidden,
-                    rows,
-                    residual=residual,
-                    w_token=w_token,
-                    deterministic=deterministic,
-                    device=device,
-                    iters=args.iters,
-                    warmup=args.warmup,
-                    host_runs=args.host_runs,
-                )
-                record = {
-                    **meta,
-                    "hidden": hidden,
-                    "rows": rows,
-                    "residual": residual,
-                    "w_dtype": w_token,
-                    "eps": EPS[hidden],
-                    "mode": mode,
-                    "form": form if mode == "nondet" else "det pair",
-                    **entry,
-                }
-                if handle:
+    for hidden, rows, residual, w_token in plans:
+        if not is_cake_rmsnorm_train_supported(device, hidden, deterministic=False):
+            print(f"H={hidden}: no exported non-deterministic route, skipped")
+            continue
+        form = _form(device, hidden, rows, residual, w_token)
+        for mode, deterministic in MODES:
+            entry = bench_mode(
+                hidden,
+                rows,
+                residual=residual,
+                w_token=w_token,
+                deterministic=deterministic,
+                device=device,
+                iters=args.iters,
+                warmup=args.warmup,
+                host_runs=args.host_runs,
+            )
+            record = {
+                **meta,
+                "hidden": hidden,
+                "rows": rows,
+                "residual": residual,
+                "w_dtype": w_token,
+                "eps": EPS[hidden],
+                "mode": mode,
+                "form": form if mode == "nondet" else "det pair",
+                **entry,
+            }
+            if args.jsonl:
+                with open(args.jsonl, "a") as handle:
                     handle.write(json.dumps(record) + "\n")
-                    handle.flush()
-                tag = f"H={hidden} T={rows} res={int(residual)} w={w_token} {form}"
-                if not entry["supported"]:
-                    print(f"{tag} | {mode}: unsupported ({entry['reason'][:80]})")
-                    continue
-                gpu = entry["gpu"]
-                print(
-                    f"{tag} | {mode}: "
-                    + " / ".join(f"{gpu[p]['span_us']['median']:.2f}" for p in PHASES)
-                    + f" | host {entry['host_us']['bwd']['median']:.1f}"
-                    + f" | ws {entry['memory']['workspace_bytes'] / 1024:.1f}"
-                    + " | "
-                    + ", ".join(f"{c}x{n[-24:]}" for n, c in gpu["bwd"]["kernels"]),
-                    flush=True,
-                )
-                torch.cuda.empty_cache()
-    finally:
-        if handle:
-            handle.close()
+            tag = f"H={hidden} T={rows} res={int(residual)} w={w_token} {form}"
+            if not entry["supported"]:
+                print(f"{tag} | {mode}: unsupported ({entry['reason'][:80]})")
+                continue
+            gpu = entry["gpu"]
+            print(
+                f"{tag} | {mode}: "
+                + " / ".join(f"{gpu[p]['span_us']['median']:.2f}" for p in PHASES)
+                + f" | host {entry['host_us']['bwd']['median']:.1f}"
+                + f" | ws {entry['memory']['workspace_bytes'] / 1024:.1f}"
+                + " | "
+                + ", ".join(f"{c}x{n[-24:]}" for n, c in gpu["bwd"]["kernels"]),
+                flush=True,
+            )
+            torch.cuda.empty_cache()
     return 0
 
 
