@@ -608,6 +608,62 @@ def test_minimax_h3_sm120_varlen_attention_nvfp4_light_overlap_widths_are_bitwis
         assert torch.equal(out, sequential)
 
 
+# Overlapped plans on 170 and 188 SMs: two key-tile counts (9 and 8), three (3, 8 and 16).
+DRAIN_CU_SEQLENS = [
+    ((0, 1100, 2100), True),
+    ((0, 300, 1300, 3300), False),
+]
+
+
+@requires_sm120
+@pytest.mark.parametrize(("cu_seqlens", "two_classes"), DRAIN_CU_SEQLENS)
+@pytest.mark.parametrize("delta", [True, False])
+def test_minimax_h3_sm120_varlen_attention_nvfp4_drain_order_on_reuse_is_bitwise(
+    cu_seqlens, two_classes, delta, monkeypatch
+) -> None:
+    """An overlapped plan's first call launches the head-major unit rows; the next eager call reorders the rows
+    of a plan of two key-tile counts once (the last 4 x grid units longest first, ``_plan_rows_drain``) and
+    keeps them on a plan of other counts; every call's output is bit for bit the first call's."""
+    device = torch.device("cuda:0")
+    sms = nvfp4_ops._sm_count(device.index)
+    if sms not in nvfp4_ops._OVERLAP_WIDTH:
+        pytest.skip(f"no overlap width on {sms} SMs")
+    monkeypatch.setattr(nvfp4_ops, "_NVFP4_LAUNCHES", OrderedDict())
+    monkeypatch.setattr(nvfp4_ops, "_PLAN_ROWS_HM", {})
+    fn = _route(delta)
+    cu = torch.tensor(cu_seqlens, dtype=torch.int32, device=device)
+    q, k, v = synthetic_inputs(
+        cu_seqlens[-1], MINIMAX_H3_NUM_HEADS, seed=27, device=device
+    )
+    plan = quant_ops._plan(cu_seqlens, MINIMAX_H3_NUM_HEADS, device)
+    key = (id(plan), device.index)
+    owner = nvfp4_ops._owner(device.index, nvfp4_ops._current_stream(device.index))
+    first = fn(q, k, v, cu, cu_seqlens_host=cu_seqlens)
+    launch = nvfp4_ops._NVFP4_LAUNCHES[owner][1][(plan.key, delta)]
+    head_major, _plan_ref = nvfp4_ops._PLAN_ROWS_HM[key]
+    rows = head_major.view(-1, 4).tolist()
+    assert len(rows) == plan.num_units
+    assert rows == sorted(rows, key=lambda row: ((row[1] >> 16), row[0], row[1]))
+    unit_rows = launch.args[4]
+    outs = [fn(q, k, v, cu, cu_seqlens_host=cu_seqlens) for _call in range(3)]
+    torch.cuda.synchronize()
+    drained, _plan_ref, kept = nvfp4_ops._PLAN_ROWS_HM[key]
+    assert kept is head_major and launch.drain is None
+    expected = rows
+    if two_classes:
+        # the last 4 x grid units longest first (a stable sort by key tiles)
+        drain = len(rows) - min(len(rows), 4 * plan.grid)
+        expected = rows[:drain] + sorted(
+            rows[drain:], key=lambda row: (row[2] - row[3]) // 128
+        )
+    assert drained.view(-1, 4).tolist() == expected
+    assert (expected != rows) == two_classes
+    assert (drained is head_major) == (not two_classes)
+    assert (launch.args[4] is unit_rows) == (not two_classes)
+    for out in outs:
+        assert torch.equal(out, first)
+
+
 # The plan of the graph, host-thread and serialized-launch tests: the fused pre-processing (the overlapped form
 # on 170 and 188 SMs).
 FUSED_CU_SEQLENS = (0, 1100, 2100)

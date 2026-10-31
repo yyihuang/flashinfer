@@ -15,6 +15,7 @@ limitations under the License.
 """
 
 import functools
+import itertools
 import math
 from collections import OrderedDict
 from typing import Any, Dict, Optional, Sequence, Tuple
@@ -347,7 +348,7 @@ def _plan_rows_head_major(plan, device: torch.device) -> torch.Tensor:
     """int32 ``[4 * num_units]`` unit rows of the overlapped form, head-major: every unit of head 0, then of head 1,
     ..., each head's units in segment and Q-tile order, with the rows of ``_plan_rows``.  The attention CTAs take
     the units in this order, so the heads become ready in the producers' order.  Cached per plan like
-    ``_plan_rows``."""
+    ``_plan_rows``; the launches of a reused plan take its drain order (``_plan_rows_drain``)."""
     key = (id(plan), _device_index(device))
     cached = _PLAN_ROWS_HM.get(key)
     if cached is not None and cached[1] is plan:
@@ -373,6 +374,65 @@ def _plan_rows_head_major(plan, device: torch.device) -> torch.Tensor:
     )
     cached = (unit_rows.to(device), plan)
     _PLAN_ROWS_HM[key] = cached
+    return cached[0]
+
+
+# The drain order of a reused plan's head-major unit rows (``_plan_rows_drain``): the last
+# ``_HEAD_MAJOR_TAIL_ROUNDS`` x (plan grid) units run longest first.
+_HEAD_MAJOR_TAIL_ROUNDS = 4
+
+
+def _plan_rows_drain(plan, device: torch.device) -> Optional[torch.Tensor]:
+    """The unit rows of the overlapped form once its plan is reused, decided once per plan: on a plan whose
+    non-empty segments take two key-tile counts (a short and a long class), the head-major rows of
+    ``_plan_rows_head_major`` with the last ``_HEAD_MAJOR_TAIL_ROUNDS`` x ``plan.grid`` units (the grid is the
+    SM count, or the unit count when smaller), the ones the CTAs claim as they drain, longest first (stably):
+    the short units of those heads fill the end of the schedule instead of leaving long units to start last.
+    Other plans keep the head-major rows.  A plan's first call builds the head-major rows alone, so a plan
+    used once pays nothing for the order.  ``None`` when the plan's head-major rows are not cached."""
+    key = (id(plan), _device_index(device))
+    cached = _PLAN_ROWS_HM.get(key)
+    if cached is None or cached[1] is not plan:
+        return None
+    if len(cached) == 2:
+        rows = cached[0]
+        bounds = plan.bounds
+        lens = [b - a for a, b in zip(bounds[:-1], bounds[1:], strict=False) if b > a]
+        classes = {_ceil_div(length, _BLOCK_N) for length in lens}
+        if len(classes) == 2:
+            # the drain starts at unit ``rest`` of head ``heads``; a segment of more than ``cut`` tokens has the
+            # long key-tile count.  Every head's units are the same runs of segments, so the drain is copied as
+            # slices: the long runs of the drain heads (head ``heads`` from ``rest``), then the short runs.
+            cut = min(classes) * _BLOCK_N
+            units = rows.view(-1, _UNIT_ROW_INTS)
+            per_head = plan.num_units // plan.num_heads
+            heads, rest = divmod(
+                plan.num_units
+                - min(plan.num_units, _HEAD_MAJOR_TAIL_ROUNDS * int(plan.grid)),
+                per_head,
+            )
+            runs: Tuple[list, list] = ([], [])  # (begin, end) units of a head: short, long
+            end = 0
+            for longer, group in itertools.groupby(lens, cut.__lt__):
+                begin, end = end, end + sum(_ceil_div(n, _BLOCK_M) for n in group)
+                runs[longer].append((begin, end))
+            drain = units[heads * per_head :].view(-1, per_head, _UNIT_ROW_INTS)
+            parts = [units[: heads * per_head + rest]]
+            for spans in (runs[1], runs[0]):
+                taken = [drain[:, a:b] for a, b in spans]
+                block = torch.cat(taken, 1) if len(taken) > 1 else taken[0]
+                skip = sum(min(b, rest) - min(a, rest) for a, b in spans)
+                parts += [block[0, skip:], block[1:].reshape(-1, _UNIT_ROW_INTS)]
+            rows = torch.cat(parts).reshape(-1)
+            if rows.is_cuda:
+                # complete before a launch on another stream reads it
+                from cuda.bindings import runtime as cudart
+
+                (err,) = cudart.cudaStreamSynchronize(_current_stream(key[1]))
+                if err != cudart.cudaError_t.cudaSuccess:
+                    raise RuntimeError(f"cudaStreamSynchronize failed: {err!r}")
+        # (rows, plan, head-major rows): the head-major rows stay alive for the launches and graphs reading them
+        cached = _PLAN_ROWS_HM[key] = (rows, plan, cached[0])
     return cached[0]
 
 
@@ -1038,8 +1098,10 @@ class _Nvfp4Launch:
     exact size (the bindings encode their tensor maps from the shapes handed in) and already converted to
     a tvm-ffi tensor, so a call converts nothing but Q, K, V and the output."""
 
-    __slots__ = ("args",)
+    __slots__ = ("args", "drain")
     args: Tuple[Any, ...]
+    # (plan, unit rows) of an overlapped launch until its first reuse (``reorder``), else None
+    drain: Optional[Tuple[Any, torch.Tensor]]
 
     def __init__(
         self,
@@ -1179,6 +1241,17 @@ class _Nvfp4Launch:
             tail_grid,
             units_per_head,
         )
+        self.drain = (plan, unit_rows) if overlap else None
+
+    def reorder(self, index: int) -> None:
+        """At the first reuse of an overlapped launch: its unit rows become the plan's drain order
+        (``_plan_rows_drain``)."""
+        plan, unit_rows = self.drain
+        self.drain = None
+        rows = _plan_rows_drain(plan, torch.device("cuda", index))
+        if rows is not None and rows is not unit_rows:
+            # the unit rows are the fifth tensor of ``args``
+            self.args = (*self.args[:4], tvm_ffi.from_dlpack(rows), *self.args[5:])
 
 
 # Per workspace owner (``_owner``): the workspace buffers the cached launches slice (the launches hold views of
@@ -1205,6 +1278,9 @@ def _nvfp4_launch(
         while len(launches) >= _MAX_PLANS:
             launches.popitem(last=False)
         launches[launch_key] = launch
+    elif launch.drain is not None and len(owner) == 2:
+        # an eager call reuses the plan: the drain order, once (a call captured into a graph launches only)
+        launch.reorder(index)
     return launch
 
 
@@ -1664,7 +1740,9 @@ def minimax_h3_sm120_varlen_attention_nvfp4(
     lists, a pageable host-to-device copy that a stream capture does not allow. Call the op once for that
     plan outside the capture before capturing it; later calls reuse the tables, and the capture then
     records kernel launches only. This holds with ``CUDA_MODULE_LOADING=LAZY`` as well: once the tables
-    exist, the first launch of each program may happen inside the capture.
+    exist, the first launch of each program may happen inside the capture. The next eager call of an
+    overlapped plan reorders its unit table once, on the device, and waits for its stream; a captured
+    call never reorders.
 
     The E2M1 scores and probabilities carry a larger quantization error than the FP8 operator
     (about 4x the relative L2 error on Gaussian inputs, the same as SageAttention3's own); this
@@ -1793,7 +1871,9 @@ def minimax_h3_sm120_varlen_attention_nvfp4_nodelta(
     lists, a pageable host-to-device copy that a stream capture does not allow. Call the op once for that
     plan outside the capture before capturing it; later calls reuse the tables, and the capture then
     records kernel launches only. This holds with ``CUDA_MODULE_LOADING=LAZY`` as well: once the tables
-    exist, the first launch of each program may happen inside the capture.
+    exist, the first launch of each program may happen inside the capture. The next eager call of an
+    overlapped plan reorders its unit table once, on the device, and waits for its stream; a captured
+    call never reorders.
 
     Parameters
     ----------

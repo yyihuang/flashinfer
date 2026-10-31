@@ -359,7 +359,7 @@ def test_architecture_router_rejects_cross_routing(monkeypatch) -> None:
     ops._nvfp4_target.cache_clear()
 
 
-def _plan(bounds, num_heads=1):
+def _plan(bounds, num_heads=1, num_sms=188):
     tokens = bounds[-1]
     padded = max(1, -(-tokens // 128)) * 128
     tiles = sum(
@@ -374,6 +374,7 @@ def _plan(bounds, num_heads=1):
         padded_tokens=padded,
         num_heads=num_heads,
         num_units=tiles * num_heads,
+        grid=max(1, min(num_sms, tiles * num_heads)),
     )
 
 
@@ -1053,6 +1054,72 @@ def test_head_major_unit_rows_cover_every_unit_once() -> None:
         for seg, tile in ((1, 0), (1, 1), (3, 0), (3, 1), (3, 2))
     ]
     assert rows == expected
+
+
+def _head_major_rows(bounds, num_heads):
+    per_head = [
+        (seg, tile, a, b)
+        for seg, (a, b) in enumerate(zip(bounds[:-1], bounds[1:], strict=False))
+        for tile in range(-(-(b - a) // 128))
+    ]
+    return [
+        [seg, (head << 16) | tile, a, b]
+        for head in range(num_heads)
+        for seg, tile, a, b in per_head
+    ]
+
+
+@pytest.mark.parametrize(
+    ("bounds", "num_heads", "long_segment"),
+    [
+        # segment 1: 4310 tokens, 34 key tiles; segments 0 and 2: 257 tokens, 3
+        ((0, 257, 4567, 4824), 56, 1),
+        # at most 4 x grid units: the whole table drains (segment 3: 371 tokens, 3 key tiles;
+        # segment 1: 129 tokens, 2)
+        ((0, 0, 129, 129, 500), 3, 3),
+    ],
+)
+def test_head_major_unit_rows_drain_longest_first_once_reused(
+    bounds, num_heads, long_segment
+) -> None:
+    # A plan's first use builds the head-major rows; once reused, a plan of two key-tile counts takes them
+    # with the last 4 x grid units longest first (equal key tiles in head-major order), decided once.
+    device = torch.device("cpu", 0)
+    plan = _plan(bounds, num_heads)
+    assert ops._plan_rows_drain(plan, device) is None
+    head_major = ops._plan_rows_head_major(plan, device)
+    expected = _head_major_rows(bounds, num_heads)
+    assert head_major.view(-1, 4).tolist() == expected
+    drain = len(expected) - min(len(expected), 4 * plan.grid)
+    rows = ops._plan_rows_drain(plan, device)
+    assert rows.view(-1, 4).tolist() == expected[:drain] + [
+        r for r in expected[drain:] if r[0] == long_segment
+    ] + [r for r in expected[drain:] if r[0] != long_segment]
+    assert rows.view(-1, 4).tolist() != expected
+    # decided once: later reuses and launches of the plan take the same rows; the head-major rows are kept
+    assert ops._plan_rows_drain(plan, device) is rows
+    assert ops._plan_rows_head_major(plan, device) is rows
+    assert head_major.view(-1, 4).tolist() == expected
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        # three key-tile counts (2, 3 and 5)
+        (0, 129, 500, 1100),
+        # one key-tile count
+        (0, 0, 256, 512, 768),
+    ],
+)
+def test_head_major_unit_rows_keep_order_once_reused_on_other_key_tile_counts(
+    bounds,
+) -> None:
+    device = torch.device("cpu", 0)
+    plan = _plan(bounds, 4)
+    head_major = ops._plan_rows_head_major(plan, device)
+    assert ops._plan_rows_drain(plan, device) is head_major
+    assert ops._plan_rows_head_major(plan, device) is head_major
+    assert head_major.view(-1, 4).tolist() == _head_major_rows(bounds, 4)
 
 
 @pytest.mark.parametrize(
