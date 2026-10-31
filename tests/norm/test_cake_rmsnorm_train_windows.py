@@ -31,7 +31,7 @@ package selects for that ``T``, or a single kernel listed in the backend suite's
 At every window edge ``E`` the calls of ``E`` and ``E + 1`` rows are compared on
 the first ``E`` rows and the edge is classified: ``same`` (bitwise), ``ulp``
 (backward: every ``dx`` difference within one BF16 ulp; forward: ``y`` within
-one BF16 ulp and ``rstd`` within one FP32 ulp, the class the package notes
+one BF16 ulp and ``rstd`` within two FP32 ulps, the class the package notes
 document) or larger (backward ``dx``; forward ``y<k>/rstd<m>``, the largest
 differences in ulps).  The classification of ``cake_windows.EDGES`` must hold
 where it is measured (``same`` stays bitwise, ``ulp`` within its ulps); every
@@ -228,7 +228,7 @@ def _edges(hidden: int, residual: bool, w: str, kind: str) -> dict[int, str]:
 
 # The ``ulp`` edge class of a forward edge (parent ruling R7.1, the package notes
 # to match): ``rstd`` moves by at most two FP32 ulps (a different reduction order
-# on each side; measured on B200 on up to ~14 % of the common rows) and ``y`` by
+# on each side; measured on B200 on up to ~27 % of the common rows) and ``y`` by
 # at most one BF16 ulp.  Each edge reports its largest moves and the fraction of
 # the common rows that moved (``EDGE_FWD ... rows_moved=``).
 FWD_EDGE_Y_ULPS = 1
