@@ -405,11 +405,16 @@ def make_rows(names: list[str], args) -> list[RowSpec]:
             raise SystemExit(
                 f"row {name}: input regime {row.regime!r} is not implemented here (normal only)"
             )
+        heads = (int(row.heads[0]), int(row.heads[1]))
+        label = row.name
+        if args.heads is not None and args.heads != heads:
+            heads = args.heads  # the pack's documents with another head pair
+            label = f"{row.name}h{heads[0]}x{heads[1]}"
         rows.append(
             RowSpec(
-                row.name,
+                label,
                 tuple(int(n) for n in row.lengths),
-                (int(row.heads[0]), int(row.heads[1])),
+                heads,
                 tuple(int(w) for w in row.cp),
                 tuple(row.layouts),
                 bool(row.with_conv),
@@ -1069,6 +1074,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help=f"value heads (HV, a multiple of H_qk) of the {DET_ROW} pack",
     )
     parser.add_argument(
+        "--heads",
+        default="",
+        help="H_QK,HV: run the gdn_shapes rows' documents with this head pair instead of the row's own (the row is "
+        "labelled <row>h<H_QK>x<HV>)",
+    )
+    parser.add_argument(
         "--channels", type=int, default=10240, help="channels of the causal convolution"
     )
     parser.add_argument(
@@ -1114,6 +1125,11 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         parser.error("--repeat must be >= 1 and --warmup >= 0")
     if args.v_heads % args.qk_heads:
         parser.error("--v-heads must be a multiple of --qk-heads")
+    args.heads = None if not args.heads else tuple(int(x) for x in _csv(args.heads))
+    if args.heads is not None and (
+        len(args.heads) != 2 or args.heads[1] % args.heads[0]
+    ):
+        parser.error("--heads takes H_QK,HV with HV a multiple of H_QK")
     args.row_list = _csv(args.rows)
     args.layout_list = _csv(args.layouts)
     args.boundary_list = _csv(args.boundaries)
