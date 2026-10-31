@@ -27,7 +27,24 @@ Arms (``--arms``; every one on the same packed batch, the same partition and the
   its rule, ``owner_tree="auto"``);
 * ``nondet_serial``: the same with ``options=dict(test_knobs={"owner_tree": "off"})`` (the serial owner merge
   chains: isolates the blocked scan);
-* ``nondet_tree<b>``: the same with ``owner_tree=b`` forced (``--tree-blocks 2,3,4`` adds these arms).
+* ``nondet_tree<b>``: the same with ``owner_tree=b`` forced (``--tree-blocks 2,3,4`` adds these arms);
+* ``sota_fla_kcp``: flash-linear-attention's own context parallelism (``fla.ops.cp.context.build_cp_context`` with
+  ``use_tf32x3_affine_chain=True``, layouts ``C`` and ``Z`` only) around its Triton kernels -- the convolution
+  ``fla.modules.causal_conv1d.causal_conv1d(activation="silu")`` and ``chunk_gated_delta_rule``.  FLA splits the
+  pack itself, evenly, after padding it with one zero document to a multiple of ``2 x world`` tokens; the padding is
+  computed and timed;
+* ``sota_head_cp_fla``: head parallelism: the same even token split (padded to a multiple of ``world``), an
+  all-to-all to whole sequences of ``H_qk / W`` query/key heads, ``HV / W`` value heads and ``C / W`` channels (the
+  world size must divide each), FLA's single-rank varlen kernels, and the all-to-all back (backward: the reverse
+  exchanges); every layout runs the same program.
+
+The non-Cake arms run FLA's Triton kernels (the benchmark sets ``FLA_FLASH_QLA=0`` before importing FLA); a
+requested arm that cannot be imported stops the run, one whose calls did not run fails its probe, and one that does
+not apply to a row (layout, head count) is reported unavailable with the reason.  They need ``nondet`` in the arm
+list: once per (row, layout) each non-Cake arm's outputs and input gradients (``y, out, dq, dk, dv, dg, dbeta, dx``
+per token, ``dweight`` summed over the ranks) are compared with ``nondet``'s on the unpadded pack, and the arm is
+``qualified`` when every tensor is finite with rel-RMS <= 1e-2 and max-abs <= 2e-2 x max |ref|.  They have no
+recompute-handle form (``B3h``).
 
 Boundaries (``--boundaries``): ``B1`` the module forward with autograd recording; ``B2`` forward + backward;
 ``B3`` ``torch.utils.checkpoint(use_reentrant=False)`` forward + recompute + backward (``2 x forward + backward``)
@@ -55,7 +72,7 @@ their drift, the per-rank medians, tokens per second; on every rank the peak mem
 (``torch.cuda.max_memory_allocated`` minus the allocation before the call: forward phase, backward phase, bytes
 retained after the forward) and the ``LAST_CALL`` records of its forward, checkpoint recompute and backward
 (``owner_tree``, ``merges``, launched programs, ``backend_path``).  Ratios: every non-deterministic arm over
-``det`` and over ``nondet_serial`` (medians of the slowest rank).  Rank 0 prints one line per arm and the ratios
+``det`` and over ``nondet_serial``, every non-Cake arm over ``nondet`` (medians of the slowest rank).  Rank 0 prints one line per arm and the ratios
 and writes one JSON per (row, layout, CP) under ``--out-dir`` with every per-iteration time (slowest rank and every
 rank), the files every arm ran from, the host map and the exact argv.
 
@@ -128,6 +145,15 @@ L2_FLUSH_BYTES = 256 << 20
 WIDTH = 4
 HEAD_DIM = 128
 MIB = float(1 << 20)
+SCALE = HEAD_DIM**-0.5
+# Non-Cake arms (the second baseline of a table: the minimum over the qualified ones)
+SOTA_ARMS = ("sota_fla_kcp", "sota_head_cp_fla")
+FLA_KCP_LAYOUTS = {"C": "contiguous", "Z": "zigzag"}
+# Agreement of a non-Cake arm with ``nondet`` on every output and input gradient (the generic budgets of the Cake GDN
+# training tests): rel-RMS and max-abs over max |ref|
+SOTA_REL_RMS = 1e-2
+SOTA_MAX_ABS = 2e-2
+AGREEMENT_BLOCK_ELEMS = 1 << 28
 # LAST_CALL fields kept per record (plus every ``n_*`` counter and the launched programs).
 CALL_KEYS = (
     "owner_tree",
@@ -303,6 +329,8 @@ class Route:
 
 
 def arm_route(arm: str) -> str:
+    if arm in SOTA_ARMS:
+        return "sota"
     return "det" if arm == "det" else "nondet"
 
 
@@ -315,7 +343,7 @@ def arm_ctx(arm: str) -> str:
 
 def arm_options(arm: str) -> Optional[dict[str, Any]]:
     """The ``options`` of an arm's GDN calls (``None``: the route's defaults)."""
-    if arm in ("det", "nondet") or PRULE_ARM.match(arm):
+    if arm in ("det", "nondet") or arm in SOTA_ARMS or PRULE_ARM.match(arm):
         return None
     if arm == "nondet_serial":
         return {"test_knobs": {"owner_tree": "off"}}
@@ -458,9 +486,11 @@ def make_local_inputs(
     seed: int,
     fragments,
     device: torch.device,
+    rows: Optional[torch.Tensor] = None,
 ) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
     """This rank's operands, cut from whole-pack tensors drawn on the device by one seeded generator (every rank draws
-    the same pack; each whole-pack tensor is dropped right after the cut): ``q, k`` BF16 ``[T_r, H_qk, 128]`` (rows
+    the same pack; each whole-pack tensor is dropped right after the cut): the rows of ``fragments`` or, given
+    ``rows`` (pack row indices on the device), those rows, zero past the pack's end.  ``q, k`` BF16 ``[T_r, H_qk, 128]`` (rows
     L2-normalised in FP32), ``v, dout`` BF16 ``[T_r, HV, 128]``, ``g`` FP32 ``[T_r, HV]`` (natural-log decay,
     ``<= 0``), ``beta`` FP32 ``[T_r, HV]`` in (0, 1), the convolution input ``x`` and its upstream gradient ``dy``
     BF16 ``[T_r, C]``, and the FP32 weight ``[C, 4]`` (whole)."""
@@ -473,7 +503,12 @@ def make_local_inputs(
         return torch.randn(*shape, generator=gen, device=device, dtype=torch.float32)
 
     def shard(x: torch.Tensor) -> torch.Tensor:
-        return _shard(x, cu, fragments)
+        if rows is None:
+            return _shard(x, cu, fragments)
+        out = x.new_zeros((rows.numel(), *x.shape[1:]))
+        keep = rows < total
+        out[keep] = x[rows[keep]]
+        return out
 
     def l2(x: torch.Tensor) -> torch.Tensor:
         return (x / x.norm(dim=-1, keepdim=True).clamp_min(1e-6)).to(torch.bfloat16)
@@ -617,14 +652,22 @@ def _probe(
     handle_cls,
     routes: dict[str, Route],
     device: torch.device,
+    lib: Optional[_Fla] = None,
 ) -> dict[str, Any]:
     """One call of ``(arm, boundary)`` with its phases split: peak memory over the allocation before the call
     (forward, backward), the bytes retained after the forward (outputs and what the forward keeps), and the
     ``LAST_CALL`` records of the forward, the checkpoint recompute and the backward.  Every route's ``LAST_CALL`` is
-    cleared first: the arm must have written its own route's records and no other."""
+    cleared first: the arm must have written its own route's records and no other.  A non-Cake arm (``lib``: its
+    library) must have made its library calls -- the GDN call, and the convolution with two upstream gradients --
+    produced every input gradient after a backward, and written no route's records."""
     for route in routes.values():
         route.clear_last_call()
-    own = routes[arm_route(arm)]
+    sota = arm in SOTA_ARMS
+    if sota and lib is None:
+        raise ValueError(f"arm {arm}: the probe of a non-Cake arm needs its library")
+    own = None if sota else routes[arm_route(arm)]
+    before = dict(lib.calls) if sota else {}
+    missing: list[int] = []
     torch.cuda.synchronize(device)
     base = torch.cuda.memory_allocated(device)
     torch.cuda.reset_peak_memory_stats(device)
@@ -636,25 +679,349 @@ def _probe(
         torch.cuda.synchronize(device)
         mem["fwd_peak_bytes"] = torch.cuda.max_memory_allocated(device) - base
         mem["fwd_retained_bytes"] = torch.cuda.memory_allocated(device) - base
-        calls["fwd"] = own.last_call("fwd")
+        calls["fwd"] = None if own is None else own.last_call("fwd")
         if boundary != "B1":
             torch.cuda.reset_peak_memory_stats(device)
             torch.autograd.backward(list(outs), grads_out)
             torch.cuda.synchronize(device)
             mem["bwd_peak_bytes"] = torch.cuda.max_memory_allocated(device) - base
-            if boundary in ("B3", "B3h"):
-                calls["fwd_recompute"] = own.last_call("fwd")
-            calls["bwd"] = own.last_call("bwd")
+            if own is not None:
+                if boundary in ("B3", "B3h"):
+                    calls["fwd_recompute"] = own.last_call("fwd")
+                calls["bwd"] = own.last_call("bwd")
+            n_in = len(leaves) if len(grads_out) == 2 else 5
+            missing = [i for i in range(n_in) if leaves[i].grad is None]
         del outs, leaves
     torch.cuda.synchronize(device)
     mem["after_bytes"] = torch.cuda.memory_allocated(device) - base
     mem["step_peak_bytes"] = max(mem["fwd_peak_bytes"], mem.get("bwd_peak_bytes", 0))
     ran = sorted(kind for kind, route in routes.items() if route.pkg.LAST_CALL)
+    if sota:
+        made = {key: lib.calls[key] - before[key] for key in lib.calls}
+        need = ("chunk", "conv") if len(grads_out) == 2 else ("chunk",)
+        if ran or missing or any(made[key] < 1 for key in need):
+            raise RuntimeError(
+                f"arm {arm}: the probe call made the library calls {made} (needs {list(need)}), left the input "
+                f"gradients {missing} unset and wrote LAST_CALL records of the routes {ran} (expected none)"
+            )
+        return {
+            "memory": mem,
+            "last_call": {},
+            "routes_recorded": ran,
+            "sota_calls": made,
+        }
     if ran != [own.kind] or calls["fwd"] is None:
         raise RuntimeError(
             f"arm {arm}: the probe call wrote LAST_CALL records of the routes {ran}, expected exactly {[own.kind]}"
         )
     return {"memory": mem, "last_call": calls, "routes_recorded": ran}
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# Non-Cake arms: flash-linear-attention's context parallelism, and head parallelism around its single-rank kernels
+
+
+class _Fla:
+    """flash-linear-attention's ops (``fla-core``) on their Triton kernels: ``FLA_FLASH_QLA=0`` is set before the
+    import, so no call dispatches to FlashQLA.  Every call is counted (:func:`_probe` checks them)."""
+
+    def __init__(self) -> None:
+        os.environ["FLA_FLASH_QLA"] = "0"
+        try:
+            import fla  # type: ignore
+            from fla.modules.causal_conv1d import causal_conv1d  # type: ignore
+            from fla.ops.cp.context import build_cp_context  # type: ignore
+            from fla.ops.gated_delta_rule import chunk_gated_delta_rule  # type: ignore
+        except Exception as exc:  # noqa: BLE001 -- a requested arm must run: any import failure stops the run
+            raise SystemExit(
+                f"the non-Cake arms need flash-linear-attention (fla-core) importable: {exc!r}"
+            ) from exc
+        self._conv = causal_conv1d
+        self._chunk = chunk_gated_delta_rule
+        self.build_cp_context = build_cp_context
+        self.calls = {"chunk": 0, "conv": 0}
+        self.files = {
+            "fla": fla.__file__,
+            "conv": sys.modules[causal_conv1d.__module__].__file__,
+            "chunk": sys.modules[chunk_gated_delta_rule.__module__].__file__,
+            "cp_context": sys.modules[build_cp_context.__module__].__file__,
+        }
+
+    def versions(self) -> dict[str, Any]:
+        from importlib import metadata
+
+        def version(name: str) -> Optional[str]:
+            try:
+                return metadata.version(name)
+            except metadata.PackageNotFoundError:
+                return None
+
+        return {
+            "fla-core": version("fla-core"),
+            "flash-linear-attention": version("flash-linear-attention"),
+            "triton": version("triton"),
+            "FLA_FLASH_QLA": os.environ.get("FLA_FLASH_QLA"),
+            "files": self.files,
+        }
+
+    def conv(self, x: torch.Tensor, w: torch.Tensor, **kw: Any) -> torch.Tensor:
+        self.calls["conv"] += 1
+        y, _ = self._conv(x.unsqueeze(0), w, activation="silu", **kw)
+        return y[0]
+
+    def chunk(self, q, k, v, g, beta, **kw: Any) -> torch.Tensor:
+        self.calls["chunk"] += 1
+        out, _ = self._chunk(
+            *(t.unsqueeze(0) for t in (q, k, v, g, beta)), scale=SCALE, **kw
+        )
+        return out[0]
+
+
+def _all_to_all(x: torch.Tensor, world: int, to_heads: bool) -> torch.Tensor:
+    """Sequence <-> head redistribution (rank ``r``: tokens ``[r t, (r + 1) t)`` of the padded pack, heads
+    ``[r h, (r + 1) h)``): ``[t, W h, ...]`` -> ``[W t, h, ...]`` (``to_heads``) or back."""
+    if world == 1:
+        return x
+    rest = tuple(x.shape[2:])
+    if to_heads:
+        t, h = x.shape[0], x.shape[1] // world
+        send = x.reshape(t, world, h, *rest).transpose(0, 1).contiguous()
+        recv = torch.empty_like(send)
+        dist.all_to_all_single(recv, send)
+        return recv.reshape(world * t, h, *rest)
+    t, h = x.shape[0] // world, x.shape[1]
+    send = x.contiguous()
+    recv = torch.empty_like(send)
+    dist.all_to_all_single(recv, send)
+    return recv.reshape(world, t, h, *rest).transpose(0, 1).reshape(t, world * h, *rest)
+
+
+class _AllToAll(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, world: int, to_heads: bool) -> torch.Tensor:  # type: ignore[override]
+        ctx.world, ctx.to_heads = world, to_heads
+        return _all_to_all(x, world, to_heads)
+
+    @staticmethod
+    def backward(ctx, grad: torch.Tensor):  # type: ignore[override]
+        return _all_to_all(grad.contiguous(), ctx.world, not ctx.to_heads), None, None
+
+
+def sota_unavailable(
+    arm: str, layout: str, heads: tuple[int, int], channels: int, with_conv: bool, world: int
+) -> Optional[str]:
+    """Why a non-Cake arm has no form for (layout, heads, channels, world), or ``None``."""
+    if arm == "sota_fla_kcp":
+        if layout not in FLA_KCP_LAYOUTS:
+            return f"layout {layout} ({LAYOUTS[layout]}) has no FLA context-parallel form (FLA: contiguous, zigzag)"
+        return None
+    sizes = [("H_qk", heads[0]), ("HV", heads[1])] + ([("C", channels)] if with_conv else [])
+    bad = [f"{name}={n}" for name, n in sizes if n % world]
+    if bad:
+        return f"head parallelism needs the world size {world} to divide {', '.join(bad)}"
+    return None
+
+
+def make_sota_problem(
+    arm: str,
+    row: RowSpec,
+    layout: str,
+    args,
+    lib: _Fla,
+    rank: int,
+    world: int,
+    device: torch.device,
+) -> dict[str, Any]:
+    """A non-Cake arm's tokens: the pack padded with one zero document (to a multiple of ``2 x world`` tokens for
+    FLA's context parallelism, of ``world`` for head parallelism), this rank's rows of it (FLA's even split:
+    contiguous, or the zigzag pieces ``rank`` and ``2 W - 1 - rank``; checked against FLA's local ``cu_seqlens``),
+    its operands (the same seeded pack as the Cake arms) and, for ``sota_fla_kcp``, FLA's context."""
+    cu = list(row.cu)
+    total = cu[-1]
+    pad = (-total) % (2 * world if arm == "sota_fla_kcp" else world)
+    cu_pad = cu + ([total + pad] if pad else [])
+    padded = total + pad
+    cu_cpu = torch.tensor(cu_pad, dtype=torch.long)
+    cu_dev = cu_cpu.to(device)
+    fla_ctx = None
+    if arm == "sota_fla_kcp" and layout == "Z":
+        piece = padded // (2 * world)
+        rows = torch.cat(
+            [
+                torch.arange(rank * piece, (rank + 1) * piece),
+                torch.arange((2 * world - 1 - rank) * piece, (2 * world - rank) * piece),
+            ]
+        )
+    else:
+        share = padded // world
+        rows = torch.arange(rank * share, (rank + 1) * share)
+    if arm == "sota_fla_kcp":
+        fla_ctx = lib.build_cp_context(
+            cu_dev,
+            dist.group.WORLD,
+            conv1d_kernel_size=WIDTH,
+            cu_seqlens_cpu=cu_cpu,
+            use_tf32x3_affine_chain=True,
+            layout=FLA_KCP_LAYOUTS[layout],
+        )
+        t_r = int(fla_ctx.cu_seqlens_cpu[-1])
+        if t_r != rows.numel():
+            raise RuntimeError(
+                f"{arm} {row.name}/{layout}: FLA gives rank {rank} {t_r} tokens, the even split {rows.numel()}"
+            )
+    rows = rows.to(device)
+    local, weight = make_local_inputs(
+        cu, row.heads, args.channels, args.seed, None, device, rows=rows
+    )
+    gc.collect()
+    torch.cuda.empty_cache()
+    return {
+        "rows": rows,
+        "pad": pad,
+        "tokens_padded": padded,
+        "cu_cpu": cu_cpu,
+        "cu_dev": cu_dev,
+        "fla_ctx": fla_ctx,
+        "local": local,
+        "weight": weight,
+    }
+
+
+def sota_forward(
+    arm: str, lib: _Fla, sp: dict[str, Any], with_conv: bool, rank: int, world: int
+) -> Callable[..., tuple]:
+    """``forward(q, k, v, g, beta, x, w) -> (y, out)`` (``(out,)`` without the convolution) of a non-Cake arm on its
+    rank's rows."""
+    if arm == "sota_fla_kcp":
+        fla_ctx = sp["fla_ctx"]
+
+        def forward_cp(q, k, v, g, beta, x, w):
+            out = lib.chunk(q, k, v, g, beta, cp_context=fla_ctx)
+            if with_conv:
+                return lib.conv(x, w, cp_context=fla_ctx), out
+            return (out,)
+
+        return forward_cp
+    varlen = {"cu_seqlens": sp["cu_dev"], "cu_seqlens_cpu": sp["cu_cpu"]}
+
+    def heads_of(t: torch.Tensor) -> torch.Tensor:
+        return _AllToAll.apply(t, world, True)
+
+    def tokens_of(t: torch.Tensor) -> torch.Tensor:
+        return _AllToAll.apply(t, world, False)
+
+    def forward_heads(q, k, v, g, beta, x, w):
+        out = tokens_of(lib.chunk(*(heads_of(t) for t in (q, k, v, g, beta)), **varlen))
+        if with_conv:
+            c = w.shape[0] // world
+            y = lib.conv(heads_of(x), w[rank * c : (rank + 1) * c], **varlen)
+            return tokens_of(y), out
+        return (out,)
+
+    return forward_heads
+
+
+GRAD_NAMES = ("dq", "dk", "dv", "dg", "dbeta", "dx", "dw")
+
+
+def _outputs_and_grads(
+    forward: Callable[..., tuple], leaves: list[torch.Tensor], grads_out, with_conv: bool
+) -> dict[str, torch.Tensor]:
+    """One forward + backward: the outputs and every input gradient."""
+    with torch.enable_grad():
+        outs = forward(*leaves)
+        torch.autograd.backward(list(outs), grads_out)
+    res = {
+        name: o.detach()
+        for name, o in zip(("y", "out") if with_conv else ("out",), outs, strict=True)
+    }
+    for name, leaf in zip(GRAD_NAMES, leaves, strict=True):
+        if leaf.grad is not None:
+            res[name] = leaf.grad
+    return res
+
+
+def _cake_rows(fragments: list[tuple[int, int, int]], cu: list[int], device) -> torch.Tensor:
+    """The pack rows of a rank's fragments, in slot order."""
+    pieces = [torch.arange(cu[d] + o, cu[d] + o + n) for d, o, n in fragments if n > 0]
+    return (torch.cat(pieces) if pieces else torch.zeros(0, dtype=torch.long)).to(device)
+
+
+def sota_agreement(
+    ref: dict[str, torch.Tensor],
+    ref_rows: torch.Tensor,
+    cand: dict[str, torch.Tensor],
+    cand_rows: torch.Tensor,
+    total: int,
+    device: torch.device,
+) -> dict[str, dict[str, float]]:
+    """Per tensor of ``ref`` (``nondet``), the non-Cake arm's error on the unpadded pack: the per-token tensors
+    gathered by pack row (every row is owned by one rank on each side; a block of columns at a time, at most
+    :data:`AGREEMENT_BLOCK_ELEMS` FP32 elements of the whole pack), ``dw`` summed over the ranks on both sides."""
+    out: dict[str, dict[str, float]] = {}
+    keep = cand_rows < total
+    kept_rows = cand_rows[keep]
+    for name, r_local in ref.items():
+        if name not in cand:
+            raise RuntimeError(f"the non-Cake arm produced no {name}")
+        sums = torch.zeros(3, dtype=torch.float64, device=device)
+        maxes = torch.zeros(2, dtype=torch.float32, device=device)
+
+        def add(c: torch.Tensor, r: torch.Tensor) -> None:
+            err = c - r
+            sums[0] += err.double().square().sum()
+            sums[1] += r.double().square().sum()
+            sums[2] += (~torch.isfinite(c)).sum()
+            if err.numel():
+                maxes[0] = torch.maximum(maxes[0], err.abs().max())
+                maxes[1] = torch.maximum(maxes[1], r.abs().max())
+
+        if name == "dw":
+            r = r_local.float().clone()
+            c = cand[name].float().clone()
+            dist.all_reduce(r)
+            dist.all_reduce(c)
+            add(c, r)
+        else:
+            r_flat = r_local.reshape(r_local.shape[0], -1)
+            c_flat = cand[name][keep].reshape(int(kept_rows.numel()), -1)
+            cols = r_flat.shape[1]
+            step = max(1, AGREEMENT_BLOCK_ELEMS // max(total, 1))
+            for c0 in range(0, cols, step):
+                c1 = min(cols, c0 + step)
+                full = torch.zeros((total, c1 - c0), dtype=torch.float32, device=device)
+                full[ref_rows] = r_flat[:, c0:c1].float()
+                dist.all_reduce(full)
+                add(c_flat[:, c0:c1].float(), full[kept_rows])
+                del full
+            dist.all_reduce(sums)
+            dist.all_reduce(maxes, op=dist.ReduceOp.MAX)
+        e2, r2, nonfinite = sums.tolist()
+        max_err, max_ref = maxes.tolist()
+        if nonfinite:
+            max_err = math.inf
+        out[name] = {
+            "rel_rms": math.sqrt(e2 / r2) if r2 > 0 else (0.0 if e2 == 0 else math.inf),
+            "max_abs": max_err,
+            "max_ref": max_ref,
+            "max_abs_over_max_ref": max_err / max_ref
+            if max_ref > 0
+            else (0.0 if max_err == 0 else math.inf),
+            "nonfinite": int(nonfinite),
+        }
+    return out
+
+
+def sota_qualified(acc: dict[str, dict[str, float]]) -> tuple[bool, list[str]]:
+    """Whether every tensor agrees within :data:`SOTA_REL_RMS` / :data:`SOTA_MAX_ABS` (and the failing ones)."""
+    bad = [
+        name
+        for name, a in acc.items()
+        if a["nonfinite"]
+        or not a["rel_rms"] <= SOTA_REL_RMS
+        or not a["max_abs_over_max_ref"] <= SOTA_MAX_ABS
+    ]
+    return not bad, bad
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -776,6 +1143,10 @@ def _ratios(stats: dict[str, dict[str, Any]]) -> dict[str, float]:
             continue
         if "det" in stats:
             out[f"{arm}/det"] = st["median_ms"] / stats["det"]["median_ms"]
+        if arm in SOTA_ARMS:
+            if "nondet" in stats:
+                out[f"{arm}/nondet"] = st["median_ms"] / stats["nondet"]["median_ms"]
+            continue
         if arm != "nondet_serial" and "nondet_serial" in stats:
             out[f"{arm}/nondet_serial"] = (
                 st["median_ms"] / stats["nondet_serial"]["median_ms"]
@@ -828,6 +1199,7 @@ def run_config(
     rank: int,
     world: int,
     device: torch.device,
+    lib: Optional[_Fla] = None,
 ) -> dict[str, Any]:
     t0 = time.time()
     with_conv = row.with_conv and not args.no_conv
@@ -855,7 +1227,56 @@ def run_config(
             arm_options(arm),
         )
         for arm in arms
+        if arm not in SOTA_ARMS
     }
+    leaves_by_arm = {arm: leaves_of for arm in forwards}
+    grads_by_arm = {arm: grads_out for arm in forwards}
+    sota: dict[str, dict[str, Any]] = {}
+    sota_arms = [arm for arm in arms if arm in SOTA_ARMS]
+    if sota_arms:
+        if lib is None or "nondet" not in forwards:
+            raise ValueError("the non-Cake arms need their library and the nondet arm")
+        ref = _outputs_and_grads(forwards["nondet"], leaves_of(), grads_out, with_conv)
+        ref_rows = _cake_rows(problem["fragments"][rank], problem["cu"], device)
+        for arm in sota_arms:
+            why = sota_unavailable(arm, layout, row.heads, args.channels, with_conv, world)
+            if why is not None:
+                sota[arm] = {"available": False, "reason": why}
+                continue
+            sp = make_sota_problem(arm, row, layout, args, lib, rank, world, device)
+            forwards[arm] = sota_forward(arm, lib, sp, with_conv, rank, world)
+            sl, sw = sp["local"], sp["weight"]
+            leaves_by_arm[arm] = lambda sl=sl, sw=sw: _leaves(sl, sw)
+            grads_by_arm[arm] = [sl["dy"], sl["dout"]] if with_conv else [sl["dout"]]
+            cand = _outputs_and_grads(
+                forwards[arm], leaves_by_arm[arm](), grads_by_arm[arm], with_conv
+            )
+            acc = sota_agreement(
+                ref, ref_rows, cand, sp["rows"], problem["tokens_total"], device
+            )
+            ok, failing = sota_qualified(acc)
+            del cand
+            sota[arm] = {
+                "available": True,
+                "qualified": ok,
+                "failing": failing,
+                "accuracy_vs_nondet": acc,
+                "budget": {"rel_rms": SOTA_REL_RMS, "max_abs_over_max_ref": SOTA_MAX_ABS},
+                "pad_tokens": sp["pad"],
+                "tokens_padded": sp["tokens_padded"],
+                "tokens_per_rank": int(sp["rows"].numel()),
+            }
+            if rank == 0:
+                worst = max(acc, key=lambda n: acc[n]["rel_rms"])
+                print(
+                    f"  {arm} accuracy vs nondet: {'qualified' if ok else 'NOT qualified ' + ','.join(failing)}; "
+                    f"worst rel-RMS {acc[worst]['rel_rms']:.3e} ({worst}), worst max-abs/max|ref| "
+                    f"{max(a['max_abs_over_max_ref'] for a in acc.values()):.3e}; pad {sp['pad']} tokens",
+                    flush=True,
+                )
+        del ref
+        gc.collect()
+        torch.cuda.empty_cache()
     handles = {kind: route.handle_class() for kind, route in routes.items()}
     heads = {"H_qk": h_qk, "HV": hv}
     my_bytes = {
@@ -901,6 +1322,7 @@ def run_config(
             "tokens_per_rank": [sum(f[2] for f in frs) for frs in problem["fragments"]],
         },
         "bytes": bytes_ranks,
+        "sota": sota,
         "boundaries": {},
     }
     drift_ok = True
@@ -908,6 +1330,14 @@ def run_config(
         available: list[str] = []
         unavailable: dict[str, str] = {}
         for arm in arms:
+            if arm in SOTA_ARMS:
+                if not sota[arm]["available"]:
+                    unavailable[arm] = sota[arm]["reason"]
+                elif boundary == "B3h":
+                    unavailable[arm] = "no recompute-handle form (its checkpointed step is B3)"
+                else:
+                    available.append(arm)
+                continue
             cls, why = handles[arm_route(arm)]
             if boundary == "B3h" and cls is None:
                 unavailable[arm] = why or "no recompute handle"
@@ -923,10 +1353,10 @@ def run_config(
         steps = {
             arm: _step(
                 forwards[arm],
-                leaves_of,
-                grads_out,
+                leaves_by_arm[arm],
+                grads_by_arm[arm],
                 boundary,
-                handles[arm_route(arm)][0],
+                None if arm in SOTA_ARMS else handles[arm_route(arm)][0],
             )
             for arm in available
         }
@@ -940,12 +1370,13 @@ def run_config(
             mine = _probe(
                 arm,
                 forwards[arm],
-                leaves_of,
-                grads_out,
+                leaves_by_arm[arm],
+                grads_by_arm[arm],
                 boundary,
-                handles[arm_route(arm)][0],
+                None if arm in SOTA_ARMS else handles[arm_route(arm)][0],
                 routes,
                 device,
+                lib,
             )
             gathered: list[Any] = [None] * world
             dist.all_gather_object(gathered, mine)
@@ -968,6 +1399,9 @@ def run_config(
             }
             st["last_call"] = [p["last_call"] for p in probes[arm]]
             st["routes_recorded"] = probes[arm][0]["routes_recorded"]
+            if arm in SOTA_ARMS:
+                st["sota_calls"] = [p["sota_calls"] for p in probes[arm]]
+                st["qualified"] = sota[arm]["qualified"]
         report["boundaries"][boundary] = {
             "label": BOUNDARY_LABELS[boundary],
             "arms": stats,
@@ -978,12 +1412,17 @@ def run_config(
             print(f"{head} {boundary} ({BOUNDARY_LABELS[boundary]})", flush=True)
             for arm, st in stats.items():
                 m = st["memory_max_over_ranks"]
+                tail = (
+                    f"library calls {probes[arm][0]['sota_calls']}  "
+                    f"{'qualified' if st['qualified'] else 'NOT QUALIFIED'}"
+                    if arm in SOTA_ARMS
+                    else f"owner_tree {_tree_summary(probes[arm])}  {_plan_summary(probes[arm])}"
+                )
                 print(
                     f"  {arm:16s} {st['median_ms']:9.3f} ms  p10 {st['p10_ms']:9.3f}  p90 {st['p90_ms']:9.3f}  "
                     f"{st['tokens_per_s'] / 1e6:8.3f} Mtok/s  peak {m['step_peak_bytes'] / MIB:9.1f} MiB  "
                     f"kept {m['fwd_retained_bytes'] / MIB:9.1f} MiB  drift {st['drift'] * 100:5.2f}%"
-                    f"{'' if st['drift_ok'] else ' (ABOVE LIMIT)'}  owner_tree {_tree_summary(probes[arm])}  "
-                    f"{_plan_summary(probes[arm])}",
+                    f"{'' if st['drift_ok'] else ' (ABOVE LIMIT)'}  {tail}",
                     flush=True,
                 )
             for arm, why in unavailable.items():
@@ -1014,7 +1453,12 @@ def _init() -> tuple[int, int, torch.device]:
     return dist.get_rank(), dist.get_world_size(), device
 
 
-def _env(routes: dict[str, Route], device: torch.device, world: int) -> dict[str, Any]:
+def _env(
+    routes: dict[str, Route],
+    device: torch.device,
+    world: int,
+    lib: Optional[_Fla] = None,
+) -> dict[str, Any]:
     props = torch.cuda.get_device_properties(device)
     me = {
         "rank": dist.get_rank(),
@@ -1028,6 +1472,7 @@ def _env(routes: dict[str, Route], device: torch.device, world: int) -> dict[str
             "flashinfer": flashinfer.__file__,
             "conv": conv_api.__file__,
             **{kind: route.modules() for kind, route in routes.items()},
+            **({"sota": lib.files} if lib is not None else {}),
         },
     }
     ranks: list[Any] = [None] * world
@@ -1053,6 +1498,7 @@ def _env(routes: dict[str, Route], device: torch.device, world: int) -> dict[str
         "argv": [sys.executable, *sys.argv],
         "cwd": os.getcwd(),
         "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "sota": lib.versions() if lib is not None else None,
         "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -1082,7 +1528,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--arms",
         default=",".join(BASE_ARMS),
-        help="comma-separated arms among det, nondet, nondet_serial, nondet_tree<b>, nondet_p_<plan rule>",
+        help="comma-separated arms among det, nondet, nondet_serial, nondet_tree<b>, nondet_p_<plan rule> and the "
+        "non-Cake arms sota_fla_kcp, sota_head_cp_fla (these need nondet)",
     )
     parser.add_argument(
         "--tree-blocks",
@@ -1198,10 +1645,15 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     bad += [
         x
         for x in arms
-        if x not in BASE_ARMS and not TREE_ARM.match(x) and not PRULE_ARM.match(x)
+        if x not in BASE_ARMS
+        and x not in SOTA_ARMS
+        and not TREE_ARM.match(x)
+        and not PRULE_ARM.match(x)
     ]
     if bad:
         parser.error(f"unknown layout / boundary / arm names: {bad}")
+    if any(x in SOTA_ARMS for x in arms) and "nondet" not in arms:
+        parser.error("the non-Cake arms are checked against nondet: add it to --arms")
     return args
 
 
@@ -1219,7 +1671,8 @@ def main() -> int:
         if any(arm_route(a) == kind for a in arms)
     }
     rows = make_rows(args.row_list, args)
-    env = _env(routes, device, world)
+    lib = _Fla() if any(a in SOTA_ARMS for a in arms) else None
+    env = _env(routes, device, world, lib)
     out_dir = Path(args.out_dir)
     if rank == 0:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -1231,6 +1684,8 @@ def main() -> int:
         for kind in routes:
             print(f"  route {kind}: {env['ranks'][0]['files'][kind]}", flush=True)
         print(f"  conv: {env['ranks'][0]['files']['conv']}  arms: {arms}", flush=True)
+        if lib is not None:
+            print(f"  non-Cake arms: {env['sota']}", flush=True)
     flush = (
         None
         if args.no_l2_flush
@@ -1247,7 +1702,7 @@ def main() -> int:
                     )
                 continue
             report = run_config(
-                row, layout, args, arms, routes, env, flush, rank, world, device
+                row, layout, args, arms, routes, env, flush, rank, world, device, lib
             )
             ok = ok and report["drift_ok"]
             if rank == 0:
