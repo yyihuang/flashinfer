@@ -292,7 +292,9 @@ MAX_ALL_SM_EXTRA_MS = 1.0
 CARVEOUT_MAX_SHARED = 100
 # Programs that need a whole SM wait beside a kernel resident on every SM
 # whatever its carveout: (capability, kind, hidden) -> the token counts above
-# which the call does (none known for this package's backward).
+# which the call does.  Filled from the shipped backward kernels' register /
+# shared-memory census, the same list :mod:`flashinfer.cake_rmsnorm_train`
+# documents (FI-8066 WHOLE-SM LIST).
 WHOLE_SM_ABOVE: dict[tuple[tuple[int, int], str, int], int] = {}
 
 

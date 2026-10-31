@@ -65,6 +65,20 @@ token counts, widths up to its own and CUDA Graph replays, and give each stream
 that may run a backward at the same time its own buffer.  The kernel writes all
 of ``dw``.
 
+Beside kernels resident on other streams (``deterministic=False``): the backward
+kernel needs part of its SM's shared memory, registers for its CTA and one CTA
+slot, and an SM serves it only once it can switch to that shared-memory
+carveout.  A kernel on another stream whose CTAs hold every SM with a small
+carveout therefore delays the backward's start until that kernel exits; kernels
+that hold only some SMs cost it no more than the SMs they hold.  Setting
+``cudaFuncAttributePreferredSharedMemoryCarveout`` to
+``cudaSharedmemCarveoutMaxShared`` on such a resident kernel lets the backward
+start beside it.  Programs that need a whole SM wait beside any kernel resident
+on every SM, whatever its carveout: [FI-8066 WHOLE-SM LIST: filled from the
+shipped backward kernels' register / shared-memory census before delivery].
+Beside those, leave some SMs free of the resident kernel.  The forward programs
+are the deterministic package's; see :mod:`flashinfer.cake_rmsnorm_det_train`.
+
 Usage::
 
     y, rstd = cake_rmsnorm_train_forward(x, w, eps)
