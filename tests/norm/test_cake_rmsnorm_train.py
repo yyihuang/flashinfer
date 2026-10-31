@@ -871,7 +871,7 @@ def _h5120_inputs(family: str, rows: int, w_dtype, k: int):
     = one device generator seeded ``SEED + 7919 k`` drawing x, g ~ N(0, 1) and
     w = 1 + 0.1 N(0, 1) in that order."""
     if family == "test":
-        x, _u, g, _g_h, w = _case_inputs(5120, rows, w_dtype=w_dtype, key=100 + k)
+        x, _u, g, _g_h, w = _case_inputs(5120, rows, w_dtype=w_dtype, key=k)
         return x, g, w
     generator = torch.Generator(device=_device()).manual_seed(SEED + 7919 * k)
 
