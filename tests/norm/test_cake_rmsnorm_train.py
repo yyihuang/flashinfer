@@ -698,9 +698,37 @@ def _kernel_text(build, library: str, prefix: str) -> str:
 
 
 def _program_id(name: str) -> str:
-    """The program part of a module name (the digits after the package prefix):
-    a det pair window of this package renders the det program of that name."""
-    return name.rsplit("_", 1)[1]
+    """The program part of a module name (the digits after the package prefix,
+    without the ``__<above>_<at_most>`` window suffix of a record that splits a
+    det window): a det pair window of this package renders the det program of
+    that name."""
+    return name.split("__", 1)[0].rsplit("_", 1)[1]
+
+
+# Single-kernel libraries whose ``dx`` reproduces a det program's ``dx`` bits
+# (``dx`` has no cross-row reduction; lane T observed 0 differing elements on
+# B200 at 1e608481): library -> the det module whose bits it claims.  The claim
+# holds where the det package selects that module; elsewhere the single is
+# compared only.
+DX_BITWISE_WITH = {
+    # sm_100a H512, window (0, 4096]; the det bwd_small program of (0, 1024]
+    "cake_rmsnorm_train_d0bde38aa443d42a5f04": "cake_rmsnorm_det_train_09601d42628de24f6f87",
+    # sm_100a H6144 residual, window (1023, inf); the det residual program (every T)
+    "cake_rmsnorm_train_87d2866c1ea3bcc08b13": "cake_rmsnorm_det_train_0dcdc563be377247044e",
+}
+
+
+def test_dx_bitwise_claims_name_shipped_programs() -> None:
+    """Every :data:`DX_BITWISE_WITH` entry names a single-kernel library this
+    package ships and a det module the det package ships (a renamed program
+    fails here instead of silently dropping its claim)."""
+    for library, det_name in DX_BITWISE_WITH.items():
+        records = [r for r in loader.MODULES.values() if r["library"] == library]
+        assert records, f"{library} is not a library of this package"
+        assert all(
+            (r["workspace_rule"] or {}).get("kind") == "claim_sum_f64" for r in records
+        ), f"{library} is not a single-kernel library"
+        assert det_name in det_loader.MODULES, f"{det_name} is not a det module"
 
 
 def _dx_bitwise_claimed(
@@ -710,7 +738,7 @@ def _dx_bitwise_claimed(
     package's selected main program.  Claimed: the window runs the det program
     of that name (same program id: same tile and row mapping, and ``dx`` has no
     cross-row reduction), or a single kernel whose record names that det program
-    (``dx_bitwise_with``).  ``same_source``: the two kernel sources are equal once
+    (:data:`DX_BITWISE_WITH`).  ``same_source``: the two kernel sources are equal once
     the package prefixes are replaced (reported only: the det package and this
     package may render the same program from different det flour revisions)."""
     main = next(n for n in records if loader.MODULES[n]["role"] != "bwd_reduce")
@@ -722,7 +750,7 @@ def _dx_bitwise_claimed(
     ) == _kernel_text(
         det_build, det_loader.MODULES[det_main]["library"], "cake_rmsnorm_det_train_"
     )
-    claim = loader.MODULES[main].get("dx_bitwise_with")
+    claim = DX_BITWISE_WITH.get(loader.MODULES[main]["library"])
     if claim is not None:
         return _program_id(claim) == _program_id(det_main), same_source
     return _program_id(main) == _program_id(det_main), same_source
