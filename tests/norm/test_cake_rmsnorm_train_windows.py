@@ -362,24 +362,25 @@ def test_backward_dx_is_token_count_invariant_within_each_window(
                 f"T={rows} differs from T={last} on {differing} elements of the common rows "
                 f"(up to {ulps} BF16 ulps)"
             )
-        claimed, det_main = _claims_det_dx(expected, hidden, residual, w, last)
-        det_note = "det=n/a"
-        if det_main is not None:
-            matches = []
-            for rows in sorted({first, middle, last}):
-                differing, ulps = ref.bf16_ulp_differences(
-                    calls.dx(rows), calls.det_dx(rows)
-                )
-                matches.append(differing)
-                if claimed:
-                    assert differing == 0, (
-                        f"h={hidden} res={residual} window ({above}, {at_most}] claims the det dx "
-                        f"({det_main}) but T={rows} differs on {differing} elements"
-                    )
-            claims += int(claimed)
-            det_note = (
-                f"det_claimed={claimed} det_differing={'/'.join(map(str, matches))}"
+        # The claim is judged per T: the det package has its own windows, so the
+        # det program it selects may change inside this package's window.
+        notes, any_claim = [], False
+        for rows in sorted({first, middle, last}):
+            claimed, det_main = _claims_det_dx(expected, hidden, residual, w, rows)
+            if det_main is None:
+                continue
+            differing, _ulps = ref.bf16_ulp_differences(
+                calls.dx(rows), calls.det_dx(rows)
             )
+            if claimed:
+                assert differing == 0, (
+                    f"h={hidden} res={residual} window ({above}, {at_most}] claims the det dx "
+                    f"({det_main}) but T={rows} differs on {differing} elements"
+                )
+            any_claim = any_claim or claimed
+            notes.append(f"{rows}:{'claimed' if claimed else 'unclaimed'}:{differing}")
+        claims += int(any_claim)
+        det_note = f"det={','.join(notes)}" if notes else "det=n/a"
         lines.append(
             f"XT_DX {_arch()} {loader.route_key(hidden, 'bwd', residual, w)} ({above}, {at_most}] "
             f"{form} {library.rsplit('_', 1)[1][:8]} T={first}/{middle}/{last} bitwise=True {det_note}"
