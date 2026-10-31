@@ -5218,9 +5218,10 @@ def workspace_layout(
     """Byte layout of the caller-owned backward workspace of one module.
 
     The workspace is one CUDA ``uint8`` buffer: the ``uint32`` counters in its
-    first :data:`COUNTERS_BYTES` bytes, then the module's ``hidden`` FP64 column
-    sums (``partial``, :data:`SUM_BYTES` bytes each).  The size depends on the
-    width only, not on ``rows``, so a buffer of the widest width serves every
+    first :data:`COUNTERS_BYTES` bytes, then ``replicas`` (the workspace rule's,
+    one when absent) copies of the module's ``hidden`` FP64 column sums
+    (``partial``, :data:`SUM_BYTES` bytes each).  The size depends on the module
+    only, not on ``rows``, so a buffer of the largest size serves every
     call.  The counters and the sums must be zero when the buffer is first used
     and the kernel leaves them zero, so no host write is needed between launches
     or CUDA Graph replays.  ``n_chunks`` and ``slots`` follow ``record``, the
@@ -5235,14 +5236,15 @@ def workspace_layout(
             f"module kernel_{record['kernel']} declares {counters} counters; the "
             f"workspace holds {COUNTERS_BYTES // 4}"
         )
+    partial_bytes = SUM_BYTES * int(record["hidden"]) * int(rule.get("replicas", 1))
     return {
         "n_chunks": chunks,
         "slots": slots,
         "counters": counters,
         "counters_offset": 0,
         "partial_offset": COUNTERS_BYTES,
-        "partial_bytes": SUM_BYTES * int(record["hidden"]),
-        "total_bytes": COUNTERS_BYTES + SUM_BYTES * int(record["hidden"]),
+        "partial_bytes": partial_bytes,
+        "total_bytes": COUNTERS_BYTES + partial_bytes,
     }
 
 

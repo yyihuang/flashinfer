@@ -294,11 +294,22 @@ def test_nondeterministic_flag_selects_this_package(
 def test_nondeterministic_workspace_is_counters_and_column_sums(
     no_determinism,
 ) -> None:
+    arch = loader.device_arch(_device().index or 0)
     for hidden in (512, 2048, 6144):
         nbytes = cake_rmsnorm_train_backward_workspace_bytes(
             1, hidden, _device(), deterministic=False
         )
-        assert nbytes == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden
+        replicas = max(
+            (
+                record["workspace_rule"].get("replicas", 1)
+                for record in loader.MODULES.values()
+                if record["workspace_rule"] is not None
+                and record["hidden"] == hidden
+                and arch in record["arches"]
+            ),
+            default=1,
+        )
+        assert nbytes == loader.COUNTERS_BYTES + loader.SUM_BYTES * hidden * replicas
         for rows in (0, 1, 12345, 65536):
             assert (
                 cake_rmsnorm_train_backward_workspace_bytes(
@@ -310,4 +321,6 @@ def test_nondeterministic_workspace_is_counters_and_column_sums(
         4096, 4096, _device(), deterministic=False
     )
     assert ws.dtype == torch.uint8 and not bool(ws.any())
-    assert ws.numel() == loader.COUNTERS_BYTES + loader.SUM_BYTES * 4096
+    assert ws.numel() == cake_rmsnorm_train_backward_workspace_bytes(
+        1, 4096, _device(), deterministic=False
+    )

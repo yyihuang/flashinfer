@@ -385,14 +385,25 @@ def _copy_back(pairs: list[tuple[torch.Tensor, Optional[torch.Tensor]]]) -> None
 
 def _workspace_bytes(hidden: int, device: torch.device) -> int:
     """Bytes of this package's backward workspace of width ``hidden``: the
-    counter table and one FP64 sum per column (every route's records declare at
-    most ``cake_jit.COUNTERS_BYTES // 4`` counters)."""
+    counter table and the FP64 column sums of the backward record of that width
+    with the most sum replicas on ``device``'s architecture (every route's
+    records declare at most ``cake_jit.COUNTERS_BYTES // 4`` counters)."""
 
-    _device_arch(device)
+    arch = _device_arch(device)
     hidden = int(hidden)
     if hidden <= 0:
         raise ValueError("hidden must be positive")
-    return int(_loader.COUNTERS_BYTES + _loader.SUM_BYTES * hidden)
+    replicas = max(
+        (
+            int(record["workspace_rule"].get("replicas", 1))
+            for record in _loader.MODULES.values()
+            if record["workspace_rule"] is not None
+            and int(record["hidden"]) == hidden
+            and arch in record["arches"]
+        ),
+        default=1,
+    )
+    return int(_loader.COUNTERS_BYTES + _loader.SUM_BYTES * hidden * replicas)
 
 
 def cake_rmsnorm_train_backward_workspace_bytes(
@@ -412,9 +423,10 @@ def cake_rmsnorm_train_backward_workspace_bytes(
     per chunk and grows with ``rows``
     (:func:`flashinfer.cake_rmsnorm_det_train.cake_rmsnorm_det_train_backward_workspace_bytes`).
     The non-deterministic backward needs its ``uint32`` chunk-claim and
-    completion counters and one FP64 sum per column:
-    ``cake_jit.COUNTERS_BYTES + cake_jit.SUM_BYTES * hidden`` bytes whatever
-    ``rows``.  The buffer must be zero on first use (allocate with
+    completion counters and its FP64 column sums:
+    ``cake_jit.COUNTERS_BYTES + cake_jit.SUM_BYTES * hidden * replicas`` bytes
+    whatever ``rows`` (``replicas``: the sum copies the width's kernel spreads
+    its CTAs over, one unless its workspace rule says more).  The buffer must be zero on first use (allocate with
     ``torch.zeros`` or use :func:`cake_rmsnorm_train_backward_workspace`); the
     kernel leaves it zero, so the same buffer is reusable across calls, token
     counts, widths up to the one it was sized for and CUDA Graph replays
