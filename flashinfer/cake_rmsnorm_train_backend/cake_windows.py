@@ -1017,10 +1017,11 @@ A backward window marked ``(det pair)`` runs the deterministic package's main ke
 
 Beside a kernel that holds shared memory on every SM (one CTA per SM with a large
 dynamic shared-memory allocation), a backward window waits until that kernel exits
-when the shared memory it leaves is too small for the window's program.  Measured with
+when the shared memory it leaves is too small for the window's program.  Beside
+those, leave some SMs free of the resident kernel.  Measured with
 100 / 132 KB per CTA (``SMEM_WAITS``): ``>= K`` after a window means it waits beside
 K KB or more, ``-`` that it starts beside every measured size; an architecture or
-route not listed is unmeasured.  Beside such a kernel, leave some SMs free of it.
+route not listed is unmeasured.
 
 * ``sm_100a`` ``bwd_h1536``: (0, 1024] >= 132, (1024, 4096] >= 100, (4096, 32768] >= 100, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_h2048``: (0, 2048] >= 100, (2048, 8192] -, (8192, 16384] >= 100, (16384, inf) >= 100
