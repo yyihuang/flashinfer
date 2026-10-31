@@ -395,7 +395,6 @@ def bench_mode(
     tensors = outputs if residual else (outputs,)
     grads = (g, g_h) if residual else (g,)
     ag_peak, _ag_kept = _memory(lambda: torch.autograd.backward(tensors, grads))
-    del outputs, tensors
     # What a ``torch.utils.checkpoint(use_reentrant=False)`` forward keeps beyond its
     # outputs (expected 0: the checkpoint saves its inputs, which the caller holds).
     xc = x.clone().requires_grad_(True)
