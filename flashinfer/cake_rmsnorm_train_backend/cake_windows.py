@@ -173,11 +173,13 @@ PROGRAM_WINDOWS: dict[str, dict[str, tuple[tuple[int, int | None, str], ...]]] =
         ),
         "bwd_h5120": (
             (0, 256, "cake_rmsnorm_train_db01cec1153cd7fb2759"),
-            (256, None, "cake_rmsnorm_train_b482c84dbffcd75a4a4c"),
+            (256, 32768, "cake_rmsnorm_train_b482c84dbffcd75a4a4c"),
+            (32768, None, "cake_rmsnorm_train_2f05000ca9242ea4d6cb"),
         ),
         "bwd_w32_h5120": (
             (0, 256, "cake_rmsnorm_train_6042554b427634669739"),
-            (256, None, "cake_rmsnorm_train_40227b2a2b2122628d58"),
+            (256, 32768, "cake_rmsnorm_train_40227b2a2b2122628d58"),
+            (32768, None, "cake_rmsnorm_train_de8f6091077dc7ac5947"),
         ),
         "bwd_h6144": (
             (0, 256, "cake_rmsnorm_train_b93bf060d4d3defc8150"),
@@ -607,8 +609,8 @@ EDGES: dict[str, dict[str, tuple[tuple[int, str], ...]]] = {
             (14927, "unmeasured"),
             (16384, "unmeasured"),
         ),
-        "bwd_h5120": ((256, "unmeasured"),),
-        "bwd_w32_h5120": ((256, "unmeasured"),),
+        "bwd_h5120": ((256, "unmeasured"), (32768, "unmeasured")),
+        "bwd_w32_h5120": ((256, "unmeasured"), (32768, "unmeasured")),
         "bwd_h6144": (
             (256, "unmeasured"),
             (4096, "unmeasured"),
@@ -778,8 +780,6 @@ DET_PAIR_ROUTES: dict[str, dict[str, str]] = {
     "sm_100a": {
         "bwd_h1536": "B200 (lane K g046, 9ebc0c13): the single kernel takes 1.07-1.35x (register ring) / 1.07-1.54x (bulk ring) the det pair's time at every measured T (provisional, under bisect)",
         "bwd_w32_h1536": "B200 (lane K g046, 9ebc0c13): the single kernel takes 1.07-1.35x (register ring) / 1.07-1.54x (bulk ring) the det pair's time at every measured T (provisional, under bisect)",
-        "bwd_h5120": "B200 (lane K): the single kernel takes 1.05-1.20x the det pair's time at every measured T",
-        "bwd_w32_h5120": "B200 (lane K): the single kernel takes 1.05-1.20x the det pair's time at every measured T",
     },
     "sm_103a": {
         "bwd_h2048": "GB300 (lane Q k004, 914fc74c): the det pair is faster or tied at every measured T (provisional)",
@@ -836,7 +836,6 @@ SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]]
             (16384, None, 132),
         ),
         "bwd_h512": ((0, 4096, None), (4096, 32768, None), (32768, None, 132)),
-        "bwd_h5120": ((0, 256, None), (256, None, None)),
         "bwd_h6144": (
             (0, 256, 132),
             (256, 4096, 132),
@@ -867,7 +866,6 @@ SMEM_WAITS: dict[str, dict[str, tuple[tuple[int, int | None, int | None], ...]]]
             (16384, None, 132),
         ),
         "bwd_w32_h512": ((0, 4096, None), (4096, 32768, None), (32768, None, 132)),
-        "bwd_w32_h5120": ((0, 256, None), (256, None, None)),
         "bwd_w32_h6144": (
             (0, 256, 132),
             (256, 4096, 132),
@@ -1027,7 +1025,6 @@ route not listed is unmeasured.  Beside such a kernel, leave some SMs free of it
 * ``sm_100a`` ``bwd_h256``: (0, inf) -
 * ``sm_100a`` ``bwd_h4096``: (0, 256] -, (256, 1024] -, (1024, 4096] >= 132, (4096, 14927] >= 132, (14927, 16384] >= 132, (16384, inf) >= 132
 * ``sm_100a`` ``bwd_h512``: (0, 4096] -, (4096, 32768] -, (32768, inf) >= 132
-* ``sm_100a`` ``bwd_h5120``: (0, 256] -, (256, inf) -
 * ``sm_100a`` ``bwd_h6144``: (0, 256] >= 132, (256, 4096] >= 132, (4096, 14927] >= 132, (14927, 32768] >= 100, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_residual_h6144``: (0, 1023] >= 100, (1023, inf) >= 100
 * ``sm_100a`` ``bwd_w32_h1536``: (0, 1024] >= 132, (1024, 4096] >= 100, (4096, 32768] >= 100, (32768, inf) >= 132
@@ -1035,7 +1032,6 @@ route not listed is unmeasured.  Beside such a kernel, leave some SMs free of it
 * ``sm_100a`` ``bwd_w32_h256``: (0, inf) -
 * ``sm_100a`` ``bwd_w32_h4096``: (0, 256] -, (256, 1024] -, (1024, 4096] >= 132, (4096, 14927] >= 132, (14927, 16384] >= 132, (16384, inf) >= 132
 * ``sm_100a`` ``bwd_w32_h512``: (0, 4096] -, (4096, 32768] -, (32768, inf) >= 132
-* ``sm_100a`` ``bwd_w32_h5120``: (0, 256] -, (256, inf) -
 * ``sm_100a`` ``bwd_w32_h6144``: (0, 256] >= 132, (256, 4096] >= 132, (4096, 14927] >= 132, (14927, 32768] >= 100, (32768, inf) >= 132
 * ``sm_100a`` ``bwd_w32_residual_h6144``: (0, 1023] >= 100, (1023, inf) >= 100
 
@@ -1052,7 +1048,7 @@ route not listed is unmeasured.  Beside such a kernel, leave some SMs free of it
   (4096, 14927] 35a0b0ca (det pair) ? (14927, 16384] 983eecda ?
   (16384, inf) 35a0b0ca (det pair)
 * ``sm_100a`` ``bwd_h5120``: (0, 256] db01cec1 (det pair) ?
-  (256, inf) b482c84d (det pair)
+  (256, 32768] b482c84d (det pair) ? (32768, inf) 2f05000c
 * ``sm_100a`` ``bwd_h6144``: (0, 256] b93bf060 (det pair) ?
   (256, 4096] 5c804aed (det pair) ? (4096, 14927] b93bf060 (det pair) ?
   (14927, 32768] bfb0c70d ? (32768, inf) b93bf060 (det pair)
