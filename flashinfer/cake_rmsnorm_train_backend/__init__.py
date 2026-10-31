@@ -458,9 +458,7 @@ def _workspace_views(
 ) -> tuple[torch.Tensor, torch.Tensor, dict[str, int]]:
     """``(the FP32 word bound to the unused ``partial`` parameter, the counters, the layout)``."""
 
-    layout = _loader.workspace_layout(
-        record, rows, device_index=_device_index(device)
-    )
+    layout = _loader.workspace_layout(record, rows, device_index=_device_index(device))
     if not isinstance(workspace, torch.Tensor):
         raise TypeError("workspace must be a torch.Tensor")
     if (
