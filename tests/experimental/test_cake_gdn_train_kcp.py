@@ -1003,9 +1003,11 @@ def test_row_cost_lpt_rule_on_rows_of_record(path) -> None:
     )
     assert all(new.P == 1 for old, new in zip(base, plans, strict=True) if old.P == 1)
     for r in range(W):
-        ctx = gp.build_context_kcp(part, None, r, CPU, 4, sm_count=SM_COUNT)
+        ctx = gp.build_context_kcp(
+            part, None, r, CPU, 4, sm_count=SM_COUNT, p_rule="row_cost_lpt"
+        )
         hp = ctx.heads(HV)
-        assert ctx.p_rule == gp.P_RULE_DEFAULT == "row_cost_lpt" == hp.segments.p_rule
+        assert ctx.p_rule == "row_cost_lpt" == hp.segments.p_rule
         assert (got[r], plans[r].NSEG) == (hp.P, hp.segments.NSEG)
         ref = gp.build_context_kcp(
             part, None, r, CPU, 4, sm_count=SM_COUNT, p_rule="row_cost"
@@ -1047,7 +1049,7 @@ def test_row_cost_rule_is_the_default_and_the_per_rank_rules_stay_selectable() -
     stay selectable through ``p_rule`` and then drive the head plan; the row rule picks the recorded vectors on three
     tables of record (two flip to ``"one"`` -- one far below any margin, one at a model ratio of 0.980 that only the
     ``"one"`` margin of 0 admits -- and one keeps the base far from any margin)."""
-    assert gp.P_RULE_DEFAULT == "row_cost_lpt" and "row_cost_lpt" in gp.P_RULES
+    assert gp.P_RULE_DEFAULT == "fill_small" and "row_cost_lpt" in gp.P_RULES
     assert "row_cost" in gp.P_RULES
     assert gp.ROW_COST_BASE == "wave_fill1" and gp.ROW_COST_POLICIES == ("occ", "one")
     assert gp.ROW_COST_COMPOSE_K == 2 and gp.ROW_COST_MARGIN_PCT == {"occ": 2, "one": 0}
@@ -1094,7 +1096,7 @@ def test_row_cost_rule_is_the_default_and_the_per_rank_rules_stay_selectable() -
     want = tuple(
         seg.P
         for seg in gp.kcp_plan_row(
-            gp.row_tables(part), 6, SM_COUNT, p_rule="row_cost_lpt"
+            gp.row_tables(part), 6, SM_COUNT, p_rule=gp.P_RULE_DEFAULT
         )
     )
     want_old = tuple(
@@ -1103,8 +1105,8 @@ def test_row_cost_rule_is_the_default_and_the_per_rank_rules_stay_selectable() -
     )
     for r in range(2):
         ctx = gp.build_context_kcp(part, None, r, CPU, 4, sm_count=SM_COUNT)
-        assert ctx.p_rule == "row_cost_lpt" and want[r] == ctx.heads(6).P
-        assert ctx.heads(6).segments.p_rule == "row_cost_lpt"
+        assert ctx.p_rule == gp.P_RULE_DEFAULT and want[r] == ctx.heads(6).P
+        assert ctx.heads(6).segments.p_rule == gp.P_RULE_DEFAULT
         old = gp.build_context_kcp(
             part, None, r, CPU, 4, sm_count=SM_COUNT, p_rule="row_cost"
         )
@@ -2478,7 +2480,7 @@ def test_workspace_layout_counts_one_staging_plane_under_save_transfer() -> None
     for r in range(2):
         ctx_row = gp.build_context_kcp(part, None, r, CPU, 4, sm_count=SM_COUNT)
         hp_row = ctx_row.heads(HV)
-        assert hp_row.segments.p_rule == "row_cost_lpt" and hp_row.P == 1
+        assert hp_row.segments.p_rule == gp.P_RULE_DEFAULT and hp_row.P == 1
         one_row = gb.gdn_workspace_layout_kcp(ctx_row, H_qk=H_qk, HV=HV)
         assert one_row["fwd.staging"] == one_row["bwd.staging"] == 0
     for r in range(2):

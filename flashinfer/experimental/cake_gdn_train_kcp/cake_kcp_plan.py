@@ -57,8 +57,13 @@ ownership ``Hg = ceil(HV / W)``, ``owner(h) = h // Hg``, the split sizes of the
 collectives, the merge chain tables, the segment plan ``P`` / ``NSEG`` and the
 segment table) is derived on demand by ``ctx.heads(HV)`` and cached.
 
-Segment plan rule.  ``kcp_plan_row(row_tables(part), HV, sm_count)`` (the legacy
-``"row_cost"`` rule, selectable; the shipped default ``"row_cost_lpt"`` below starts from
+Segment plan rule.  The shipped default of this package is ``"fill_small"`` (this package's faster schedule,
+#8063): the deterministic twin's ``"row_cost_lpt"`` vector (below), then every rank of a row with ``HV <=
+SMALL_ONE_HV_MAX = 12`` whose fragments all have at most ``SMALL_ONE_NC_MAX = 160`` chunks runs ``P = 1`` (no segment
+merges, compose chain or staging planes), and on every other row each rank below the chain cap takes ``min(P,
+wave_fill P)`` (the one-wave fill); it never raises a rank's ``P`` (``"row_cost_lpt"`` stays selectable).
+``kcp_plan_row(row_tables(part), HV, sm_count)`` (the legacy
+``"row_cost"`` rule, selectable; ``"row_cost_lpt"`` below starts from
 its plan) picks the segments per fragment ``P`` of every rank (``NSEG =
 n_frag * P``) from every rank's fragment table: it starts from the per-rank
 ``"wave_fill1"`` program (below) and switches the whole row to the ``"occ"`` or the
@@ -147,7 +152,7 @@ P_RULES = (
 # the simpler program takes a model tie).  The per-rank rules stay selectable through
 # the keyword-only ``p_rule`` argument (options-object test knob) for the A/B record.  Every rule is a pure function of
 # (the fragment tables, HV, SM count), identical on every rank, so G3 holds under any of them.
-P_RULE_DEFAULT = "row_cost_lpt"
+P_RULE_DEFAULT = "fill_small"
 ROW_COST_BASE = "wave_fill1"  # the per-rank program the row rule starts from
 ROW_COST_POLICIES = ("occ", "one")  # the whole-row alternatives it may switch to
 ROW_COST_COMPOSE_K = 2  # compose-term multiplier: the merge launches measured about twice the one-step compose model
@@ -2021,7 +2026,7 @@ class ContextKcp:
     tables: dict[str, torch.Tensor]
     halo: KcpHaloPlan
     halo_tables: dict[str, torch.Tensor]
-    p_rule: str  # plan rule: "row_cost_lpt" shipped ("row_cost" stays selectable); the per-rank rules via the test knob
+    p_rule: str  # plan rule: "fill_small" shipped ("row_cost_lpt" / "row_cost" stay selectable); the per-rank rules via the test knob
     sequence: KcpSequence
     _head_plans: dict[int, KcpHeadPlan]
     # GDN table bundles of ``cake_tables`` (built once per context at first use, device-resident, keyed by HV)
@@ -2221,7 +2226,8 @@ def build_context_kcp(
     CUDA device's multiprocessor count; ``1`` on a non-CUDA device = no occupancy pressure, ``P = P_chain``).
     Out-of-range problems are rejected here, before any launch: ``n_frag > 65536`` (the layout table's document
     search), int32 overflows of the kernels' offsets (``heads(HV)``).  ``p_rule`` (keyword-only; a test knob of the
-    options object) selects the plan's ``P`` rule for this context (:data:`P_RULE_DEFAULT` = ``"row_cost_lpt"``;
+    options object) selects the plan's ``P`` rule for this context (:data:`P_RULE_DEFAULT` = ``"fill_small"``, this package's faster
+    schedule; ``"row_cost_lpt"`` = the deterministic twin's default;
     ``"row_cost"`` = the selectable legacy row rule of :func:`kcp_plan_row`; ``"wave_fill1"`` = its base program and
     the former default, ``"wave"`` = the
     earlier rule, ``"occ"`` = the occupancy rule, ``"wave_fill"`` = the unadopted fill on every rank with at most

@@ -798,6 +798,21 @@ def _tree_summary(probe_ranks: list[dict[str, Any]]) -> str:
     return " ".join(parts) or "n/a"
 
 
+def _plan_summary(probe_ranks: list[dict[str, Any]]) -> str:
+    """The launch recorder's view of the arm's plan: the forward's ``P`` per rank and the largest launch count of the
+    forward and the backward over the ranks (``LAST_CALL``)."""
+    Ps, launches = [], {}
+    for pr in probe_ranks:
+        rec = pr["last_call"].get("fwd") or {}
+        Ps.append(str(rec.get("P", "?")))
+        for phase in ("fwd", "bwd"):
+            r = pr["last_call"].get(phase) or {}
+            if "n_launches" in r:
+                launches[phase] = max(launches.get(phase, 0), int(r["n_launches"]))
+    n = " ".join(f"{k}={v}" for k, v in sorted(launches.items()))
+    return f"P[{','.join(Ps)}] launches[{n}]"
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # One (row, layout, CP) configuration
 
@@ -967,7 +982,8 @@ def run_config(
                     f"  {arm:16s} {st['median_ms']:9.3f} ms  p10 {st['p10_ms']:9.3f}  p90 {st['p90_ms']:9.3f}  "
                     f"{st['tokens_per_s'] / 1e6:8.3f} Mtok/s  peak {m['step_peak_bytes'] / MIB:9.1f} MiB  "
                     f"kept {m['fwd_retained_bytes'] / MIB:9.1f} MiB  drift {st['drift'] * 100:5.2f}%"
-                    f"{'' if st['drift_ok'] else ' (ABOVE LIMIT)'}  owner_tree {_tree_summary(probes[arm])}",
+                    f"{'' if st['drift_ok'] else ' (ABOVE LIMIT)'}  owner_tree {_tree_summary(probes[arm])}  "
+                    f"{_plan_summary(probes[arm])}",
                     flush=True,
                 )
             for arm, why in unavailable.items():
