@@ -36,7 +36,10 @@ Arms (``--arms``; every one on the same packed batch, the same partition and the
 * ``sota_head_cp_fla``: head parallelism: the same even token split (padded to a multiple of ``world``), an
   all-to-all to whole sequences of ``H_qk / W`` query/key heads, ``HV / W`` value heads and ``C / W`` channels (the
   world size must divide each), FLA's single-rank varlen kernels, and the all-to-all back (backward: the reverse
-  exchanges); every layout runs the same program.
+  exchanges); every layout runs the same program;
+* ``sota_head_cp_frost`` / ``sota_head_cp_frost_ck64``: the same head parallelism around cuDNN frontend's GDN
+  (``cudnn.linear_attention.ops.gated_delta_net``, plan ``gdn_frost``, ``checkpoint_every_n_tokens`` 0: the
+  backward recomputes the states, or 64: stored states; FLA's convolution).
 
 The non-Cake arms run FLA's Triton kernels (the benchmark sets ``FLA_FLASH_QLA=0`` before importing FLA); a
 requested arm that cannot be imported stops the run, one whose calls did not run fails its probe, and one that does
@@ -147,7 +150,20 @@ HEAD_DIM = 128
 MIB = float(1 << 20)
 SCALE = HEAD_DIM**-0.5
 # Non-Cake arms (the second baseline of a table: the minimum over the qualified ones)
-SOTA_ARMS = ("sota_fla_kcp", "sota_head_cp_fla")
+SOTA_ARMS = (
+    "sota_fla_kcp",
+    "sota_head_cp_fla",
+    "sota_head_cp_frost",
+    "sota_head_cp_frost_ck64",
+)
+# The GDN call of each non-Cake arm (a library call the probe must see) and the cuDNN arms' state checkpoint stride
+SOTA_GDN_CALL = {
+    "sota_fla_kcp": "chunk",
+    "sota_head_cp_fla": "chunk",
+    "sota_head_cp_frost": "frost",
+    "sota_head_cp_frost_ck64": "frost",
+}
+FROST_CHECKPOINT = {"sota_head_cp_frost": 0, "sota_head_cp_frost_ck64": 64}
 FLA_KCP_LAYOUTS = {"C": "contiguous", "Z": "zigzag"}
 # Agreement of a non-Cake arm with ``nondet`` on every output and input gradient (the generic budgets of the Cake GDN
 # training tests): rel-RMS and max-abs over max |ref|
@@ -698,7 +714,7 @@ def _probe(
     ran = sorted(kind for kind, route in routes.items() if route.pkg.LAST_CALL)
     if sota:
         made = {key: lib.calls[key] - before[key] for key in lib.calls}
-        need = ("chunk", "conv") if len(grads_out) == 2 else ("chunk",)
+        need = (SOTA_GDN_CALL[arm],) + (("conv",) if len(grads_out) == 2 else ())
         if ran or missing or any(made[key] < 1 for key in need):
             raise RuntimeError(
                 f"arm {arm}: the probe call made the library calls {made} (needs {list(need)}), left the input "
@@ -723,9 +739,10 @@ def _probe(
 
 class _Fla:
     """flash-linear-attention's ops (``fla-core``) on their Triton kernels: ``FLA_FLASH_QLA=0`` is set before the
-    import, so no call dispatches to FlashQLA.  Every call is counted (:func:`_probe` checks them)."""
+    import, so no call dispatches to FlashQLA; with ``frost``, cuDNN frontend's GDN too.  Every call is counted
+    (:func:`_probe` checks them)."""
 
-    def __init__(self) -> None:
+    def __init__(self, frost: bool = False) -> None:
         os.environ["FLA_FLASH_QLA"] = "0"
         try:
             import fla  # type: ignore
@@ -739,13 +756,23 @@ class _Fla:
         self._conv = causal_conv1d
         self._chunk = chunk_gated_delta_rule
         self.build_cp_context = build_cp_context
-        self.calls = {"chunk": 0, "conv": 0}
+        self.calls = {"chunk": 0, "conv": 0, "frost": 0}
         self.files = {
             "fla": fla.__file__,
             "conv": sys.modules[causal_conv1d.__module__].__file__,
             "chunk": sys.modules[chunk_gated_delta_rule.__module__].__file__,
             "cp_context": sys.modules[build_cp_context.__module__].__file__,
         }
+        self._frost = None
+        if frost:
+            try:
+                from cudnn.linear_attention.ops import gated_delta_net  # type: ignore
+            except Exception as exc:  # noqa: BLE001 -- a requested arm must run
+                raise SystemExit(
+                    f"the cuDNN arms need nvidia-cudnn-frontend importable: {exc!r}"
+                ) from exc
+            self._frost = gated_delta_net
+            self.files["frost"] = sys.modules[gated_delta_net.__module__].__file__
 
     def versions(self) -> dict[str, Any]:
         from importlib import metadata
@@ -760,6 +787,8 @@ class _Fla:
             "fla-core": version("fla-core"),
             "flash-linear-attention": version("flash-linear-attention"),
             "triton": version("triton"),
+            "nvidia-cudnn-frontend": version("nvidia-cudnn-frontend"),
+            "nvidia-cutlass-dsl": version("nvidia-cutlass-dsl"),
             "FLA_FLASH_QLA": os.environ.get("FLA_FLASH_QLA"),
             "files": self.files,
         }
@@ -775,6 +804,23 @@ class _Fla:
             *(t.unsqueeze(0) for t in (q, k, v, g, beta)), scale=SCALE, **kw
         )
         return out[0]
+
+    def frost(self, q, k, v, g, beta, cu_seqlens: torch.Tensor, ck: int) -> torch.Tensor:
+        self.calls["frost"] += 1
+        out = self._frost(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            cu_seqlens,
+            scale=SCALE,
+            use_qk_l2norm_in_kernel=False,
+            batch_invariant=False,
+            checkpoint_every_n_tokens=ck,
+            plan_name="gdn_frost",
+        )
+        return out[0] if isinstance(out, (tuple, list)) else out
 
 
 def _all_to_all(x: torch.Tensor, world: int, to_heads: bool) -> torch.Tensor:
@@ -808,17 +854,26 @@ class _AllToAll(torch.autograd.Function):
 
 
 def sota_unavailable(
-    arm: str, layout: str, heads: tuple[int, int], channels: int, with_conv: bool, world: int
+    arm: str,
+    layout: str,
+    heads: tuple[int, int],
+    channels: int,
+    with_conv: bool,
+    world: int,
 ) -> Optional[str]:
     """Why a non-Cake arm has no form for (layout, heads, channels, world), or ``None``."""
     if arm == "sota_fla_kcp":
         if layout not in FLA_KCP_LAYOUTS:
             return f"layout {layout} ({LAYOUTS[layout]}) has no FLA context-parallel form (FLA: contiguous, zigzag)"
         return None
-    sizes = [("H_qk", heads[0]), ("HV", heads[1])] + ([("C", channels)] if with_conv else [])
+    sizes = [("H_qk", heads[0]), ("HV", heads[1])] + (
+        [("C", channels)] if with_conv else []
+    )
     bad = [f"{name}={n}" for name, n in sizes if n % world]
     if bad:
-        return f"head parallelism needs the world size {world} to divide {', '.join(bad)}"
+        return (
+            f"head parallelism needs the world size {world} to divide {', '.join(bad)}"
+        )
     return None
 
 
@@ -849,7 +904,9 @@ def make_sota_problem(
         rows = torch.cat(
             [
                 torch.arange(rank * piece, (rank + 1) * piece),
-                torch.arange((2 * world - 1 - rank) * piece, (2 * world - rank) * piece),
+                torch.arange(
+                    (2 * world - 1 - rank) * piece, (2 * world - rank) * piece
+                ),
             ]
         )
     else:
@@ -881,6 +938,7 @@ def make_sota_problem(
         "tokens_padded": padded,
         "cu_cpu": cu_cpu,
         "cu_dev": cu_dev,
+        "cu_dev32": cu_cpu.to(device=device, dtype=torch.int32),
         "fla_ctx": fla_ctx,
         "local": local,
         "weight": weight,
@@ -910,8 +968,16 @@ def sota_forward(
     def tokens_of(t: torch.Tensor) -> torch.Tensor:
         return _AllToAll.apply(t, world, False)
 
+    ck = FROST_CHECKPOINT.get(arm)
+    cu32 = sp["cu_dev32"]
+
+    def gdn(q, k, v, g, beta):
+        if ck is None:
+            return lib.chunk(q, k, v, g, beta, **varlen)
+        return lib.frost(q, k, v, g, beta, cu32, ck)
+
     def forward_heads(q, k, v, g, beta, x, w):
-        out = tokens_of(lib.chunk(*(heads_of(t) for t in (q, k, v, g, beta)), **varlen))
+        out = tokens_of(gdn(*(heads_of(t) for t in (q, k, v, g, beta))))
         if with_conv:
             c = w.shape[0] // world
             y = lib.conv(heads_of(x), w[rank * c : (rank + 1) * c], **varlen)
@@ -925,7 +991,10 @@ GRAD_NAMES = ("dq", "dk", "dv", "dg", "dbeta", "dx", "dw")
 
 
 def _outputs_and_grads(
-    forward: Callable[..., tuple], leaves: list[torch.Tensor], grads_out, with_conv: bool
+    forward: Callable[..., tuple],
+    leaves: list[torch.Tensor],
+    grads_out,
+    with_conv: bool,
 ) -> dict[str, torch.Tensor]:
     """One forward + backward: the outputs and every input gradient."""
     with torch.enable_grad():
@@ -941,10 +1010,14 @@ def _outputs_and_grads(
     return res
 
 
-def _cake_rows(fragments: list[tuple[int, int, int]], cu: list[int], device) -> torch.Tensor:
+def _cake_rows(
+    fragments: list[tuple[int, int, int]], cu: list[int], device
+) -> torch.Tensor:
     """The pack rows of a rank's fragments, in slot order."""
     pieces = [torch.arange(cu[d] + o, cu[d] + o + n) for d, o, n in fragments if n > 0]
-    return (torch.cat(pieces) if pieces else torch.zeros(0, dtype=torch.long)).to(device)
+    return (torch.cat(pieces) if pieces else torch.zeros(0, dtype=torch.long)).to(
+        device
+    )
 
 
 def sota_agreement(
@@ -1239,7 +1312,9 @@ def run_config(
         ref = _outputs_and_grads(forwards["nondet"], leaves_of(), grads_out, with_conv)
         ref_rows = _cake_rows(problem["fragments"][rank], problem["cu"], device)
         for arm in sota_arms:
-            why = sota_unavailable(arm, layout, row.heads, args.channels, with_conv, world)
+            why = sota_unavailable(
+                arm, layout, row.heads, args.channels, with_conv, world
+            )
             if why is not None:
                 sota[arm] = {"available": False, "reason": why}
                 continue
@@ -1261,7 +1336,10 @@ def run_config(
                 "qualified": ok,
                 "failing": failing,
                 "accuracy_vs_nondet": acc,
-                "budget": {"rel_rms": SOTA_REL_RMS, "max_abs_over_max_ref": SOTA_MAX_ABS},
+                "budget": {
+                    "rel_rms": SOTA_REL_RMS,
+                    "max_abs_over_max_ref": SOTA_MAX_ABS,
+                },
                 "pad_tokens": sp["pad"],
                 "tokens_padded": sp["tokens_padded"],
                 "tokens_per_rank": int(sp["rows"].numel()),
@@ -1334,7 +1412,9 @@ def run_config(
                 if not sota[arm]["available"]:
                     unavailable[arm] = sota[arm]["reason"]
                 elif boundary == "B3h":
-                    unavailable[arm] = "no recompute-handle form (its checkpointed step is B3)"
+                    unavailable[arm] = (
+                        "no recompute-handle form (its checkpointed step is B3)"
+                    )
                 else:
                     available.append(arm)
                 continue
@@ -1529,7 +1609,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--arms",
         default=",".join(BASE_ARMS),
         help="comma-separated arms among det, nondet, nondet_serial, nondet_tree<b>, nondet_p_<plan rule> and the "
-        "non-Cake arms sota_fla_kcp, sota_head_cp_fla (these need nondet)",
+        "non-Cake arms sota_fla_kcp, sota_head_cp_fla, sota_head_cp_frost, sota_head_cp_frost_ck64 (these need nondet)",
     )
     parser.add_argument(
         "--tree-blocks",
@@ -1671,7 +1751,11 @@ def main() -> int:
         if any(arm_route(a) == kind for a in arms)
     }
     rows = make_rows(args.row_list, args)
-    lib = _Fla() if any(a in SOTA_ARMS for a in arms) else None
+    lib = (
+        _Fla(frost=any(a in FROST_CHECKPOINT for a in arms))
+        if any(a in SOTA_ARMS for a in arms)
+        else None
+    )
     env = _env(routes, device, world, lib)
     out_dir = Path(args.out_dir)
     if rank == 0:
