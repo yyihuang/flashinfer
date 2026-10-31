@@ -707,30 +707,22 @@ def _program_id(name: str) -> str:
 
 # Single-kernel libraries whose ``dx`` reproduces a det program's ``dx`` bits
 # (``dx`` has no cross-row reduction; 0 differing elements on B200 at the token
-# counts named, lane K FINAL 5f0611b3): library -> the det module whose bits it
+# counts named): library -> the det module whose bits it
 # claims.  The claim holds where the det package selects that module; elsewhere
 # the single is compared only.
 DX_BITWISE_WITH = {
     # sm_100a H512 C1 row (1280, inf); det module at T 16385
     "cake_rmsnorm_train_d0bde38aa443d42a5f04": "cake_rmsnorm_det_train_ad1a5a3c5f88e3d10036",
-    # sm_100a H1536 C52 column (0, 320]; det module at T 257
-    "cake_rmsnorm_train_dc478ac1195882aedee6": "cake_rmsnorm_det_train_7dc29629ff21625607f8",
     # sm_100a H1536 C3 row (36864, inf); det module at T 65536
     "cake_rmsnorm_train_ae610afdf77ff6714a5b": "cake_rmsnorm_det_train_b457c4d134e44476dc6f",
-    # sm_100a H2048 C53 column (0, 320]; det module at T 257
+    # sm_100a H2048 C53 column (0, 336]; det module at T 257
     "cake_rmsnorm_train_64e6aa82bb2c6d4ea978": "cake_rmsnorm_det_train_caf6978ed0a17fbf65b9",
-    # sm_100a H2048 C5 row (13608, 36864]; det module at T 16385
-    "cake_rmsnorm_train_c48ac7c56fcf535d1dc7": "cake_rmsnorm_det_train_ceeef043ac64f37fc529",
     # sm_100a H4096 C54 column (0, 1152]; det module at T 257
     "cake_rmsnorm_train_4822793ea0c954c11af6": "cake_rmsnorm_det_train_59270fb249dcba1ff679",
-    # sm_100a H4096 C6 row (4608, 36864]; det module at T 16385
-    "cake_rmsnorm_train_42e8a9fd0acc50325e16": "cake_rmsnorm_det_train_35a0b0ca6b2060313255",
     # sm_100a H6144 C56 column (0, 1152]; det module at T 257 (the C8 row differs)
     "cake_rmsnorm_train_44508df7dab2ab688f85": "cake_rmsnorm_det_train_5c804aed7ad14b99e1d0",
     # sm_100a H6144 residual C57 column (0, 1408]; the det residual program (every T)
     "cake_rmsnorm_train_864e84f3d874f850c091": "cake_rmsnorm_det_train_0dcdc563be377247044e",
-    # sm_100a H6144 residual C9 row (1408, inf); the det residual program (every T)
-    "cake_rmsnorm_train_4ed5e6fb331bd50f7d69": "cake_rmsnorm_det_train_0dcdc563be377247044e",
 }
 
 
@@ -862,6 +854,77 @@ def test_repeated_launches_against_fp64_and_det(
         f"DW_WORST h={hidden} T={rows} res={residual} w={w} form={case.form} "
         f"repeats={REPEATS} rel_l2={worst:.3e} worst_tol_ratio={worst_tol:.3f} "
         f"max_abs_spread={spread:.3e} {det_note}"
+    )
+
+
+# H5120: the token count up to which the backward runs the det pair; above it the
+# FP64-accumulating single kernel runs for dw accuracy.  The det pair's dw keeps
+# within ACCURACY_MARGIN of the per-element budget (worst of ACCURACY_SEEDS inputs
+# of each input family) only up to this count; at T 32768 it exceeds the budget.
+H5120_ACCURACY_EDGE = {"sm_100a": 24576, "sm_103a": 24576, "sm_107a": 24576}
+ACCURACY_MARGIN = 0.85
+ACCURACY_SEEDS = 20
+
+
+def _h5120_inputs(family: str, rows: int, w_dtype, k: int):
+    """``(x, g, w)`` of input ``k``: ``test`` = this module's generator, ``plain``
+    = one device generator seeded ``SEED + 7919 k`` drawing x, g ~ N(0, 1) and
+    w = 1 + 0.1 N(0, 1) in that order."""
+    if family == "test":
+        x, _u, g, _g_h, w = _case_inputs(5120, rows, w_dtype=w_dtype, key=100 + k)
+        return x, g, w
+    generator = torch.Generator(device=_device()).manual_seed(SEED + 7919 * k)
+
+    def normal(*shape):
+        return torch.randn(
+            *shape, dtype=torch.float32, device=_device(), generator=generator
+        )
+
+    x = normal(rows, 5120).to(torch.bfloat16)
+    g = normal(rows, 5120).to(torch.bfloat16)
+    return x, g, (1.0 + 0.1 * normal(5120)).to(w_dtype)
+
+
+@pytest.mark.parametrize("family", ("test", "plain"))
+@pytest.mark.parametrize("w", tuple(W_DTYPES))
+@pytest.mark.parametrize("side", ("below", "edge", "above"))
+def test_h5120_dw_accuracy_edge(side: str, w: str, family: str) -> None:
+    """At the H5120 accuracy edge (4096 below it, at it, one above it), over
+    ``ACCURACY_SEEDS`` inputs of each family: the det pair's worst dw element
+    stays within ``ACCURACY_MARGIN`` of its budget, the single kernel within the
+    budget, against both FP64 references (at the kernel's FP32 ``rstd`` and at
+    the FP64 ``rstd``)."""
+    _skip_unless_route(5120, w_dtype=w)
+    edge = H5120_ACCURACY_EDGE[_arch()]
+    rows = {"below": edge - 4096, "edge": edge, "above": edge + 1}[side]
+    expected = _window_records(5120, "bwd", False, w, rows)
+    form = _form(expected)
+    assert form == ("single" if side == "above" else "pair"), (
+        f"T={rows} runs {form}: the accuracy edge of this architecture is {edge}"
+    )
+    eps = EPS[5120]
+    worst = 0.0
+    for k in range(ACCURACY_SEEDS):
+        x, g, weight = _h5120_inputs(family, rows, W_DTYPES[w], k)
+        rstd = forward(x, weight, eps)[1]
+        (_dx, dw), records = _run_backward(g, x, weight, rstd)
+        assert records == expected, f"T={rows} launched {records}"
+        xd = x.double()
+        rstd_fp64 = torch.rsqrt(xd.pow(2).mean(-1, keepdim=True) + eps)
+        for ref in (
+            _reference_backward(g, x, weight, rstd)[1],
+            (g.double() * xd * rstd_fp64).sum(0),
+        ):
+            ratio = (dw.double() - ref).abs() / (DW_ATOL + DW_RTOL * ref.abs())
+            worst = max(worst, float(ratio.max()))
+    bound = ACCURACY_MARGIN if form == "pair" else 1.0
+    print(
+        f"H5120_EDGE arch={_arch()} edge={edge} T={rows} w={w} family={family} "
+        f"form={form} seeds={ACCURACY_SEEDS} worst_error_over_budget={worst:.3f}"
+    )
+    assert worst <= bound, (
+        f"H5120 T={rows} w={w} {family} inputs ({form}): worst dw element "
+        f"{worst:.3f} of its budget > {bound}"
     )
 
 
