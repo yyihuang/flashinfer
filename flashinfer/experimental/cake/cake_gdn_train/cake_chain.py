@@ -39,9 +39,9 @@ of a (chunk, key head) summing the slots in value-head order, running the
 finalize and rounding ``dq`` / ``dk`` to BF16 once (:func:`tail_segments`
 bounds the workspace), or one of the deterministic package's fixed-order tails
 where it measures faster (``tail_g2`` for a value-head group of two,
-``tail_g3`` for three on ``sm_103a`` and ``sm_107a``, and on ``sm_100a``
-below ``TAIL_MIN_CTAS`` (chunk, value head) CTAs; ``dqkwg``, the WY pullback
-and the finalize, "unfused", for other groups below ``TAIL_MIN_CTAS``).
+``tail_g3`` for three; ``dqkwg``, the WY pullback and the finalize,
+"unfused", for other groups below ``TAIL_MIN_CTAS`` (chunk, value head)
+CTAs).
 Every launch is fixed-order.  A host-built table lists the sequences longest first
 (:func:`lpt_sequence_order`; every chunk keeps its token offset, the state rows
 are gathered into that order and the final state and its gradient scattered
@@ -728,16 +728,17 @@ def finalize_stage(
 # workspace holds at most ``max(TAIL_WORKSPACE_TILES, num_v_heads)`` slots.
 TAIL_TILE_FLOATS = 2 * CHUNK * HEAD_DIM
 TAIL_WORKSPACE_TILES = 4096
-# Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail (value-head groups other
-# than two): where the package tail's fused per-CTA chain is latency-bound it measured slower (GB300 crossovers:
-# G = 1 between 1024 and 2048 CTAs, G = 3 between 1536 and 2304, G = 4 between 512 and 1024).
+# Below this many (chunk, value head) CTAs a call's backward takes the fixed-order unfused tail (value-head groups
+# without a cluster tail): where the package tail's fused per-CTA chain is latency-bound it measured slower (backward
+# crossovers, B200 / GB300: G = 1 between 2048 and 3072 CTAs (even at 2048) / between 1024 and 2048; G = 4 at about
+# 2048 / between 512 and 1024).
 TAIL_MIN_CTAS = 2048
 # The fixed-order cluster tail the rule takes per architecture and value-head group, and the package tail it takes
-# elsewhere from TAIL_MIN_CTAS CTAs on: tail_g2 measured 13-16 % faster than the package tail at G = 2 on B200 and
-# GB300; at G = 3 the package tail measured 1.0-2.3 % faster than tail_g3 on B200 and 0.8-1.0 % slower on GB300
-# (sm_107a keeps tail_g3 until it is measured there).
+# elsewhere from TAIL_MIN_CTAS CTAs on: tail_g2 measured 16-19 % faster than the package tail at G = 2 (the tail
+# kernels alone, B200 and GB300), tail_g3 1-6 % (B200) and 1-14 % (GB300) faster at G = 3 (this package's backward;
+# sm_107a: as sm_103a until it is measured there).
 CLUSTER_TAILS: dict[str, dict[int, str]] = {
-    "sm_100a": {2: "tail_g2"},
+    "sm_100a": {2: "tail_g2", 3: "tail_g3"},
     "sm_103a": {2: "tail_g2", 3: "tail_g3"},
     "sm_107a": {2: "tail_g2", 3: "tail_g3"},
 }
@@ -2012,7 +2013,9 @@ def gdn_chunk_backward(
     )
 
 
-def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None) -> dict[str, Any]:
+def _backward(
+    forward, do, dht=None, *, initial_state=None, dbeta_dtype=None
+) -> dict[str, Any]:
     """:func:`gdn_chunk_backward` after its mode check: the tape must be of this package's mode."""
     if forward.get("deterministic", True) is not False:
         raise ValueError("gdn_chunk_backward reads the tape of a non-deterministic forward (deterministic=False); "
@@ -2025,7 +2028,9 @@ def _backward(forward, do, dht=None, *, initial_state=None, dbeta_dtype=None) ->
     scale = float(forward["scale"])
     v, beta32 = forward["v"], forward["beta32"]
     num_heads, num_v_heads = qn.shape[-2], v.shape[-2]
-    form = tail_form(num_heads, num_v_heads, options.tail, arch=arch, num_chunks=meta.num_chunks)
+    form = tail_form(
+        num_heads, num_v_heads, options.tail, arch=arch, num_chunks=meta.num_chunks
+    )
     total_tokens = qn.numel() // (num_heads * qn.shape[-1])
     device = qn.device
     index = _tensor_index(qn)
@@ -2511,7 +2516,13 @@ class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
                 "deterministic": ctx.deterministic}  # fmt: skip
         if ctx.saved_state_tensors:
             tape["w"], tape["u"], tape["h"], tape["v_new"] = state_tensors
-        grads = _backward(tape, do.contiguous(), dht, initial_state=saved_state, dbeta_dtype=beta_dtype)
+        grads = _backward(
+            tape,
+            do.contiguous(),
+            dht,
+            initial_state=saved_state,
+            dbeta_dtype=beta_dtype,
+        )
         dg = grads["dg"]
         if dg.dtype != g_dtype:
             dg = dg.to(g_dtype)

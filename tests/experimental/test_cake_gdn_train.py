@@ -1933,23 +1933,23 @@ def test_segmented_tail_launches_match_one_launch(slots, device, monkeypatch) ->
     _assert_tail_counters_zero()
 
 
-# (H, HV) -> the tail the rule dispatches on a large call, per architecture: tail_g2 at G = 2 everywhere, tail_g3 at
-# G = 3 where it measured faster than the package tail (sm_103a; sm_107a until measured), else the package tail
-_G3_TAIL = {"sm_100a": "tail", "sm_103a": "tail_g3", "sm_107a": "tail_g3"}
+# (H, HV) -> the tail the rule dispatches on a large call, per architecture: tail_g2 at G = 2 and tail_g3 at G = 3
+# (both measured faster than the package tail on B200 and GB300; sm_107a as sm_103a until measured), else the
+# package tail
 TAIL_RULE = {
     arch: {
         (2, 4): "tail_g2",
         (8, 16): "tail_g2",
         (16, 32): "tail_g2",
-        (1, 3): g3,
-        (2, 6): g3,
-        (16, 48): g3,
+        (1, 3): "tail_g3",
+        (2, 6): "tail_g3",
+        (16, 48): "tail_g3",
         (2, 2): "tail",
         (16, 16): "tail",
         (1, 4): "tail",
         (4, 16): "tail",
     }
-    for arch, g3 in _G3_TAIL.items()
+    for arch in ("sm_100a", "sm_103a", "sm_107a")
 }
 # the stages a backward launches per tail (beyond the shared scans), and the ones it never launches
 _TAIL_SETS = {f: {f, f + "_bf16"} for f in ("tail", "tail_g2", "tail_g3")}
@@ -1975,9 +1975,7 @@ def test_the_dispatched_tail_runs(heads, min_tiles, device, monkeypatch) -> None
     launches = _record_tail_launches(monkeypatch, device)
     arch = cake_backend.device_arch(cake_chain._device_index(device))
     group = heads[1] // heads[0]
-    forms = [None, "tail", "unfused"] + (
-        [f"tail_g{group}"] if group in (2, 3) else []
-    )
+    forms = [None, "tail", "unfused"] + ([f"tail_g{group}"] if group in (2, 3) else [])
     for form in forms:
         launches.clear()
         got = _run(inputs, seq_lens, **({} if form is None else {"tail": form}))
@@ -1990,7 +1988,7 @@ def test_the_dispatched_tail_runs(heads, min_tiles, device, monkeypatch) -> None
         _assert_close_to_reference(got, _reference(inputs, seq_lens), OUTPUT_NAMES)
 
 
-def test_tail_segments_rule() -> None:
+def test_tail_segments_rule(monkeypatch) -> None:
     rule = cake_chain.tail_segments
     assert rule(17, 2, 2) == (((0, 17),), 0)  # a group of one: one launch, no workspace
     assert rule(17, 2, 4, 1024) == (((0, 17),), 34)
@@ -2027,11 +2025,21 @@ def test_tail_segments_rule() -> None:
             == cake_chain.tail_form(2, 4, arch=arch)
             == "tail_g2"
         )
-    assert cake_chain.tail_form(2, 6, arch="sm_103a", num_chunks=1) == "tail_g3"
+        assert (
+            cake_chain.tail_form(2, 6, arch=arch, num_chunks=1)
+            == cake_chain.tail_form(2, 6, arch=arch)
+            == "tail_g3"
+        )
+    # an architecture without a cluster tail for a group of three: tail_g3 below the package tail's crossover
+    monkeypatch.setitem(cake_chain.CLUSTER_TAILS, "sm_107a", {2: "tail_g2"})
     assert (
-        cake_chain.tail_form(2, 6, arch="sm_100a", num_chunks=-(-edge // 6) - 1)
+        cake_chain.tail_form(2, 6, arch="sm_107a", num_chunks=-(-edge // 6) - 1)
         == "tail_g3"
-    )  # below the package tail's crossover a group of three takes tail_g3
+    )
+    assert (
+        cake_chain.tail_form(2, 6, arch="sm_107a", num_chunks=-(-edge // 6))
+        == cake_chain.TAIL_DEFAULT
+    )
     assert (
         cake_chain.tail_form(2, 4, "tail_g2", arch="sm_100a") == "tail_g2"
         and cake_chain.tail_form(2, 6, "unfused", arch="sm_103a") == "unfused"
@@ -2340,12 +2348,14 @@ def test_forward_backward_beside_a_resident_side_stream_kernel(heads, device) ->
     for _ in range(2):
         step()
     wall = sorted(timed(0) for _ in range(3))[1]
-    lead = int(4.0 * wall * clock_khz)  # four times the call's wall time, in SM cycles (ms x kHz)
-    alone = sorted(timed(lead) for _ in range(SIDE_STREAM_ITERS))[SIDE_STREAM_ITERS // 2]
+    # four times the call's wall time, in SM cycles (ms x kHz)
+    lead = int(4.0 * wall * clock_khz)
+    median = SIDE_STREAM_ITERS // 2
+    alone = sorted(timed(lead) for _ in range(SIDE_STREAM_ITERS))[median]
     # the lead and about three times the call
     side_cycles = lead + int(3.0 * alone * clock_khz)
     beside = [timed(lead, side_cycles) for _ in range(SIDE_STREAM_ITERS)]
-    ratio = sorted(beside)[SIDE_STREAM_ITERS // 2] / alone
+    ratio = sorted(beside)[median] / alone
     assert ratio <= SIDE_STREAM_RATIO_MAX, (ratio, alone, beside)
 
 

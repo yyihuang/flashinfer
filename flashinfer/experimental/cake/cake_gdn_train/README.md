@@ -130,10 +130,19 @@ and the `tail` keyword pins one:
 
 | tail | selected for | `dq` / `dk` rounding | run to run |
 |---|---|---|---|
-| `"tail"`: one tcgen05 kernel per (chunk, value head), a workspace slot per value head, the last CTA of a (chunk, key head) sums the slots | `G` other than 2 and 3, and `G = 3` on `sm_100a`, with at least `TAIL_MIN_CTAS` (2048) chunks x `HV` | the value heads' FP32 partials summed in value-head order, one BF16 rounding after the FP32 L2-norm pullback | bitwise |
+| `"tail"`: one tcgen05 kernel per (chunk, value head), a workspace slot per value head, the last CTA of a (chunk, key head) sums the slots | `G` other than 2 and 3 with at least `TAIL_MIN_CTAS` (2048) chunks x `HV` | the value heads' FP32 partials summed in value-head order, one BF16 rounding after the FP32 L2-norm pullback | bitwise |
 | `"tail_g2"`: one cluster kernel per (chunk, key head) | `G = 2` | each value head's partial rounded to BF16, summed in a fixed order (the deterministic package's bits) | bitwise |
-| `"tail_g3"`: one three-CTA cluster kernel per (chunk, key head) | `G = 3` on `sm_103a` and `sm_107a`; on `sm_100a` below `TAIL_MIN_CTAS` chunks x `HV` | as `"tail_g2"` | bitwise |
+| `"tail_g3"`: one three-CTA cluster kernel per (chunk, key head) | `G = 3` | as `"tail_g2"` | bitwise |
 | `"unfused"`: `dqkwg`, the WY pullback and the finalize | `G` other than 2 and 3 below `TAIL_MIN_CTAS` chunks x `HV` | as `"tail_g2"` | bitwise |
+
+The rule is the same on `sm_100a`, `sm_103a` and `sm_107a` (`sm_107a`, not
+yet measured, takes the rule of `sm_103a`; `CLUSTER_TAILS` holds it per
+architecture).  In this package's backward (B200 / GB300), `tail_g3` measured
+1-6 % / 1-14 % faster than `"tail"` at `G = 3`, and `"tail"` at least 16 %
+faster than `"unfused"` at `G = 1` and `G = 4` from 3072 / 2048 (chunk,
+value head) CTAs on; at 2048 CTAs the two tie on B200, and on GB300 `"tail"`
+is already 13 % faster at `G = 4` from 1024 CTAs.  `tail_g2`
+measured 16-19 % faster than `"tail"` at `G = 2` (the tail kernels alone).
 
 Every tail meets the deterministic package's accuracy budgets.  `dv`, `dg`
 and `dbeta` have one writer each and the deterministic package's bits in
