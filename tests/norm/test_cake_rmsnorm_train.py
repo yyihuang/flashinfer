@@ -706,13 +706,31 @@ def _program_id(name: str) -> str:
 
 
 # Single-kernel libraries whose ``dx`` reproduces a det program's ``dx`` bits
-# (``dx`` has no cross-row reduction; lane T observed 0 differing elements on
-# B200 at 1e608481): library -> the det module whose bits it claims.  The claim
-# holds where the det package selects that module; elsewhere the single is
-# compared only.
+# (``dx`` has no cross-row reduction; 0 differing elements on B200 at the token
+# counts named, lane K FINAL 5f0611b3): library -> the det module whose bits it
+# claims.  The claim holds where the det package selects that module; elsewhere
+# the single is compared only.
 DX_BITWISE_WITH = {
-    # sm_100a H6144 residual, window (1023, inf); the det residual program (every T)
-    "cake_rmsnorm_train_87d2866c1ea3bcc08b13": "cake_rmsnorm_det_train_0dcdc563be377247044e",
+    # sm_100a H512 C1 row (1280, inf); det module at T 16385
+    "cake_rmsnorm_train_d0bde38aa443d42a5f04": "cake_rmsnorm_det_train_ad1a5a3c5f88e3d10036",
+    # sm_100a H1536 C52 column (0, 320]; det module at T 257
+    "cake_rmsnorm_train_dc478ac1195882aedee6": "cake_rmsnorm_det_train_7dc29629ff21625607f8",
+    # sm_100a H1536 C3 row (36864, inf); det module at T 65536
+    "cake_rmsnorm_train_ae610afdf77ff6714a5b": "cake_rmsnorm_det_train_b457c4d134e44476dc6f",
+    # sm_100a H2048 C53 column (0, 320]; det module at T 257
+    "cake_rmsnorm_train_64e6aa82bb2c6d4ea978": "cake_rmsnorm_det_train_caf6978ed0a17fbf65b9",
+    # sm_100a H2048 C5 row (13608, 36864]; det module at T 16385
+    "cake_rmsnorm_train_c48ac7c56fcf535d1dc7": "cake_rmsnorm_det_train_ceeef043ac64f37fc529",
+    # sm_100a H4096 C54 column (0, 1152]; det module at T 257
+    "cake_rmsnorm_train_4822793ea0c954c11af6": "cake_rmsnorm_det_train_59270fb249dcba1ff679",
+    # sm_100a H4096 C6 row (4608, 36864]; det module at T 16385
+    "cake_rmsnorm_train_42e8a9fd0acc50325e16": "cake_rmsnorm_det_train_35a0b0ca6b2060313255",
+    # sm_100a H6144 C56 column (0, 1152]; det module at T 257 (the C8 row differs)
+    "cake_rmsnorm_train_44508df7dab2ab688f85": "cake_rmsnorm_det_train_5c804aed7ad14b99e1d0",
+    # sm_100a H6144 residual C57 column (0, 1408]; the det residual program (every T)
+    "cake_rmsnorm_train_864e84f3d874f850c091": "cake_rmsnorm_det_train_0dcdc563be377247044e",
+    # sm_100a H6144 residual C9 row (1408, inf); the det residual program (every T)
+    "cake_rmsnorm_train_4ed5e6fb331bd50f7d69": "cake_rmsnorm_det_train_0dcdc563be377247044e",
 }
 
 

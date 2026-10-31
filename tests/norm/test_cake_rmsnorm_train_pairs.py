@@ -410,12 +410,10 @@ def test_a_family_mixing_both_forms_keeps_its_regions_apart(
         default=0,
     )
     family = _with_single(monkeypatch, f"bwd_h{hidden}", 256, sizes)
-    assert list(
-        loader.selected_modules(family[0], hidden, "bwd", False, rows=1)
-    ) == ["test_single_0"]
-    assert (
-        len(loader.selected_modules(family[0], hidden, "bwd", False, rows=257)) == 2
-    )
+    assert list(loader.selected_modules(family[0], hidden, "bwd", False, rows=1)) == [
+        "test_single_0"
+    ]
+    assert len(loader.selected_modules(family[0], hidden, "bwd", False, rows=257)) == 2
     expected = -(-max(largest, 8 * hidden * max(sizes)) // 256) * 256
     assert expected == loader.SUMS_BYTES
     assert _check_family_layout(*family, 148) == shipped + len(sizes)
