@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import gc
 import hashlib
 import json
 import math
@@ -1827,6 +1828,14 @@ def _storage_bytes(t: torch.Tensor) -> int:
     return (t.untyped_storage().nbytes() + 511) // 512 * 512
 
 
+def _allocator_bytes(device) -> tuple[int, int]:
+    """(requested, block) bytes of the caching allocator's live allocations on ``device``."""
+    stats = torch.cuda.memory_stats(device)
+    return int(stats["requested_bytes.all.current"]), int(
+        stats["allocated_bytes.all.current"]
+    )
+
+
 def test_checkpoint_matches_and_retains_no_bytes(device) -> None:
     # non-reentrant torch.utils.checkpoint: the gradients within the budgets of the plain call, and a checkpointed
     # forward keeps nothing on the device beyond its output (#7039)
@@ -1854,14 +1863,20 @@ def test_checkpoint_matches_and_retains_no_bytes(device) -> None:
     del o
     for leaf in leaves.values():
         leaf.grad = None
+    gc.collect()
     torch.cuda.synchronize()
-    before = torch.cuda.memory_allocated(device)
+    requested, blocks = _allocator_bytes(device)
     o = checkpoint(layer, *leaves.values(), use_reentrant=False)
     torch.cuda.synchronize()
-    retained = torch.cuda.memory_allocated(device) - before - _storage_bytes(o)
+    requested_after, blocks_after = _allocator_bytes(device)
+    # requested bytes: the block count (memory_allocated) may exceed the output without a retained tensor, since the
+    # caching allocator hands out an unsplit cached block when its remainder is below the split threshold (1 MiB)
+    retained = requested_after - requested - o.untyped_storage().nbytes()
+    unsplit = blocks_after - blocks - _storage_bytes(o)
     assert retained == 0, (
-        f"a checkpointed forward retains {retained} bytes beyond its output"
+        f"a checkpointed forward retains {retained} requested bytes beyond its output (blocks +{unsplit})"
     )
+    assert unsplit < 2**20, unsplit
     (o.float() * inputs["do"].float()).sum().backward()
     torch.cuda.synchronize()
     got = {

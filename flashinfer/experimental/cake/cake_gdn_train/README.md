@@ -77,8 +77,8 @@ non-deterministic one).
 
 With PyTorch's deterministic algorithms enabled
 (`torch.use_deterministic_algorithms(True)`), a call with
-`deterministic=False` reports itself through
-`torch._C._alert_not_deterministic`: it raises `RuntimeError`, or warns with
+`deterministic=False` raises PyTorch's alert for an operation without a
+deterministic implementation: `RuntimeError`, or a `UserWarning` with
 `warn_only=True`.  With the flag off nothing changes.  The deterministic
 packages, their names, defaults and aliases are unchanged.
 

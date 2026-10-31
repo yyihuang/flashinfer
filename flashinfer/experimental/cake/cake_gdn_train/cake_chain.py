@@ -121,15 +121,26 @@ _MODE_CHECKED = object()
 def _require_nondeterministic(deterministic: Any, entry: str) -> None:
     """The mode contract of every entry: the package computes non-deterministically, so an entry takes
     ``deterministic=False`` and raises ``ValueError`` for any other value (the deterministic package is
-    ``flashinfer.experimental.cake_gdn_det_train``).  With PyTorch's deterministic algorithms enabled the call is
-    reported through ``torch._C._alert_not_deterministic(entry)``: a ``RuntimeError``, or a warning under
-    ``torch.use_deterministic_algorithms(True, warn_only=True)``."""
+    ``flashinfer.experimental.cake_gdn_det_train``).  With PyTorch's deterministic algorithms enabled the call
+    raises PyTorch's alert for an operation without a deterministic implementation: a ``RuntimeError``, or a
+    ``UserWarning`` under ``torch.use_deterministic_algorithms(True, warn_only=True)`` (the alert of PyTorch's own
+    operators; PyTorch exposes no public Python entry for it)."""
     if deterministic is not False:
         raise ValueError(f"{entry} computes non-deterministically and takes deterministic=False (got "
                          f"{deterministic!r}); flashinfer.experimental.cake_gdn_det_train is the deterministic "
                          "package")  # fmt: skip
-    if torch.are_deterministic_algorithms_enabled():
-        torch._C._alert_not_deterministic(entry)
+    if not torch.are_deterministic_algorithms_enabled():
+        return
+    if torch.is_deterministic_algorithms_warn_only_enabled():
+        warnings.warn(f"{entry} does not have a deterministic implementation, but you set "
+                      "'torch.use_deterministic_algorithms(True, warn_only=True)'; "
+                      "flashinfer.experimental.cake_gdn_det_train is the deterministic package",
+                      stacklevel=3)  # fmt: skip
+        return
+    raise RuntimeError(f"{entry} does not have a deterministic implementation, but you set "
+                       "'torch.use_deterministic_algorithms(True)'; flashinfer.experimental.cake_gdn_det_train is "
+                       "the deterministic package, or use the 'warn_only=True' option if that is acceptable for your "
+                       "application")  # fmt: skip
 
 
 # Kernel parameter names of every stage in call-site order; a delivered record whose parameters are these names in
@@ -2096,8 +2107,9 @@ def chunk_gated_delta_rule(
 
     ``deterministic`` must be ``False``: the package computes non-deterministically (the outputs and gradients match
     the deterministic package within its accuracy budgets, not bitwise), and any other value raises ``ValueError``.
-    With PyTorch's deterministic algorithms enabled (``torch.use_deterministic_algorithms(True)``) a call reports
-    itself through ``torch._C._alert_not_deterministic``: ``RuntimeError``, or a warning with ``warn_only=True``.
+    With PyTorch's deterministic algorithms enabled (``torch.use_deterministic_algorithms(True)``) a call raises
+    PyTorch's alert for an operation without a deterministic implementation: ``RuntimeError``, or a ``UserWarning``
+    with ``warn_only=True``.
     """
     _require_nondeterministic(deterministic, "chunk_gated_delta_rule")
     if (
