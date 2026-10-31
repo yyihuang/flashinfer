@@ -4186,6 +4186,40 @@ def _prepare(
     return call, batched
 
 
+# The numerical mode (#8063).  Every entry of this package is non-deterministic: it keeps the deterministic twin's
+# contract and accuracy budgets but not its run-to-run bitwise reproducibility.  The compute entries take
+# ``deterministic`` (default ``True``) so that a caller states the mode it wants, and refuse every value but ``False``
+# (this package ships no deterministic program and never falls back; the deterministic route is
+# ``flashinfer.experimental.cake_gdn_det_train_kcp``, and ``flashinfer.cake_gdn_train_kcp`` dispatches between the
+# two).  With ``torch.use_deterministic_algorithms(True)``, ``deterministic=False`` raises torch's nondeterministic
+# alert (``RuntimeError``; a ``UserWarning`` under ``warn_only=True``).  The mode is never stored in the context.
+MODE = "nondeterministic"
+
+
+def check_mode(deterministic: Any, entry: str) -> None:
+    """Refuse every ``deterministic`` but ``False``; raise torch's nondeterministic alert for ``entry`` when torch's
+    deterministic algorithms are on."""
+    if deterministic is not False:
+        raise ValueError(
+            f"{entry}: flashinfer.experimental.cake_gdn_train_kcp is the non-deterministic package and needs "
+            f"deterministic=False (got {deterministic!r}); the deterministic route is "
+            "flashinfer.experimental.cake_gdn_det_train_kcp (or flashinfer.cake_gdn_train_kcp with deterministic=True)"
+        )
+    if torch.are_deterministic_algorithms_enabled():
+        torch._C._alert_not_deterministic(entry)
+
+
+def _check_saved_mode(saved: Any) -> None:
+    """A saved set this package's backward can read: its own :class:`SavedKcp` (a deterministic twin's saved set, or
+    any other object, is refused)."""
+    if saved is not None and not isinstance(saved, SavedKcp):
+        raise ValueError(
+            "saved: not a saved set of flashinfer.experimental.cake_gdn_train_kcp (got "
+            f"{type(saved).__module__}.{type(saved).__name__}); a deterministic forward's saved set is read by the "
+            "deterministic backward only"
+        )
+
+
 def chunk_gdn_fwd_kcp(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -4198,12 +4232,15 @@ def chunk_gdn_fwd_kcp(
     save_for_backward: bool = True,
     workspace: WorkspaceKcp | None = None,
     options: OptionsKcp | dict[str, Any] | None = None,
+    deterministic: bool = True,
     **knobs: Any,
 ) -> tuple[torch.Tensor, SavedKcp | None]:
     """The KCP forward of this rank's fragments: ``out`` like ``v`` (fresh) and the saved set (``None``
     without ``save_for_backward`` or with ``boundary_mode="replay"``).  ``ctx`` is this rank's ``ContextKcp``; the
     token operands are its ``T_r`` local tokens in fragment order; ``options`` / ``**knobs`` are the keyword-only
-    fields of :class:`OptionsKcp` (``save_mode``, ``boundary_mode``, ``graph``, ...)."""
+    fields of :class:`OptionsKcp` (``save_mode``, ``boundary_mode``, ``graph``, ...).  ``deterministic`` must be
+    ``False`` (:func:`check_mode`)."""
+    check_mode(deterministic, "chunk_gdn_fwd_kcp")
     return _fwd_entry(
         q,
         k,
@@ -4619,10 +4656,43 @@ def chunk_gdn_bwd_kcp(
     scale: float | None = None,
     workspace: WorkspaceKcp | None = None,
     options: OptionsKcp | dict[str, Any] | None = None,
+    deterministic: bool = True,
     **knobs: Any,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """The KCP backward: ``(dq, dk, dv, dbeta, dg)``, fresh.  ``saved=None`` replays the forward."""
-    opts = make_options(options, **knobs)
+    """The KCP backward: ``(dq, dk, dv, dbeta, dg)``, fresh.  ``saved=None`` replays the forward; a ``saved`` set
+    must come from this package's forward.  ``deterministic`` must be ``False`` (:func:`check_mode`)."""
+    check_mode(deterministic, "chunk_gdn_bwd_kcp")
+    _check_saved_mode(saved)
+    return _bwd_entry(
+        q,
+        k,
+        v,
+        g,
+        beta,
+        ctx,
+        dout,
+        saved=saved,
+        scale=scale,
+        workspace=workspace,
+        opts=make_options(options, **knobs),
+    )
+
+
+def _bwd_entry(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    ctx: Any,
+    dout: torch.Tensor,
+    *,
+    saved: SavedKcp | None,
+    scale: float | None,
+    workspace: WorkspaceKcp | None,
+    opts: OptionsKcp,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """:func:`chunk_gdn_bwd_kcp` with validated options and mode."""
     entry = None
     if opts.graph != "off":
         kept = () if saved is None else saved.tensors()
@@ -4781,6 +4851,8 @@ class ChunkGDNFunctionKcp(torch.autograd.Function):
             opts,
             None if saved is None else (saved.flags(), saved.meta()),
         )
+        # the forward's numerical mode: the backward reads only a forward of its own mode
+        fctx.kcp_mode = MODE
         return out
 
     @staticmethod
@@ -4788,6 +4860,12 @@ class ChunkGDNFunctionKcp(torch.autograd.Function):
         # under a non-reentrant checkpoint this unpack runs torch's recompute of the forward
         q, k, v, g, beta, *tensors = fctx.saved_tensors
         ctx, scale, workspace, opts, meta = fctx.kcp
+        if getattr(fctx, "kcp_mode", None) != MODE:
+            raise ValueError(
+                f"ChunkGDNFunctionKcp.backward: the forward ran in mode {getattr(fctx, 'kcp_mode', None)!r}, not {MODE!r}"
+            )
+        if torch.are_deterministic_algorithms_enabled():
+            torch._C._alert_not_deterministic("ChunkGDNFunctionKcp.backward")
         saved = (
             None
             if meta is None
@@ -4821,7 +4899,7 @@ class ChunkGDNFunctionKcp(torch.autograd.Function):
                 saved = dataclasses.replace(saved, kept=kept)
         if not dout.is_contiguous():
             dout = dout.contiguous()
-        dq, dk, dv, dbeta, dg = chunk_gdn_bwd_kcp(
+        dq, dk, dv, dbeta, dg = _bwd_entry(
             q,
             k,
             v,
@@ -4832,7 +4910,7 @@ class ChunkGDNFunctionKcp(torch.autograd.Function):
             saved=saved,
             scale=scale,
             workspace=workspace,
-            options=opts,
+            opts=opts,
         )
         return dq, dk, dv, dg, dbeta, None, None, None, None, None, None
 
@@ -4852,6 +4930,7 @@ def chunk_gdn_kcp(
     graph: str = _opt.GRAPH_DEFAULT,
     options: OptionsKcp | dict[str, Any] | None = None,
     recompute_handle: Any = None,
+    deterministic: bool = True,
     **knobs: Any,
 ) -> torch.Tensor:
     """The differentiable KCP forward: ``out`` like ``v``; gradients for ``q, k, v, g, beta``
@@ -4860,7 +4939,10 @@ def chunk_gdn_kcp(
     (:class:`RecomputeHandleKcp`): the checkpoint recompute of this forward exchanges nothing -- it reads the
     incoming states the original forward stored in the handle; needs ``boundary_mode="saved"`` and ``graph="off"``,
     implies ``save_transfer=False`` (a ``save_transfer=True`` keyword or ``options`` dict entry is refused; a
-    :class:`OptionsKcp` instance's value is replaced by ``False``) and refuses ``debug_sequence``."""
+    :class:`OptionsKcp` instance's value is replaced by ``False``) and refuses ``debug_sequence``.  ``deterministic``
+    must be ``False`` (:func:`check_mode`; the backward raises torch's alert again when torch's deterministic algorithms
+    are on by then)."""
+    check_mode(deterministic, "chunk_gdn_kcp")
     over: dict[str, Any] = {}
     for name, value, default in (
         ("save_mode", save_mode, _opt.SAVE_MODE_DEFAULT),
@@ -4939,6 +5021,7 @@ __all__ = [
     "HOST_REDUCE_TAPES",
     "KCP_SAVED_VERSION",
     "LAST_CALL",
+    "MODE",
     "BWD_DEAD_AFTER_ADJ_MERGE",
     "DHU_OFFSET_TAPE_STANDIN",
     "DHU_PROGRAMS",
@@ -4986,6 +5069,7 @@ __all__ = [
     "WorkspaceKcp",
     "KernelBackend",
     "chunk_gdn_kcp",
+    "check_mode",
     "chunk_gdn_bwd_kcp",
     "chunk_gdn_fwd_kcp",
     "dhu_vh",

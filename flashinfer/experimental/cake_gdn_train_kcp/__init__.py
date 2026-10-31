@@ -32,6 +32,7 @@ limitations under the License.
 from .cake_kcp import (
     KCP_SAVED_VERSION,
     LAST_CALL,
+    MODE,
     PROGRAMS,
     SCALE,
     Backend,
@@ -42,6 +43,7 @@ from .cake_kcp import (
     RecomputeHandleKcp,
     SavedKcp,
     WorkspaceKcp,
+    check_mode,
     chunk_gdn_bwd_kcp,
     chunk_gdn_fwd_kcp,
     chunk_gdn_kcp,
@@ -64,6 +66,7 @@ from .cake_options import OptionsKcp, make_options, validate_heads, validate_rin
 __all__ = [
     "KCP_SAVED_VERSION",
     "LAST_CALL",
+    "MODE",
     "PROGRAMS",
     "SCALE",
     "Backend",
@@ -79,6 +82,7 @@ __all__ = [
     "SavedKcp",
     "WorkspaceKcp",
     "build_context_kcp",
+    "check_mode",
     "chunk_gdn_bwd_kcp",
     "chunk_gdn_fwd_kcp",
     "chunk_gdn_kcp",

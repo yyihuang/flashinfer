@@ -89,6 +89,38 @@ package's libraries, past or present (`cake_gdn_det_train_<20 hex>[_kcp]`,
 and the `cake_gdn_train_<20 hex>` libraries the deterministic package shipped
 under its pre-rename name, whose context-parallel programs carried no `_kcp`).
 
+### Numerical mode
+
+The packed GDN training routes come in four combinations:
+
+| | single rank (local) | context-parallel (KCP) |
+|---|---|---|
+| deterministic | `flashinfer.experimental.cake_gdn_det_train` | `flashinfer.cake_gdn_det_train_kcp` -> `flashinfer.experimental.cake_gdn_det_train_kcp` |
+| non-deterministic | `flashinfer.experimental.cake.cake_gdn_train` | `flashinfer.cake_gdn_train_kcp` with `deterministic=False` -> this package |
+
+* The facade `flashinfer.cake_gdn_train_kcp` takes `deterministic: bool = True`
+  on every entry: `True` runs the deterministic package's objects, `False`
+  runs this package.  With `torch.use_deterministic_algorithms(True)`,
+  `deterministic=False` runs the deterministic package and warns once per
+  process.
+* This package's compute entries (`chunk_gdn_kcp`, `chunk_gdn_fwd_kcp`,
+  `chunk_gdn_bwd_kcp`) take `deterministic: bool = True` as well and raise
+  `ValueError` unless it is `False`: the package holds no deterministic
+  program and never falls back.  With torch's deterministic algorithms on,
+  `deterministic=False` raises torch's nondeterministic alert
+  (`torch._C._alert_not_deterministic`: a `RuntimeError`, a warning under
+  `warn_only=True`); the autograd node raises it again in its backward.
+* The mode is not stored in the context, the partition or the options: both
+  routes build the same plan objects.  The autograd node records its
+  forward's mode and its backward refuses another; `chunk_gdn_bwd_kcp`
+  refuses a saved set that is not this package's (`SavedKcp`), and the
+  facade's deterministic backward refuses this package's saved set.
+* Accuracy: every output stays within the deterministic route's budgets
+  against the FP64 reference (`rel-RMS <= 1e-2`, `max-abs <= 2e-2` of
+  `max|ref|`; the per-tensor KCP budgets of the deterministic tests).  The
+  precision classes of the summaries, merges and adjoints are those of the
+  deterministic route (FP32 / TF32x3; never plain TF32).
+
 ### Contract (per rank; `T_r` = this rank's token count, any value including 0)
 
 | operand | shape | dtype | notes |
@@ -107,8 +139,8 @@ under its pre-rename name, whose context-parallel programs carried no `_kcp`).
   row of `(2 * H_qk + HV) * 128` elements is read in place through its token
   stride (`q` at element 0, `k` at `H_qk * 128`, `v` at `2 * H_qk * 128`).
   `layout="copy"` makes a contiguous copy first; its time is part of the
-  measured module when reported.  Strided and contiguous inputs give bitwise
-  the same results.
+  measured module when reported.  Strided and contiguous inputs give the
+  same results within the accuracy budgets.
 * `scale` defaults to `128 ** -0.5`.
 * The host reads no tensor contents (no `.item()`, `.tolist()`, no implicit
   synchronization): every table is built on the CPU from the partition
@@ -117,10 +149,10 @@ under its pre-rename name, whose context-parallel programs carried no `_kcp`).
   device-resident on `ctx`; the launch grids follow from `(T_r, H_qk, HV, SM
   count, architecture)` alone.  Tables are int32 except the affine merge's
   element offsets, which are int64.  Steady state is CUDA-graph capturable.
-* Repeated calls on the same inputs give bitwise the same outputs; the
-  backward from the saved set and the checkpoint replay give bitwise the same
-  gradients; `torch.utils.checkpoint` direct and indirect backward agree
-  bitwise.  Gradient accumulation (`.backward()` twice) accumulates.
+* Repeated calls on the same inputs, the backward from the saved set, the
+  checkpoint replay and the `torch.utils.checkpoint` direct and indirect
+  backward agree within the accuracy budgets (no bitwise guarantee).
+  Gradient accumulation (`.backward()` twice) accumulates.
 * No cooperative launch anywhere in the package; every program is a plain
   stream-ordered launch.
 

@@ -15,14 +15,27 @@ limitations under the License.
 
 Context-parallel (KCP) packed GDN (Gated DeltaNet) chunked training with
 precise cross-rank state passing (SM100 / SM103 / SM107), the Cake backend,
-non-deterministic: the same contract and accuracy budgets as the deterministic
-``flashinfer.cake_gdn_det_train_kcp``, without its bitwise reproducibility.
+with a choice of numerical mode.
 
-Thin experimental entry points.  The partition / context plan, the host
+Every entry takes ``deterministic: bool = True``:
+
+* ``deterministic=True`` (the default) runs the deterministic route, the
+  objects of ``flashinfer.cake_gdn_det_train_kcp``: bitwise reproducible at
+  the same topology.
+* ``deterministic=False`` runs the non-deterministic package
+  ``flashinfer.experimental.cake_gdn_train_kcp``: the same contract and the
+  same accuracy budgets, faster, not bitwise reproducible run to run.
+* With ``torch.use_deterministic_algorithms(True)``, ``deterministic=False``
+  runs the deterministic route and warns once per process.
+
+The mode is never stored in the context: a context, a partition and the byte
+queries of either route describe the same plan.  A saved set is read only by
+the backward of the route that produced it, and an options instance is
+converted to the routed package's options type (mappings and keywords work for
+both).  Thin experimental entry points: the partition / context plan, the host
 orchestration, the saved set, the autograd Function and the generated kernels
-live in ``flashinfer.experimental.cake_gdn_train_kcp``; this module validates
-nothing itself and forwards every keyword.  Every switch is a keyword
-argument; no environment variable is read.
+live in the routed package; this module forwards every keyword.  Every switch
+is a keyword argument; no environment variable is read.
 
 Operands of one rank (its ``T_r`` local tokens in fragment order): ``q, k``
 BF16 ``[1, T_r, H_qk, 128]`` (L2-normalized by the caller), ``v`` BF16
@@ -38,9 +51,11 @@ Usage::
 
     from flashinfer.cake_gdn_train_kcp import partition_kcp, build_context_kcp, chunk_gdn_kcp
 
+    # deterministic=False selects the non-deterministic package; the default True is the deterministic route
+
     part = partition_kcp(cu_seqlens_global_cpu, world_size, layout="zigzag_per_document")   # once per batch layout
     ctx = build_context_kcp(part, group, rank, device, conv_kernel_size=4)                 # tables of this rank
-    out = chunk_gdn_kcp(q, k, v, g, beta, ctx, save_mode="light", boundary_mode="saved")   # autograd
+    out = chunk_gdn_kcp(q, k, v, g, beta, ctx, save_mode="light", deterministic=False)     # autograd
     out = chunk_gdn_kcp(q, k, v, g, beta, ctx, boundary_mode="replay")                      # keep nothing; re-run the forward in backward
     out, saved = chunk_gdn_fwd_kcp(q, k, v, g, beta, ctx)
     dq, dk, dv, dbeta, dg = chunk_gdn_bwd_kcp(q, k, v, g, beta, ctx, dout, saved=saved)
@@ -54,6 +69,8 @@ with this module's ``ctx``.
 
 from __future__ import annotations
 
+import dataclasses
+import warnings
 from typing import Any, Optional
 
 import torch
@@ -72,6 +89,50 @@ def _pkg():
     return cake_gdn_train_kcp
 
 
+def _det():
+    from . import cake_gdn_det_train_kcp  # noqa: PLC0415 - the deterministic route, imported on first use
+
+    return cake_gdn_det_train_kcp
+
+
+# One warning per process when torch's deterministic algorithms turn a ``deterministic=False`` call deterministic.
+_DET_FALLBACK_WARNED = False
+
+
+def _deterministic(deterministic: bool, entry: str) -> bool:
+    """``True`` when ``entry`` runs the deterministic route: ``deterministic=True``, or ``deterministic=False`` while
+    ``torch.are_deterministic_algorithms_enabled()`` (warned once per process)."""
+    global _DET_FALLBACK_WARNED
+    if not isinstance(deterministic, bool):
+        raise TypeError(
+            f"{entry}: deterministic must be a bool, got {type(deterministic).__name__}"
+        )
+    if deterministic:
+        return True
+    if torch.are_deterministic_algorithms_enabled():
+        if not _DET_FALLBACK_WARNED:
+            _DET_FALLBACK_WARNED = True
+            warnings.warn(
+                f"{entry}: deterministic=False runs the deterministic route because torch's deterministic "
+                "algorithms are enabled (torch.use_deterministic_algorithms(True)); this warning is shown once",
+                UserWarning,
+                stacklevel=3,
+            )
+        return True
+    return False
+
+
+def _options_for(det: bool, options: Any) -> Any:
+    """``options`` for the routed package: an options instance of the other route becomes the mapping of its fields
+    (the routed package validates it); a mapping, ``None`` or the routed package's own instance pass through."""
+    if options is None or isinstance(options, dict):
+        return options
+    own = _det().OptionsDetKcp if det else _pkg().OptionsKcp
+    if isinstance(options, own) or not dataclasses.is_dataclass(options):
+        return options
+    return {f.name: getattr(options, f.name) for f in dataclasses.fields(options)}
+
+
 @flashinfer_experimental_api(feature=_FEATURE)
 def partition_kcp(
     cu_seqlens_global_cpu: Any,
@@ -80,6 +141,7 @@ def partition_kcp(
     fragments: Optional[Any] = None,
     *,
     cut_points: Optional[Any] = None,
+    deterministic: bool = True,
 ) -> Any:
     r"""Partition one packed batch of documents over the ranks of a context-parallel group.
 
@@ -100,11 +162,18 @@ def partition_kcp(
     cut_points : optional
         Per document the ``2 W + 1`` cut offsets of ``"zigzag_per_document"``.
 
+    deterministic : bool
+        The route (see the module docstring); both routes build the same partition.
+
     Returns
     -------
-    ``PartitionKcp``: per rank the fragment table ``(doc, off, length, prev, next)`` in document order; reused across
-    layers (metadata only).
+    ``PartitionKcp`` (``PartitionDetKcp`` on the deterministic route): per rank the fragment table
+    ``(doc, off, length, prev, next)`` in document order; reused across layers (metadata only).
     """
+    if _deterministic(deterministic, "partition_kcp"):
+        return _det().partition_det_kcp(
+            cu_seqlens_global_cpu, world_size, layout, fragments, cut_points=cut_points
+        )
     return _pkg().partition_kcp(
         cu_seqlens_global_cpu, world_size, layout, fragments, cut_points=cut_points
     )
@@ -119,13 +188,19 @@ def build_context_kcp(
     conv_kernel_size: int = 4,
     *,
     sm_count: Optional[int] = None,
+    deterministic: bool = True,
 ) -> Any:
     r"""This rank's view of a partition: local ``cu_seqlens`` (int32 device), the device fragment table, the crossing
     fragment lists (in / out) with their byte counts, the exchange plan, the convolution halo plan (at most
     ``conv_kernel_size - 1`` history rows per continuing fragment) and the segment plan.  ``group`` is the caller's
     ``torch.distributed`` process group (every collective of the route runs on it); CPU metadata plus small int32
-    device tables built once; no tensor contents are read.
+    device tables built once; no tensor contents are read.  ``deterministic`` selects the route; the context holds no
+    mode.
     """
+    if _deterministic(deterministic, "build_context_kcp"):
+        return _det().build_context_det_kcp(
+            part, group, rank, device, conv_kernel_size, sm_count=sm_count
+        )
     return _pkg().build_context_kcp(
         part, group, rank, device, conv_kernel_size, sm_count=sm_count
     )
@@ -144,6 +219,7 @@ def chunk_gdn_fwd_kcp(
     save_for_backward: bool = True,
     workspace: Optional[Any] = None,
     options: Optional[Any] = None,
+    deterministic: bool = True,
     **knobs: Any,
 ) -> tuple[torch.Tensor, Optional[Any]]:
     r"""Context-parallel packed GDN training forward of this rank's fragments.
@@ -175,10 +251,28 @@ def chunk_gdn_fwd_kcp(
         ``recompute_output`` ``"auto"`` | ``"always"`` (an autograd-node switch; this forward-only entry never skips a
         launch), ...).
 
+    deterministic : bool
+        The route (see the module docstring).
+
     Returns
     -------
-    ``(out, saved)``: ``out`` BF16 like ``v`` (fresh); ``saved`` the saved set or ``None``.
+    ``(out, saved)``: ``out`` BF16 like ``v`` (fresh); ``saved`` the saved set or ``None`` (readable by the same
+    route's backward only).
     """
+    if _deterministic(deterministic, "chunk_gdn_fwd_kcp"):
+        return _det().chunk_gdn_det_fwd_kcp(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            ctx,
+            scale=scale,
+            save_for_backward=save_for_backward,
+            workspace=workspace,
+            options=_options_for(True, options),
+            **knobs,
+        )
     return _pkg().chunk_gdn_fwd_kcp(
         q,
         k,
@@ -189,7 +283,8 @@ def chunk_gdn_fwd_kcp(
         scale=DEFAULT_SCALE if scale is None else scale,
         save_for_backward=save_for_backward,
         workspace=workspace,
-        options=options,
+        options=_options_for(False, options),
+        deterministic=False,
         **knobs,
     )
 
@@ -208,6 +303,7 @@ def chunk_gdn_bwd_kcp(
     scale: Optional[float] = None,
     workspace: Optional[Any] = None,
     options: Optional[Any] = None,
+    deterministic: bool = True,
     **knobs: Any,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     r"""Context-parallel packed GDN training backward.
@@ -220,16 +316,39 @@ def chunk_gdn_bwd_kcp(
         BF16 gradient of ``out``, laid out like ``v``.
     saved : optional
         The forward's saved set; ``None`` recomputes it from the inputs (checkpoint replay: the summaries and the
-        exchange are re-run).
+        exchange are re-run).  A saved set of the other route is refused (``ValueError``).
     scale, workspace, options, **knobs
         As in :func:`chunk_gdn_fwd_kcp` (the same options as the forward's).
+    deterministic : bool
+        The route (see the module docstring); the forward's route.
 
     Returns
     -------
     ``(dq, dk, dv, dbeta, dg)``: BF16 gradients of ``q, k, v`` (the ``HV / H_qk`` value heads' contributions to
     ``dq`` / ``dk`` reduced in FP32 and rounded once), FP32 gradients of ``beta`` and ``g``; fresh tensors, ranked
-    like the inputs.  Within the deterministic route's accuracy budgets; not bitwise reproducible.
+    like the inputs.  Bitwise reproducible at the same topology on the deterministic route; within the same accuracy
+    budgets, not bitwise reproducible, on the non-deterministic one.
     """
+    if _deterministic(deterministic, "chunk_gdn_bwd_kcp"):
+        if saved is not None and not isinstance(saved, _det().SavedDetKcp):
+            raise ValueError(
+                "chunk_gdn_bwd_kcp: the saved set comes from the non-deterministic route "
+                f"({type(saved).__name__}); the deterministic backward reads its own forward's saved set only"
+            )
+        return _det().chunk_gdn_det_bwd_kcp(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            ctx,
+            dout,
+            saved=saved,
+            scale=scale,
+            workspace=workspace,
+            options=_options_for(True, options),
+            **knobs,
+        )
     return _pkg().chunk_gdn_bwd_kcp(
         q,
         k,
@@ -241,7 +360,8 @@ def chunk_gdn_bwd_kcp(
         saved=saved,
         scale=DEFAULT_SCALE if scale is None else scale,
         workspace=workspace,
-        options=options,
+        options=_options_for(False, options),
+        deterministic=False,
         **knobs,
     )
 
@@ -262,6 +382,7 @@ def chunk_gdn_kcp(
     graph: str = "off",
     options: Optional[Any] = None,
     recompute_handle: Optional[Any] = None,
+    deterministic: bool = True,
     **knobs: Any,
 ) -> torch.Tensor:
     r"""Context-parallel packed GDN training as an autograd node (``torch.utils.checkpoint`` compatible).
@@ -307,7 +428,8 @@ def chunk_gdn_kcp(
     handle retains ``S_in`` (``gdn_saved_bytes_kcp(ctx, ..., save_mode="light", save_transfer=False)``) from the
     original forward until the checkpoint frame holding it is freed, instead of retaining nothing (``with_conv=False``
     in that query: the convolution keeps its own rows).  Create one handle per layer and micro-step, outside the
-    outermost checkpoint region, and pass it as an argument of the checkpointed function::
+    outermost checkpoint region, and pass it as an argument of the checkpointed function (``RecomputeHandleKcp`` of
+    this module serves both routes)::
 
         def layer(x, handle):
             ...
@@ -319,7 +441,27 @@ def chunk_gdn_kcp(
     halo rows go under the key ``"conv"``); a layer with separate Q / K / V convolutions uses one handle per
     convolution call, and this call shares one of them.  Needs ``boundary_mode="saved"`` and ``graph="off"``; implies ``save_transfer=False``.  A forward
     outside the backward that finds an entry raises (a handle reused across micro-steps).
+
+    ``deterministic`` (default ``True``) selects the route (see the module docstring); the checkpoint recompute of a
+    forward runs the forward's route as long as the torch deterministic-algorithms setting does not change in between.
     """
+    if _deterministic(deterministic, "chunk_gdn_kcp"):
+        return _det().chunk_gdn_det_kcp(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            ctx,
+            scale=scale,
+            save_mode=save_mode,
+            boundary_mode=boundary_mode,
+            workspace=workspace,
+            graph=graph,
+            options=_options_for(True, options),
+            recompute_handle=recompute_handle,
+            **knobs,
+        )
     return _pkg().chunk_gdn_kcp(
         q,
         k,
@@ -332,40 +474,63 @@ def chunk_gdn_kcp(
         boundary_mode=boundary_mode,
         workspace=workspace,
         graph=graph,
-        options=options,
+        options=_options_for(False, options),
         recompute_handle=recompute_handle,
+        deterministic=False,
         **knobs,
     )
 
 
 @flashinfer_experimental_api(feature=_FEATURE)
-def gdn_workspace_bytes_kcp(ctx: Any, *, H_qk: int, HV: int, **kw: Any) -> int:
+def gdn_workspace_bytes_kcp(
+    ctx: Any, *, H_qk: int, HV: int, deterministic: bool = True, **kw: Any
+) -> int:
     r"""Caller-held workspace bytes of one rank for ``(ctx, H_qk, HV)`` (exchange pools, staging, tapes): the most
     the workspace binds in the forward or the backward of the given options (``reuse_recompute_tapes`` as a keyword;
-    the per-phase terms are ``gdn_workspace_layout_kcp`` of the package)."""
+    the per-phase terms are ``gdn_workspace_layout_kcp`` of the package) on the route ``deterministic`` selects."""
+    if _deterministic(deterministic, "gdn_workspace_bytes_kcp"):
+        return _det().gdn_det_workspace_bytes_kcp(ctx, H_qk=H_qk, HV=HV, **kw)
     return _pkg().gdn_workspace_bytes_kcp(ctx, H_qk=H_qk, HV=HV, **kw)
 
 
 @flashinfer_experimental_api(feature=_FEATURE)
-def gdn_saved_bytes_kcp(ctx: Any, *, H_qk: int, HV: int, **kw: Any) -> int:
+def gdn_saved_bytes_kcp(
+    ctx: Any, *, H_qk: int, HV: int, deterministic: bool = True, **kw: Any
+) -> int:
     r"""Saved-set bytes of one layer on this rank (``save_mode``, ``save_transfer`` as keywords), counted per
-    crossing fragment."""
+    crossing fragment, on the route ``deterministic`` selects."""
+    if _deterministic(deterministic, "gdn_saved_bytes_kcp"):
+        return _det().gdn_det_saved_bytes_kcp(ctx, H_qk=H_qk, HV=HV, **kw)
     return _pkg().gdn_saved_bytes_kcp(ctx, H_qk=H_qk, HV=HV, **kw)
 
 
 @flashinfer_experimental_api(feature=_FEATURE)
 def gdn_comm_bytes_kcp(
-    ctx: Any, *, H_qk: int, HV: int, C: int = 10240, **kw: Any
+    ctx: Any,
+    *,
+    H_qk: int,
+    HV: int,
+    C: int = 10240,
+    deterministic: bool = True,
+    **kw: Any,
 ) -> dict:
     r"""Bytes this rank moves per collective (``c1``, ``c2``, ``b1``, ``b2``, ``halo_fwd``, ``halo_bwd``) and per
-    boundary, counted per crossing fragment; ``C`` is the convolution channel count of the halo rows."""
+    boundary, counted per crossing fragment; ``C`` is the convolution channel count of the halo rows; on the route
+    ``deterministic`` selects."""
+    if _deterministic(deterministic, "gdn_comm_bytes_kcp"):
+        return _det().gdn_det_comm_bytes_kcp(ctx, H_qk=H_qk, HV=HV, C=C, **kw)
     return _pkg().gdn_comm_bytes_kcp(ctx, H_qk=H_qk, HV=HV, C=C, **kw)
 
 
 def is_gdn_train_kcp_supported(
     device: torch.device | str | int | None = None,
+    *,
+    deterministic: bool = True,
 ) -> bool:
-    r"""``True`` when ``device`` (default: the current CUDA device) is an exported target of the package."""
+    r"""``True`` when ``device`` (default: the current CUDA device) is an exported target of the package of the route
+    ``deterministic`` selects."""
+    if _deterministic(deterministic, "is_gdn_train_kcp_supported"):
+        return _det().is_gdn_det_train_kcp_supported(device)
     if not torch.cuda.is_available():
         return False
     try:
