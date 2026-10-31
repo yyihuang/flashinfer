@@ -28,6 +28,10 @@ Arms (``--arms``; every one on the same packed batch, the same partition and the
 * ``nondet_serial``: the same with ``options=dict(test_knobs={"owner_tree": "off"})`` (the serial owner merge
   chains: isolates the blocked scan);
 * ``nondet_tree<b>``: the same with ``owner_tree=b`` forced (``--tree-blocks 2,3,4`` adds these arms);
+* ``det_graph`` / ``nondet_graph``: ``det`` / ``nondet`` with a caller-owned workspace (``WorkspaceDetKcp`` /
+  ``WorkspaceKcp``, one per arm and configuration) and ``graph="replay"``: the GDN call's steady state replays a captured
+  CUDA graph (the package captures only with a caller-owned workspace); the convolution stays eager; no ``B3h`` form
+  (a recompute handle needs ``graph="off"``); the graphs are released after each configuration;
 * ``sota_fla_kcp``: flash-linear-attention's own context parallelism (``fla.ops.cp.context.build_cp_context`` with
   ``use_tf32x3_affine_chain=True``, layouts ``C`` and ``Z`` only) around its Triton kernels -- the convolution
   ``fla.modules.causal_conv1d.causal_conv1d(activation="silu")`` and ``chunk_gated_delta_rule``.  FLA splits the
@@ -126,6 +130,8 @@ from flashinfer import cake_causal_conv1d_train as conv_api  # noqa: E402
 
 BASE_ARMS = ("det", "nondet", "nondet_serial")
 TREE_ARM = re.compile(r"^nondet_tree(\d+)$")
+# CUDA-graph replay arms: the route each one runs
+GRAPH_ARMS = {"det_graph": "det", "nondet_graph": "nondet"}
 PRULE_ARM = re.compile(r"^nondet_p_(\w+)$")
 BOUNDARIES = ("B1", "B2", "B3", "B3h")
 BOUNDARY_LABELS = {
@@ -244,6 +250,7 @@ class Route:
             self._saved = self.api.gdn_det_saved_bytes_kcp
             self._comm = self.api.gdn_det_comm_bytes_kcp
             self.handle_name = "RecomputeHandleDetKcp"
+            self.workspace_name = "WorkspaceDetKcp"
         else:
             self.api = importlib.import_module("flashinfer.cake_gdn_train_kcp")
             self.pkg = importlib.import_module(
@@ -257,6 +264,7 @@ class Route:
             self._saved = self.api.gdn_saved_bytes_kcp
             self._comm = self.api.gdn_comm_bytes_kcp
             self.handle_name = "RecomputeHandleKcp"
+            self.workspace_name = "WorkspaceKcp"
 
     def partition(
         self, cu: torch.Tensor, world: int, layout: str, cut_points: Any
@@ -280,14 +288,41 @@ class Route:
         )
 
     def chunk(
-        self, q, k, v, g, beta, ctx, save_mode: str, options: Any, handle: Any
+        self,
+        q,
+        k,
+        v,
+        g,
+        beta,
+        ctx,
+        save_mode: str,
+        options: Any,
+        handle: Any,
+        workspace: Any = None,
     ) -> torch.Tensor:
         kw = dict(self.mode)
         if options is not None:
             kw["options"] = options
         if handle is not None:
             kw["recompute_handle"] = handle
+        if workspace is not None:
+            kw["workspace"] = workspace
         return self._chunk(q, k, v, g, beta, ctx, save_mode=save_mode, **kw)
+
+    def workspace(self, ctx: Any, heads: tuple[int, int], device: torch.device) -> Any:
+        """A caller-owned workspace of this route for ``ctx`` (the graph arms)."""
+        cls = getattr(self.api, self.workspace_name, None) or getattr(
+            self.pkg, self.workspace_name
+        )
+        return cls(ctx, heads[0], heads[1], device)
+
+    def graph_cache_clear(self) -> None:
+        """Release this route's captured graphs (before the next configuration and the process group's end)."""
+        fn = getattr(self.pkg, "graph_cache_clear", None) or getattr(
+            getattr(self.pkg, "cake_kcp", None), "graph_cache_clear", None
+        )
+        if fn is not None:
+            fn()
 
     def handle_class(self) -> tuple[Optional[Callable[[], Any]], Optional[str]]:
         try:
@@ -347,6 +382,8 @@ class Route:
 def arm_route(arm: str) -> str:
     if arm in SOTA_ARMS:
         return "sota"
+    if arm in GRAPH_ARMS:
+        return GRAPH_ARMS[arm]
     return "det" if arm == "det" else "nondet"
 
 
@@ -359,6 +396,8 @@ def arm_ctx(arm: str) -> str:
 
 def arm_options(arm: str) -> Optional[dict[str, Any]]:
     """The ``options`` of an arm's GDN calls (``None``: the route's defaults)."""
+    if arm in GRAPH_ARMS:
+        return {"graph": "replay"}
     if arm in ("det", "nondet") or arm in SOTA_ARMS or PRULE_ARM.match(arm):
         return None
     if arm == "nondet_serial":
@@ -622,7 +661,12 @@ def _leaves(local: dict[str, torch.Tensor], weight: torch.Tensor) -> list[torch.
 
 
 def _forward_fn(
-    route: Route, ctx: Any, with_conv: bool, save_mode: str, options: Any
+    route: Route,
+    ctx: Any,
+    with_conv: bool,
+    save_mode: str,
+    options: Any,
+    workspace: Any = None,
 ) -> Callable[..., tuple]:
     conv = conv_api.cake_causal_conv1d_kcp
 
@@ -630,8 +674,12 @@ def _forward_fn(
         hk = {} if handle is None else {"recompute_handle": handle}
         if with_conv:
             y = conv(x, w, ctx, **hk)
-            return y, route.chunk(q, k, v, g, beta, ctx, save_mode, options, handle)
-        return (route.chunk(q, k, v, g, beta, ctx, save_mode, options, handle),)
+            return y, route.chunk(
+                q, k, v, g, beta, ctx, save_mode, options, handle, workspace
+            )
+        return (
+            route.chunk(q, k, v, g, beta, ctx, save_mode, options, handle, workspace),
+        )
 
     return forward
 
@@ -1300,6 +1348,11 @@ def run_config(
             with_conv,
             args.save_mode,
             arm_options(arm),
+            routes[arm_route(arm)].workspace(
+                problem["ctx"][arm_ctx(arm)], row.heads, device
+            )
+            if arm in GRAPH_ARMS
+            else None,
         )
         for arm in arms
         if arm not in SOTA_ARMS
@@ -1421,6 +1474,9 @@ def run_config(
                     available.append(arm)
                 continue
             cls, why = handles[arm_route(arm)]
+            if boundary == "B3h" and arm in GRAPH_ARMS:
+                unavailable[arm] = "a recompute handle needs graph='off'"
+                continue
             if boundary == "B3h" and cls is None:
                 unavailable[arm] = why or "no recompute handle"
             else:
@@ -1515,6 +1571,10 @@ def run_config(
                     flush=True,
                 )
         del steps, probes, calls
+    if any(arm in GRAPH_ARMS for arm in arms):
+        del forwards
+        for kind in {arm_route(arm) for arm in arms if arm in GRAPH_ARMS}:
+            routes[kind].graph_cache_clear()
     report["drift_ok"] = drift_ok
     report["max_drift"] = args.max_drift
     report["wall_s"] = time.time() - t0
@@ -1610,7 +1670,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--arms",
         default=",".join(BASE_ARMS),
-        help="comma-separated arms among det, nondet, nondet_serial, nondet_tree<b>, nondet_p_<plan rule> and the "
+        help="comma-separated arms among det, nondet, nondet_serial, nondet_tree<b>, nondet_p_<plan rule>, det_graph, "
+        "nondet_graph and the "
         "non-Cake arms sota_fla_kcp, sota_head_cp_fla, sota_head_cp_frost, sota_head_cp_frost_ck64 (these need nondet)",
     )
     parser.add_argument(
@@ -1729,6 +1790,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         for x in arms
         if x not in BASE_ARMS
         and x not in SOTA_ARMS
+        and x not in GRAPH_ARMS
         and not TREE_ARM.match(x)
         and not PRULE_ARM.match(x)
     ]
