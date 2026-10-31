@@ -37,7 +37,9 @@ from ``--seed``:
 * ``nondet``: the non-deterministic package, the reference arm of every ratio;
 * ``control``: the non-deterministic package again -- the identical-program control;
 * ``det_dir``: another build of the deterministic package, imported from the package directory ``--det-dir`` (a
-  standalone copy, for example a candidate build with prebuilt ``aot/`` libraries).
+  standalone copy, for example a candidate build with prebuilt ``aot/`` libraries);
+* ``tail_g2`` / ``unfused``: the non-deterministic package with the fixed-order tail pinned (``tail="tail_g2"``, value-head
+  groups of two only: the arm is left out of other shapes; ``tail="unfused"``), the same forward as ``nondet``.
 
 Protocol: ``--groups`` groups (at least 3).  In every group the arms run in the pattern ``[nondet, X, X, nondet]`` for
 every other arm ``X``, ``--base`` first (``--base control`` puts the control in the place of ``det``).  Every call takes
@@ -92,7 +94,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 HEAD_DIM = 128
 L2_FLUSH_BYTES = 256 << 20
 MIB = float(1 << 20)
-ARMS = ("det", "nondet", "control", "det_dir")
+ARMS = ("det", "nondet", "control", "det_dir", "tail_g2", "unfused")
 BASES = ("det", "control")
 BOUNDARIES = ("fwd", "bwd", "fwdbwd", "ckpt")
 
@@ -221,7 +223,8 @@ def _entry(arm: str) -> Callable[..., Any]:
         return _load_package_dir(DET_DIR).chunk_gated_delta_rule_det
     from flashinfer.experimental.cake.cake_gdn_train import chunk_gated_delta_rule
 
-    return functools.partial(chunk_gated_delta_rule, deterministic=False)
+    pins = {"tail_g2": {"tail": "tail_g2"}, "unfused": {"tail": "unfused"}}.get(arm, {})
+    return functools.partial(chunk_gated_delta_rule, deterministic=False, **pins)
 
 
 class Problem(NamedTuple):
@@ -515,6 +518,9 @@ def run_shape(
     device: torch.device,
 ) -> dict[str, Any]:
     h, hv, seq_lens = SHAPES[shape_id]
+    if "tail_g2" in arms and hv != 2 * h:  # the cluster tail serves a value-head group of two only
+        arms = [arm for arm in arms if arm != "tail_g2"]
+        pattern = [arm for x in arms if x != "nondet" for arm in ("nondet", x, x, "nondet")]
     record: dict[str, Any] = {
         "id": shape_id,
         "H": h,
@@ -618,7 +624,7 @@ def main() -> int:
     parser.add_argument(
         "--arms",
         default="det,nondet",
-        help="comma-separated arms of det, nondet, control, det_dir",
+        help="comma-separated arms of det, nondet, control, det_dir, tail_g2, unfused",
     )
     parser.add_argument(
         "--det-dir",
