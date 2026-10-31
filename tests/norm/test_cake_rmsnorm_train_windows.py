@@ -228,7 +228,7 @@ def _edges(hidden: int, residual: bool, w: str, kind: str) -> dict[int, str]:
 
 # The ``ulp`` edge class of a forward edge (parent ruling R7.1, the package notes
 # to match): ``rstd`` moves by at most two FP32 ulps (a different reduction order
-# on each side; measured on B200 on up to ~27 % of the common rows) and ``y`` by
+# on each side; measured on up to ~30 % of the common rows) and ``y`` by
 # at most one BF16 ulp.  Each edge reports its largest moves and the fraction of
 # the common rows that moved (``EDGE_FWD ... rows_moved=``).
 FWD_EDGE_Y_ULPS = 1
