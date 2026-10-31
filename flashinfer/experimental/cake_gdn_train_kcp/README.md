@@ -9,9 +9,11 @@ only affine summaries of the state do.  Tracking issues:
 flashinfer-ai/flashinfer#7082 (the route) and flashinfer-ai/flashinfer#8063
 (the non-deterministic packages).  The deterministic twin of this package is
 `flashinfer.experimental.cake_gdn_det_train_kcp`: the same contract and the
-same accuracy budgets, bitwise reproducible.  This package gives up bitwise
-reproducibility for speed; its results stay within the deterministic route's
-accuracy budgets.
+same accuracy budgets, bitwise reproducible.  This package's results stay
+within the deterministic route's accuracy budgets and are not bitwise equal
+to its results; today they are run-to-run reproducible for a fixed plan and
+partition, and later versions may use unordered reductions
+(`deterministic=False` is the opt-in).
 
 Both the API and the backend are experimental: no compatibility guarantee.
 SM100 (B200 / GB200) and SM103 (B300 / GB300) are the acceptance architectures
@@ -106,10 +108,16 @@ The packed GDN training routes come in four combinations:
 * This package's compute entries (`chunk_gdn_kcp`, `chunk_gdn_fwd_kcp`,
   `chunk_gdn_bwd_kcp`) take `deterministic: bool = True` as well and raise
   `ValueError` unless it is `False`: the package holds no deterministic
-  program and never falls back.  With torch's deterministic algorithms on,
-  `deterministic=False` raises torch's nondeterministic alert
-  (`torch._C._alert_not_deterministic`: a `RuntimeError`, a warning under
-  `warn_only=True`); the autograd node raises it again in its backward.
+  program and never falls back.
+* Reproducibility: the results are not bitwise equal to the deterministic
+  package's (the fixed-order levers of this package, such as the blocked
+  scan of the owner merge chains, reassociate FP32 sums).  Every path of
+  this version is fixed-order, so for a fixed plan and partition the results
+  are run-to-run reproducible today; later versions may use unordered
+  reductions.  Only a path that launches an unordered reduction raises
+  PyTorch's alert for an operation without a deterministic implementation
+  under `torch.use_deterministic_algorithms(True)`; this version has none,
+  so no entry of this package raises it.
 * The mode is not stored in the context, the partition or the options: both
   routes build the same plan objects.  The autograd node records its
   forward's mode and its backward refuses another; `chunk_gdn_bwd_kcp`
@@ -151,7 +159,8 @@ The packed GDN training routes come in four combinations:
   element offsets, which are int64.  Steady state is CUDA-graph capturable.
 * Repeated calls on the same inputs, the backward from the saved set, the
   checkpoint replay and the `torch.utils.checkpoint` direct and indirect
-  backward agree within the accuracy budgets (no bitwise guarantee).
+  backward agree within the accuracy budgets (bitwise today, every path
+  being fixed-order; not guaranteed).
   Gradient accumulation (`.backward()` twice) accumulates.
 * No cooperative launch anywhere in the package; every program is a plain
   stream-ordered launch.

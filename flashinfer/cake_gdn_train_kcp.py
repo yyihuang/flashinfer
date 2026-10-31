@@ -24,7 +24,9 @@ Every entry takes ``deterministic: bool = True``:
   the same topology.
 * ``deterministic=False`` runs the non-deterministic package
   ``flashinfer.experimental.cake_gdn_train_kcp``: the same contract and the
-  same accuracy budgets, faster, not bitwise reproducible run to run.
+  same accuracy budgets, not bitwise equal to the deterministic route
+  (run-to-run reproducible today for a fixed plan and partition; later
+  versions may use unordered reductions).
 * With ``torch.use_deterministic_algorithms(True)``, ``deterministic=False``
   runs the deterministic route and warns once per process.
 
@@ -327,7 +329,7 @@ def chunk_gdn_bwd_kcp(
     ``(dq, dk, dv, dbeta, dg)``: BF16 gradients of ``q, k, v`` (the ``HV / H_qk`` value heads' contributions to
     ``dq`` / ``dk`` reduced in FP32 and rounded once), FP32 gradients of ``beta`` and ``g``; fresh tensors, ranked
     like the inputs.  Bitwise reproducible at the same topology on the deterministic route; within the same accuracy
-    budgets, not bitwise reproducible, on the non-deterministic one.
+    budgets, not bitwise equal to the deterministic route, on the non-deterministic one.
     """
     if _deterministic(deterministic, "chunk_gdn_bwd_kcp"):
         if saved is not None and not isinstance(saved, _det().SavedDetKcp):

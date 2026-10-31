@@ -4297,6 +4297,11 @@ K1_CU = [
 ]  # one long document: 2 W ragged pieces per document under zigzag_per_document
 K1_W = 8
 K1_HEADS = (2, 8)  # one owned value head per rank (Hg = 1)
+# Mild decays for the K1 row: ``_inputs``' gate (-exp(A) softplus(x), mean about -0.7 .. -11 per token) makes the
+# transfer of a ~75-token fragment underflow to ~0, so every association of the owner chains gives the same bits.  At
+# 1/200 of it a fragment keeps exp(-0.3 .. -4) of its incoming state: the chains carry state across all W ranks and the
+# blocked scan's reassociation is visible (the forced arms must differ from the serial chains in some bit).
+K1_G_SCALE = 1.0 / 200.0
 OWNER_TREE_ARMS = ("off", 2, 3, 4, "auto")
 
 # Launch-recorder hook: the programs / merge launches that only this package's non-deterministic levers run.  The test
@@ -4450,13 +4455,19 @@ def _k1_setup():
     part = gp.partition_kcp(
         torch.tensor(K1_CU, dtype=torch.int64), K1_W, "zigzag_per_document"
     )
-    return kcp, part, _inputs(K1_CU, *K1_HEADS)
+    return kcp, part, _k1_inputs()
+
+
+def _k1_inputs() -> dict[str, torch.Tensor]:
+    ops = dict(_inputs(K1_CU, *K1_HEADS))
+    ops["g"] = (ops["g"] * K1_G_SCALE).contiguous()
+    return ops
 
 
 def _k1_reference() -> dict[str, torch.Tensor]:
     key = ("k1",)
     if key not in _REFERENCES:
-        ops = _inputs(K1_CU, *K1_HEADS)
+        ops = _k1_inputs()
         out, grads = _fp64(_ref_layer(K1_CU), [ops[n] for n in LEAVES], ops["dout"])
         _REFERENCES[key] = {"out": out, **dict(zip(CKPT_GRADS, grads, strict=True))}
     return _REFERENCES[key]
@@ -4708,7 +4719,16 @@ def test_owner_tree_arms_are_within_budget(monkeypatch) -> None:
             assert saw_fwd and saw_adj, arm  # a forced block engages both directions
         logs[str(arm)] = [[list(c.tree_log) for c in calls[r]] for r in range(K1_W)]
     _arms_within_budget(arms, ref, ("out",) + EXPLICIT_GRADS, "K1 owner_tree arms")
-    _evidence("k1_arms", {"tree_logs": logs, "pass": True})
+    # the forced arms reassociate the chains on data that carries state across the ranks: some bit differs from "off"
+    names = ("out",) + EXPLICIT_GRADS
+    serial = arms["owner_tree=off"]
+    differs = {
+        arm: [n for n in names if not torch.equal(res[n], serial[n])]
+        for arm, res in arms.items()
+        if arm not in ("owner_tree=off", "owner_tree=auto")
+    }
+    assert all(differs.values()), differs
+    _evidence("k1_arms", {"tree_logs": logs, "differs_from_off": differs, "pass": True})
 
 
 def test_launch_recorder_lists_the_programs_of_the_call(monkeypatch) -> None:

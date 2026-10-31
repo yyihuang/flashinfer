@@ -14,7 +14,7 @@ CPU tests of the public surface of the NON-DETERMINISTIC context-parallel packed
 ``flashinfer.experimental.cake_gdn_train_kcp`` and of the facade ``flashinfer.cake_gdn_train_kcp`` that dispatches
 between it and the deterministic twin: the options validator (``cake_gdn_train_kcp.cake_options``), the keyword-only
 signatures, the facade's contract names, the numerical mode (``deterministic`` on every entry: the package refuses
-everything but ``False`` and raises torch's nondeterministic alert under ``torch.use_deterministic_algorithms``; the
+everything but ``False`` and, every path being fixed-order, raises no alert under ``torch.use_deterministic_algorithms``; the
 facade routes ``True`` and torch's deterministic mode to the twin, warns once, refuses a non-bool and a saved set of
 the other route; no context, partition or options field holds the mode), the names (the twin's legacy aliases stay
 the twin's objects; this package copies none of them and no public name carries a mode), the package hygiene rules
@@ -737,36 +737,44 @@ def test_package_entries_run_with_false_on_the_fake_backend() -> None:
     )
 
 
+@pytest.mark.parametrize("warn_only", [False, True])
 @pytest.mark.parametrize("entry", ENTRIES)
-def test_torch_deterministic_algorithms_alert_on_every_entry(
-    entry, torch_deterministic
+def test_no_alert_under_torch_deterministic_algorithms(
+    entry, warn_only, torch_deterministic
 ) -> None:
-    """With ``torch.use_deterministic_algorithms(True)`` a ``deterministic=False`` call raises torch's nondeterministic
-    alert naming the entry (``RuntimeError``); under ``warn_only=True`` it warns (``UserWarning``) and runs."""
+    """Every path of this version is fixed-order (run-to-run reproducible for a fixed plan and partition), so with
+    ``torch.use_deterministic_algorithms(True)`` (and with ``warn_only=True``) a ``deterministic=False`` call of the
+    package runs: no ``RuntimeError``, no warning.  Only a path that launches an unordered reduction may alert."""
     ctx, ops = _mode_case()
-    torch.use_deterministic_algorithms(True)
-    with pytest.raises(RuntimeError, match=entry):
-        _call(entry, ctx, ops, deterministic=False)
-    torch.use_deterministic_algorithms(True, warn_only=True)
-    with pytest.warns(UserWarning, match=entry):
+    torch.use_deterministic_algorithms(True, warn_only=warn_only)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         _call(entry, ctx, ops, deterministic=False)
 
 
-def test_autograd_backward_alerts_again_under_torch_deterministic_mode(
+def test_autograd_backward_runs_under_torch_deterministic_mode(
     torch_deterministic,
 ) -> None:
-    """A forward run with torch's deterministic algorithms off and a backward with them on: the node's backward raises
-    the alert itself (``ChunkGDNFunctionKcp.backward``)."""
+    """A forward run with torch's deterministic algorithms off and a backward with them on (and the reverse): the
+    node's backward runs without an alert or a warning, and both give the same gradients (fixed-order paths)."""
     kcp = _mod("cake_kcp")
     ctx, ops = _mode_case()
-    leaves = [
-        ops[n].detach().clone().requires_grad_(True)
-        for n in ("q", "k", "v", "g", "beta")
-    ]
-    y = kcp.chunk_gdn_kcp(*leaves, ctx, backend="fake", deterministic=False)
-    torch.use_deterministic_algorithms(True)
-    with pytest.raises(RuntimeError, match="ChunkGDNFunctionKcp.backward"):
-        y.backward(ops["dout"])
+    grads = []
+    for fwd_det, bwd_det in ((False, True), (True, False), (False, False)):
+        leaves = [
+            ops[n].detach().clone().requires_grad_(True)
+            for n in ("q", "k", "v", "g", "beta")
+        ]
+        torch.use_deterministic_algorithms(fwd_det)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            y = kcp.chunk_gdn_kcp(*leaves, ctx, backend="fake", deterministic=False)
+            torch.use_deterministic_algorithms(bwd_det)
+            y.backward(ops["dout"])
+        grads.append([y.detach()] + [t.grad for t in leaves])
+    for other in grads[1:]:
+        for x, y in zip(grads[0], other, strict=True):
+            assert torch.equal(x, y)
 
 
 def test_autograd_function_refuses_a_forward_of_another_mode() -> None:

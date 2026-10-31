@@ -20,7 +20,7 @@ limitations under the License.
 # per-document zigzag / ragged partitions (head dimension 128, chunk 64) on
 # SM100 / SM103 / SM107.  The deterministic twin is
 # ``flashinfer.experimental.cake_gdn_det_train_kcp``; this package keeps its
-# contracts and accuracy budgets but not its bitwise reproducibility.  The public
+# contracts and accuracy budgets, not its bitwise results.  The public
 # entry points are ``flashinfer.cake_gdn_train_kcp.partition_kcp``,
 # ``build_context_kcp``, ``chunk_gdn_kcp``, ``chunk_gdn_fwd_kcp``,
 # ``chunk_gdn_bwd_kcp`` and the byte queries; the partition / context plan, the

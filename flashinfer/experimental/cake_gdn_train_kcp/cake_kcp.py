@@ -4366,27 +4366,27 @@ def _prepare(
     return call, batched
 
 
-# The numerical mode (#8063).  Every entry of this package is non-deterministic: it keeps the deterministic twin's
-# contract and accuracy budgets but not its run-to-run bitwise reproducibility.  The compute entries take
-# ``deterministic`` (default ``True``) so that a caller states the mode it wants, and refuse every value but ``False``
-# (this package ships no deterministic program and never falls back; the deterministic route is
-# ``flashinfer.experimental.cake_gdn_det_train_kcp``, and ``flashinfer.cake_gdn_train_kcp`` dispatches between the
-# two).  With ``torch.use_deterministic_algorithms(True)``, ``deterministic=False`` raises torch's nondeterministic
-# alert (``RuntimeError``; a ``UserWarning`` under ``warn_only=True``).  The mode is never stored in the context.
+# The numerical mode (#8063).  This package is the non-deterministic twin: it keeps the deterministic package's contract
+# and accuracy budgets, and its results need not equal that package's bit for bit (its fixed-order levers, e.g. the
+# blocked scan of the owner merge chains, reassociate FP32 sums).  Every path of this version is fixed-order: for a fixed
+# plan and partition it is run-to-run reproducible today, so no entry raises PyTorch's alert for an operation without a
+# deterministic implementation.  Later versions may launch unordered reductions (``deterministic=False`` is the opt-in);
+# a path that does raises that alert.  The compute entries take ``deterministic`` (default ``True``) so that a caller
+# states the mode it wants, and refuse every value but ``False`` (this package never falls back; the deterministic route
+# is ``flashinfer.experimental.cake_gdn_det_train_kcp``, and ``flashinfer.cake_gdn_train_kcp`` dispatches between the
+# two).  The mode is never stored in the context.
 MODE = "nondeterministic"
 
 
 def check_mode(deterministic: Any, entry: str) -> None:
-    """Refuse every ``deterministic`` but ``False``; raise torch's nondeterministic alert for ``entry`` when torch's
-    deterministic algorithms are on."""
+    """Refuse every ``deterministic`` but ``False`` (``ValueError``).  No alert under PyTorch's deterministic algorithms:
+    every path of this version is fixed-order."""
     if deterministic is not False:
         raise ValueError(
             f"{entry}: flashinfer.experimental.cake_gdn_train_kcp is the non-deterministic package and needs "
             f"deterministic=False (got {deterministic!r}); the deterministic route is "
             "flashinfer.experimental.cake_gdn_det_train_kcp (or flashinfer.cake_gdn_train_kcp with deterministic=True)"
         )
-    if torch.are_deterministic_algorithms_enabled():
-        torch._C._alert_not_deterministic(entry)
 
 
 def _check_saved_mode(saved: Any) -> None:
@@ -5044,8 +5044,6 @@ class ChunkGDNFunctionKcp(torch.autograd.Function):
             raise ValueError(
                 f"ChunkGDNFunctionKcp.backward: the forward ran in mode {getattr(fctx, 'kcp_mode', None)!r}, not {MODE!r}"
             )
-        if torch.are_deterministic_algorithms_enabled():
-            torch._C._alert_not_deterministic("ChunkGDNFunctionKcp.backward")
         saved = (
             None
             if meta is None
@@ -5120,8 +5118,7 @@ def chunk_gdn_kcp(
     incoming states the original forward stored in the handle; needs ``boundary_mode="saved"`` and ``graph="off"``,
     implies ``save_transfer=False`` (a ``save_transfer=True`` keyword or ``options`` dict entry is refused; a
     :class:`OptionsKcp` instance's value is replaced by ``False``) and refuses ``debug_sequence``.  ``deterministic``
-    must be ``False`` (:func:`check_mode`; the backward raises torch's alert again when torch's deterministic algorithms
-    are on by then)."""
+    must be ``False`` (:func:`check_mode`)."""
     check_mode(deterministic, "chunk_gdn_kcp")
     over: dict[str, Any] = {}
     for name, value, default in (
