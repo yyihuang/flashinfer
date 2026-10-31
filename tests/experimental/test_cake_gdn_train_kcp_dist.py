@@ -76,8 +76,10 @@ import os
 import re
 import socket
 import statistics
+import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 
 import pytest
@@ -1245,9 +1247,11 @@ def _run_rank_fwd(
         else out.new_zeros((0, HV, 128, 128), dtype=torch.float32)
     )
     cuts = [None] * int(ctx.n_in)
-    for f in (
-        ctx.fragments[rank] if isinstance(ctx.fragments[0], tuple) else ctx.fragments
-    ):
+    # a rank without tokens has no fragments (an empty tuple): it must still reach the collectives below
+    frags = ctx.fragments
+    if frags and isinstance(frags[0], tuple):
+        frags = frags[rank]
+    for f in frags:
         if f.length > 0 and f.off > 0:
             cuts[int(ctx.in_slot[f.slot])] = int(cu[f.doc] + f.off)
     info["s_in_cuts"] = cuts
@@ -2580,15 +2584,22 @@ def _slurm_row(row, slurm, backend: str, body) -> None:
         pytest.skip("the KCP programs are not exported in the package's build.json yet")
     report = None
     if slurm.rank < W:
-        report = body(
-            slurm.rank,
-            W,
-            row,
-            group,
-            slurm.device,
-            os.environ.get("KCP_TEST_RESULT_DIR"),
-            backend,
-        )
+        try:
+            report = body(
+                slurm.rank,
+                W,
+                row,
+                group,
+                slurm.device,
+                os.environ.get("KCP_TEST_RESULT_DIR"),
+                backend,
+            )
+        except Exception:
+            # a body that raises leaves the row's collectives on the other ranks unmatched; the step then ends at
+            # the WORLD timeout before pytest's summary, so the cause is printed here
+            traceback.print_exc()
+            sys.stderr.flush()
+            raise
     ok = report is None or bool(report["pass"])
     if slurm.world > 1:
         verdicts: list = [None] * slurm.world
