@@ -5,9 +5,8 @@ DeltaNet) layers with native grouped Q/K heads: forward, backward and
 checkpoint replay over a process group whose ranks each hold fragments of the
 documents of one packed batch, with precise (FP32 / TF32x3-class) cross-rank
 passing of the per-document recurrent state.  Tokens never move between ranks;
-only affine summaries of the state do.  Tracking issues:
-flashinfer-ai/flashinfer#7082 (the route) and flashinfer-ai/flashinfer#8063
-(the non-deterministic packages).  The deterministic twin of this package is
+only affine summaries of the state do.  Tracking issue:
+flashinfer-ai/flashinfer#7082 (the route).  The deterministic twin of this package is
 `flashinfer.experimental.cake_gdn_det_train_kcp`: the same contract and the
 same accuracy budgets, bitwise reproducible.  This package's results stay
 within the deterministic route's accuracy budgets and are not bitwise equal

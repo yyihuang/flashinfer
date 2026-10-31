@@ -57,8 +57,8 @@ ownership ``Hg = ceil(HV / W)``, ``owner(h) = h // Hg``, the split sizes of the
 collectives, the merge chain tables, the segment plan ``P`` / ``NSEG`` and the
 segment table) is derived on demand by ``ctx.heads(HV)`` and cached.
 
-Segment plan rule.  The shipped default of this package is ``"fill_small"`` (this package's faster schedule,
-#8063): the deterministic twin's ``"row_cost_lpt"`` vector (below), then every rank of a row with ``HV <=
+Segment plan rule.  The shipped default of this package is ``"fill_small"`` (this package's faster schedule):
+the deterministic twin's ``"row_cost_lpt"`` vector (below), then every rank of a row with ``HV <=
 SMALL_ONE_HV_MAX = 12`` whose fragments all have at most ``SMALL_ONE_NC_MAX = 160`` chunks runs ``P = 1`` (no segment
 merges, compose chain or staging planes), and on every other row each rank below the chain cap takes ``min(P,
 wave_fill P)`` (the one-wave fill); it never raises a rank's ``P`` (``"row_cost_lpt"`` stays selectable).
@@ -175,16 +175,16 @@ ROW_COST_MARGIN_PCT = {"occ": 2, "one": 0}
 # fwdh / dhu kernels) never enters the LPT replacement and keeps P = 1 -- the walk-step model does not carry the per-segment
 # work the first products add.  Selectable through `p_rule`; P_RULE_DEFAULT names the shipped rule.
 ROW_RULES = ("row_cost", "row_cost_lpt", "rank_lpt", "fill_down", "small_one", "fill_small")
-# "fill_down" (#8063 candidate): every rank BELOW THE CHAIN CAP (0 < NC_max_frag < WAVE_MIN_NC_MAX_FRAG) takes the smaller
+# "fill_down" (candidate): every rank BELOW THE CHAIN CAP (0 < NC_max_frag < WAVE_MIN_NC_MAX_FRAG) takes the smaller
 # of its "row_cost_lpt" P and its "wave_fill" P (the one-wave fill, floor(SM / (n_frag HV)), on ranks with n_frag <=
 # WAVE_N_FRAG_MAX), so two-fragment ranks drop to the one-wave P without the fill's raises; ranks above the cap keep the
-# shipped P (lowering them lengthens the slowest walk: wave_fill +4..+8 % B3 on (16,48) CP4 Z).  "small_one" (#8063
-# candidate): at HV <= SMALL_ONE_HV_MAX, when no fragment of any rank exceeds SMALL_ONE_NC_MAX chunks, every rank runs
+# shipped P (lowering them lengthens the slowest walk: wave_fill +4..+8 % B3 on (16,48) CP4 Z).  "small_one"
+# (candidate): at HV <= SMALL_ONE_HV_MAX, when no fragment of any rank exceeds SMALL_ONE_NC_MAX chunks, every rank runs
 # P = 1 (no segment merges, compose chain or staging planes); every other row keeps "row_cost_lpt".  "fill_small":
 # "small_one" on its rows, "fill_down" on every other row.  None of them raises a rank's P.
 SMALL_ONE_HV_MAX = 12
 SMALL_ONE_NC_MAX = 160
-# "rank_lpt" (this package's faster schedule, #8063): every rank takes the smaller of its "row_cost_lpt" P and the LPT
+# "rank_lpt" (a rejected faster-schedule candidate): every rank takes the smaller of its "row_cost_lpt" P and the LPT
 # argmin over its REAL fragment table (lpt_rank_P; every rank, not only the wave-regime ones), so ranks below the chain
 # cap whose occupancy P splits short fragments (two-fragment D ranks at HV = 48: P 2 -> 1; small-HV ranks) drop the
 # segments, compose chain and staging planes the model prices above the shorter walks.  It never raises a rank's P.

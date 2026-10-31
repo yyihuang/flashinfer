@@ -125,7 +125,7 @@ GRAPH_DEFAULT = _opt.GRAPH_DEFAULT
 KCP_SAVED_VERSION = 1  # saved set {S_in [, c1 receive tensor, M_seg] [, forward tapes]}
 COLLECTIVES = ("c1", "c2", "b1", "b2")
 COLS_RULE_CHAINS = 24  # by_chains: <= 24 concurrent 128-column state chains -> c8, otherwise c16; map launches stay c16
-# K1 (#8063, a non-deterministic lever: the bits differ from the deterministic package's): the owner chains of the
+# K1 (a non-deterministic lever of this package: the bits differ from the deterministic package's): the owner chains of the
 # exchange (families ``fwd``, ``adj_b1``, ``adj_c1``; one chain per document and owned head, one element per
 # crossing fragment) run as a blocked scan instead of one serial walk -- (1) the affine maps of every block of ``b``
 # elements composed in map mode (``ncols`` 256: ``[c | M]`` from ``[0 | I]``; one launch for every block of every
@@ -4366,7 +4366,7 @@ def _prepare(
     return call, batched
 
 
-# The numerical mode (#8063).  This package is the non-deterministic twin: it keeps the deterministic package's contract
+# The numerical mode.  This package is the non-deterministic twin: it keeps the deterministic package's contract
 # and accuracy budgets, and its results need not equal that package's bit for bit (its fixed-order levers, e.g. the
 # blocked scan of the owner merge chains, reassociate FP32 sums).  Every path of this version is fixed-order: for a fixed
 # plan and partition it is run-to-run reproducible today, so no entry raises PyTorch's alert for an operation without a
