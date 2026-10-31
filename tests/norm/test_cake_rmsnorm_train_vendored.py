@@ -107,10 +107,14 @@ def _dependency_paths() -> list[str]:
 
 def _copy(source: Path, target: Path, *, with_aot: bool = False) -> None:
     ignore = ("__pycache__",) if with_aot else ("aot", "__pycache__")
-    shutil.copytree(source, target, ignore=shutil.ignore_patterns(*ignore), symlinks=False)
+    shutil.copytree(
+        source, target, ignore=shutil.ignore_patterns(*ignore), symlinks=False
+    )
 
 
-def _child(script: str, paths: list[str], *, cwd: Path, env: dict | None = None, timeout=600):
+def _child(
+    script: str, paths: list[str], *, cwd: Path, env: dict | None = None, timeout=600
+):
     code = (
         "import sys\n"
         f"for _p in reversed({paths!r}):\n"
@@ -168,7 +172,9 @@ x = torch.zeros(4, 512, dtype=torch.bfloat16)
 w = torch.ones(512, dtype=torch.bfloat16)
 """
 
-_PAIR_CHECKS = _IMPORT_CHECKS + f"""
+_PAIR_CHECKS = (
+    _IMPORT_CHECKS
+    + f"""
 nd = importlib.import_module("{PARENT}.{NONDET}")
 check("pair: the copy is imported", lambda: None if os.path.realpath(nd.__file__).startswith(COPY) else 1 / 0)
 check(
@@ -202,8 +208,11 @@ check("pair: no flashinfer module", lambda: None if not leaked() else 1 / 0)
 results["leaked"] = leaked()
 print("RESULTS " + json.dumps(results))
 """
+)
 
-_LONE_CHECKS = _IMPORT_CHECKS + f"""
+_LONE_CHECKS = (
+    _IMPORT_CHECKS
+    + f"""
 lone = importlib.import_module("{LONE}")
 check("lone: the copy is imported", lambda: None if os.path.realpath(lone.__file__).startswith(COPY) else 1 / 0)
 check(
@@ -243,6 +252,7 @@ check("lone: no flashinfer module", lambda: None if not leaked() else 1 / 0)
 results["leaked"] = leaked()
 print("RESULTS " + json.dumps(results))
 """
+)
 
 
 def _results(proc) -> dict:
@@ -265,12 +275,14 @@ def test_vendored_copies_import_with_flashinfer_blocked(tmp_path: Path) -> None:
     _copy(source / NONDET, lone / LONE)
     _copy(source / DET, lone / LONE_DET)
     report = {}
-    for label, root, script in (
+    for _label, root, script in (
         ("pair", pair, _PAIR_CHECKS),
         ("lone", lone, _LONE_CHECKS),
     ):
         proc = _child(
-            f"COPY = {os.path.realpath(root)!r}\n" + script, [str(root), *paths], cwd=tmp_path
+            f"COPY = {os.path.realpath(root)!r}\n" + script,
+            [str(root), *paths],
+            cwd=tmp_path,
         )
         report.update(_results(proc))
     failed = {k: v for k, v in report.items() if k != "leaked" and v != "ok"}
@@ -333,10 +345,16 @@ def vendored_build(tmp_path_factory):
         if "compiled" in line or "finding" in line.lower() or "vendored" in line
     ]
     print("\nVENDORED gate rc=%d\n%s" % (proc.returncode, "\n".join(summary[:20])))
-    assert proc.returncode == 0, f"vendored gate exited {proc.returncode}: {proc.stdout[-3000:]} {proc.stderr[-2000:]}"
+    assert proc.returncode == 0, (
+        f"vendored gate exited {proc.returncode}: {proc.stdout[-3000:]} {proc.stderr[-2000:]}"
+    )
     data = json.loads(report.read_text())
     assert not data.get("findings"), data.get("findings")
-    copies = {p.name: p for p in gate.iterdir() if p.is_dir() and p.name.startswith("vendored_")}
+    copies = {
+        p.name: p
+        for p in gate.iterdir()
+        if p.is_dir() and p.name.startswith("vendored_")
+    }
     assert {f"vendored_{NONDET}", f"vendored_{DET}"} <= set(copies), sorted(copies)
     pair = work / "pair"
     _copy(copies[f"vendored_{NONDET}"], pair / PARENT / NONDET, with_aot=True)
@@ -382,7 +400,8 @@ def _run_suites(root: Path, packages: dict, suites, work: Path, label: str):
         f"--basetemp={work / (label + '-tmp')}",
     ]
     script = (
-        f"SYS_PATH = {paths!r}\nPACKAGES = {packages!r}\nPYTEST_ARGS = {args!r}\n" + _SUITE
+        f"SYS_PATH = {paths!r}\nPACKAGES = {packages!r}\nPYTEST_ARGS = {args!r}\n"
+        + _SUITE
     )
     proc = _child(script, paths, cwd=REPO_ROOT, timeout=SUITE_TIMEOUT_S)
     (work / f"{label}.log").write_text(proc.stdout + proc.stderr)
@@ -390,7 +409,9 @@ def _run_suites(root: Path, packages: dict, suites, work: Path, label: str):
     failing, skips = [], {}
     if junit.exists():
         root_el = ET.parse(junit).getroot()
-        for suite in [root_el] if root_el.tag == "testsuite" else list(root_el.iter("testsuite")):
+        for suite in (
+            [root_el] if root_el.tag == "testsuite" else list(root_el.iter("testsuite"))
+        ):
             for key in counts:
                 counts[key] += int(suite.get(key, 0))
             for case in suite.iter("testcase"):
@@ -400,7 +421,9 @@ def _run_suites(root: Path, packages: dict, suites, work: Path, label: str):
                 if "skipped" in kids:
                     msg = kids["skipped"].get("message", "")[:120]
                     skips[msg] = skips.get(msg, 0) + 1
-    counts["passed"] = counts["tests"] - counts["failures"] - counts["errors"] - counts["skipped"]
+    counts["passed"] = (
+        counts["tests"] - counts["failures"] - counts["errors"] - counts["skipped"]
+    )
     print(
         f"VENDORED suite {label} rc={proc.returncode} {counts} log={work / (label + '.log')}"
     )
@@ -424,7 +447,9 @@ def test_backend_suites_against_the_vendored_pair(vendored_build) -> None:
         vendored_build["work"],
         "pair",
     )
-    assert counts["tests"] > 0, f"no test ran: {proc.stdout[-2000:]} {proc.stderr[-2000:]}"
+    assert counts["tests"] > 0, (
+        f"no test ran: {proc.stdout[-2000:]} {proc.stderr[-2000:]}"
+    )
     assert rc == 0 and not failing, (rc, counts, failing[:10], proc.stdout[-1500:])
     assert counts["passed"] > 0
 
@@ -443,6 +468,8 @@ def test_det_independent_suites_against_the_lone_copy(vendored_build) -> None:
         vendored_build["work"],
         "lone",
     )
-    assert counts["tests"] > 0, f"no test ran: {proc.stdout[-2000:]} {proc.stderr[-2000:]}"
+    assert counts["tests"] > 0, (
+        f"no test ran: {proc.stdout[-2000:]} {proc.stderr[-2000:]}"
+    )
     assert rc == 0 and not failing, (rc, counts, failing[:10], proc.stdout[-1500:])
     assert counts["passed"] > 0

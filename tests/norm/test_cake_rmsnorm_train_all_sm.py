@@ -153,7 +153,9 @@ def _skip_unless_route(hidden: int, residual: bool, w: str, kind: str) -> None:
         residual=residual,
         w_dtype=w,
     ):
-        pytest.skip(f"hidden={hidden} residual={residual} w={w} has no {kind} route here")
+        pytest.skip(
+            f"hidden={hidden} residual={residual} w={w} has no {kind} route here"
+        )
 
 
 # --------------------------------------------------------------------------- the whole-SM list
@@ -176,11 +178,23 @@ def _whole_sm_above() -> dict[tuple[str, str, str], int]:
     if not source.exists():
         return out
     for node in ast.parse(source.read_text()).body:
-        target = node.target if isinstance(node, ast.AnnAssign) else (
-            node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else None
+        target = (
+            node.target
+            if isinstance(node, ast.AnnAssign)
+            else (
+                node.targets[0]
+                if isinstance(node, ast.Assign) and len(node.targets) == 1
+                else None
+            )
         )
-        if isinstance(target, ast.Name) and target.id == "WHOLE_SM_ABOVE" and node.value:
-            for (capability, kind, hidden), above in ast.literal_eval(node.value).items():
+        if (
+            isinstance(target, ast.Name)
+            and target.id == "WHOLE_SM_ABOVE"
+            and node.value
+        ):
+            for (capability, kind, hidden), above in ast.literal_eval(
+                node.value
+            ).items():
                 arch = loader.arch_for_capability(capability)
                 for residual in (False, True):
                     for w in ("bf16", "f32"):
@@ -278,9 +292,13 @@ def _check_outputs(results, kind: str, form: Optional[str], label: str) -> None:
             continue
         assert torch.equal(out[0], first[0]), f"{label}: dx differs across calls"
         if form == "pair":
-            assert torch.equal(out[1], first[1]), f"{label}: det-pair dw differs across calls"
+            assert torch.equal(out[1], first[1]), (
+                f"{label}: det-pair dw differs across calls"
+            )
         else:
-            assert ref.rel_l2(out[1], first[1]) <= DW_REL_L2, f"{label}: dw moved across calls"
+            assert ref.rel_l2(out[1], first[1]) <= DW_REL_L2, (
+                f"{label}: dw moved across calls"
+            )
 
 
 # --------------------------------------------------------------------------- one-thread side kernel
@@ -390,7 +408,9 @@ class _AllSmSpin:
         ctx = _checked(driver.cuDevicePrimaryCtxRetain(device.index or 0))
         _checked(driver.cuCtxSetCurrent(ctx))
         self._module = _checked(driver.cuModuleLoadData(cubin))
-        self._func = _checked(driver.cuModuleGetFunction(self._module, _SPIN_KERNEL.encode()))
+        self._func = _checked(
+            driver.cuModuleGetFunction(self._module, _SPIN_KERNEL.encode())
+        )
         _checked(
             driver.cuFuncSetAttribute(
                 self._func,
@@ -409,8 +429,17 @@ class _AllSmSpin:
         )
         _checked(
             self._driver.cuLaunchKernel(
-                self._func, self.sms, 1, 1, ALL_SM_THREADS, 1, 1, 0,
-                self._driver.CUstream(stream.cuda_stream), params, 0,
+                self._func,
+                self.sms,
+                1,
+                1,
+                ALL_SM_THREADS,
+                1,
+                1,
+                0,
+                self._driver.CUstream(stream.cuda_stream),
+                params,
+                0,
             )
         )
 
@@ -486,7 +515,10 @@ def _judge(kind: str, key: str, rows: int, form: Optional[str], extra: float, de
     if not deterministic_program:
         return "waits", "single kernel, not in the whole-SM list"
     if det_call is None:
-        return "waits", "det program copy; the det package does not serve this call and it is not listed"
+        return (
+            "waits",
+            "det program copy; the det package does not serve this call and it is not listed",
+        )
     det_alone, det_busy, _outs = _all_sm(det_call)
     det_extra = det_busy - det_alone
     if det_extra > MAX_ALL_SM_EXTRA_MS:
@@ -496,7 +528,9 @@ def _judge(kind: str, key: str, rows: int, form: Optional[str], extra: float, de
 
 @pytest.mark.parametrize("rows", ALL_SM_TOKENS)
 @pytest.mark.parametrize("route", list(_backward_routes()), ids=_route_id)
-def test_backward_beside_an_all_sm_kernel_with_the_max_shared_carveout(route, rows: int):
+def test_backward_beside_an_all_sm_kernel_with_the_max_shared_carveout(
+    route, rows: int
+):
     hidden, residual, w = route
     _skip_unless_route(hidden, residual, w, "bwd")
     call, det_call, form, ws = _backward_call(hidden, residual, w, rows)

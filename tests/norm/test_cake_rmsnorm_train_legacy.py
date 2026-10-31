@@ -190,9 +190,9 @@ def test_previous_callable_accepts_its_previous_arguments(
         assert param in new_params, f"{name}: parameter {param} is gone"
         got = new_params[param]
         assert got.kind == kind, f"{name}: {param} is {got.kind}, was {kind}"
-        assert got.default == default or (
-            got.default is _NO and default is _NO
-        ), f"{name}: {param} defaults to {got.default!r}, was {default!r}"
+        assert got.default == default or (got.default is _NO and default is _NO), (
+            f"{name}: {param} defaults to {got.default!r}, was {default!r}"
+        )
     previous_names = [p for p, _k, _d in old_params]
     positional = [
         p
@@ -206,8 +206,10 @@ def test_previous_callable_accepts_its_previous_arguments(
         if param in previous_names:
             continue
         assert value.default is not _NO, f"{name}: new parameter {param} has no default"
-        if "deterministic" == param:
-            assert value.default is True, f"{name}: deterministic defaults to {value.default}"
+        if param == "deterministic":
+            assert value.default is True, (
+                f"{name}: deterministic defaults to {value.default}"
+            )
 
 
 # --------------------------------------------------------------------------- deterministic results (device)
@@ -257,7 +259,9 @@ def _inputs(rows: int, hidden: int, residual: bool, key: int = 0):
     w = (
         1
         + 0.1
-        * torch.randn(hidden, dtype=torch.float32, device=_device(), generator=generator)
+        * torch.randn(
+            hidden, dtype=torch.float32, device=_device(), generator=generator
+        )
     ).to(torch.bfloat16)
     return x, u, g, g_h, w
 
@@ -343,10 +347,14 @@ def test_previous_entry_points_return_the_det_bits(
                 continue
             if "forward" in name:
                 got = fn(x, w, eps, residual=u)
-                assert _equal(tuple(got), tuple(ref_fwd)), f"{namespace}.{name}: forward bits"
+                assert _equal(tuple(got), tuple(ref_fwd)), (
+                    f"{namespace}.{name}: forward bits"
+                )
             else:
                 got = fn(g, normalized, w, rstd, g_residual=g_h)
-                assert _equal(tuple(got), tuple(ref_bwd)), f"{namespace}.{name}: backward bits"
+                assert _equal(tuple(got), tuple(ref_bwd)), (
+                    f"{namespace}.{name}: backward bits"
+                )
             checked.append(name)
     for name in (
         "cake_rmsnorm_train_backward_workspace_bytes",
@@ -367,18 +375,25 @@ def test_previous_entry_points_return_the_det_bits(
             continue
         ws = helper(rows, hidden, device, residual=residual)
         assert ws.dtype == torch.uint8 and ws.numel() == ref_bytes and not ws.any()
-        backward = getattr(module, "cake_rmsnorm_train_backward")
+        backward = module.cake_rmsnorm_train_backward
         got = backward(g, normalized, w, rstd, g_residual=g_h, workspace=ws)
-        assert _equal(tuple(got), tuple(ref_bwd)), f"{namespace}.{name}: backward bits on its workspace"
+        assert _equal(tuple(got), tuple(ref_bwd)), (
+            f"{namespace}.{name}: backward bits on its workspace"
+        )
         checked.append(name)
-    for name in ("is_cake_rmsnorm_train_supported", "is_cake_rmsnorm_det_train_supported"):
+    for name in (
+        "is_cake_rmsnorm_train_supported",
+        "is_cake_rmsnorm_det_train_supported",
+    ):
         query = _reachable(module, name)
         if query is None:
             continue
         for width in (None, hidden, 1000, 256, 5120):
-            assert query(device, width) == det_facade.is_cake_rmsnorm_det_train_supported(
+            assert query(
                 device, width
-            ), f"{namespace}.{name}({width})"
+            ) == det_facade.is_cake_rmsnorm_det_train_supported(device, width), (
+                f"{namespace}.{name}({width})"
+            )
         checked.append(name)
     for name in ("route_key",):
         key = _reachable(module, name)
@@ -411,7 +426,9 @@ def test_previous_entry_points_return_the_det_bits(
             ua.grad if residual else None,
         )
 
-    ref_auto = autograd(lambda a, b, c: det_facade.cake_rmsnorm_det(a, b, eps, residual=c))
+    ref_auto = autograd(
+        lambda a, b, c: det_facade.cake_rmsnorm_det(a, b, eps, residual=c)
+    )
     for name in ("cake_rmsnorm", "cake_rmsnorm_det"):
         fn = _reachable(module, name)
         if fn is None:
@@ -420,7 +437,9 @@ def test_previous_entry_points_return_the_det_bits(
         assert _equal(got[0], ref_auto[0]), f"{namespace}.{name}: outputs"
         for index, label in ((1, "dx"), (2, "dw"), (3, "du")):
             if ref_auto[index] is not None:
-                assert _equal(got[index], ref_auto[index]), f"{namespace}.{name}: {label}"
+                assert _equal(got[index], ref_auto[index]), (
+                    f"{namespace}.{name}: {label}"
+                )
         checked.append(name)
     for name in ("CakeRMSNormFunction", "CakeRMSNormDetFunction"):
         cls = _reachable(module, name)
@@ -430,11 +449,15 @@ def test_previous_entry_points_return_the_det_bits(
         assert _equal(got[0], ref_auto[0]), f"{namespace}.{name}: outputs"
         for index, label in ((1, "dx"), (2, "dw"), (3, "du")):
             if ref_auto[index] is not None:
-                assert _equal(got[index], ref_auto[index]), f"{namespace}.{name}: {label}"
+                assert _equal(got[index], ref_auto[index]), (
+                    f"{namespace}.{name}: {label}"
+                )
         checked.append(name)
     missing = sorted(set(PREVIOUS_PUBLIC) - set(checked))
     assert set(missing) <= _MISSING, missing  # every name either checked or unreachable
-    assert set(PREVIOUS_ALIASES) <= set(checked), sorted(set(PREVIOUS_ALIASES) - set(checked))
+    assert set(PREVIOUS_ALIASES) <= set(checked), sorted(
+        set(PREVIOUS_ALIASES) - set(checked)
+    )
     print(
         f"LEGACY det_bits {namespace} h={hidden} res={residual} T={rows} "
         f"checked={len(set(checked))} unreachable={missing}"

@@ -30,11 +30,13 @@ package selects for that ``T``, or a single kernel listed in the backend suite's
 
 At every window edge ``E`` the calls of ``E`` and ``E + 1`` rows are compared on
 the first ``E`` rows and the edge is classified: ``same`` (bitwise), ``ulp``
-(every difference within one ulp: BF16 ``y`` / ``dx``, FP32 ``rstd``) or ``dx``
-/ ``y`` (larger differences, backward / forward).  The classification of
-``cake_windows.EDGES`` must hold where it is measured (``same`` stays bitwise,
-``ulp`` within one ulp); every edge it lists as ``unmeasured`` is printed with
-its measured class (``EDGES_MEASURED``) for the exporter to fill.
+(backward: every ``dx`` difference within one BF16 ulp; forward: ``y`` within
+one BF16 ulp and ``rstd`` within one FP32 ulp, the class the package notes
+document) or larger (backward ``dx``; forward ``y<k>/rstd<m>``, the largest
+differences in ulps).  The classification of ``cake_windows.EDGES`` must hold
+where it is measured (``same`` stays bitwise, ``ulp`` within its ulps); every
+edge it lists as ``unmeasured`` is printed with its measured class
+(``EDGES_MEASURED``) for the exporter to fill.
 """
 
 from __future__ import annotations
@@ -174,14 +176,20 @@ def _skip_unless_route(hidden: int, residual: bool, w: str, kind: str) -> None:
         residual=residual,
         w_dtype=w,
     ):
-        pytest.skip(f"hidden={hidden} residual={residual} w={w} has no {kind} route here")
+        pytest.skip(
+            f"hidden={hidden} residual={residual} w={w} has no {kind} route here"
+        )
 
 
 def _window_tokens(above: int, at_most: Optional[int]) -> tuple[int, int, int]:
     """``(first, middle, last)`` token counts measured in the window ``(above, at_most]``."""
     first = above + 1
     if at_most is None:
-        last = first + 4096 if first >= MAX_TOKENS else min(max(2 * first, first + 4096), MAX_TOKENS)
+        last = (
+            first + 4096
+            if first >= MAX_TOKENS
+            else min(max(2 * first, first + 4096), MAX_TOKENS)
+        )
     else:
         last = at_most
     return first, (first + last) // 2, last
@@ -205,7 +213,9 @@ def _inputs(hidden: int, residual: bool, w: str, rows: int, key: int):
     weight = (
         1.0
         + 0.1
-        * torch.randn(hidden, dtype=torch.float32, device=_device(), generator=generator)
+        * torch.randn(
+            hidden, dtype=torch.float32, device=_device(), generator=generator
+        )
     ).to(ref.W_DTYPES[w])
     return x, u, g, g_h, weight
 
@@ -216,18 +226,37 @@ def _edges(hidden: int, residual: bool, w: str, kind: str) -> dict[int, str]:
     return dict(windows_table.EDGES.get(_arch(), {}).get(key, ()))
 
 
+# The documented ``ulp`` edge class (the package notes): across a forward edge
+# ``rstd`` moves by at most one FP32 ulp and ``y`` by at most one BF16 ulp.
+FWD_EDGE_Y_ULPS = 1
+FWD_EDGE_RSTD_ULPS = 1
+
+
 def _classify(differing: int, ulps: int, word: str) -> str:
+    """A backward edge: ``same`` (bitwise), ``ulp`` (one BF16 ulp) or ``word``."""
     if differing == 0:
         return "same"
     return "ulp" if ulps <= 1 else word
 
 
+def _forward_class(y_diff: int, y_ulps: int, r_diff: int, r_ulps: int) -> str:
+    """A forward edge: ``same``, ``ulp`` (within the documented class) or
+    ``y<k>/rstd<m>`` (the largest differences in BF16 / FP32 ulps, beyond it)."""
+    if y_diff == 0 and r_diff == 0:
+        return "same"
+    if y_ulps <= FWD_EDGE_Y_ULPS and r_ulps <= FWD_EDGE_RSTD_ULPS:
+        return "ulp"
+    return f"y{y_ulps}/rstd{r_ulps}"
+
+
 def _consistent(listed: Optional[str], measured: str) -> bool:
-    """A listed class holds when the measurement is at most as large."""
-    order = {"same": 0, "ulp": 1, "dx": 2, "y": 2}
-    if listed in (None, "unmeasured"):
+    """A listed class holds when the measurement is within it: ``same`` stays
+    bitwise, ``ulp`` stays within one ulp; ``dx`` and unmeasured edges admit any."""
+    if listed in (None, "unmeasured", "dx"):
         return True
-    return order[measured] <= order[listed]
+    if listed == "same":
+        return measured == "same"
+    return measured in ("same", "ulp")
 
 
 # --------------------------------------------------------------------------- backward
@@ -284,10 +313,16 @@ def _claims_det_dx(records: list[str], hidden: int, residual: bool, w: str, rows
     if det is None or w != "bf16":
         return False, None
     arch = det.cake_jit.arch_for_capability(_capability())
-    if det.cake_jit.route_key(hidden, "bwd", residual) not in det.cake_jit.ROUTES.get(arch, {}):
+    if det.cake_jit.route_key(hidden, "bwd", residual) not in det.cake_jit.ROUTES.get(
+        arch, {}
+    ):
         return False, None
-    det_records = list(det.cake_jit.selected_modules(arch, hidden, "bwd", residual, rows=rows))
-    det_main = next(n for n in det_records if det.cake_jit.MODULES[n]["role"] != "bwd_reduce")
+    det_records = list(
+        det.cake_jit.selected_modules(arch, hidden, "bwd", residual, rows=rows)
+    )
+    det_main = next(
+        n for n in det_records if det.cake_jit.MODULES[n]["role"] != "bwd_reduce"
+    )
     main = next(n for n in records if loader.MODULES[n]["role"] != "bwd_reduce")
     claim = DX_BITWISE_WITH.get(loader.MODULES[main]["library"])
     if claim is not None:
@@ -305,7 +340,9 @@ def test_backward_dx_is_token_count_invariant_within_each_window(
     ``T`` where the det package serves the call."""
     _skip_unless_route(hidden, residual, w, "bwd")
     route_windows = ref.windows(loader, _arch(), hidden, "bwd", residual, w)
-    largest = max(_window_tokens(above, at_most)[2] for above, at_most, _ in route_windows)
+    largest = max(
+        _window_tokens(above, at_most)[2] for above, at_most, _ in route_windows
+    )
     calls = _Backward(hidden, residual, w, largest)
     lines, claims = [], 0
     for above, at_most, library in route_windows:
@@ -330,7 +367,9 @@ def test_backward_dx_is_token_count_invariant_within_each_window(
         if det_main is not None:
             matches = []
             for rows in sorted({first, middle, last}):
-                differing, ulps = ref.bf16_ulp_differences(calls.dx(rows), calls.det_dx(rows))
+                differing, ulps = ref.bf16_ulp_differences(
+                    calls.dx(rows), calls.det_dx(rows)
+                )
                 matches.append(differing)
                 if claimed:
                     assert differing == 0, (
@@ -338,7 +377,9 @@ def test_backward_dx_is_token_count_invariant_within_each_window(
                         f"({det_main}) but T={rows} differs on {differing} elements"
                     )
             claims += int(claimed)
-            det_note = f"det_claimed={claimed} det_differing={'/'.join(map(str, matches))}"
+            det_note = (
+                f"det_claimed={claimed} det_differing={'/'.join(map(str, matches))}"
+            )
         lines.append(
             f"XT_DX {_arch()} {loader.route_key(hidden, 'bwd', residual, w)} ({above}, {at_most}] "
             f"{form} {library.rsplit('_', 1)[1][:8]} T={first}/{middle}/{last} bitwise=True {det_note}"
@@ -351,7 +392,9 @@ def test_backward_dx_is_token_count_invariant_within_each_window(
 
 
 @pytest.mark.parametrize(("hidden", "residual", "w"), list(_route_params()))
-def test_backward_window_edges_are_classified(hidden: int, residual: bool, w: str) -> None:
+def test_backward_window_edges_are_classified(
+    hidden: int, residual: bool, w: str
+) -> None:
     """Every backward edge ``E``: ``dx`` of ``E`` and ``E + 1`` rows on the first
     ``E`` rows, classified ``same`` / ``ulp`` / ``dx``; the class of
     ``cake_windows.EDGES`` holds where it is measured; the measured class of an
@@ -424,10 +467,14 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
 ) -> None:
     """Per forward window: ``y`` / ``rstd`` (and ``h_new``) of the first ``T``
     rows are the same bits at both ends and the middle; per edge: the class
-    (``same`` / ``ulp`` / ``y``) holds against ``cake_windows.EDGES``."""
+    (``same`` / ``ulp`` / beyond: ``y<k>/rstd<m>``) holds against
+    ``cake_windows.EDGES`` (``ulp``: ``FWD_EDGE_Y_ULPS`` BF16 ulps of ``y``,
+    ``FWD_EDGE_RSTD_ULPS`` FP32 ulps of ``rstd``, as the package notes state)."""
     _skip_unless_route(hidden, residual, w, "fwd")
     route_windows = ref.windows(loader, _arch(), hidden, "fwd", residual, w)
-    largest = max(_window_tokens(above, at_most)[2] for above, at_most, _ in route_windows)
+    largest = max(
+        _window_tokens(above, at_most)[2] for above, at_most, _ in route_windows
+    )
     calls = _Forward(hidden, residual, w, largest + 1)
     key = loader.route_key(hidden, "fwd", residual, w)
     lines = []
@@ -442,7 +489,9 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
                 f"{y_diff} ({y_ulps} ulps), rstd on {r_diff} ({r_ulps} ulps)"
             )
             if residual:
-                assert torch.equal(got[2], reference[2][:rows]), f"{key}: h_new T={rows}"
+                assert torch.equal(got[2], reference[2][:rows]), (
+                    f"{key}: h_new T={rows}"
+                )
         lines.append(
             f"XT_FWD {_arch()} {key} ({above}, {at_most}] {library.rsplit('_', 1)[1][:8]} "
             f"T={first}/{middle}/{last} bitwise=True"
@@ -455,12 +504,12 @@ def test_forward_is_token_count_invariant_within_windows_and_edges_are_classifie
         y_diff, y_ulps, r_diff, r_ulps = _forward_difference(
             calls.out(at_most), calls.out(at_most + 1), at_most
         )
-        y_class = _classify(y_diff, y_ulps, "y")
-        r_class = _classify(r_diff, r_ulps, "y")
-        measured = max((y_class, r_class), key=["same", "ulp", "y"].index)
+        measured = _forward_class(y_diff, y_ulps, r_diff, r_ulps)
         entry = listed.get(at_most)
         if not _consistent(entry, measured):
-            contradictions.append((at_most, entry, measured, y_diff, y_ulps, r_diff, r_ulps))
+            contradictions.append(
+                (at_most, entry, measured, y_diff, y_ulps, r_diff, r_ulps)
+            )
         lines.append(
             f"EDGE_FWD {_arch()} {key} edge={at_most} listed={entry} measured={measured} "
             f"y_differing={y_diff} y_max_ulps={y_ulps} rstd_differing={r_diff} rstd_max_ulps={r_ulps}"
