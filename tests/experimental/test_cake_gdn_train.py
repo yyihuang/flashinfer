@@ -1621,7 +1621,10 @@ def test_torch_deterministic_algorithms_do_not_alert_the_forward_entries() -> No
     # the forward entries run fixed-order programs: under PyTorch's deterministic algorithms (an alert as an error,
     # a warning as an error) each proceeds to its operand checks, which refuse the host operands here
     for warn_only in (False, True):
-        with _deterministic_algorithms(True, warn_only=warn_only), warnings.catch_warnings():
+        with (
+            _deterministic_algorithms(True, warn_only=warn_only),
+            warnings.catch_warnings(),
+        ):
             warnings.simplefilter("error")
             for name, call in _entry_calls(deterministic=False).items():
                 if name == "gdn_chunk_backward":
@@ -1684,16 +1687,28 @@ ALERT_CASES = (
 )
 
 
-@pytest.mark.parametrize("heads, pins, alerts", ALERT_CASES, ids=["g2", "g3", "g4", "g1", "g2-tail-g2", "g3-unfused"])
-def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(heads, pins, alerts, device) -> None:
+@pytest.mark.parametrize(
+    "heads, pins, alerts",
+    ALERT_CASES,
+    ids=["g2", "g3", "g4", "g1", "g2-tail-g2", "g3-unfused"],
+)
+def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(
+    heads, pins, alerts, device
+) -> None:
     seq_lens = (300, 77)
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=251)
-    assert cake_chain.tail_alerts(cake_chain.tail_form(*heads, pins.get("tail")), *heads) is alerts
+    assert (
+        cake_chain.tail_alerts(cake_chain.tail_form(*heads, pins.get("tail")), *heads)
+        is alerts
+    )
     want = _run(inputs, seq_lens, **pins)
     cu = _cu(seq_lens)
     cu_seqlens = torch.tensor(cu, dtype=torch.int64, device=device)
     cu_seqlens_cpu = torch.tensor(cu, dtype=torch.int64)
-    leaves = {n: inputs[n].detach().clone().requires_grad_(True) for n in ("q", "k", "v", "g", "beta")}
+    leaves = {
+        n: inputs[n].detach().clone().requires_grad_(True)
+        for n in ("q", "k", "v", "g", "beta")
+    }
     # the autograd route: the forward runs without an alert; the backward alerts before its first launch
     with _deterministic_algorithms(True):
         o, _ = chunk_gated_delta_rule_nd(leaves["q"], leaves["k"], leaves["v"], leaves["g"], leaves["beta"],
@@ -1701,7 +1716,9 @@ def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(heads,
                                          cu_seqlens_cpu=cu_seqlens_cpu, use_qk_l2norm_in_kernel=True, **pins)  # fmt: skip
         loss = (o.float() * inputs["do"].float()).sum()
         if alerts:
-            with pytest.raises(RuntimeError, match=f"ChunkGatedDeltaRuleFunction.backward {_ALERT}"):
+            with pytest.raises(
+                RuntimeError, match=f"ChunkGatedDeltaRuleFunction.backward {_ALERT}"
+            ):
                 loss.backward()
         else:
             loss.backward()
@@ -1709,7 +1726,9 @@ def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(heads,
     index = cake_chain._device_index(device)
     arch = cake_backend.device_arch(index)
     options = cake_chain.make_options(**pins)
-    plans = cake_chain.scan_plans(sum(seq_lens), len(seq_lens), heads[1], index, seq_lens)
+    plans = cake_chain.scan_plans(
+        sum(seq_lens), len(seq_lens), heads[1], index, seq_lens
+    )
     meta = cake_chain.build_chunk_meta(seq_lens, device, scan_plans=plans)
     q, k, v, g, beta, do = (inputs[n] for n in ("q", "k", "v", "g", "beta", "do"))
     with _deterministic_algorithms(True):
@@ -1727,8 +1746,16 @@ def test_torch_deterministic_algorithms_alert_the_unordered_backward_only(heads,
     ):
         warnings.simplefilter("always")
         got = _run(inputs, seq_lens, **pins)
-    callers = [str(w.message).split(f" {_ALERT}")[0] for w in caught if _ALERT in str(w.message)]
-    ours = [c for c in callers if c.startswith(("ChunkGatedDeltaRuleFunction", "gdn_chunk", "chunk_gated"))]
+    callers = [
+        str(w.message).split(f" {_ALERT}")[0]
+        for w in caught
+        if _ALERT in str(w.message)
+    ]
+    ours = [
+        c
+        for c in callers
+        if c.startswith(("ChunkGatedDeltaRuleFunction", "gdn_chunk", "chunk_gated"))
+    ]
     assert ours == (["ChunkGatedDeltaRuleFunction.backward"] if alerts else []), callers
     _assert_within_budget(got, want, OUTPUT_NAMES)
 
@@ -1755,7 +1782,15 @@ def test_launches_are_this_packages_records(device, monkeypatch) -> None:
 
 
 TAIL_STAGES = ("tail", "tail_bf16")
-DET_TAIL_STAGES = ("tail_g2", "tail_g2_bf16", "dqkwg", "wy_bwd", "wy_bwd_bf16", "finalize", "finalize_mlp")
+DET_TAIL_STAGES = (
+    "tail_g2",
+    "tail_g2_bf16",
+    "dqkwg",
+    "wy_bwd",
+    "wy_bwd_bf16",
+    "finalize",
+    "finalize_mlp",
+)
 TAIL_LAYOUT = (300, 77, 640)  # 5 + 2 + 10 chunks
 
 
@@ -1786,7 +1821,10 @@ def _record_tail_launches(monkeypatch, device) -> list[tuple[str, tuple]]:
             ws, count = values[names.index("ws")], values[names.index("ws_count")]
             torch.cuda.synchronize()
             assert _bits_zero(ws) and _bits_zero(count), (stage, grid)
-            assert ws.shape[1:] == (cake_chain.TAIL_TILE_FLOATS,) and count.dtype == torch.uint32
+            assert (
+                ws.shape[1:] == (cake_chain.TAIL_TILE_FLOATS,)
+                and count.dtype == torch.uint32
+            )
             assert values[names.index("ws_tiles")] <= ws.shape[0] == count.shape[0]
         return out
 
@@ -1798,9 +1836,17 @@ def _num_chunks(seq_lens) -> int:
     return sum(-(-n // cake_chain.CHUNK) for n in seq_lens)
 
 
-@pytest.mark.parametrize("beta_dtype", [torch.float32, torch.bfloat16], ids=["fp32beta", "bf16beta"])
-@pytest.mark.parametrize("heads", [(2, 2), (2, 4), (2, 6), (1, 4), (4, 8)], ids=["g1", "g2", "g3", "g4", "h4-g2"])
-def test_the_tail_serves_every_group_and_leaves_its_workspace_zero(heads, beta_dtype, device, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "beta_dtype", [torch.float32, torch.bfloat16], ids=["fp32beta", "bf16beta"]
+)
+@pytest.mark.parametrize(
+    "heads",
+    [(2, 2), (2, 4), (2, 6), (1, 4), (4, 8)],
+    ids=["g1", "g2", "g3", "g4", "h4-g2"],
+)
+def test_the_tail_serves_every_group_and_leaves_its_workspace_zero(
+    heads, beta_dtype, device, monkeypatch
+) -> None:
     seq_lens = TAIL_LAYOUT
     inputs = _inputs(seq_lens, heads, beta_dtype, device, seed=271)
     launches = _record_tail_launches(monkeypatch, device)
@@ -1827,7 +1873,9 @@ def test_segmented_tail_launches_match_one_launch(tiles, device, monkeypatch) ->
     got = _run(inputs, seq_lens)
     ranges, ws_tiles = cake_chain.tail_segments(_num_chunks(seq_lens), *heads)
     assert ws_tiles == max(1, tiles // heads[0]) * heads[0] and len(ranges) > 1
-    assert [grid for stage, grid in launches if stage == "tail"] == [((b - a) * heads[1], 1, 1) for a, b in ranges]
+    assert [grid for stage, grid in launches if stage == "tail_bf16"] == [
+        ((b - a) * heads[1], 1, 1) for a, b in ranges
+    ]
     for name in ("o", "dv", "dg", "dbeta"):
         assert torch.equal(got[name], whole[name]), name
     _assert_within_budget(got, whole, ("dq", "dk"))
@@ -1840,19 +1888,35 @@ def test_tail_segments_rule() -> None:
     assert rule(17, 2, 2) == (((0, 17),), 0)  # a group of one: one launch, no workspace
     assert rule(17, 2, 4, tiles=1024) == (((0, 17),), 34)
     assert rule(17, 2, 6, tiles=10) == (((0, 5), (5, 10), (10, 15), (15, 17)), 10)
-    assert rule(3, 16, 48, tiles=8) == (((0, 1), (1, 2), (2, 3)), 16)  # at least one chunk per launch
+    assert rule(3, 16, 48, tiles=8) == (
+        ((0, 1), (1, 2), (2, 3)),
+        16,
+    )  # at least one chunk per launch
     assert rule(0, 2, 4) == ((), 0)
     assert cake_chain.tail_form(2, 4) == "tail" and cake_chain.tail_form(2, 2) == "tail"
-    assert cake_chain.tail_form(2, 4, "tail_g2") == "tail_g2" and cake_chain.tail_form(2, 6, "unfused") == "unfused"
-    with pytest.raises(ValueError, match="tail_g2 form serves a value-head group of two"):
+    assert (
+        cake_chain.tail_form(2, 4, "tail_g2") == "tail_g2"
+        and cake_chain.tail_form(2, 6, "unfused") == "unfused"
+    )
+    with pytest.raises(
+        ValueError, match="tail_g2 form serves a value-head group of two"
+    ):
         cake_chain.tail_form(2, 6, "tail_g2")
     with pytest.raises(ValueError, match="tail must be one of"):
         cake_chain.make_options(tail="tail_g3")
-    assert [cake_chain.tail_alerts("tail", 2, hv) for hv in (2, 4, 6)] == [False, True, True]
-    assert not cake_chain.tail_alerts("tail_g2", 2, 4) and not cake_chain.tail_alerts("unfused", 2, 6)
+    assert [cake_chain.tail_alerts("tail", 2, hv) for hv in (2, 4, 6)] == [
+        False,
+        True,
+        True,
+    ]
+    assert not cake_chain.tail_alerts("tail_g2", 2, 4) and not cake_chain.tail_alerts(
+        "unfused", 2, 6
+    )
 
 
-@pytest.mark.parametrize("heads", [(2, 4), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3", "g1", "g4"])
+@pytest.mark.parametrize(
+    "heads", [(2, 4), (2, 6), (2, 2), (1, 4)], ids=["g2", "g3", "g1", "g4"]
+)
 def test_the_tail_keeps_the_deterministic_bits_but_dq_dk(heads, device) -> None:
     # o, dv, dg and dbeta have one writer each: the same bits as the deterministic package and as this package's
     # fixed-order tails; dq / dk round once after the FP32 group sum, within the budgets of both
@@ -1873,20 +1937,29 @@ def test_the_tail_keeps_the_deterministic_bits_but_dq_dk(heads, device) -> None:
 
 @pytest.mark.parametrize("poison", ["counter", "workspace"])
 def test_a_poisoned_tail_workspace_breaks_dq_dk(poison, device) -> None:
-    # protocol control: the tail relies on zero counters and a zero workspace (created zero, left zero); with either
-    # poisoned, dq / dk leave the budgets while the single-writer outputs keep their bits
+    # protocol control: the tail relies on zero counters and a zero workspace (created zero, left zero).  Counters
+    # left at G: no CTA of a group reads G - 1, so no group finalizes (its dq / dk rows keep the NaN of the poisoned
+    # allocator) and the counters stay nonzero.  A workspace left nonzero: the last CTA adds it into dq / dk.  Either
+    # way dq / dk leave the budgets while the single-writer outputs keep their bits.
     seq_lens, heads = TAIL_LAYOUT, (2, 4)
     inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=283)
     cake_chain._POOLED.zeroed.clear()
     try:
         good = _run(inputs, seq_lens, streams=1)
-        key = (cake_chain._device_index(device), torch.cuda.current_stream(device).cuda_stream)
+        key = (
+            cake_chain._device_index(device),
+            torch.cuda.current_stream(device).cuda_stream,
+        )
         buffers = cake_chain._POOLED.zeroed[key]
         if poison == "counter":
-            buffers["tail_count"].view(torch.int32).fill_(1)
+            buffers["tail_count"].view(torch.int32).fill_(heads[1] // heads[0])
         else:
-            buffers["tail_ws"].fill_(1.0)
+            buffers["tail_ws"].fill_(64.0)
+        _poison_workspaces(device)
         bad = _run(inputs, seq_lens, streams=1)
+        if poison == "counter":
+            torch.cuda.synchronize()
+            assert not _bits_zero(buffers["tail_count"])  # the check after every launch would catch it
         with pytest.raises(AssertionError):
             _assert_within_budget(bad, good, ("dq", "dk"))
         for name in ("o", "dv", "dg", "dbeta"):
@@ -1923,7 +1996,12 @@ def test_matches_the_deterministic_package(case, device) -> None:
     inputs = _inputs(seq_lens, heads, beta_dtype, device, normalized_qk=not l2norm)
     det_pins = {name: value for name, value in pins.items() if name != "tail"}
     det = _run(
-        inputs, seq_lens, route=route, use_qk_l2norm_in_kernel=l2norm, det=True, **det_pins
+        inputs,
+        seq_lens,
+        route=route,
+        use_qk_l2norm_in_kernel=l2norm,
+        det=True,
+        **det_pins,
     )
     got = _run(inputs, seq_lens, route=route, use_qk_l2norm_in_kernel=l2norm, **pins)
     _assert_within_budget(got, det, OUTPUT_NAMES)
@@ -2136,7 +2214,9 @@ def test_concurrent_caller_streams(device) -> None:
     # each caller stream took its own tail workspace (chosen at the launch), and left it zero
     index = cake_chain._device_index(device)
     keys = [(index, stream.cuda_stream) for stream in streams]
-    assert len({cake_chain._POOLED.zeroed[key]["tail_ws"].data_ptr() for key in keys}) == len(keys)
+    assert len(
+        {cake_chain._POOLED.zeroed[key]["tail_ws"].data_ptr() for key in keys}
+    ) == len(keys)
     _assert_tail_workspaces_zero()
 
 
