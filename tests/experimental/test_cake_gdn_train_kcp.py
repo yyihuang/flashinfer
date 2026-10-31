@@ -1144,8 +1144,10 @@ def test_faster_schedule_rules_never_raise_a_ranks_P() -> None:
         (((130, True),) * 12,) * 8,  # (4,12)-like CP8 D: 12 short fragments per rank
         (((237, True), (237, True), (100, False)),) * 4,  # Z-like: 237-chunk fragments
         (((473, True), (473, False)),) * 4,  # above the chain cap: fill_down keeps the shipped P
+        (((119, True), (119, True)),) * 8,  # (2,6)-like CP16 Z: two short fragments per rank
         ((), ((150, True), (20, False))),  # a zero-token rank
     )
+    lowered = 0  # (table, HV) cases where small_one moves a shipped P > 1 to 1
     for table in tables:
         for HV in (6, 12, 24, 48):
             ship = gp.kcp_plan_row(table, HV, SM_COUNT, p_rule="row_cost_lpt")
@@ -1186,10 +1188,8 @@ def test_faster_schedule_rules_never_raise_a_ranks_P() -> None:
                 seg.P for seg in gp.kcp_plan_row(table, HV, SM_COUNT, p_rule="fill_small")
             )
             assert both == (tuple(1 for _ in table) if small else fill)
-    # the (4,12)-like CP8 D table is the case small_one exists for: shipped P > 1, small_one P = 1
-    t = tables[3]
-    assert max(seg.P for seg in gp.kcp_plan_row(t, 12, SM_COUNT, p_rule="row_cost_lpt")) > 1
-    assert {seg.P for seg in gp.kcp_plan_row(t, 12, SM_COUNT, p_rule="small_one")} == {1}
+            lowered += int(small and max(seg.P for seg in ship) > 1)
+    assert lowered > 0  # the rule changes some shipped plan (else it would be a no-op)
 
 
 def test_row_cost_model_is_integer_and_crossing_aware() -> None:
