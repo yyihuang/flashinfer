@@ -805,7 +805,9 @@ class _Fla:
         )
         return out[0]
 
-    def frost(self, q, k, v, g, beta, cu_seqlens: torch.Tensor, ck: int) -> torch.Tensor:
+    def frost(
+        self, q, k, v, g, beta, cu_seqlens: torch.Tensor, ck: int
+    ) -> torch.Tensor:
         self.calls["frost"] += 1
         out = self._frost(
             q,
