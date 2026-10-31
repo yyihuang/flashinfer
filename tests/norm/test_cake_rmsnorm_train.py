@@ -384,17 +384,22 @@ def _assert_dw(dw, dw_ref, g, x, rstd, label: str, form: str) -> tuple[float, fl
     diff = (dw.double() - dw_ref).abs()
     tolerance = DW_ATOL + DW_RTOL * dw_ref.abs()
     bad = diff > tolerance
-    if bool(bad.any()):
-        at = int((diff / tolerance).argmax())
-        raise AssertionError(
-            f"{label}: {int(bad.sum())} dw elements outside atol=rtol=1e-4 "
-            f"(worst column {at}: {float(dw[at]):.9g} vs {float(dw_ref[at]):.9g})"
-        )
     hidden = x.shape[-1]
     eager_fp32 = (
         (g.float() * x.float() * rstd.float().unsqueeze(-1)).reshape(-1, hidden).sum(0)
     )
     eager = _rel_l2(eager_fp32, dw_ref)
+    if bool(bad.any()):
+        at = int((diff / tolerance).argmax())
+        eager_ratio = (eager_fp32.double() - dw_ref).abs() / tolerance
+        raise AssertionError(
+            f"{label} ({form}): {int(bad.sum())} dw elements outside atol=rtol=1e-4 "
+            f"(worst column {at}: {float(dw[at]):.9g} vs {float(dw_ref[at]):.9g}, "
+            f"error/tolerance {float(diff[at] / tolerance[at]):.3f}); eager FP32 on the same "
+            f"inputs: {int((eager_ratio > 1).sum())} elements outside, worst error/tolerance "
+            f"{float(eager_ratio.max()):.3f}, column {at} {float(eager_ratio[at]):.3f}; "
+            f"rel-L2 {error:.3e} vs eager {eager:.3e}"
+        )
     if form == "single":
         assert error <= max(eager, DW_EAGER_FLOOR), (
             f"{label}: single-kernel dw rel-L2 {error:.3e} > eager FP32 {eager:.3e} "
