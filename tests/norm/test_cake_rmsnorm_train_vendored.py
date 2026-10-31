@@ -406,7 +406,7 @@ def _run_suites(root: Path, packages: dict, suites, work: Path, label: str):
     proc = _child(script, paths, cwd=REPO_ROOT, timeout=SUITE_TIMEOUT_S)
     (work / f"{label}.log").write_text(proc.stdout + proc.stderr)
     counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
-    failing, skips = [], {}
+    failing, skips, messages = [], {}, {}
     if junit.exists():
         root_el = ET.parse(junit).getroot()
         for suite in (
@@ -417,7 +417,12 @@ def _run_suites(root: Path, packages: dict, suites, work: Path, label: str):
             for case in suite.iter("testcase"):
                 kids = {c.tag: c for c in case}
                 if "failure" in kids or "error" in kids:
-                    failing.append(f"{case.get('classname')}::{case.get('name')}")
+                    name = f"{case.get('classname')}::{case.get('name')}"
+                    failing.append(name)
+                    bad = kids.get("failure", kids.get("error"))
+                    messages[name] = " ".join(
+                        (bad.get("message") or bad.text or "").split()
+                    )[:300]
                 if "skipped" in kids:
                     msg = kids["skipped"].get("message", "")[:120]
                     skips[msg] = skips.get(msg, 0) + 1
@@ -429,8 +434,8 @@ def _run_suites(root: Path, packages: dict, suites, work: Path, label: str):
     )
     for msg, n in sorted(skips.items(), key=lambda kv: -kv[1])[:10]:
         print(f"VENDORED skip {label} {n} x {msg}")
-    for name in failing[:20]:
-        print(f"VENDORED fail {label} {name}")
+    for name in failing[:40]:
+        print(f"VENDORED fail {label} {name} :: {messages.get(name, '')}")
     return proc.returncode, counts, failing, proc
 
 
