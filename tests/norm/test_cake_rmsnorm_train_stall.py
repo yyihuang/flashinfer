@@ -124,9 +124,7 @@ def warmup_jit():
 
 
 def _skip_unless_route(hidden: int, residual: bool) -> None:
-    if not pkg.is_cake_rmsnorm_train_supported(
-        _device(), hidden, deterministic=False
-    ):
+    if not pkg.is_cake_rmsnorm_train_supported(_device(), hidden, deterministic=False):
         pytest.skip(f"hidden={hidden} has no exported route on this device")
     if residual and not loader.route_applies(
         device_capability=_capability(), hidden=hidden, kind="bwd", residual=True
@@ -220,7 +218,9 @@ def test_backward_keeps_its_speed_beside_a_resident_kernel(
     dx_ref, dw_ref = alone[0][1]
     assert torch.isfinite(dw_ref).all()
     for _t, (dx, dw) in alone[1:] + busy:
-        assert torch.equal(dx, dx_ref), f"hidden={hidden} rows={rows}: dx differs across calls"
+        assert torch.equal(dx, dx_ref), (
+            f"hidden={hidden} rows={rows}: dx differs across calls"
+        )
         assert _rel_l2(dw, dw_ref) <= DW_REL_L2, (
             f"hidden={hidden} rows={rows}: dw rel-L2 {_rel_l2(dw, dw_ref):.3e} across calls"
         )
@@ -265,11 +265,15 @@ def test_outputs_do_not_depend_on_the_launch_grid(
         monkeypatch.setattr(loader, "launch_grid", at(divisor))
         dx, dw = _backward(x, w, g, g_h, rstd, workspace)
         torch.cuda.synchronize()
-        assert torch.equal(dx, dx_ref), f"hidden={hidden} rows={rows}: dx changed at grid / {divisor}"
+        assert torch.equal(dx, dx_ref), (
+            f"hidden={hidden} rows={rows}: dx changed at grid / {divisor}"
+        )
         assert _rel_l2(dw, dw_ref) <= DW_REL_L2, (
             f"hidden={hidden} rows={rows}: dw moved at grid / {divisor}"
         )
-        assert _workspace_is_zero(workspace), f"workspace not back to zero at grid / {divisor}"
+        assert _workspace_is_zero(workspace), (
+            f"workspace not back to zero at grid / {divisor}"
+        )
     monkeypatch.setattr(loader, "launch_grid", production)
 
 
