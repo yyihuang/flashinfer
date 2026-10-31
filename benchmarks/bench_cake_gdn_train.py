@@ -61,10 +61,10 @@ net memory the package keeps after its first call on the shape (pooled workspace
 during forward + backward (the input gradients included); ``ckpt-retained`` / ``ckpt-peak-temp`` the same for the
 checkpointed forward.
 
-Shapes (``--shapes``: comma-separated set names ``rows``, ``packs``, ``pairs`` or shape ids; ``--list`` prints the
-ids): ``rows`` are H = 8 / 16 packs of about 4k-token documents (and of one 16k document), ``packs`` H = 2 packs
-of up to 262k tokens and one H = 16 pack, ``pairs`` the five head pairs ``(H, HV)`` on the layout
-``(11000, 12000, 9768)``.
+Shapes (``--shapes``: comma-separated set names ``rows``, ``packs``, ``pairs``, ``groups`` or shape ids; ``--list``
+prints the ids): ``rows`` are H = 8 / 16 packs of about 4k-token documents (and of one 16k document), ``packs`` H = 2
+packs of up to 262k tokens and one H = 16 pack, ``pairs`` the five head pairs ``(H, HV)`` on the layout
+``(11000, 12000, 9768)``, ``groups`` value-head groups of one, three and four on 4k-token documents.
 
 Example::
 
@@ -150,8 +150,19 @@ PAIRS: dict[str, tuple[int, int, tuple[int, ...]]] = {
     "pair_h1_hv3": (1, 3, (11000, 12000, 9768)),
 }
 
-SETS = {"rows": ROWS, "packs": PACKS, "pairs": PAIRS}
-SHAPES = {**ROWS, **PACKS, **PAIRS}
+# Value-head groups beside the rows' two and the packs' three, and the three of one key head: the classes of the
+# backward-tail dispatch rule.
+GROUPS: dict[str, tuple[int, int, tuple[int, ...]]] = {
+    "g1_4x4096_h16": (16, 16, (4096,) * 4),
+    "g1_16x4096_h8": (8, 8, (4096,) * 16),
+    "g3_4x4096_h8": (8, 24, (4096,) * 4),
+    "g3_16x4096_h1": (1, 3, (4096,) * 16),
+    "g4_4x4096_h4": (4, 16, (4096,) * 4),
+    "g4_16x4096_h4": (4, 16, (4096,) * 16),
+}
+
+SETS = {"rows": ROWS, "packs": PACKS, "pairs": PAIRS, "groups": GROUPS}
+SHAPES = {**ROWS, **PACKS, **PAIRS, **GROUPS}
 
 
 def parse_shapes(text: str) -> list[str]:
