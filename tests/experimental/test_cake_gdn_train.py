@@ -2217,7 +2217,7 @@ def test_group_of_three_tail_matches_the_unfused_tail(
 
 
 # the tc-priced adjoint table (TC_PLAN): (row, seq_lens, HV, the architectures that replace the planner's table
-# there: B200 148 SMs, GB300 152 SMs; measured faster where replaced, (1, 3) a tie on B200 below the saving floor)
+# there: B200 148 SMs, GB300 152 SMs; measured faster where replaced)
 _TC_BOTH = ("sm_100a", "sm_103a")
 TC_PLAN_ROWS = (
     ("r01", (4096,) * 4, 16, _TC_BOTH),
@@ -2232,7 +2232,7 @@ TC_PLAN_ROWS = (
     ("P1", (126565, 32714, 33696, 15081, 22979, 10782), 6, _TC_BOTH),
     ("A16", (11000, 12000, 9768), 48, ()),
     ("64x4096", (4096,) * 64, 6, ()),
-    ("h1_hv3", (11000, 12000, 9768), 3, ()),
+    ("h1_hv3", (11000, 12000, 9768), 3, ("sm_100a",)),
 )
 
 
