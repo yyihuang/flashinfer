@@ -608,6 +608,48 @@ def test_minimax_h3_sm120_varlen_attention_nvfp4_light_overlap_widths_are_bitwis
         assert torch.equal(out, sequential)
 
 
+# A plan below the fused pre-processing (empty segments included) and a longer plan of the same stream.
+SMALL_CU_SEQLENS = (0, 0, 129, 129, 500)
+LONG_CU_SEQLENS = (0, 6000)
+
+
+@requires_sm120
+@pytest.mark.parametrize("delta", [True, False])
+def test_minimax_h3_sm120_varlen_attention_nvfp4_small_plan_takes_its_own_buffers(
+    delta, monkeypatch
+) -> None:
+    """After a longer plan grew the stream's main buffers, a plan below the fused pre-processing runs on
+    the stream's small set (``small_`` buffers), not on leading slices of the main buffers, and its output
+    is bit for bit the output of the same launches on the main buffers."""
+    device = torch.device("cuda:0")
+    monkeypatch.setattr(nvfp4_ops, "_NVFP4_LAUNCHES", OrderedDict())
+    fn = _route(delta)
+    q, k, v = synthetic_inputs(
+        LONG_CU_SEQLENS[-1], MINIMAX_H3_NUM_HEADS, seed=51, device=device
+    )
+    cu = torch.tensor(LONG_CU_SEQLENS, dtype=torch.int32, device=device)
+    fn(q, k, v, cu, cu_seqlens_host=LONG_CU_SEQLENS)
+    q, k, v = synthetic_inputs(
+        SMALL_CU_SEQLENS[-1], MINIMAX_H3_NUM_HEADS, seed=52, device=device
+    )
+    cu = torch.tensor(SMALL_CU_SEQLENS, dtype=torch.int32, device=device)
+    small = fn(q, k, v, cu, cu_seqlens_host=SMALL_CU_SEQLENS)
+    torch.cuda.synchronize()
+    owner = nvfp4_ops._owner(device.index, nvfp4_ops._current_stream(device.index))
+    plan = nvfp4_ops._plan(SMALL_CU_SEQLENS, MINIMAX_H3_NUM_HEADS, device)
+    prefix = nvfp4_ops._nvfp4_set(plan)
+    assert prefix == nvfp4_ops._SMALL_SET
+    buffers = quant_ops._WORKSPACES[owner]
+    assert buffers[prefix + "q4"].numel() < buffers["q4"].numel()
+    cached_buffers, _launches = nvfp4_ops._NVFP4_LAUNCHES[owner][prefix]
+    assert cached_buffers[0] is buffers[prefix + "q4"]
+    # the same launches on the main buffers
+    monkeypatch.setattr(nvfp4_ops, "_SMALL_SET", "")
+    main = fn(q, k, v, cu, cu_seqlens_host=SMALL_CU_SEQLENS)
+    torch.cuda.synchronize()
+    assert torch.equal(small, main)
+
+
 # The plan of the graph, host-thread and serialized-launch tests: the fused pre-processing (the overlapped form
 # on 170 and 188 SMs).
 FUSED_CU_SEQLENS = (0, 1100, 2100)
