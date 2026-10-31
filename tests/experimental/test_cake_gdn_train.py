@@ -1236,6 +1236,113 @@ def test_two_streams_under_cuda_graph_capture(device, monkeypatch) -> None:
     assert len(launches) == len(captured)  # replays launch nothing from the host
 
 
+# The staggered form (cake_chain.STAGGER): a one-round serial adjoint table (4 sequences x HV = 24 or 16 CTAs on 32
+# pretended SMs, no two-stream groups) of unequal sequences (16, 10, 5 and 2 chunks), whose classes with the rule's
+# floors lowered are 16 | 10 | 5, 2 chunks: three scans and three cluster tails, two classes on side streams.
+STAGGER_LAYOUT = (1000, 640, 300, 77)
+
+
+def _stagger_rule(monkeypatch, on: bool = True) -> None:
+    monkeypatch.setattr(cake_chain, "STAGGER", on)
+    monkeypatch.setattr(cake_chain, "STAGGER_MIN_GAP", 3)
+    monkeypatch.setattr(cake_chain, "STAGGER_MIN_SAVING", 0.0)
+    monkeypatch.setattr(cake_chain, "STAGGER_MIN_TILES", 0)
+
+
+def test_stagger_classes_rule() -> None:
+    classes = cake_chain._stagger_classes
+    # (16, 48) (11000, 12000, 9768) longest first on B200 / GB300: three classes, about 40 us filled
+    for sm_count in (148, 152):
+        assert classes((188, 172, 153), 48, sm_count, 8, 3, 2.4, 10.0, 20.0, 8192) == ((0, 1), (1, 2), (2, 3))
+    # (1, 3): below the tile floor; one class; two rounds; not longest first; the last class takes the rest
+    assert classes((188, 172, 153), 3, 148, 8, 3, 2.4, 10.0, 20.0, 8192) is None
+    assert classes((172, 172, 172), 48, 148, 8, 3, 2.4, 10.0, 0.0, 0) is None
+    assert classes((64,) * 64, 6, 148, 8, 3, 2.4, 10.0, 0.0, 0) is None
+    assert classes((153, 188), 48, 148, 8, 3, 2.4, 10.0, 0.0, 0) is None
+    assert classes((16, 10, 5, 2), 6, 32, 3, 3, 2.4, 10.0, 0.0, 0) == ((0, 1), (1, 2), (2, 4))
+    assert classes((16, 10, 5, 2), 6, 32, 3, 2, 2.4, 10.0, 0.0, 0) == ((0, 1), (1, 4))
+    # the estimate: below the saving floor, and capped by the shorter classes' tail work
+    assert classes((188, 172, 153), 48, 148, 8, 3, 2.4, 10.0, 60.0, 0) is None
+    assert classes((188, 172, 153), 48, 148, 8, 3, 2.4, 0.005, 1.0, 0) is None
+
+
+@pytest.mark.parametrize("heads", [(2, 6), (2, 4)], ids=["g3", "g2"])
+def test_staggered_form_matches_one_launch(heads, device, monkeypatch) -> None:
+    seq_lens = STAGGER_LAYOUT
+    _small_device(monkeypatch, device, 32)
+    _stagger_rule(monkeypatch)
+    inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=89)
+    gen = torch.Generator().manual_seed(97)
+    h0 = (0.1 * torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen)).to(device)
+    dht = torch.randn(len(seq_lens), heads[1], HEAD_DIM, HEAD_DIM, generator=gen).to(device)
+    tail = "tail_g3" if heads[1] == 3 * heads[0] else "tail_g2"
+    main = torch.cuda.current_stream(device).cuda_stream
+    launches = _record_streams(monkeypatch)
+    names = OUTPUT_NAMES + ("final_state", "dh0")
+    runs = []
+    for on in (True, False, True):
+        monkeypatch.setattr(cake_chain, "STAGGER", on)
+        start = len(launches)
+        runs.append(_run(inputs, seq_lens, initial_state=h0, output_final_state=True, dht=dht, **STREAM_PINS))
+        bwd = [(stage, stream) for stage, stream in launches[start:] if stage.startswith(("dhu", "tail"))]
+        if on:
+            assert [stage for stage, _ in bwd] == ["dhu_tc2"] * 3 + [tail] * 3, bwd
+            assert sum(stream != main for _, stream in bwd) == 4, bwd
+            assert len({stream for _, stream in bwd}) == 3, bwd
+        else:
+            assert bwd == [("dhu_tc2", main), (tail, main)], bwd
+    # the same programs on the same rows: the same bits
+    for name in names:
+        assert torch.equal(runs[0][name], runs[1][name]), name
+        assert torch.equal(runs[0][name], runs[2][name]), name
+    ref = _reference(inputs, seq_lens, initial_state=h0, dht=dht)
+    _assert_close_to_reference(runs[0], ref, names)
+
+
+def test_staggered_form_under_cuda_graph_capture(device, monkeypatch) -> None:
+    seq_lens, heads = STAGGER_LAYOUT, (2, 6)
+    _small_device(monkeypatch, device, 32)
+    _stagger_rule(monkeypatch, on=False)
+    inputs = _inputs(seq_lens, heads, torch.bfloat16, device, seed=101)
+    eager = _run(inputs, seq_lens, **STREAM_PINS)
+    monkeypatch.setattr(cake_chain, "STAGGER", True)
+    leaves = {name: inputs[name].detach().clone().requires_grad_(True) for name in ("q", "k", "v", "g", "beta")}
+    cu = _cu(seq_lens)
+    cu_seqlens = torch.tensor(cu, dtype=torch.int64, device=device)
+    cu_seqlens_cpu = torch.tensor(cu, dtype=torch.int64)
+
+    def step():
+        for leaf in leaves.values():
+            leaf.grad = None
+        o, _ = chunk_gated_delta_rule_nd(leaves["q"], leaves["k"], leaves["v"], leaves["g"], leaves["beta"],
+                                      scale=1.0 / math.sqrt(HEAD_DIM), cu_seqlens=cu_seqlens,
+                                      cu_seqlens_cpu=cu_seqlens_cpu, use_qk_l2norm_in_kernel=True,
+                                      **STREAM_PINS)  # fmt: skip
+        (o.float() * inputs["do"].float()).sum().backward()
+        return o
+
+    warmup = torch.cuda.Stream(device=device)
+    warmup.wait_stream(torch.cuda.current_stream(device))
+    with torch.cuda.stream(warmup):
+        for _ in range(2):
+            step()
+    torch.cuda.current_stream(device).wait_stream(warmup)
+    launches = _record_streams(monkeypatch)
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        o = step()
+    captured = list(launches)
+    # the capture forked two side streams for the shorter classes' scans and tails
+    assert len({stream for _stage, stream in captured}) == 3, captured
+    for _ in range(2):
+        graph.replay()
+    torch.cuda.synchronize()
+    got = {"o": o, **{"d" + name: leaves[name].grad for name in ("q", "k", "v", "g", "beta")}}
+    for name in OUTPUT_NAMES:
+        assert torch.equal(got[name], eager[name]), name
+    assert len(launches) == len(captured)  # replays launch nothing from the host
+
+
 def test_launches_resolve_once_and_reuse_their_entries(device, monkeypatch) -> None:
     # the first call resolves every stage it launches once; the second resolves nothing and launches the same stages
     # from the cached entries, within the budgets

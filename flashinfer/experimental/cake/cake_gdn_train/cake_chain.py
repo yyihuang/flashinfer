@@ -96,6 +96,13 @@ __all__ = [
     "PRESCAN_CONFIGS",
     "REG_SCAN_CONFIGS",
     "R_FORM_GROUPS",
+    "STAGGER",
+    "STAGGER_MAX_GROUPS",
+    "STAGGER_MIN_GAP",
+    "STAGGER_MIN_SAVING",
+    "STAGGER_MIN_TILES",
+    "STAGGER_STEP_US",
+    "STAGGER_TAIL_SM_US",
     "CLUSTER_TAILS",
     "TAIL_DEFAULT",
     "TAIL_FORMS",
@@ -754,6 +761,22 @@ TAIL_DEFAULT = "tail"
 # The value-head groups whose adjoint dhu_tc2 scan runs as two sequence groups (two streams) feeding the fused tail
 # (the R form) where :func:`sequence_groups` splits it.
 R_FORM_GROUPS: tuple[int, ...] = (2,)
+CLUSTER_TAIL_STAGES = ("tail_g2", "tail_g3")
+# The staggered form of a one-round serial adjoint scan (every sequence's dhu_tc2 CTAs resident at once, sequences of
+# unequal length): the table's sequence-length classes (:func:`stagger_groups`) scan on their own streams and each
+# class's cluster tail follows its scan on that stream, so the tails of the shorter sequences fill the SMs that their
+# finished scan CTAs free while the longer sequences still scan.  The same programs and bits as one launch each.
+# STAGGER_STEP_US prices a dhu_tc2 chunk step (2.35-2.4 us measured on B200 and GB300), STAGGER_TAIL_SM_US a cluster
+# tail CTA (SM-us: tail_g3 at (16, 48), B200), STAGGER_MIN_SAVING is the estimated filled time below which the rule
+# keeps the two launches, and STAGGER_MIN_TILES the (chunk, value head) tiles below which it never engages (the extra
+# launches cost host time, which small backward calls cannot hide).
+STAGGER: bool = False
+STAGGER_MAX_GROUPS = 3
+STAGGER_MIN_GAP = 8
+STAGGER_STEP_US = 2.4
+STAGGER_TAIL_SM_US = 10.0
+STAGGER_MIN_SAVING = 20.0
+STAGGER_MIN_TILES = 8192
 
 
 def tail_min_ctas(arch: str, group: int) -> int:
@@ -1685,7 +1708,76 @@ def sequence_groups(
     return groups[0], groups[1]
 
 
+@lru_cache(maxsize=1024)
+def _stagger_classes(chunks: tuple[int, ...], num_v_heads: int, sm_count: int, min_gap: int, max_groups: int,
+                     step_us: float, tail_sm_us: float, min_saving: float,
+                     min_tiles: int) -> tuple[tuple[int, int], ...] | None:  # fmt: skip
+    """The sequence-length classes of a one-round serial adjoint scan whose table lists the sequences longest first
+    (``chunks``: their chunk counts in table order), as segment ranges ``(s0, s1)``: a class starts where the count is
+    at least ``min_gap`` below its class's first, at most ``max_groups`` classes (the last one takes the rest).
+    ``None`` (one launch each) for one class, for a scan of more than one round, for a table not ordered longest first
+    and when the estimated filled time (``step_us`` per chunk) is below ``min_saving`` us: from the end of each shorter
+    class's scan to the end of the longest one, its CTAs' SMs and the SMs the scan leaves idle run tails, at most the
+    shorter classes' tail work (``tail_sm_us`` per tile).  ``None`` too below ``min_tiles`` (chunk, value head) tiles."""
+    n = len(chunks)
+    if n < 2 or n * num_v_heads > sm_count or sum(chunks) * num_v_heads < min_tiles:
+        return None
+    if any(a < b for a, b in zip(chunks, chunks[1:])):
+        return None
+    starts = [0]
+    for s in range(1, n):
+        if len(starts) < max_groups and chunks[starts[-1]] - chunks[s] >= min_gap:
+            starts.append(s)
+    if len(starts) < 2:
+        return None
+    bounds = [*starts, n]
+    filled = 0.0  # SM-us of tail work that runs beside the longest class's scan
+    for g in range(1, len(starts)):
+        # class g's tail may start when its longest sequence finished; its SMs stay free until the longest class ends
+        filled += (chunks[0] - chunks[starts[g]]) * step_us * (bounds[g + 1] - bounds[g]) * num_v_heads
+    # the SMs the one-round scan leaves idle, from the end of the shortest class (the last one) on
+    filled += (chunks[0] - chunks[starts[-1]]) * step_us * (sm_count - n * num_v_heads)
+    filled = min(filled, sum(chunks[starts[1]:]) * num_v_heads * tail_sm_us)
+    if filled / sm_count < min_saving:
+        return None
+    return tuple((bounds[g], bounds[g + 1]) for g in range(len(starts)))
+
+
+def stagger_groups(meta: ChunkMeta, num_v_heads: int, sm_count: int) -> tuple[tuple[int, int, int, int], ...] | None:
+    """The staggered classes ``(s0, s1, c0, c1)`` (segments and chunk rows) of a host-built table's one-round serial
+    adjoint scan (:func:`_stagger_classes`), longest first; ``None``: one launch each."""
+    segs = meta.bwd_segments
+    if meta.seq_lens is None or segs.num_segments != meta.num_seqs or segs.walk is not None:
+        return None
+    order = meta.order if meta.order is not None else range(meta.num_seqs)
+    chunks = tuple(-(-meta.seq_lens[seq] // CHUNK) for seq in order)
+    classes = _stagger_classes(chunks, int(num_v_heads), int(sm_count), int(STAGGER_MIN_GAP), int(STAGGER_MAX_GROUPS),
+                               float(STAGGER_STEP_US), float(STAGGER_TAIL_SM_US), float(STAGGER_MIN_SAVING),
+                               int(STAGGER_MIN_TILES))  # fmt: skip
+    if classes is None:
+        return None
+    first = [0]
+    for c in chunks:
+        first.append(first[-1] + c)
+    return tuple((s0, s1, first[s0], first[s1]) for s0, s1 in classes)
+
+
 _SIDE_STREAMS: dict[tuple[int, int], torch.cuda.Stream] = {}
+
+
+def _side_streams(device_index: int, main: torch.cuda.Stream, count: int) -> list[torch.cuda.Stream]:
+    """``count`` side streams forked from ``main``: the first is :func:`_side_stream`'s, the others are created once per
+    (device, caller stream, rank) the same way."""
+    streams = [_side_stream(device_index, main)]
+    for rank in range(1, count):
+        key = (device_index, main.cuda_stream, rank)
+        stream = _SIDE_STREAMS.get(key)
+        if stream is None:
+            _least, greatest = torch.cuda.Stream.priority_range()
+            stream = torch.cuda.Stream(device=device_index, priority=greatest)
+            _SIDE_STREAMS[key] = stream
+        streams.append(stream)
+    return streams[:count]
 
 
 def _side_stream(device_index: int, main: torch.cuda.Stream) -> torch.cuda.Stream:
@@ -2093,6 +2185,12 @@ def _backward(
         if use_tc and form != "unfused" and num_v_heads // num_heads in R_FORM_GROUPS
         else None
     )
+    # the staggered form (STAGGER): a one-round serial dhu_tc2 table of unequal sequences feeding a cluster tail
+    stagger = (
+        stagger_groups(meta, num_v_heads, _device_props(index)[0])
+        if STAGGER and use_tc and groups is None and options.streams == 2 and form in CLUSTER_TAIL_STAGES
+        else None
+    )
     if not (use_tc or split_tc):
         dv_local = workspaces.take(table, "b_dv_local", token_hv, v.dtype, device)
         _launch("dv_local", meta.num_chunks, num_v_heads, 1, qn, kn, do, g_cs, dv_local, meta.chunk_start,
@@ -2121,7 +2219,7 @@ def _backward(
     else:
         dht32, use_dht = dh0, 0
     scan_stage, vb, pre, pre_threads = _scan_stages("dhu", segs.scan_config, arch)
-    if use_tc and groups is None:
+    if use_tc and groups is None and stagger is None:
         # dv_local fused into the tcgen05 serial scan: the same dh / dv2 / dh0 (seg_state is not read)
         _launch("dhu_tc2", segs.num_segments, num_v_heads, 1, qn, kn, w, do, g_cs, dht32, dh, dv2, dh0, dh0,
                 meta.chunk_start, meta.chunk_len, segs.seg_chunk_start, segs.seg_seq, meta.seq_chunk_start, num_heads,
@@ -2183,7 +2281,7 @@ def _backward(
         normalize = 1 if forward.get("normalize_qk", True) else 0
         rstd_q, rstd_k = forward["rstd_q"], forward["rstd_k"]
         num_chunks = meta.num_chunks
-        if form in ("tail_g2", "tail_g3") and groups is None:
+        if form in CLUSTER_TAIL_STAGES and groups is None and stagger is None:
             # one launch over the whole table, issued directly: the host path of the deterministic package's tail
             _launch(form + ("_bf16" if dbeta_bf16 else ""), num_chunks * num_v_heads, 1, 1, qn, kn, rstd_q, rstd_k,
                     v_new, do, dv2, h, dh, g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, meta.chunk_start,
@@ -2233,19 +2331,39 @@ def _backward(
                             g_cs, v, A, beta32, dq, dk, dg, dv, dbeta, ws, ws_count, cs_r, cl_r, num_heads,
                             num_v_heads, scale, normalize, tiles)  # fmt: skip
 
-        if groups is None:
+        def dhu_tc2(s0, s1):
+            _launch("dhu_tc2", s1 - s0, num_v_heads, 1, qn, kn, w, do, g_cs, dht32[s0:s1] if use_dht else dht32,
+                    dh, dv2, dh0, dh0, meta.chunk_start, meta.chunk_len, segs.seg_chunk_start[s0:s1 + 1],
+                    segs.seg_seq[s0:s1], meta.seq_chunk_start, num_heads, num_v_heads, use_dht,
+                    1 if has_initial_state else 0, scale)  # fmt: skip
+
+        if stagger is not None:
+            # staggered form: the shorter classes scan on side streams forked from the caller's stream, the longest
+            # one on the caller's stream (every scan CTA is resident at once: one round), and each class's cluster
+            # tail follows its scan on its stream; the caller's stream joins every side stream
+            main = torch.cuda.current_stream(index)
+            sides = _side_streams(index, main, len(stagger) - 1)
+            fork = torch.cuda.Event()
+            fork.record(main)
+            try:
+                for (s0, s1, _c0, _c1), side in zip(stagger[1:], sides, strict=True):
+                    with torch.cuda.stream(side):
+                        side.wait_event(fork)
+                        dhu_tc2(s0, s1)
+                dhu_tc2(stagger[0][0], stagger[0][1])
+                for (_s0, _s1, c0, c1), side in zip(stagger[1:], sides, strict=True):
+                    with torch.cuda.stream(side):
+                        tail(c0, c1)
+                tail(stagger[0][2], stagger[0][3])
+            finally:
+                for side in sides:
+                    main.wait_stream(side)  # the join
+        elif groups is None:
             tail(0, meta.num_chunks)
         else:
             # R form: the caller's stream runs dhu_tc2 of group A (the full rounds), then the tail of A while the side
             # stream runs dhu_tc2 of group B (the partial round), then joins it and runs the tail of B
             na, ca = groups.split, groups.split_chunk
-
-            def dhu_tc2(s0, s1):
-                _launch("dhu_tc2", s1 - s0, num_v_heads, 1, qn, kn, w, do, g_cs, dht32[s0:s1] if use_dht else dht32,
-                        dh, dv2, dh0, dh0, meta.chunk_start, meta.chunk_len, segs.seg_chunk_start[s0:s1 + 1],
-                        segs.seg_seq[s0:s1], meta.seq_chunk_start, num_heads, num_v_heads, use_dht,
-                        1 if has_initial_state else 0, scale)  # fmt: skip
-
             main = torch.cuda.current_stream(index)
             side = _side_stream(index, main)
             dhu_tc2(0, na)
