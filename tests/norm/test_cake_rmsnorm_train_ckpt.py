@@ -29,13 +29,14 @@ repeats (``dx`` stable, ``dw`` within the budget, the workspace at rest).
 
 Checkpointing (``torch.utils.checkpoint``, ``use_reentrant=False``): the
 replayed forward of the per-head views, H=5120 (2-D and an N-D ``[B, S, H]``
-input) and the residual H=6144 route gives the same ``y`` and gradients bit for
-bit as the plain autograd call, with the kernel's FP32 ``dw`` at the
-deterministic budget; checkpointed micro-batches sharing one weight accumulate
-into existing ``.grad`` tensors exactly as autograd adds them; and a
-checkpointed forward keeps nothing on the device beyond its outputs (measured
-with ``torch.cuda.memory_allocated``; the plain forward also keeps the FP32
-``rstd``), while the backward leaves only the gradients.
+input) and the residual H=6144 route gives the same ``y`` and input gradients
+bit for bit as the plain autograd call, with the kernel's FP32 ``dw`` (not
+bitwise reproducible) at the deterministic budget; checkpointed micro-batches
+sharing one weight accumulate into existing ``.grad`` tensors exactly as
+autograd adds them; and a checkpointed forward keeps nothing on the device
+beyond its outputs (measured with ``torch.cuda.memory_allocated``; the plain
+forward also keeps the FP32 ``rstd``), while the backward leaves only the
+gradients.
 
 This suite imports only this package (through ``tests.test_helpers.cake_package``);
 it runs unchanged against a vendored copy with or without the deterministic

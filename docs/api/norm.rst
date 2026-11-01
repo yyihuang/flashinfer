@@ -77,7 +77,10 @@ The names the training RMSNorm had before the deterministic package took its
   FP64 sums in the workspace, in the order the CTAs finish: ``dw`` is not
   guaranteed bitwise reproducible; ``dx`` is, and it is within one BF16 ulp of
   max(|dx|, rms(dx)) of the deterministic backward's ``dx`` (not always bitwise
-  equal to it). The
+  equal to it). In the windows the backward's notes name, a twosum single kernel
+  keeps each thread's ``dw`` column sums exact (error-free FP32 products, TwoSum
+  compensation) before the FP64 additions, so its ``dw`` error does not grow
+  with the token count. The
   other windows run the deterministic package's backward pair (main kernel and
   fixed-order reduce), rendered into this package. The backward workspace
   (``cake_rmsnorm_train_backward_workspace_bytes(..., deterministic=False)``)

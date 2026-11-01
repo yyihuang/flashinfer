@@ -52,23 +52,23 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_FLAGS_STAGE_BYTES 32
 #define SMEM_FLAGS_STRIDE 32
 #define SMEM_DOTS_OFF 1056
-#define SMEM_DOTS_STAGE_BYTES 80
-#define SMEM_DOTS_STRIDE 80
-#define SMEM_SUMS_OFF 1168
-#define SMEM_SUMS_STAGE_BYTES 40960
-#define SMEM_SUMS_STRIDE 40960
-#define SMEM_DWBUF_OFF 1168
-#define SMEM_DWBUF_STAGE_BYTES 20480
-#define SMEM_DWBUF_STRIDE 20480
-#define SMEM_META_OFF 1136
+#define SMEM_DOTS_STAGE_BYTES 64
+#define SMEM_DOTS_STRIDE 64
+#define SMEM_SUMS_OFF 1152
+#define SMEM_SUMS_STAGE_BYTES 32768
+#define SMEM_SUMS_STRIDE 32768
+#define SMEM_DWBUF_OFF 1152
+#define SMEM_DWBUF_STAGE_BYTES 16384
+#define SMEM_DWBUF_STRIDE 16384
+#define SMEM_META_OFF 1120
 #define SMEM_META_STAGE_BYTES 32
 #define SMEM_META_STRIDE 32
-#define SMEM_RING_OFF 42240
-#define SMEM_RING_STAGE_BYTES 81920
-#define SMEM_RING_STRIDE 81920
-#define SMEM_TOTAL 124160
-#define THREADS 320
-#define LAUNCH_MIN_BLOCKS 1
+#define SMEM_RING_OFF 33920
+#define SMEM_RING_STAGE_BYTES 65536
+#define SMEM_RING_STRIDE 65536
+#define SMEM_TOTAL 99456
+#define THREADS 256
+#define LAUNCH_MIN_BLOCKS 2
 
 #include <math_constants.h>
 
@@ -122,8 +122,8 @@ __device__ __forceinline__ void mbarrier_arrive_expect_tx(int mbar_addr, uint32_
 
 extern "C" {
 
-__global__ __launch_bounds__(320, LAUNCH_MIN_BLOCKS) void
-kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __nv_bfloat16* __restrict__ x, float* __restrict__ w, float* __restrict__ r, __nv_bfloat16* __restrict__ dx, float* __restrict__ dw, double* __restrict__ partial, unsigned int* __restrict__ counters, __nv_bfloat16* __restrict__ g_h, int T, int n_chunks, int rows_per_chunk, long long g_stride_p0, long long x_stride_p0, long long g_h_stride_p0)
+__global__ __launch_bounds__(256, LAUNCH_MIN_BLOCKS) void
+kernel_cake_rmsnorm_train_f11a86167db4f8e9a5da(__nv_bfloat16* __restrict__ g, __nv_bfloat16* __restrict__ x, __nv_bfloat16* __restrict__ w, float* __restrict__ r, __nv_bfloat16* __restrict__ dx, float* __restrict__ dw, double* __restrict__ partial, unsigned int* __restrict__ counters, __nv_bfloat16* __restrict__ g_h, int T, int n_chunks, int rows_per_chunk, long long g_stride_p0, long long x_stride_p0, long long g_h_stride_p0)
 {
     // Grid-dependency payloads: written while the kernel runs, read with coherent loads only.
     asm volatile("" : "+l"(partial));
@@ -150,14 +150,14 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
     const int flags_addr = smem + 1024;
     float* dots = reinterpret_cast<float*>(smem_raw + 1056);
     const int dots_addr = smem + 1056;
-    double* sums = reinterpret_cast<double*>(smem_raw + 1168);
-    const int sums_addr = smem + 1168;
-    float* dwbuf = reinterpret_cast<float*>(smem_raw + 1168);
-    const int dwbuf_addr = smem + 1168;
-    int* meta = reinterpret_cast<int*>(smem_raw + 1136);
-    const int meta_addr = smem + 1136;
-    uint8_t* ring = reinterpret_cast<uint8_t*>(smem_raw + 42240);
-    const int ring_addr = smem + 42240;
+    double* sums = reinterpret_cast<double*>(smem_raw + 1152);
+    const int sums_addr = smem + 1152;
+    float* dwbuf = reinterpret_cast<float*>(smem_raw + 1152);
+    const int dwbuf_addr = smem + 1152;
+    int* meta = reinterpret_cast<int*>(smem_raw + 1120);
+    const int meta_addr = smem + 1120;
+    uint8_t* ring = reinterpret_cast<uint8_t*>(smem_raw + 33920);
+    const int ring_addr = smem + 33920;
 
     // Mbarrier init (1 pipeline groups, 0 ordered-sequence groups, 4 barriers)
     // Mbarriers at smem_raw[0..32)
@@ -187,50 +187,24 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
     long long g_stride = g_stride_p0;
     long long x_stride = x_stride_p0;
     long long gh_stride = g_h_stride_p0;
-    int rg = warp / 10;
-    int tir = tid - rg * 320;
-    float ww[16];
+    int rg = warp / 8;
+    int tir = tid - rg * 256;
+    unsigned int ww[8];
     {
-        unsigned _ldv8_1_0;
-        unsigned _ldv8_1_1;
-        unsigned _ldv8_1_2;
-        unsigned _ldv8_1_3;
-        unsigned _ldv8_1_4;
-        unsigned _ldv8_1_5;
-        unsigned _ldv8_1_6;
-        unsigned _ldv8_1_7;
-        asm volatile(
-            "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-            : "=r"(_ldv8_1_0), "=r"(_ldv8_1_1), "=r"(_ldv8_1_2), "=r"(_ldv8_1_3), "=r"(_ldv8_1_4), "=r"(_ldv8_1_5), "=r"(_ldv8_1_6), "=r"(_ldv8_1_7) : "l"((const void*)(w + ((unsigned long long)(tir * 8)))) : "memory");
-        ww[0 + 0] = __uint_as_float(_ldv8_1_0);
-        ww[0 + 1] = __uint_as_float(_ldv8_1_1);
-        ww[0 + 2] = __uint_as_float(_ldv8_1_2);
-        ww[0 + 3] = __uint_as_float(_ldv8_1_3);
-        ww[0 + 4] = __uint_as_float(_ldv8_1_4);
-        ww[0 + 5] = __uint_as_float(_ldv8_1_5);
-        ww[0 + 6] = __uint_as_float(_ldv8_1_6);
-        ww[0 + 7] = __uint_as_float(_ldv8_1_7);
+        const uint4* _vptr_1 = reinterpret_cast<const uint4*>(w + (unsigned long long)(tir * 8));
+        uint4* _vdst_1 = reinterpret_cast<uint4*>(&ww[0]);
+        #pragma unroll
+        for (int _blk = 0; _blk < 1; _blk++) {
+            _vdst_1[_blk] = _vptr_1[_blk];
+        }
     }
     {
-        unsigned _ldv8_2_0;
-        unsigned _ldv8_2_1;
-        unsigned _ldv8_2_2;
-        unsigned _ldv8_2_3;
-        unsigned _ldv8_2_4;
-        unsigned _ldv8_2_5;
-        unsigned _ldv8_2_6;
-        unsigned _ldv8_2_7;
-        asm volatile(
-            "ld.global.v8.b32 {%0, %1, %2, %3, %4, %5, %6, %7}, [%8];"
-            : "=r"(_ldv8_2_0), "=r"(_ldv8_2_1), "=r"(_ldv8_2_2), "=r"(_ldv8_2_3), "=r"(_ldv8_2_4), "=r"(_ldv8_2_5), "=r"(_ldv8_2_6), "=r"(_ldv8_2_7) : "l"((const void*)(w + ((unsigned long long)((320 + tir) * 8)))) : "memory");
-        ww[8 + 0] = __uint_as_float(_ldv8_2_0);
-        ww[8 + 1] = __uint_as_float(_ldv8_2_1);
-        ww[8 + 2] = __uint_as_float(_ldv8_2_2);
-        ww[8 + 3] = __uint_as_float(_ldv8_2_3);
-        ww[8 + 4] = __uint_as_float(_ldv8_2_4);
-        ww[8 + 5] = __uint_as_float(_ldv8_2_5);
-        ww[8 + 6] = __uint_as_float(_ldv8_2_6);
-        ww[8 + 7] = __uint_as_float(_ldv8_2_7);
+        const uint4* _vptr_2 = reinterpret_cast<const uint4*>(w + (unsigned long long)((256 + tir) * 8));
+        uint4* _vdst_2 = reinterpret_cast<uint4*>(&ww[4]);
+        #pragma unroll
+        for (int _blk = 0; _blk < 1; _blk++) {
+            _vdst_2[_blk] = _vptr_2[_blk];
+        }
     }
     float acc[16];
     float comp[1];
@@ -252,22 +226,22 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
     acc[15] = 0.0f;
     int c = 0;
     int first_c = 0;
-    sums[rg * 5120 + tir] = 0.0;
-    sums[rg * 5120 + 320 + tir] = 0.0;
-    sums[rg * 5120 + 640 + tir] = 0.0;
-    sums[rg * 5120 + 960 + tir] = 0.0;
-    sums[rg * 5120 + 1280 + tir] = 0.0;
-    sums[rg * 5120 + 1600 + tir] = 0.0;
-    sums[rg * 5120 + 1920 + tir] = 0.0;
-    sums[rg * 5120 + 2240 + tir] = 0.0;
-    sums[rg * 5120 + 2560 + tir] = 0.0;
-    sums[rg * 5120 + 2880 + tir] = 0.0;
-    sums[rg * 5120 + 3200 + tir] = 0.0;
-    sums[rg * 5120 + 3520 + tir] = 0.0;
-    sums[rg * 5120 + 3840 + tir] = 0.0;
-    sums[rg * 5120 + 4160 + tir] = 0.0;
-    sums[rg * 5120 + 4480 + tir] = 0.0;
-    sums[rg * 5120 + 4800 + tir] = 0.0;
+    sums[rg * 4096 + tir] = 0.0;
+    sums[rg * 4096 + 256 + tir] = 0.0;
+    sums[rg * 4096 + 512 + tir] = 0.0;
+    sums[rg * 4096 + 768 + tir] = 0.0;
+    sums[rg * 4096 + 1024 + tir] = 0.0;
+    sums[rg * 4096 + 1280 + tir] = 0.0;
+    sums[rg * 4096 + 1536 + tir] = 0.0;
+    sums[rg * 4096 + 1792 + tir] = 0.0;
+    sums[rg * 4096 + 2048 + tir] = 0.0;
+    sums[rg * 4096 + 2304 + tir] = 0.0;
+    sums[rg * 4096 + 2560 + tir] = 0.0;
+    sums[rg * 4096 + 2816 + tir] = 0.0;
+    sums[rg * 4096 + 3072 + tir] = 0.0;
+    sums[rg * 4096 + 3328 + tir] = 0.0;
+    sums[rg * 4096 + 3584 + tir] = 0.0;
+    sums[rg * 4096 + 3840 + tir] = 0.0;
     int pc = 0;
     int prow = 0;
     int pend = 0;
@@ -424,19 +398,19 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
         meta[2 * slot] = prow;
         meta[2 * slot + 1] = nval;
         if (nval > 0) {
-            mbarrier_arrive_expect_tx(full_addr, 20480);
-            int sbase = ring_at + slot * 20480;
+            mbarrier_arrive_expect_tx(full_addr, 16384);
+            int sbase = ring_at + slot * 16384;
             int _min_10 = ((nval - 1) < (0) ? (nval - 1) : (0));
             long long row_i_0 = (long long)(prow + _min_10);
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_0 * g_stride))), "r"((unsigned)(10240)), "r"(full_addr),
+                :: "r"(sbase), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_0 * g_stride))), "r"((unsigned)(8192)), "r"(full_addr),
                    "l"(0x12F0000000000000ULL) : "memory");
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase + 10240), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_0 * x_stride))), "r"((unsigned)(10240)), "r"(full_addr),
+                :: "r"(sbase + 8192), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_0 * x_stride))), "r"((unsigned)(8192)), "r"(full_addr),
                    "l"(0x12F0000000000000ULL) : "memory");
         }
         prow = prow + nval;
@@ -518,19 +492,19 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
         meta[2 * slot_0] = prow;
         meta[2 * slot_0 + 1] = nval_0;
         if (nval_0 > 0) {
-            mbarrier_arrive_expect_tx(full_addr + 8, 20480);
-            int sbase_1 = ring_at + slot_0 * 20480;
+            mbarrier_arrive_expect_tx(full_addr + 8, 16384);
+            int sbase_1 = ring_at + slot_0 * 16384;
             int _min_15 = ((nval_0 - 1) < (0) ? (nval_0 - 1) : (0));
             long long row_i_1 = (long long)(prow + _min_15);
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase_1), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_1 * g_stride))), "r"((unsigned)(10240)), "r"(full_addr + 8),
+                :: "r"(sbase_1), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_1 * g_stride))), "r"((unsigned)(8192)), "r"(full_addr + 8),
                    "l"(0x12F0000000000000ULL) : "memory");
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase_1 + 10240), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_1 * x_stride))), "r"((unsigned)(10240)), "r"(full_addr + 8),
+                :: "r"(sbase_1 + 8192), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_1 * x_stride))), "r"((unsigned)(8192)), "r"(full_addr + 8),
                    "l"(0x12F0000000000000ULL) : "memory");
         }
         prow = prow + nval_0;
@@ -612,19 +586,19 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
         meta[2 * slot_1] = prow;
         meta[2 * slot_1 + 1] = nval_1;
         if (nval_1 > 0) {
-            mbarrier_arrive_expect_tx(full_addr + 16, 20480);
-            int sbase_2 = ring_at + slot_1 * 20480;
+            mbarrier_arrive_expect_tx(full_addr + 16, 16384);
+            int sbase_2 = ring_at + slot_1 * 16384;
             int _min_20 = ((nval_1 - 1) < (0) ? (nval_1 - 1) : (0));
             long long row_i_2 = (long long)(prow + _min_20);
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase_2), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_2 * g_stride))), "r"((unsigned)(10240)), "r"(full_addr + 16),
+                :: "r"(sbase_2), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_2 * g_stride))), "r"((unsigned)(8192)), "r"(full_addr + 16),
                    "l"(0x12F0000000000000ULL) : "memory");
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase_2 + 10240), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_2 * x_stride))), "r"((unsigned)(10240)), "r"(full_addr + 16),
+                :: "r"(sbase_2 + 8192), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_2 * x_stride))), "r"((unsigned)(8192)), "r"(full_addr + 16),
                    "l"(0x12F0000000000000ULL) : "memory");
         }
         prow = prow + nval_1;
@@ -706,19 +680,19 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
         meta[2 * slot_2] = prow;
         meta[2 * slot_2 + 1] = nval_2;
         if (nval_2 > 0) {
-            mbarrier_arrive_expect_tx(full_addr + 24, 20480);
-            int sbase_3 = ring_at + slot_2 * 20480;
+            mbarrier_arrive_expect_tx(full_addr + 24, 16384);
+            int sbase_3 = ring_at + slot_2 * 16384;
             int _min_25 = ((nval_2 - 1) < (0) ? (nval_2 - 1) : (0));
             long long row_i_3 = (long long)(prow + _min_25);
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase_3), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_3 * g_stride))), "r"((unsigned)(10240)), "r"(full_addr + 24),
+                :: "r"(sbase_3), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_3 * g_stride))), "r"((unsigned)(8192)), "r"(full_addr + 24),
                    "l"(0x12F0000000000000ULL) : "memory");
             asm volatile(
                 "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                 " [%0], [%1], %2, [%3], %4;"
-                :: "r"(sbase_3 + 10240), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_3 * x_stride))), "r"((unsigned)(10240)), "r"(full_addr + 24),
+                :: "r"(sbase_3 + 8192), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_3 * x_stride))), "r"((unsigned)(8192)), "r"(full_addr + 24),
                    "l"(0x12F0000000000000ULL) : "memory");
         }
         prow = prow + nval_2;
@@ -744,7 +718,7 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
         int _stage_full = (int)((unsigned int)k_5 % 4);
         int _parity_full = (int)((unsigned int)k_5 / 4 % 2);
         mbarrier_wait(full_addr + (_stage_full) * 8, _parity_full);
-        int rbase = ring_at + k_5 % 4 * 20480 + rg * 10240;
+        int rbase = ring_at + k_5 % 4 * 16384 + rg * 8192;
         __int128_t _smem_raw_26;
         asm volatile("ld.shared.b128 %0, [%1];" : "=q"(_smem_raw_26) : "r"(rbase + tir * 8 * 2));
         gw[0] = reinterpret_cast<const uint32_t*>(&_smem_raw_26)[0];
@@ -752,61 +726,59 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
         gw[2] = reinterpret_cast<const uint32_t*>(&_smem_raw_26)[2];
         gw[3] = reinterpret_cast<const uint32_t*>(&_smem_raw_26)[3];
         __int128_t _smem_raw_27;
-        asm volatile("ld.shared.b128 %0, [%1];" : "=q"(_smem_raw_27) : "r"(rbase + 10240 + tir * 8 * 2));
+        asm volatile("ld.shared.b128 %0, [%1];" : "=q"(_smem_raw_27) : "r"(rbase + 8192 + tir * 8 * 2));
         xw[0] = reinterpret_cast<const uint32_t*>(&_smem_raw_27)[0];
         xw[1] = reinterpret_cast<const uint32_t*>(&_smem_raw_27)[1];
         xw[2] = reinterpret_cast<const uint32_t*>(&_smem_raw_27)[2];
         xw[3] = reinterpret_cast<const uint32_t*>(&_smem_raw_27)[3];
         __int128_t _smem_raw_28;
-        asm volatile("ld.shared.b128 %0, [%1];" : "=q"(_smem_raw_28) : "r"(rbase + (320 + tir) * 8 * 2));
+        asm volatile("ld.shared.b128 %0, [%1];" : "=q"(_smem_raw_28) : "r"(rbase + (256 + tir) * 8 * 2));
         gw[4] = reinterpret_cast<const uint32_t*>(&_smem_raw_28)[0];
         gw[5] = reinterpret_cast<const uint32_t*>(&_smem_raw_28)[1];
         gw[6] = reinterpret_cast<const uint32_t*>(&_smem_raw_28)[2];
         gw[7] = reinterpret_cast<const uint32_t*>(&_smem_raw_28)[3];
         __int128_t _smem_raw_29;
-        asm volatile("ld.shared.b128 %0, [%1];" : "=q"(_smem_raw_29) : "r"(rbase + 10240 + (320 + tir) * 8 * 2));
+        asm volatile("ld.shared.b128 %0, [%1];" : "=q"(_smem_raw_29) : "r"(rbase + 8192 + (256 + tir) * 8 * 2));
         xw[4] = reinterpret_cast<const uint32_t*>(&_smem_raw_29)[0];
         xw[5] = reinterpret_cast<const uint32_t*>(&_smem_raw_29)[1];
         xw[6] = reinterpret_cast<const uint32_t*>(&_smem_raw_29)[2];
         xw[7] = reinterpret_cast<const uint32_t*>(&_smem_raw_29)[3];
         asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
         float dq = 0.0f;
-        dq = __fmaf_rn(__uint_as_float(gw[0] << 16) * ww[0], __uint_as_float(xw[0] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[0] & 4294901760u) * ww[1], __uint_as_float(xw[0] & 4294901760u), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[1] << 16) * ww[2], __uint_as_float(xw[1] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[1] & 4294901760u) * ww[3], __uint_as_float(xw[1] & 4294901760u), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[2] << 16) * ww[4], __uint_as_float(xw[2] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[2] & 4294901760u) * ww[5], __uint_as_float(xw[2] & 4294901760u), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[3] << 16) * ww[6], __uint_as_float(xw[3] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[3] & 4294901760u) * ww[7], __uint_as_float(xw[3] & 4294901760u), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[4] << 16) * ww[8], __uint_as_float(xw[4] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[4] & 4294901760u) * ww[9], __uint_as_float(xw[4] & 4294901760u), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[5] << 16) * ww[10], __uint_as_float(xw[5] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[5] & 4294901760u) * ww[11], __uint_as_float(xw[5] & 4294901760u), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[6] << 16) * ww[12], __uint_as_float(xw[6] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[6] & 4294901760u) * ww[13], __uint_as_float(xw[6] & 4294901760u), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[7] << 16) * ww[14], __uint_as_float(xw[7] << 16), dq);
-        dq = __fmaf_rn(__uint_as_float(gw[7] & 4294901760u) * ww[15], __uint_as_float(xw[7] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[0] << 16) * __uint_as_float(ww[0] << 16), __uint_as_float(xw[0] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[0] & 4294901760u) * __uint_as_float(ww[0] & 4294901760u), __uint_as_float(xw[0] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[1] << 16) * __uint_as_float(ww[1] << 16), __uint_as_float(xw[1] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[1] & 4294901760u) * __uint_as_float(ww[1] & 4294901760u), __uint_as_float(xw[1] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[2] << 16) * __uint_as_float(ww[2] << 16), __uint_as_float(xw[2] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[2] & 4294901760u) * __uint_as_float(ww[2] & 4294901760u), __uint_as_float(xw[2] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[3] << 16) * __uint_as_float(ww[3] << 16), __uint_as_float(xw[3] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[3] & 4294901760u) * __uint_as_float(ww[3] & 4294901760u), __uint_as_float(xw[3] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[4] << 16) * __uint_as_float(ww[4] << 16), __uint_as_float(xw[4] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[4] & 4294901760u) * __uint_as_float(ww[4] & 4294901760u), __uint_as_float(xw[4] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[5] << 16) * __uint_as_float(ww[5] << 16), __uint_as_float(xw[5] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[5] & 4294901760u) * __uint_as_float(ww[5] & 4294901760u), __uint_as_float(xw[5] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[6] << 16) * __uint_as_float(ww[6] << 16), __uint_as_float(xw[6] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[6] & 4294901760u) * __uint_as_float(ww[6] & 4294901760u), __uint_as_float(xw[6] & 4294901760u), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[7] << 16) * __uint_as_float(ww[7] << 16), __uint_as_float(xw[7] << 16), dq);
+        dq = __fmaf_rn(__uint_as_float(gw[7] & 4294901760u) * __uint_as_float(ww[7] & 4294901760u), __uint_as_float(xw[7] & 4294901760u), dq);
         float _warp_reduce_30 = dq;
         #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1)
             _warp_reduce_30 += __shfl_xor_sync(0xFFFFFFFF, _warp_reduce_30, offset);
         dot[0] = _warp_reduce_30;
         if (lane == 0) {
-            dots[(k_5 & 1) * 10 + warp] = dot[0];
+            dots[(k_5 & 1) * 8 + warp] = dot[0];
         }
         __syncthreads();
         float tot = 0.0f;
-        tot += dots[(k_5 & 1) * 10 + rg * 10];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 1];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 2];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 3];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 4];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 5];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 6];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 7];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 8];
-        tot += dots[(k_5 & 1) * 10 + rg * 10 + 9];
+        tot += dots[(k_5 & 1) * 8 + rg * 8];
+        tot += dots[(k_5 & 1) * 8 + rg * 8 + 1];
+        tot += dots[(k_5 & 1) * 8 + rg * 8 + 2];
+        tot += dots[(k_5 & 1) * 8 + rg * 8 + 3];
+        tot += dots[(k_5 & 1) * 8 + rg * 8 + 4];
+        tot += dots[(k_5 & 1) * 8 + rg * 8 + 5];
+        tot += dots[(k_5 & 1) * 8 + rg * 8 + 6];
+        tot += dots[(k_5 & 1) * 8 + rg * 8 + 7];
         dot[0] = tot;
         if (tid == 0) {
             int slot_3 = (k_5 + 4) % 4;
@@ -887,25 +859,25 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             meta[2 * slot_3] = prow;
             meta[2 * slot_3 + 1] = nval_3_1;
             if (nval_3_1 > 0) {
-                mbarrier_arrive_expect_tx(full_addr + ((int)((unsigned int)(k_5 + 4) % 4)) * 8, 20480);
-                int sbase_4 = ring_at + slot_3 * 20480;
+                mbarrier_arrive_expect_tx(full_addr + ((int)((unsigned int)(k_5 + 4) % 4)) * 8, 16384);
+                int sbase_4 = ring_at + slot_3 * 16384;
                 int _min_35 = ((nval_3_1 - 1) < (0) ? (nval_3_1 - 1) : (0));
                 long long row_i_4 = (long long)(prow + _min_35);
                 asm volatile(
                     "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                     " [%0], [%1], %2, [%3], %4;"
-                    :: "r"(sbase_4), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_4 * g_stride))), "r"((unsigned)(10240)), "r"(full_addr + ((int)((unsigned int)(k_5 + 4) % 4)) * 8),
+                    :: "r"(sbase_4), "l"(reinterpret_cast<const uint8_t*>(g + (row_i_4 * g_stride))), "r"((unsigned)(8192)), "r"(full_addr + ((int)((unsigned int)(k_5 + 4) % 4)) * 8),
                        "l"(0x12F0000000000000ULL) : "memory");
                 asm volatile(
                     "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes.L2::cache_hint"
                     " [%0], [%1], %2, [%3], %4;"
-                    :: "r"(sbase_4 + 10240), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_4 * x_stride))), "r"((unsigned)(10240)), "r"(full_addr + ((int)((unsigned int)(k_5 + 4) % 4)) * 8),
+                    :: "r"(sbase_4 + 8192), "l"(reinterpret_cast<const uint8_t*>(x + (row_i_4 * x_stride))), "r"((unsigned)(8192)), "r"(full_addr + ((int)((unsigned int)(k_5 + 4) % 4)) * 8),
                        "l"(0x12F0000000000000ULL) : "memory");
             }
             prow = prow + nval_3_1;
         }
         float rq = rr[0];
-        float cq = __fdiv_rn(dot[0], 5120.0f);
+        float cq = __fdiv_rn(dot[0], 4096.0f);
         float kx = rq * rq * rq * cq;
         float nkx = -kx;
         if (row0 + rg < row0 + nval_3) {
@@ -916,8 +888,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_0 = __uint_as_float(xw[0] & 4294901760u);
             acc[0] = __fmaf_rn(g0_0 * x0_0, rq, acc[0]);
             acc[1] = __fmaf_rn(g1_0 * x1_0, rq, acc[1]);
-            float y0_0 = __fmaf_rn(nkx, x0_0, rq * (g0_0 * ww[0]));
-            float y1_0 = __fmaf_rn(nkx, x1_0, rq * (g1_0 * ww[1]));
+            float y0_0 = __fmaf_rn(nkx, x0_0, rq * (g0_0 * __uint_as_float(ww[0] << 16)));
+            float y1_0 = __fmaf_rn(nkx, x1_0, rq * (g1_0 * __uint_as_float(ww[0] & 4294901760u)));
             out_0[0] = y0_0;
             out_0[1] = y1_0;
             float g0_1 = __uint_as_float(gw[1] << 16);
@@ -926,8 +898,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_1 = __uint_as_float(xw[1] & 4294901760u);
             acc[2] = __fmaf_rn(g0_1 * x0_1, rq, acc[2]);
             acc[3] = __fmaf_rn(g1_1 * x1_1, rq, acc[3]);
-            float y0_1 = __fmaf_rn(nkx, x0_1, rq * (g0_1 * ww[2]));
-            float y1_1 = __fmaf_rn(nkx, x1_1, rq * (g1_1 * ww[3]));
+            float y0_1 = __fmaf_rn(nkx, x0_1, rq * (g0_1 * __uint_as_float(ww[1] << 16)));
+            float y1_1 = __fmaf_rn(nkx, x1_1, rq * (g1_1 * __uint_as_float(ww[1] & 4294901760u)));
             out_0[2] = y0_1;
             out_0[3] = y1_1;
             float g0_2 = __uint_as_float(gw[2] << 16);
@@ -936,8 +908,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_2 = __uint_as_float(xw[2] & 4294901760u);
             acc[4] = __fmaf_rn(g0_2 * x0_2, rq, acc[4]);
             acc[5] = __fmaf_rn(g1_2 * x1_2, rq, acc[5]);
-            float y0_2 = __fmaf_rn(nkx, x0_2, rq * (g0_2 * ww[4]));
-            float y1_2 = __fmaf_rn(nkx, x1_2, rq * (g1_2 * ww[5]));
+            float y0_2 = __fmaf_rn(nkx, x0_2, rq * (g0_2 * __uint_as_float(ww[2] << 16)));
+            float y1_2 = __fmaf_rn(nkx, x1_2, rq * (g1_2 * __uint_as_float(ww[2] & 4294901760u)));
             out_0[4] = y0_2;
             out_0[5] = y1_2;
             float g0_3 = __uint_as_float(gw[3] << 16);
@@ -946,8 +918,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_3 = __uint_as_float(xw[3] & 4294901760u);
             acc[6] = __fmaf_rn(g0_3 * x0_3, rq, acc[6]);
             acc[7] = __fmaf_rn(g1_3 * x1_3, rq, acc[7]);
-            float y0_3 = __fmaf_rn(nkx, x0_3, rq * (g0_3 * ww[6]));
-            float y1_3 = __fmaf_rn(nkx, x1_3, rq * (g1_3 * ww[7]));
+            float y0_3 = __fmaf_rn(nkx, x0_3, rq * (g0_3 * __uint_as_float(ww[3] << 16)));
+            float y1_3 = __fmaf_rn(nkx, x1_3, rq * (g1_3 * __uint_as_float(ww[3] & 4294901760u)));
             out_0[6] = y0_3;
             out_0[7] = y1_3;
             unsigned int packed_0[4];
@@ -956,7 +928,7 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
                 __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_0[_lp*2 + 0], out_0[_lp*2+1 + 0]));
                 packed_0[_lp] = *(uint32_t*)&_bf2;
             }
-            reinterpret_cast<int4*>(dx + ((unsigned long long)(row0 + rg) * 5120 + (unsigned long long)(tir * 8)))[0] = reinterpret_cast<int4*>(packed_0)[0];
+            reinterpret_cast<int4*>(dx + ((unsigned long long)(row0 + rg) * 4096 + (unsigned long long)(tir * 8)))[0] = reinterpret_cast<int4*>(packed_0)[0];
             float out_1[8];
             float g0_4 = __uint_as_float(gw[4] << 16);
             float g1_4 = __uint_as_float(gw[4] & 4294901760u);
@@ -964,8 +936,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_4 = __uint_as_float(xw[4] & 4294901760u);
             acc[8] = __fmaf_rn(g0_4 * x0_4, rq, acc[8]);
             acc[9] = __fmaf_rn(g1_4 * x1_4, rq, acc[9]);
-            float y0_4 = __fmaf_rn(nkx, x0_4, rq * (g0_4 * ww[8]));
-            float y1_4 = __fmaf_rn(nkx, x1_4, rq * (g1_4 * ww[9]));
+            float y0_4 = __fmaf_rn(nkx, x0_4, rq * (g0_4 * __uint_as_float(ww[4] << 16)));
+            float y1_4 = __fmaf_rn(nkx, x1_4, rq * (g1_4 * __uint_as_float(ww[4] & 4294901760u)));
             out_1[0] = y0_4;
             out_1[1] = y1_4;
             float g0_5 = __uint_as_float(gw[5] << 16);
@@ -974,8 +946,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_5 = __uint_as_float(xw[5] & 4294901760u);
             acc[10] = __fmaf_rn(g0_5 * x0_5, rq, acc[10]);
             acc[11] = __fmaf_rn(g1_5 * x1_5, rq, acc[11]);
-            float y0_5 = __fmaf_rn(nkx, x0_5, rq * (g0_5 * ww[10]));
-            float y1_5 = __fmaf_rn(nkx, x1_5, rq * (g1_5 * ww[11]));
+            float y0_5 = __fmaf_rn(nkx, x0_5, rq * (g0_5 * __uint_as_float(ww[5] << 16)));
+            float y1_5 = __fmaf_rn(nkx, x1_5, rq * (g1_5 * __uint_as_float(ww[5] & 4294901760u)));
             out_1[2] = y0_5;
             out_1[3] = y1_5;
             float g0_6 = __uint_as_float(gw[6] << 16);
@@ -984,8 +956,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_6 = __uint_as_float(xw[6] & 4294901760u);
             acc[12] = __fmaf_rn(g0_6 * x0_6, rq, acc[12]);
             acc[13] = __fmaf_rn(g1_6 * x1_6, rq, acc[13]);
-            float y0_6 = __fmaf_rn(nkx, x0_6, rq * (g0_6 * ww[12]));
-            float y1_6 = __fmaf_rn(nkx, x1_6, rq * (g1_6 * ww[13]));
+            float y0_6 = __fmaf_rn(nkx, x0_6, rq * (g0_6 * __uint_as_float(ww[6] << 16)));
+            float y1_6 = __fmaf_rn(nkx, x1_6, rq * (g1_6 * __uint_as_float(ww[6] & 4294901760u)));
             out_1[4] = y0_6;
             out_1[5] = y1_6;
             float g0_7 = __uint_as_float(gw[7] << 16);
@@ -994,8 +966,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
             float x1_7 = __uint_as_float(xw[7] & 4294901760u);
             acc[14] = __fmaf_rn(g0_7 * x0_7, rq, acc[14]);
             acc[15] = __fmaf_rn(g1_7 * x1_7, rq, acc[15]);
-            float y0_7 = __fmaf_rn(nkx, x0_7, rq * (g0_7 * ww[14]));
-            float y1_7 = __fmaf_rn(nkx, x1_7, rq * (g1_7 * ww[15]));
+            float y0_7 = __fmaf_rn(nkx, x0_7, rq * (g0_7 * __uint_as_float(ww[7] << 16)));
+            float y1_7 = __fmaf_rn(nkx, x1_7, rq * (g1_7 * __uint_as_float(ww[7] & 4294901760u)));
             out_1[6] = y0_7;
             out_1[7] = y1_7;
             unsigned int packed_1[4];
@@ -1004,77 +976,77 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
                 __nv_bfloat162 _bf2 = __float22bfloat162_rn(make_float2(out_1[_lp*2 + 0], out_1[_lp*2+1 + 0]));
                 packed_1[_lp] = *(uint32_t*)&_bf2;
             }
-            reinterpret_cast<int4*>(dx + ((unsigned long long)(row0 + rg) * 5120 + (unsigned long long)((320 + tir) * 8)))[0] = reinterpret_cast<int4*>(packed_1)[0];
+            reinterpret_cast<int4*>(dx + ((unsigned long long)(row0 + rg) * 4096 + (unsigned long long)((256 + tir) * 8)))[0] = reinterpret_cast<int4*>(packed_1)[0];
         }
         row0 = row0_n;
         nval_3 = nval_n;
         rr[0] = rr[1];
-        if ((k_5 + 1 & 31) == 0) {
-            sums[rg * 5120 + tir] = sums[rg * 5120 + tir] + (double)acc[0];
+        if ((k_5 + 1 & 15) == 0) {
+            sums[rg * 4096 + tir] = sums[rg * 4096 + tir] + (double)acc[0];
             acc[0] = 0.0f;
-            sums[rg * 5120 + 320 + tir] = sums[rg * 5120 + 320 + tir] + (double)acc[1];
+            sums[rg * 4096 + 256 + tir] = sums[rg * 4096 + 256 + tir] + (double)acc[1];
             acc[1] = 0.0f;
-            sums[rg * 5120 + 640 + tir] = sums[rg * 5120 + 640 + tir] + (double)acc[2];
+            sums[rg * 4096 + 512 + tir] = sums[rg * 4096 + 512 + tir] + (double)acc[2];
             acc[2] = 0.0f;
-            sums[rg * 5120 + 960 + tir] = sums[rg * 5120 + 960 + tir] + (double)acc[3];
+            sums[rg * 4096 + 768 + tir] = sums[rg * 4096 + 768 + tir] + (double)acc[3];
             acc[3] = 0.0f;
-            sums[rg * 5120 + 1280 + tir] = sums[rg * 5120 + 1280 + tir] + (double)acc[4];
+            sums[rg * 4096 + 1024 + tir] = sums[rg * 4096 + 1024 + tir] + (double)acc[4];
             acc[4] = 0.0f;
-            sums[rg * 5120 + 1600 + tir] = sums[rg * 5120 + 1600 + tir] + (double)acc[5];
+            sums[rg * 4096 + 1280 + tir] = sums[rg * 4096 + 1280 + tir] + (double)acc[5];
             acc[5] = 0.0f;
-            sums[rg * 5120 + 1920 + tir] = sums[rg * 5120 + 1920 + tir] + (double)acc[6];
+            sums[rg * 4096 + 1536 + tir] = sums[rg * 4096 + 1536 + tir] + (double)acc[6];
             acc[6] = 0.0f;
-            sums[rg * 5120 + 2240 + tir] = sums[rg * 5120 + 2240 + tir] + (double)acc[7];
+            sums[rg * 4096 + 1792 + tir] = sums[rg * 4096 + 1792 + tir] + (double)acc[7];
             acc[7] = 0.0f;
-            sums[rg * 5120 + 2560 + tir] = sums[rg * 5120 + 2560 + tir] + (double)acc[8];
+            sums[rg * 4096 + 2048 + tir] = sums[rg * 4096 + 2048 + tir] + (double)acc[8];
             acc[8] = 0.0f;
-            sums[rg * 5120 + 2880 + tir] = sums[rg * 5120 + 2880 + tir] + (double)acc[9];
+            sums[rg * 4096 + 2304 + tir] = sums[rg * 4096 + 2304 + tir] + (double)acc[9];
             acc[9] = 0.0f;
-            sums[rg * 5120 + 3200 + tir] = sums[rg * 5120 + 3200 + tir] + (double)acc[10];
+            sums[rg * 4096 + 2560 + tir] = sums[rg * 4096 + 2560 + tir] + (double)acc[10];
             acc[10] = 0.0f;
-            sums[rg * 5120 + 3520 + tir] = sums[rg * 5120 + 3520 + tir] + (double)acc[11];
+            sums[rg * 4096 + 2816 + tir] = sums[rg * 4096 + 2816 + tir] + (double)acc[11];
             acc[11] = 0.0f;
-            sums[rg * 5120 + 3840 + tir] = sums[rg * 5120 + 3840 + tir] + (double)acc[12];
+            sums[rg * 4096 + 3072 + tir] = sums[rg * 4096 + 3072 + tir] + (double)acc[12];
             acc[12] = 0.0f;
-            sums[rg * 5120 + 4160 + tir] = sums[rg * 5120 + 4160 + tir] + (double)acc[13];
+            sums[rg * 4096 + 3328 + tir] = sums[rg * 4096 + 3328 + tir] + (double)acc[13];
             acc[13] = 0.0f;
-            sums[rg * 5120 + 4480 + tir] = sums[rg * 5120 + 4480 + tir] + (double)acc[14];
+            sums[rg * 4096 + 3584 + tir] = sums[rg * 4096 + 3584 + tir] + (double)acc[14];
             acc[14] = 0.0f;
-            sums[rg * 5120 + 4800 + tir] = sums[rg * 5120 + 4800 + tir] + (double)acc[15];
+            sums[rg * 4096 + 3840 + tir] = sums[rg * 4096 + 3840 + tir] + (double)acc[15];
             acc[15] = 0.0f;
         }
     }
-    sums[rg * 5120 + tir] = sums[rg * 5120 + tir] + (double)acc[0];
+    sums[rg * 4096 + tir] = sums[rg * 4096 + tir] + (double)acc[0];
     acc[0] = 0.0f;
-    sums[rg * 5120 + 320 + tir] = sums[rg * 5120 + 320 + tir] + (double)acc[1];
+    sums[rg * 4096 + 256 + tir] = sums[rg * 4096 + 256 + tir] + (double)acc[1];
     acc[1] = 0.0f;
-    sums[rg * 5120 + 640 + tir] = sums[rg * 5120 + 640 + tir] + (double)acc[2];
+    sums[rg * 4096 + 512 + tir] = sums[rg * 4096 + 512 + tir] + (double)acc[2];
     acc[2] = 0.0f;
-    sums[rg * 5120 + 960 + tir] = sums[rg * 5120 + 960 + tir] + (double)acc[3];
+    sums[rg * 4096 + 768 + tir] = sums[rg * 4096 + 768 + tir] + (double)acc[3];
     acc[3] = 0.0f;
-    sums[rg * 5120 + 1280 + tir] = sums[rg * 5120 + 1280 + tir] + (double)acc[4];
+    sums[rg * 4096 + 1024 + tir] = sums[rg * 4096 + 1024 + tir] + (double)acc[4];
     acc[4] = 0.0f;
-    sums[rg * 5120 + 1600 + tir] = sums[rg * 5120 + 1600 + tir] + (double)acc[5];
+    sums[rg * 4096 + 1280 + tir] = sums[rg * 4096 + 1280 + tir] + (double)acc[5];
     acc[5] = 0.0f;
-    sums[rg * 5120 + 1920 + tir] = sums[rg * 5120 + 1920 + tir] + (double)acc[6];
+    sums[rg * 4096 + 1536 + tir] = sums[rg * 4096 + 1536 + tir] + (double)acc[6];
     acc[6] = 0.0f;
-    sums[rg * 5120 + 2240 + tir] = sums[rg * 5120 + 2240 + tir] + (double)acc[7];
+    sums[rg * 4096 + 1792 + tir] = sums[rg * 4096 + 1792 + tir] + (double)acc[7];
     acc[7] = 0.0f;
-    sums[rg * 5120 + 2560 + tir] = sums[rg * 5120 + 2560 + tir] + (double)acc[8];
+    sums[rg * 4096 + 2048 + tir] = sums[rg * 4096 + 2048 + tir] + (double)acc[8];
     acc[8] = 0.0f;
-    sums[rg * 5120 + 2880 + tir] = sums[rg * 5120 + 2880 + tir] + (double)acc[9];
+    sums[rg * 4096 + 2304 + tir] = sums[rg * 4096 + 2304 + tir] + (double)acc[9];
     acc[9] = 0.0f;
-    sums[rg * 5120 + 3200 + tir] = sums[rg * 5120 + 3200 + tir] + (double)acc[10];
+    sums[rg * 4096 + 2560 + tir] = sums[rg * 4096 + 2560 + tir] + (double)acc[10];
     acc[10] = 0.0f;
-    sums[rg * 5120 + 3520 + tir] = sums[rg * 5120 + 3520 + tir] + (double)acc[11];
+    sums[rg * 4096 + 2816 + tir] = sums[rg * 4096 + 2816 + tir] + (double)acc[11];
     acc[11] = 0.0f;
-    sums[rg * 5120 + 3840 + tir] = sums[rg * 5120 + 3840 + tir] + (double)acc[12];
+    sums[rg * 4096 + 3072 + tir] = sums[rg * 4096 + 3072 + tir] + (double)acc[12];
     acc[12] = 0.0f;
-    sums[rg * 5120 + 4160 + tir] = sums[rg * 5120 + 4160 + tir] + (double)acc[13];
+    sums[rg * 4096 + 3328 + tir] = sums[rg * 4096 + 3328 + tir] + (double)acc[13];
     acc[13] = 0.0f;
-    sums[rg * 5120 + 4480 + tir] = sums[rg * 5120 + 4480 + tir] + (double)acc[14];
+    sums[rg * 4096 + 3584 + tir] = sums[rg * 4096 + 3584 + tir] + (double)acc[14];
     acc[14] = 0.0f;
-    sums[rg * 5120 + 4800 + tir] = sums[rg * 5120 + 4800 + tir] + (double)acc[15];
+    sums[rg * 4096 + 3840 + tir] = sums[rg * 4096 + 3840 + tir] + (double)acc[15];
     acc[15] = 0.0f;
     c = pc;
     asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
@@ -1082,31 +1054,59 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
     if (tid == 0) {
         if (first_c < n_chunks) {
             {
-                void* _cpred_dst_36 = reinterpret_cast<void*>(partial + (long long)((int)bid % 2 * 5120));
+                void* _cpred_dst_36 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096));
                 asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
                     " [%0], [%1], %2;"
-                    :: "l"(_cpred_dst_36), "r"(sums_addr + 0), "r"((uint32_t)(10240))
+                    :: "l"(_cpred_dst_36), "r"(sums_addr + 0), "r"((uint32_t)(4096))
                     : "memory");
             }
             {
-                void* _cpred_dst_37 = reinterpret_cast<void*>(partial + (long long)((int)bid % 2 * 5120 + 1280));
+                void* _cpred_dst_37 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096 + 512));
                 asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
                     " [%0], [%1], %2;"
-                    :: "l"(_cpred_dst_37), "r"(sums_addr + 10240), "r"((uint32_t)(10240))
+                    :: "l"(_cpred_dst_37), "r"(sums_addr + 4096), "r"((uint32_t)(4096))
                     : "memory");
             }
             {
-                void* _cpred_dst_38 = reinterpret_cast<void*>(partial + (long long)((int)bid % 2 * 5120 + 2560));
+                void* _cpred_dst_38 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096 + 1024));
                 asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
                     " [%0], [%1], %2;"
-                    :: "l"(_cpred_dst_38), "r"(sums_addr + 20480), "r"((uint32_t)(10240))
+                    :: "l"(_cpred_dst_38), "r"(sums_addr + 8192), "r"((uint32_t)(4096))
                     : "memory");
             }
             {
-                void* _cpred_dst_39 = reinterpret_cast<void*>(partial + (long long)((int)bid % 2 * 5120 + 3840));
+                void* _cpred_dst_39 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096 + 1536));
                 asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
                     " [%0], [%1], %2;"
-                    :: "l"(_cpred_dst_39), "r"(sums_addr + 30720), "r"((uint32_t)(10240))
+                    :: "l"(_cpred_dst_39), "r"(sums_addr + 12288), "r"((uint32_t)(4096))
+                    : "memory");
+            }
+            {
+                void* _cpred_dst_40 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096 + 2048));
+                asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
+                    " [%0], [%1], %2;"
+                    :: "l"(_cpred_dst_40), "r"(sums_addr + 16384), "r"((uint32_t)(4096))
+                    : "memory");
+            }
+            {
+                void* _cpred_dst_41 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096 + 2560));
+                asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
+                    " [%0], [%1], %2;"
+                    :: "l"(_cpred_dst_41), "r"(sums_addr + 20480), "r"((uint32_t)(4096))
+                    : "memory");
+            }
+            {
+                void* _cpred_dst_42 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096 + 3072));
+                asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
+                    " [%0], [%1], %2;"
+                    :: "l"(_cpred_dst_42), "r"(sums_addr + 24576), "r"((uint32_t)(4096))
+                    : "memory");
+            }
+            {
+                void* _cpred_dst_43 = reinterpret_cast<void*>(partial + (long long)((int)bid % 4 * 4096 + 3584));
+                asm volatile("cp.reduce.async.bulk.global.shared::cta.bulk_group.add.f64"
+                    " [%0], [%1], %2;"
+                    :: "l"(_cpred_dst_43), "r"(sums_addr + 28672), "r"((uint32_t)(4096))
                     : "memory");
             }
             asm volatile("cp.async.bulk.commit_group;");
@@ -1130,296 +1130,552 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
     if (flags[2] != 0) {
         double buf[32];
         {
-            uint64_t _scalar_bits_40;
-            asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_40) : "l"((const void*)(partial + (tid))) : "memory");
-            buf[0] = __longlong_as_double(_scalar_bits_40);
-        }
-        {
-            uint64_t _scalar_bits_41;
-            asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_41) : "l"((const void*)(partial + (5120 + tid))) : "memory");
-            buf[1] = __longlong_as_double(_scalar_bits_41);
-        }
-        {
-            uint64_t _scalar_bits_42;
-            asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_42) : "l"((const void*)(partial + (320 + tid))) : "memory");
-            buf[2] = __longlong_as_double(_scalar_bits_42);
-        }
-        {
-            uint64_t _scalar_bits_43;
-            asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_43) : "l"((const void*)(partial + (5440 + tid))) : "memory");
-            buf[3] = __longlong_as_double(_scalar_bits_43);
-        }
-        {
             uint64_t _scalar_bits_44;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_44) : "l"((const void*)(partial + (640 + tid))) : "memory");
-            buf[4] = __longlong_as_double(_scalar_bits_44);
+                : "=l"(_scalar_bits_44) : "l"((const void*)(partial + (tid))) : "memory");
+            buf[0] = __longlong_as_double(_scalar_bits_44);
         }
         {
             uint64_t _scalar_bits_45;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_45) : "l"((const void*)(partial + (5760 + tid))) : "memory");
-            buf[5] = __longlong_as_double(_scalar_bits_45);
+                : "=l"(_scalar_bits_45) : "l"((const void*)(partial + (4096 + tid))) : "memory");
+            buf[1] = __longlong_as_double(_scalar_bits_45);
         }
         {
             uint64_t _scalar_bits_46;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_46) : "l"((const void*)(partial + (960 + tid))) : "memory");
-            buf[6] = __longlong_as_double(_scalar_bits_46);
+                : "=l"(_scalar_bits_46) : "l"((const void*)(partial + (8192 + tid))) : "memory");
+            buf[2] = __longlong_as_double(_scalar_bits_46);
         }
         {
             uint64_t _scalar_bits_47;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_47) : "l"((const void*)(partial + (6080 + tid))) : "memory");
-            buf[7] = __longlong_as_double(_scalar_bits_47);
+                : "=l"(_scalar_bits_47) : "l"((const void*)(partial + (12288 + tid))) : "memory");
+            buf[3] = __longlong_as_double(_scalar_bits_47);
         }
         {
             uint64_t _scalar_bits_48;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_48) : "l"((const void*)(partial + (1280 + tid))) : "memory");
-            buf[8] = __longlong_as_double(_scalar_bits_48);
+                : "=l"(_scalar_bits_48) : "l"((const void*)(partial + (256 + tid))) : "memory");
+            buf[4] = __longlong_as_double(_scalar_bits_48);
         }
         {
             uint64_t _scalar_bits_49;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_49) : "l"((const void*)(partial + (6400 + tid))) : "memory");
-            buf[9] = __longlong_as_double(_scalar_bits_49);
+                : "=l"(_scalar_bits_49) : "l"((const void*)(partial + (4352 + tid))) : "memory");
+            buf[5] = __longlong_as_double(_scalar_bits_49);
         }
         {
             uint64_t _scalar_bits_50;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_50) : "l"((const void*)(partial + (1600 + tid))) : "memory");
-            buf[10] = __longlong_as_double(_scalar_bits_50);
+                : "=l"(_scalar_bits_50) : "l"((const void*)(partial + (8448 + tid))) : "memory");
+            buf[6] = __longlong_as_double(_scalar_bits_50);
         }
         {
             uint64_t _scalar_bits_51;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_51) : "l"((const void*)(partial + (6720 + tid))) : "memory");
-            buf[11] = __longlong_as_double(_scalar_bits_51);
+                : "=l"(_scalar_bits_51) : "l"((const void*)(partial + (12544 + tid))) : "memory");
+            buf[7] = __longlong_as_double(_scalar_bits_51);
         }
         {
             uint64_t _scalar_bits_52;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_52) : "l"((const void*)(partial + (1920 + tid))) : "memory");
-            buf[12] = __longlong_as_double(_scalar_bits_52);
+                : "=l"(_scalar_bits_52) : "l"((const void*)(partial + (512 + tid))) : "memory");
+            buf[8] = __longlong_as_double(_scalar_bits_52);
         }
         {
             uint64_t _scalar_bits_53;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_53) : "l"((const void*)(partial + (7040 + tid))) : "memory");
-            buf[13] = __longlong_as_double(_scalar_bits_53);
+                : "=l"(_scalar_bits_53) : "l"((const void*)(partial + (4608 + tid))) : "memory");
+            buf[9] = __longlong_as_double(_scalar_bits_53);
         }
         {
             uint64_t _scalar_bits_54;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_54) : "l"((const void*)(partial + (2240 + tid))) : "memory");
-            buf[14] = __longlong_as_double(_scalar_bits_54);
+                : "=l"(_scalar_bits_54) : "l"((const void*)(partial + (8704 + tid))) : "memory");
+            buf[10] = __longlong_as_double(_scalar_bits_54);
         }
         {
             uint64_t _scalar_bits_55;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_55) : "l"((const void*)(partial + (7360 + tid))) : "memory");
-            buf[15] = __longlong_as_double(_scalar_bits_55);
+                : "=l"(_scalar_bits_55) : "l"((const void*)(partial + (12800 + tid))) : "memory");
+            buf[11] = __longlong_as_double(_scalar_bits_55);
         }
         {
             uint64_t _scalar_bits_56;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_56) : "l"((const void*)(partial + (2560 + tid))) : "memory");
-            buf[16] = __longlong_as_double(_scalar_bits_56);
+                : "=l"(_scalar_bits_56) : "l"((const void*)(partial + (768 + tid))) : "memory");
+            buf[12] = __longlong_as_double(_scalar_bits_56);
         }
         {
             uint64_t _scalar_bits_57;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_57) : "l"((const void*)(partial + (7680 + tid))) : "memory");
-            buf[17] = __longlong_as_double(_scalar_bits_57);
+                : "=l"(_scalar_bits_57) : "l"((const void*)(partial + (4864 + tid))) : "memory");
+            buf[13] = __longlong_as_double(_scalar_bits_57);
         }
         {
             uint64_t _scalar_bits_58;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_58) : "l"((const void*)(partial + (2880 + tid))) : "memory");
-            buf[18] = __longlong_as_double(_scalar_bits_58);
+                : "=l"(_scalar_bits_58) : "l"((const void*)(partial + (8960 + tid))) : "memory");
+            buf[14] = __longlong_as_double(_scalar_bits_58);
         }
         {
             uint64_t _scalar_bits_59;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_59) : "l"((const void*)(partial + (8000 + tid))) : "memory");
-            buf[19] = __longlong_as_double(_scalar_bits_59);
+                : "=l"(_scalar_bits_59) : "l"((const void*)(partial + (13056 + tid))) : "memory");
+            buf[15] = __longlong_as_double(_scalar_bits_59);
         }
         {
             uint64_t _scalar_bits_60;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_60) : "l"((const void*)(partial + (3200 + tid))) : "memory");
-            buf[20] = __longlong_as_double(_scalar_bits_60);
+                : "=l"(_scalar_bits_60) : "l"((const void*)(partial + (1024 + tid))) : "memory");
+            buf[16] = __longlong_as_double(_scalar_bits_60);
         }
         {
             uint64_t _scalar_bits_61;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_61) : "l"((const void*)(partial + (8320 + tid))) : "memory");
-            buf[21] = __longlong_as_double(_scalar_bits_61);
+                : "=l"(_scalar_bits_61) : "l"((const void*)(partial + (5120 + tid))) : "memory");
+            buf[17] = __longlong_as_double(_scalar_bits_61);
         }
         {
             uint64_t _scalar_bits_62;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_62) : "l"((const void*)(partial + (3520 + tid))) : "memory");
-            buf[22] = __longlong_as_double(_scalar_bits_62);
+                : "=l"(_scalar_bits_62) : "l"((const void*)(partial + (9216 + tid))) : "memory");
+            buf[18] = __longlong_as_double(_scalar_bits_62);
         }
         {
             uint64_t _scalar_bits_63;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_63) : "l"((const void*)(partial + (8640 + tid))) : "memory");
-            buf[23] = __longlong_as_double(_scalar_bits_63);
+                : "=l"(_scalar_bits_63) : "l"((const void*)(partial + (13312 + tid))) : "memory");
+            buf[19] = __longlong_as_double(_scalar_bits_63);
         }
         {
             uint64_t _scalar_bits_64;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_64) : "l"((const void*)(partial + (3840 + tid))) : "memory");
-            buf[24] = __longlong_as_double(_scalar_bits_64);
+                : "=l"(_scalar_bits_64) : "l"((const void*)(partial + (1280 + tid))) : "memory");
+            buf[20] = __longlong_as_double(_scalar_bits_64);
         }
         {
             uint64_t _scalar_bits_65;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_65) : "l"((const void*)(partial + (8960 + tid))) : "memory");
-            buf[25] = __longlong_as_double(_scalar_bits_65);
+                : "=l"(_scalar_bits_65) : "l"((const void*)(partial + (5376 + tid))) : "memory");
+            buf[21] = __longlong_as_double(_scalar_bits_65);
         }
         {
             uint64_t _scalar_bits_66;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_66) : "l"((const void*)(partial + (4160 + tid))) : "memory");
-            buf[26] = __longlong_as_double(_scalar_bits_66);
+                : "=l"(_scalar_bits_66) : "l"((const void*)(partial + (9472 + tid))) : "memory");
+            buf[22] = __longlong_as_double(_scalar_bits_66);
         }
         {
             uint64_t _scalar_bits_67;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_67) : "l"((const void*)(partial + (9280 + tid))) : "memory");
-            buf[27] = __longlong_as_double(_scalar_bits_67);
+                : "=l"(_scalar_bits_67) : "l"((const void*)(partial + (13568 + tid))) : "memory");
+            buf[23] = __longlong_as_double(_scalar_bits_67);
         }
         {
             uint64_t _scalar_bits_68;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_68) : "l"((const void*)(partial + (4480 + tid))) : "memory");
-            buf[28] = __longlong_as_double(_scalar_bits_68);
+                : "=l"(_scalar_bits_68) : "l"((const void*)(partial + (1536 + tid))) : "memory");
+            buf[24] = __longlong_as_double(_scalar_bits_68);
         }
         {
             uint64_t _scalar_bits_69;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_69) : "l"((const void*)(partial + (9600 + tid))) : "memory");
-            buf[29] = __longlong_as_double(_scalar_bits_69);
+                : "=l"(_scalar_bits_69) : "l"((const void*)(partial + (5632 + tid))) : "memory");
+            buf[25] = __longlong_as_double(_scalar_bits_69);
         }
         {
             uint64_t _scalar_bits_70;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_70) : "l"((const void*)(partial + (4800 + tid))) : "memory");
-            buf[30] = __longlong_as_double(_scalar_bits_70);
+                : "=l"(_scalar_bits_70) : "l"((const void*)(partial + (9728 + tid))) : "memory");
+            buf[26] = __longlong_as_double(_scalar_bits_70);
         }
         {
             uint64_t _scalar_bits_71;
             asm volatile("ld.global.cg.b64 %0, [%1];"
-                : "=l"(_scalar_bits_71) : "l"((const void*)(partial + (9920 + tid))) : "memory");
-            buf[31] = __longlong_as_double(_scalar_bits_71);
+                : "=l"(_scalar_bits_71) : "l"((const void*)(partial + (13824 + tid))) : "memory");
+            buf[27] = __longlong_as_double(_scalar_bits_71);
+        }
+        {
+            uint64_t _scalar_bits_72;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_72) : "l"((const void*)(partial + (1792 + tid))) : "memory");
+            buf[28] = __longlong_as_double(_scalar_bits_72);
+        }
+        {
+            uint64_t _scalar_bits_73;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_73) : "l"((const void*)(partial + (5888 + tid))) : "memory");
+            buf[29] = __longlong_as_double(_scalar_bits_73);
+        }
+        {
+            uint64_t _scalar_bits_74;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_74) : "l"((const void*)(partial + (9984 + tid))) : "memory");
+            buf[30] = __longlong_as_double(_scalar_bits_74);
+        }
+        {
+            uint64_t _scalar_bits_75;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_75) : "l"((const void*)(partial + (14080 + tid))) : "memory");
+            buf[31] = __longlong_as_double(_scalar_bits_75);
         }
         double tot_0 = buf[0];
         tot_0 = tot_0 + buf[1];
+        tot_0 = tot_0 + buf[2];
+        tot_0 = tot_0 + buf[3];
         int at_w_0 = tid;
-        dwbuf[(at_w_0 / 320 / 8 * 320 + at_w_0 % 320) * 8 + at_w_0 / 320 % 8] = (float)tot_0;
+        dwbuf[(at_w_0 / 256 / 8 * 256 + at_w_0 % 256) * 8 + at_w_0 / 256 % 8] = (float)tot_0;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_1 = buf[2];
-        tot_1 = tot_1 + buf[3];
-        int at_w_1 = 320 + tid;
-        dwbuf[(at_w_1 / 320 / 8 * 320 + at_w_1 % 320) * 8 + at_w_1 / 320 % 8] = (float)tot_1;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_0)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_1 = buf[4];
+        tot_1 = tot_1 + buf[5];
+        tot_1 = tot_1 + buf[6];
+        tot_1 = tot_1 + buf[7];
+        int at_w_1 = 256 + tid;
+        dwbuf[(at_w_1 / 256 / 8 * 256 + at_w_1 % 256) * 8 + at_w_1 / 256 % 8] = (float)tot_1;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_2 = buf[4];
-        tot_2 = tot_2 + buf[5];
-        int at_w_2 = 640 + tid;
-        dwbuf[(at_w_2 / 320 / 8 * 320 + at_w_2 % 320) * 8 + at_w_2 / 320 % 8] = (float)tot_2;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_1)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_2 = buf[8];
+        tot_2 = tot_2 + buf[9];
+        tot_2 = tot_2 + buf[10];
+        tot_2 = tot_2 + buf[11];
+        int at_w_2 = 512 + tid;
+        dwbuf[(at_w_2 / 256 / 8 * 256 + at_w_2 % 256) * 8 + at_w_2 / 256 % 8] = (float)tot_2;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_3 = buf[6];
-        tot_3 = tot_3 + buf[7];
-        int at_w_3 = 960 + tid;
-        dwbuf[(at_w_3 / 320 / 8 * 320 + at_w_3 % 320) * 8 + at_w_3 / 320 % 8] = (float)tot_3;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_2)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_3 = buf[12];
+        tot_3 = tot_3 + buf[13];
+        tot_3 = tot_3 + buf[14];
+        tot_3 = tot_3 + buf[15];
+        int at_w_3 = 768 + tid;
+        dwbuf[(at_w_3 / 256 / 8 * 256 + at_w_3 % 256) * 8 + at_w_3 / 256 % 8] = (float)tot_3;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_4 = buf[8];
-        tot_4 = tot_4 + buf[9];
-        int at_w_4 = 1280 + tid;
-        dwbuf[(at_w_4 / 320 / 8 * 320 + at_w_4 % 320) * 8 + at_w_4 / 320 % 8] = (float)tot_4;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_3)) = (unsigned long long)((unsigned long long)(0.0));
+        {
+            uint64_t _scalar_bits_76;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_76) : "l"((const void*)(partial + (2048 + tid))) : "memory");
+            buf[0] = __longlong_as_double(_scalar_bits_76);
+        }
+        {
+            uint64_t _scalar_bits_77;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_77) : "l"((const void*)(partial + (6144 + tid))) : "memory");
+            buf[1] = __longlong_as_double(_scalar_bits_77);
+        }
+        {
+            uint64_t _scalar_bits_78;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_78) : "l"((const void*)(partial + (10240 + tid))) : "memory");
+            buf[2] = __longlong_as_double(_scalar_bits_78);
+        }
+        {
+            uint64_t _scalar_bits_79;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_79) : "l"((const void*)(partial + (14336 + tid))) : "memory");
+            buf[3] = __longlong_as_double(_scalar_bits_79);
+        }
+        {
+            uint64_t _scalar_bits_80;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_80) : "l"((const void*)(partial + (2304 + tid))) : "memory");
+            buf[4] = __longlong_as_double(_scalar_bits_80);
+        }
+        {
+            uint64_t _scalar_bits_81;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_81) : "l"((const void*)(partial + (6400 + tid))) : "memory");
+            buf[5] = __longlong_as_double(_scalar_bits_81);
+        }
+        {
+            uint64_t _scalar_bits_82;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_82) : "l"((const void*)(partial + (10496 + tid))) : "memory");
+            buf[6] = __longlong_as_double(_scalar_bits_82);
+        }
+        {
+            uint64_t _scalar_bits_83;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_83) : "l"((const void*)(partial + (14592 + tid))) : "memory");
+            buf[7] = __longlong_as_double(_scalar_bits_83);
+        }
+        {
+            uint64_t _scalar_bits_84;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_84) : "l"((const void*)(partial + (2560 + tid))) : "memory");
+            buf[8] = __longlong_as_double(_scalar_bits_84);
+        }
+        {
+            uint64_t _scalar_bits_85;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_85) : "l"((const void*)(partial + (6656 + tid))) : "memory");
+            buf[9] = __longlong_as_double(_scalar_bits_85);
+        }
+        {
+            uint64_t _scalar_bits_86;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_86) : "l"((const void*)(partial + (10752 + tid))) : "memory");
+            buf[10] = __longlong_as_double(_scalar_bits_86);
+        }
+        {
+            uint64_t _scalar_bits_87;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_87) : "l"((const void*)(partial + (14848 + tid))) : "memory");
+            buf[11] = __longlong_as_double(_scalar_bits_87);
+        }
+        {
+            uint64_t _scalar_bits_88;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_88) : "l"((const void*)(partial + (2816 + tid))) : "memory");
+            buf[12] = __longlong_as_double(_scalar_bits_88);
+        }
+        {
+            uint64_t _scalar_bits_89;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_89) : "l"((const void*)(partial + (6912 + tid))) : "memory");
+            buf[13] = __longlong_as_double(_scalar_bits_89);
+        }
+        {
+            uint64_t _scalar_bits_90;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_90) : "l"((const void*)(partial + (11008 + tid))) : "memory");
+            buf[14] = __longlong_as_double(_scalar_bits_90);
+        }
+        {
+            uint64_t _scalar_bits_91;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_91) : "l"((const void*)(partial + (15104 + tid))) : "memory");
+            buf[15] = __longlong_as_double(_scalar_bits_91);
+        }
+        double tot_4 = buf[16];
+        tot_4 = tot_4 + buf[17];
+        tot_4 = tot_4 + buf[18];
+        tot_4 = tot_4 + buf[19];
+        int at_w_4 = 1024 + tid;
+        dwbuf[(at_w_4 / 256 / 8 * 256 + at_w_4 % 256) * 8 + at_w_4 / 256 % 8] = (float)tot_4;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_5 = buf[10];
-        tot_5 = tot_5 + buf[11];
-        int at_w_5 = 1600 + tid;
-        dwbuf[(at_w_5 / 320 / 8 * 320 + at_w_5 % 320) * 8 + at_w_5 / 320 % 8] = (float)tot_5;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_4)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_5 = buf[20];
+        tot_5 = tot_5 + buf[21];
+        tot_5 = tot_5 + buf[22];
+        tot_5 = tot_5 + buf[23];
+        int at_w_5 = 1280 + tid;
+        dwbuf[(at_w_5 / 256 / 8 * 256 + at_w_5 % 256) * 8 + at_w_5 / 256 % 8] = (float)tot_5;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_6 = buf[12];
-        tot_6 = tot_6 + buf[13];
-        int at_w_6 = 1920 + tid;
-        dwbuf[(at_w_6 / 320 / 8 * 320 + at_w_6 % 320) * 8 + at_w_6 / 320 % 8] = (float)tot_6;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_5)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_6 = buf[24];
+        tot_6 = tot_6 + buf[25];
+        tot_6 = tot_6 + buf[26];
+        tot_6 = tot_6 + buf[27];
+        int at_w_6 = 1536 + tid;
+        dwbuf[(at_w_6 / 256 / 8 * 256 + at_w_6 % 256) * 8 + at_w_6 / 256 % 8] = (float)tot_6;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_7 = buf[14];
-        tot_7 = tot_7 + buf[15];
-        int at_w_7 = 2240 + tid;
-        dwbuf[(at_w_7 / 320 / 8 * 320 + at_w_7 % 320) * 8 + at_w_7 / 320 % 8] = (float)tot_7;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_6)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_7 = buf[28];
+        tot_7 = tot_7 + buf[29];
+        tot_7 = tot_7 + buf[30];
+        tot_7 = tot_7 + buf[31];
+        int at_w_7 = 1792 + tid;
+        dwbuf[(at_w_7 / 256 / 8 * 256 + at_w_7 % 256) * 8 + at_w_7 / 256 % 8] = (float)tot_7;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_8 = buf[16];
-        tot_8 = tot_8 + buf[17];
-        int at_w_8 = 2560 + tid;
-        dwbuf[(at_w_8 / 320 / 8 * 320 + at_w_8 % 320) * 8 + at_w_8 / 320 % 8] = (float)tot_8;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_7)) = (unsigned long long)((unsigned long long)(0.0));
+        {
+            uint64_t _scalar_bits_92;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_92) : "l"((const void*)(partial + (3072 + tid))) : "memory");
+            buf[16] = __longlong_as_double(_scalar_bits_92);
+        }
+        {
+            uint64_t _scalar_bits_93;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_93) : "l"((const void*)(partial + (7168 + tid))) : "memory");
+            buf[17] = __longlong_as_double(_scalar_bits_93);
+        }
+        {
+            uint64_t _scalar_bits_94;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_94) : "l"((const void*)(partial + (11264 + tid))) : "memory");
+            buf[18] = __longlong_as_double(_scalar_bits_94);
+        }
+        {
+            uint64_t _scalar_bits_95;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_95) : "l"((const void*)(partial + (15360 + tid))) : "memory");
+            buf[19] = __longlong_as_double(_scalar_bits_95);
+        }
+        {
+            uint64_t _scalar_bits_96;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_96) : "l"((const void*)(partial + (3328 + tid))) : "memory");
+            buf[20] = __longlong_as_double(_scalar_bits_96);
+        }
+        {
+            uint64_t _scalar_bits_97;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_97) : "l"((const void*)(partial + (7424 + tid))) : "memory");
+            buf[21] = __longlong_as_double(_scalar_bits_97);
+        }
+        {
+            uint64_t _scalar_bits_98;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_98) : "l"((const void*)(partial + (11520 + tid))) : "memory");
+            buf[22] = __longlong_as_double(_scalar_bits_98);
+        }
+        {
+            uint64_t _scalar_bits_99;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_99) : "l"((const void*)(partial + (15616 + tid))) : "memory");
+            buf[23] = __longlong_as_double(_scalar_bits_99);
+        }
+        {
+            uint64_t _scalar_bits_100;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_100) : "l"((const void*)(partial + (3584 + tid))) : "memory");
+            buf[24] = __longlong_as_double(_scalar_bits_100);
+        }
+        {
+            uint64_t _scalar_bits_101;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_101) : "l"((const void*)(partial + (7680 + tid))) : "memory");
+            buf[25] = __longlong_as_double(_scalar_bits_101);
+        }
+        {
+            uint64_t _scalar_bits_102;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_102) : "l"((const void*)(partial + (11776 + tid))) : "memory");
+            buf[26] = __longlong_as_double(_scalar_bits_102);
+        }
+        {
+            uint64_t _scalar_bits_103;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_103) : "l"((const void*)(partial + (15872 + tid))) : "memory");
+            buf[27] = __longlong_as_double(_scalar_bits_103);
+        }
+        {
+            uint64_t _scalar_bits_104;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_104) : "l"((const void*)(partial + (3840 + tid))) : "memory");
+            buf[28] = __longlong_as_double(_scalar_bits_104);
+        }
+        {
+            uint64_t _scalar_bits_105;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_105) : "l"((const void*)(partial + (7936 + tid))) : "memory");
+            buf[29] = __longlong_as_double(_scalar_bits_105);
+        }
+        {
+            uint64_t _scalar_bits_106;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_106) : "l"((const void*)(partial + (12032 + tid))) : "memory");
+            buf[30] = __longlong_as_double(_scalar_bits_106);
+        }
+        {
+            uint64_t _scalar_bits_107;
+            asm volatile("ld.global.cg.b64 %0, [%1];"
+                : "=l"(_scalar_bits_107) : "l"((const void*)(partial + (16128 + tid))) : "memory");
+            buf[31] = __longlong_as_double(_scalar_bits_107);
+        }
+        double tot_8 = buf[0];
+        tot_8 = tot_8 + buf[1];
+        tot_8 = tot_8 + buf[2];
+        tot_8 = tot_8 + buf[3];
+        int at_w_8 = 2048 + tid;
+        dwbuf[(at_w_8 / 256 / 8 * 256 + at_w_8 % 256) * 8 + at_w_8 / 256 % 8] = (float)tot_8;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_9 = buf[18];
-        tot_9 = tot_9 + buf[19];
-        int at_w_9 = 2880 + tid;
-        dwbuf[(at_w_9 / 320 / 8 * 320 + at_w_9 % 320) * 8 + at_w_9 / 320 % 8] = (float)tot_9;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_8)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_9 = buf[4];
+        tot_9 = tot_9 + buf[5];
+        tot_9 = tot_9 + buf[6];
+        tot_9 = tot_9 + buf[7];
+        int at_w_9 = 2304 + tid;
+        dwbuf[(at_w_9 / 256 / 8 * 256 + at_w_9 % 256) * 8 + at_w_9 / 256 % 8] = (float)tot_9;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_10 = buf[20];
-        tot_10 = tot_10 + buf[21];
-        int at_w_10 = 3200 + tid;
-        dwbuf[(at_w_10 / 320 / 8 * 320 + at_w_10 % 320) * 8 + at_w_10 / 320 % 8] = (float)tot_10;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_9)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_10 = buf[8];
+        tot_10 = tot_10 + buf[9];
+        tot_10 = tot_10 + buf[10];
+        tot_10 = tot_10 + buf[11];
+        int at_w_10 = 2560 + tid;
+        dwbuf[(at_w_10 / 256 / 8 * 256 + at_w_10 % 256) * 8 + at_w_10 / 256 % 8] = (float)tot_10;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_11 = buf[22];
-        tot_11 = tot_11 + buf[23];
-        int at_w_11 = 3520 + tid;
-        dwbuf[(at_w_11 / 320 / 8 * 320 + at_w_11 % 320) * 8 + at_w_11 / 320 % 8] = (float)tot_11;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_10)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_11 = buf[12];
+        tot_11 = tot_11 + buf[13];
+        tot_11 = tot_11 + buf[14];
+        tot_11 = tot_11 + buf[15];
+        int at_w_11 = 2816 + tid;
+        dwbuf[(at_w_11 / 256 / 8 * 256 + at_w_11 % 256) * 8 + at_w_11 / 256 % 8] = (float)tot_11;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_12 = buf[24];
-        tot_12 = tot_12 + buf[25];
-        int at_w_12 = 3840 + tid;
-        dwbuf[(at_w_12 / 320 / 8 * 320 + at_w_12 % 320) * 8 + at_w_12 / 320 % 8] = (float)tot_12;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_11)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_12 = buf[16];
+        tot_12 = tot_12 + buf[17];
+        tot_12 = tot_12 + buf[18];
+        tot_12 = tot_12 + buf[19];
+        int at_w_12 = 3072 + tid;
+        dwbuf[(at_w_12 / 256 / 8 * 256 + at_w_12 % 256) * 8 + at_w_12 / 256 % 8] = (float)tot_12;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_13 = buf[26];
-        tot_13 = tot_13 + buf[27];
-        int at_w_13 = 4160 + tid;
-        dwbuf[(at_w_13 / 320 / 8 * 320 + at_w_13 % 320) * 8 + at_w_13 / 320 % 8] = (float)tot_13;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_12)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_13 = buf[20];
+        tot_13 = tot_13 + buf[21];
+        tot_13 = tot_13 + buf[22];
+        tot_13 = tot_13 + buf[23];
+        int at_w_13 = 3328 + tid;
+        dwbuf[(at_w_13 / 256 / 8 * 256 + at_w_13 % 256) * 8 + at_w_13 / 256 % 8] = (float)tot_13;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_14 = buf[28];
-        tot_14 = tot_14 + buf[29];
-        int at_w_14 = 4480 + tid;
-        dwbuf[(at_w_14 / 320 / 8 * 320 + at_w_14 % 320) * 8 + at_w_14 / 320 % 8] = (float)tot_14;
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_13)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_14 = buf[24];
+        tot_14 = tot_14 + buf[25];
+        tot_14 = tot_14 + buf[26];
+        tot_14 = tot_14 + buf[27];
+        int at_w_14 = 3584 + tid;
+        dwbuf[(at_w_14 / 256 / 8 * 256 + at_w_14 % 256) * 8 + at_w_14 / 256 % 8] = (float)tot_14;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
-        double tot_15 = buf[30];
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_14)) = (unsigned long long)((unsigned long long)(0.0));
+        double tot_15 = buf[28];
+        tot_15 = tot_15 + buf[29];
+        tot_15 = tot_15 + buf[30];
         tot_15 = tot_15 + buf[31];
-        int at_w_15 = 4800 + tid;
-        dwbuf[(at_w_15 / 320 / 8 * 320 + at_w_15 % 320) * 8 + at_w_15 / 320 % 8] = (float)tot_15;
+        int at_w_15 = 3840 + tid;
+        dwbuf[(at_w_15 / 256 / 8 * 256 + at_w_15 % 256) * 8 + at_w_15 / 256 % 8] = (float)tot_15;
         *reinterpret_cast<unsigned long long*>(partial + (at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
-        *reinterpret_cast<unsigned long long*>(partial + (5120 + at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (4096 + at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (8192 + at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
+        *reinterpret_cast<unsigned long long*>(partial + (12288 + at_w_15)) = (unsigned long long)((unsigned long long)(0.0));
         __syncthreads();
         int col_0 = tid * 4;
-        if (col_0 < 5120) {
+        if (col_0 < 4096) {
             float o4_0[4];
             o4_0[0] = dwbuf[col_0];
             o4_0[1] = dwbuf[col_0 + 1];
@@ -1430,8 +1686,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
                 *reinterpret_cast<float4*>(dw + col_0) = _v4;
             }
         }
-        int col_1 = (320 + tid) * 4;
-        if (col_1 < 5120) {
+        int col_1 = (256 + tid) * 4;
+        if (col_1 < 4096) {
             float o4_1[4];
             o4_1[0] = dwbuf[col_1];
             o4_1[1] = dwbuf[col_1 + 1];
@@ -1442,8 +1698,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
                 *reinterpret_cast<float4*>(dw + col_1) = _v4;
             }
         }
-        int col_2 = (640 + tid) * 4;
-        if (col_2 < 5120) {
+        int col_2 = (512 + tid) * 4;
+        if (col_2 < 4096) {
             float o4_2[4];
             o4_2[0] = dwbuf[col_2];
             o4_2[1] = dwbuf[col_2 + 1];
@@ -1454,8 +1710,8 @@ kernel_cake_rmsnorm_train_91a40f3094182a35c784(__nv_bfloat16* __restrict__ g, __
                 *reinterpret_cast<float4*>(dw + col_2) = _v4;
             }
         }
-        int col_3 = (960 + tid) * 4;
-        if (col_3 < 5120) {
+        int col_3 = (768 + tid) * 4;
+        if (col_3 < 4096) {
             float o4_3[4];
             o4_3[0] = dwbuf[col_3];
             o4_3[1] = dwbuf[col_3 + 1];
