@@ -1847,6 +1847,48 @@
     },
     {
       "arch": "sm_100a",
+      "closure_sha256": "6d31f9976ee7ac29a786fa7038f8ae97fa2daa797f73c98c8b1d9cac11c6bb61",
+      "entry": "run",
+      "gencode": "-gencode=arch=compute_100a,code=sm_100a",
+      "min_cuda": "12.8",
+      "name": "cake_kda_det_train_50721aa4cea4ff2fe68f_sm_100a",
+      "nvcc_flags": [
+        "--use_fast_math"
+      ],
+      "nvcc_flags_if": [],
+      "path": "aot/cake_kda_det_train_50721aa4cea4ff2fe68f_sm_100a.so",
+      "sha256": {
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_binding.cu": "60a8b9d28d7a3eaeb62659771c1428a334b58828e077feadc0fe7d67371b2ce7",
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_kernel.cu": "485a38d126f935d8106cbf70b990a1dc4bd3da91db8ae1cac3341fbca60852e1"
+      },
+      "sources": [
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_kernel.cu",
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_binding.cu"
+      ]
+    },
+    {
+      "arch": "sm_103a",
+      "closure_sha256": "f57530400cc085b6b7f8a8fd426a353bdd3d4fb6646c99a33ffcb8aee0d56f42",
+      "entry": "run",
+      "gencode": "-gencode=arch=compute_103a,code=sm_103a",
+      "min_cuda": "12.9",
+      "name": "cake_kda_det_train_50721aa4cea4ff2fe68f_sm_103a",
+      "nvcc_flags": [
+        "--use_fast_math"
+      ],
+      "nvcc_flags_if": [],
+      "path": "aot/cake_kda_det_train_50721aa4cea4ff2fe68f_sm_103a.so",
+      "sha256": {
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_binding.cu": "60a8b9d28d7a3eaeb62659771c1428a334b58828e077feadc0fe7d67371b2ce7",
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_kernel.cu": "485a38d126f935d8106cbf70b990a1dc4bd3da91db8ae1cac3341fbca60852e1"
+      },
+      "sources": [
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_kernel.cu",
+        "csrc/cake_kda_det_train_50721aa4cea4ff2fe68f_binding.cu"
+      ]
+    },
+    {
+      "arch": "sm_100a",
       "closure_sha256": "31f5bf04eeff02581f1e33b517238d61c7acb3c1f52ff7b2c5a09c73b5ab3894",
       "entry": "run",
       "gencode": "-gencode=arch=compute_100a,code=sm_100a",

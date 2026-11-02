@@ -345,6 +345,7 @@ SELECT_KINDS = (
     "arch_in",
     "path_in",
     "l2n_in",  # the in-kernel Q/K L2 norm mode (#7817)
+    "saved_rstd_twin",  # a saved-rstd twin, launched in place of its record (#7817)
 )
 GRID_KINDS = (
     "fixed",
@@ -369,6 +370,7 @@ RECORD_ARCHES = {
     "glm_intra_v14": ("sm_103a",),
     "glm_intra_v18": ("sm_107a",),
     "gate_epilogue": ("sm_100a",),
+    "bwd_prep_g8_replay_l2n_saved": ("sm_100a", "sm_103a"),
 }
 # The records of the segmented adjoint recurrence launch twice per stage (the carry between the passes); the
 # forward recurrence's passes are two stages (fwdh, fwdh_p3).
@@ -8476,3 +8478,42 @@ def test_raw_gate_arena_and_per_call_content_never_reach_a_result(
             monkeypatch.setattr(cake_backend, "_alloc", original_alloc)
             for t, r in zip(got, replay, strict=True):
                 assert _bits_equal(t, r), (case, "replay")
+
+
+def test_saved_rstd_twins() -> None:
+    """A saved-rstd twin (#7817) serves its record's stage, gate class, ``l2n`` modes, launch grid and logical
+    arguments, admits no problem (no plan selects it), and is the record a launch with ``read_rstd = 1`` runs on the
+    twin's architectures alone."""
+    assert cake_jit.SAVED_RSTD_TWINS == {"bwd_prep_g8_replay_l2n": "bwd_prep_g8_replay_l2n_saved"}
+    for name, twin in cake_jit.SAVED_RSTD_TWINS.items():
+        rec, trec = cake_jit.MODULES[name], cake_jit.MODULES[twin]
+        for key in ("stage", "l2n", "grid_rule", "arg_plan", "logical", "ffi_entry"):
+            assert trec[key] == rec[key], (twin, key)
+        assert trec.get("gate", "g") == rec.get("gate", "g")
+        assert trec["select_rule"] == {"kind": "saved_rstd_twin"}
+        assert set(trec["arches"]) <= set(rec["arches"])
+        assert trec["library"] != rec["library"]
+        selected = 0
+        for arch in cake_jit.ARCHES:
+            assert cake_jit.saved_rstd_record(name, arch, 0) == name
+            assert cake_jit.saved_rstd_record(name, arch, 1) == (twin if arch in trec["arches"] else name)
+            for path in cake_jit.PATHS:
+                for docs in (1, 8, 300):
+                    for heads in (16, 64):
+                        try:
+                            picked = cake_jit.select_record(
+                                rec["stage"],
+                                num_chunks_pad=264,
+                                num_seqs=docs,
+                                num_heads=heads,
+                                sm_count=148,
+                                arch=arch,
+                                path=path,
+                                l2n="fused",
+                            )
+                        except ValueError:
+                            continue  # the stage does not run on this path
+                        selected += 1
+                        assert picked != twin, (arch, path, docs, heads)
+        assert selected
+    assert cake_jit.saved_rstd_record("bwd_prep_g8_l2n", "sm_100a", 1) == "bwd_prep_g8_l2n"
