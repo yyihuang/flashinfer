@@ -190,6 +190,17 @@ RAW_TWIN_RECORDS = {
     "bwd_prep_g8_noqg": "bwd_prep_g8_noqg_raw",
     "bwd_prep_g8_noqg_nokb": "bwd_prep_g8_noqg_nokb_raw",
 }
+# The in-kernel Q/K L2 norm's fused class (#7817, l2n ["fused"] alone): its g records of the forward intra program,
+# the backward prep and the GLM intra program, each with one raw twin
+FUSED_L2N_RECORDS = {
+    "fwd_intra_l2n": "fwd_intra_raw_l2n",
+    "fwd_intra_v14_l2n": "fwd_intra_v14_raw_l2n",
+    "bwd_prep_g8_l2n": "bwd_prep_g8_raw_l2n",
+    "bwd_prep_g8_replay_l2n": "bwd_prep_g8_replay_raw_l2n",
+    "bwd_prep_g8_noqg_l2n": "bwd_prep_g8_noqg_raw_l2n",
+    "bwd_prep_g8_noqg_nokb_l2n": "bwd_prep_g8_noqg_nokb_raw_l2n",
+    "glm_intra_l2n": "glm_intra_raw_l2n",
+}
 RAW_GLM_INTRA = "glm_intra_raw"
 RAW_FINALIZE = "param_finalize"
 # the raw operands the raw records bind in place of the activated gate g (the TMA reader of the forward takes the
@@ -462,9 +473,10 @@ def _route_rule(route: str) -> dict:
 
 def test_registry_records_are_well_formed() -> None:
     # the 67 g-mode records, the 8 raw-gate ones (each raw record its own library), the 3 programs of the
-    # in-kernel Q/K L2 norm's fallback route and its 2 GLM intra capture forms (g, raw)
-    assert len(cake_jit.MODULES) == 80
-    assert len({r["library"] for r in cake_jit.MODULES.values()}) == 78
+    # in-kernel Q/K L2 norm's fallback route and its 2 GLM intra capture forms (g, raw), and the 14 records of its
+    # fused class (FUSED_L2N_RECORDS: 7 g, 7 raw, each its own library)
+    assert len(cake_jit.MODULES) == 94
+    assert len({r["library"] for r in cake_jit.MODULES.values()}) == 92
     assert tuple(cake_jit.PATHS) == PATHS
     assert tuple(cake_jit.OPTIONAL_STAGES) == OPTIONAL_STAGES
     assert frozenset(cake_jit.GATE_STAGES) == GATE_STAGES
@@ -942,11 +954,12 @@ def test_the_raw_gate_records_mirror_the_g_records() -> None:
     parameter finalize runs on every backward path with one CTA per head, reading the partials alone."""
     modules = cake_jit.MODULES
     raw_names = {name for name, rec in modules.items() if rec.get("gate") == "raw"}
-    # the in-kernel Q/K L2 norm's raw GLM intra capture form serves the fallback mode alone (test_cake_kda_det_train_l2n)
+    # the in-kernel Q/K L2 norm's raw records: the GLM intra capture form, which serves the fallback mode alone
+    # (test_cake_kda_det_train_l2n), and the fused class's raw twins (checked below)
     l2n_raw = {
         name for name in raw_names if "off" not in modules[name].get("l2n", ["off"])
     }
-    assert l2n_raw == {"glm_intra_raw_l2n_capture"}
+    assert l2n_raw == {"glm_intra_raw_l2n_capture", *FUSED_L2N_RECORDS.values()}
     raw_names -= l2n_raw
     assert raw_names == set(RAW_TWIN_RECORDS.values()) | {RAW_GLM_INTRA, RAW_FINALIZE}
     assert modules["gate_epilogue"]["gate"] == "g"
@@ -1022,12 +1035,58 @@ def test_the_raw_gate_records_mirror_the_g_records() -> None:
                 num_heads=h,
                 sm_count=148,
             ) == (h, segments, 1)
-    # the twin records are named for their g-mode program; every g record of a gate stage has its raw counterpart
-    # but the gate epilogue (the raw drain is fused on every architecture)
+    # the twin records are named for their g-mode program; every flag-off g record of a gate stage has its raw
+    # counterpart but the gate epilogue (the raw drain is fused on every architecture)
+    def flag_off(names: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(n for n in names if "off" in modules[n].get("l2n", ["off"]))
+
+    def fused_only(names: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(n for n in names if modules[n].get("l2n", ["off"]) == ["fused"])
+
     for stage in ("fwd_intra", "bwd_prep"):
-        g_names = cake_jit.records_of_stage(stage)
-        assert cake_jit.records_of_stage(stage, "raw") == tuple(
+        g_names = flag_off(cake_jit.records_of_stage(stage))
+        assert flag_off(cake_jit.records_of_stage(stage, "raw")) == tuple(
             RAW_TWIN_RECORDS[n] for n in g_names
+        ), stage
+    # the fused class: every fused g record of the three stages has one raw twin with the same select rule, grid
+    # rule, architectures, block, cluster and PDL attribute (the twins are kernels of their own, each with its own
+    # shared memory), binding the raw operands as the flag-off twins do (the GLM intra twin: the raw drain's outputs
+    # in place of dg, as the flag-off raw GLM intra program)
+    for g_name, raw_name in FUSED_L2N_RECORDS.items():
+        a, b = modules[g_name], modules[raw_name]
+        assert a.get("gate", "g") == "g" and b["gate"] == "raw", raw_name
+        assert a["l2n"] == b["l2n"] == ["fused"], raw_name
+        assert b["stage"] == a["stage"] and b["stage"] in GATE_STAGES, raw_name
+        assert (b["select_rule"], b["grid_rule"]) == (
+            a["select_rule"],
+            a["grid_rule"],
+        ), raw_name
+        assert list(b["arches"]) == list(a["arches"]) == list(ARCHES), raw_name
+        for key in ("block", "cluster", "use_pdl"):
+            assert b["launch"][key] == a["launch"][key], (raw_name, key)
+        assert b["library"] != a["library"], raw_name
+        va, vb = set(a["logical"].values()), set(b["logical"].values())
+        if b["stage"] == "glm_intra":
+            assert va - vb == {"dg"}, raw_name
+            assert vb - va == RAW_FWD_OPERANDS | RAW_STRIDES | {
+                "dg_raw",
+                "dA_part",
+                "db_part",
+            }, raw_name
+        else:
+            extra = RAW_FWD_OPERANDS | (
+                RAW_STRIDES if b["stage"] == "bwd_prep" else set()
+            )
+            assert va - vb == {"g"} and vb - va == extra, (
+                raw_name,
+                va - vb,
+                vb - va,
+            )
+    for stage in ("fwd_intra", "bwd_prep", "glm_intra"):
+        g_fused = fused_only(cake_jit.records_of_stage(stage))
+        assert g_fused == tuple(n for n in FUSED_L2N_RECORDS if modules[n]["stage"] == stage)
+        assert fused_only(cake_jit.records_of_stage(stage, "raw")) == tuple(
+            FUSED_L2N_RECORDS[n] for n in g_fused
         ), stage
     # flag off (the in-kernel Q/K L2 norm's raw capture form serves the fallback mode alone)
     assert tuple(
@@ -1839,19 +1898,33 @@ def test_the_backward_reads_the_token_rows_without_chunk_layout_copies() -> None
         "bwd_prep_g8_noqg",
         "bwd_prep_g8_noqg_nokb",
     )
-    assert cake_jit.records_of_stage("bwd_prep") == preps
+    # the in-kernel Q/K L2 norm's fused class (l2n ["fused"] alone) has one form per flag-off one
+    fused_preps = tuple(f"{name}_l2n" for name in preps)
+
+    def l2n_class(gate: str, fused: bool) -> tuple[str, ...]:
+        return tuple(
+            n
+            for n in cake_jit.records_of_stage("bwd_prep", gate)
+            if (cake_jit.MODULES[n].get("l2n", ["off"]) == ["fused"]) == fused
+        )
+
+    assert l2n_class("g", False) == preps
+    assert l2n_class("g", True) == fused_preps
     # the raw-gate class: one twin per form, copy-free alike
     raw_preps = tuple(RAW_TWIN_RECORDS[name] for name in preps)
-    assert cake_jit.records_of_stage("bwd_prep", "raw") == raw_preps
-    for name in preps + raw_preps:
+    raw_fused_preps = tuple(FUSED_L2N_RECORDS[name] for name in fused_preps)
+    assert l2n_class("raw", False) == raw_preps
+    assert l2n_class("raw", True) == raw_fused_preps
+    for name in preps + raw_preps + fused_preps + raw_fused_preps:
         prep = cake_jit.MODULES[name]
         assert prep["grid_rule"] == {"kind": "chunks", "x_factor": 1}
         assert not {"ke_out", "qe_out", "v_int", "vb_out"} & set(prep["logical"])
     # the saved-set paths' prep copies nothing of dout either; the replay's keeps the internal copy
-    for name in preps:
+    for name in preps + fused_preps:
         values = set(cake_jit.MODULES[name]["logical"].values())
-        assert ("do_int" in values) == (name == "bwd_prep_g8_replay"), name
-        assert ("dout" in values) == (name == "bwd_prep_g8_replay"), name
+        replay = name.startswith("bwd_prep_g8_replay")
+        assert ("do_int" in values) == replay, name
+        assert ("dout" in values) == replay, name
     # the tape set's and the replay's prep fold q into qg; the light sets' forms read no q and write no qg (the
     # version-4 set carries the forward's), and the w / u rows' form writes no kb either (no wy launch there)
     for name in ("bwd_prep_g8", "bwd_prep_g8_replay"):
@@ -1862,6 +1935,14 @@ def test_the_backward_reads_the_token_rows_without_chunk_layout_copies() -> None
         assert not {"q", "qg"} & values, name
         assert {"kg", "gk", "beta_int", "v_new", "dv2"} <= values, name
         assert ("kb" in values) == (name == "bwd_prep_g8_noqg"), name
+    # the fused forms: the same outputs per form, read from the raw rows (the backward's first q / k reader, which
+    # writes the normalized qn / kn with the saved rstd) in place of q / k
+    for name in fused_preps:
+        values = set(cake_jit.MODULES[name]["logical"].values())
+        off = set(cake_jit.MODULES[name.removesuffix("_l2n")]["logical"].values())
+        assert {"q_raw", "k_raw", "qn", "kn", "qk_rstd"} <= values, name
+        assert not {"q", "k"} & values, name
+        assert off - {"q", "k"} <= values, name
     # the fused GLM intra program writes the token-row gate gradients itself and binds no epilogue buffer; the
     # unfused one hands them to the gate epilogue through dg_int / db_int
     v14 = set(cake_jit.MODULES["glm_intra_v14"]["logical"].values())
@@ -3535,16 +3616,16 @@ def test_manifest_is_well_formed(manifest: dict) -> None:
     assert set(ARCHES) <= set(arch_flags)
     libraries = manifest["libraries"]
     names = [entry["name"] for entry in libraries]
-    # The 78 programs of cake_jit.MODULES (65 of the g gate, the 8 raw-gate programs and the 5 of the Q/K L2 norm's
-    # fallback route), each built for the architectures its record delivers (74 on all three, the four of
-    # RECORD_ARCHES on one each: 226 libraries); the KCP programs have their own package.
+    # The 92 programs of cake_jit.MODULES (65 of the g gate, the 8 raw-gate programs, the 5 of the Q/K L2 norm's
+    # fallback route and the 14 of its fused class), each built for the architectures its record delivers (88 on
+    # all three, the four of RECORD_ARCHES on one each: 268 libraries); the KCP programs have their own package.
     train_libraries = {
         (record["library"], arch)
         for record in cake_jit.MODULES.values()
         for arch in record["arches"]
     }
-    assert len(train_libraries) == 226
-    assert len(names) == len(set(names)) == 226
+    assert len(train_libraries) == 268
+    assert len(names) == len(set(names)) == 268
     for entry in libraries:
         assert entry["arch"] in ARCHES
         assert entry["entry"] == "run"
