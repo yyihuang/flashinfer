@@ -370,7 +370,7 @@ RECORD_ARCHES = {
     "glm_intra_v14": ("sm_103a",),
     "glm_intra_v18": ("sm_107a",),
     "gate_epilogue": ("sm_100a",),
-    "bwd_prep_g8_replay_l2n_saved": ("sm_100a",),
+    "bwd_prep_g8_replay_l2n_saved": ("sm_100a", "sm_103a"),
 }
 # The records of the segmented adjoint recurrence launch twice per stage (the carry between the passes); the
 # forward recurrence's passes are two stages (fwdh, fwdh_p3).

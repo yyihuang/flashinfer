@@ -6800,7 +6800,7 @@ MODULES: dict[str, dict[str, Any]] = {
                                               {'kind': 'docs_above', 'min': 256}]}]},
          'stage': 'bwd_prep',
          'variant': 'g8_replay_l2n'},
-    "bwd_prep_g8_replay_l2n_saved": {'arches': ['sm_100a'],
+    "bwd_prep_g8_replay_l2n_saved": {'arches': ['sm_100a', 'sm_103a'],
          'arg_plan': [['buffer', 'g'],
                       ['buffer', 'beta'],
                       ['buffer', 'do'],
