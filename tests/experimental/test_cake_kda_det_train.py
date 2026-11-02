@@ -648,9 +648,21 @@ def test_registry_records_are_well_formed() -> None:
         "kind": "all_of",
         "rules": [seg_rule, docs_rule],
     }
-    assert cake_jit.MODULES["fwd_intra"]["select_rule"] == {
+    # the in-kernel Q/K L2 norm's fused class (#7817) replaces the plain intra program on the forward paths; the
+    # replay keeps it (it reads the qn / kn its fused prep wrote)
+    flag_off_or_replay = {
         "kind": "any_of",
-        "rules": [serial_rule, above_rule],
+        "rules": [
+            {"kind": "l2n_in", "modes": ["off", "fallback"]},
+            {"kind": "path_in", "paths": ["replay"]},
+        ],
+    }
+    assert cake_jit.MODULES["fwd_intra"]["select_rule"] == {
+        "kind": "all_of",
+        "rules": [
+            {"kind": "any_of", "rules": [serial_rule, above_rule]},
+            flag_off_or_replay,
+        ],
     }
     assert cake_jit.MODULES["seg_table"]["select_rule"] == {
         "kind": "all_of",
@@ -818,9 +830,20 @@ def test_registry_records_are_well_formed() -> None:
         "kind": "path_in",
         "paths": ["tape"],
     }
+    # the replay's form; in the fused Q/K L2 norm mode (#7817) on the segmented rows up to the document bound only
+    # (bwd_prep_g8_replay_l2n serves the others)
     assert cake_jit.MODULES["bwd_prep_g8_replay"]["select_rule"] == {
-        "kind": "path_in",
-        "paths": ["replay"],
+        "kind": "all_of",
+        "rules": [
+            {"kind": "path_in", "paths": ["replay"]},
+            {
+                "kind": "any_of",
+                "rules": [
+                    {"kind": "l2n_in", "modes": ["off", "fallback"]},
+                    {"kind": "all_of", "rules": [seg_rule, docs_rule]},
+                ],
+            },
+        ],
     }
     assert cake_jit.MODULES["bwd_prep_g8_noqg"]["select_rule"] == {
         "kind": "all_of",
