@@ -195,7 +195,6 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_SMEM_V44_STRIDE 512
 #define SMEM_TOTAL 232448
 #define THREADS 256
-#define CAKE_TMEM_HOLD_OFFSET 704
 #define LAUNCH_MIN_BLOCKS 1
 
 #include <math_constants.h>
@@ -672,7 +671,7 @@ kernel_cake_mok_recompute_mxfp8_clamped(const __grid_constant__ CUtensorMap x_sh
     const int tmem_tmem_sfb = taddr + 524;
     const int tmem_tmem_sfb_hi = taddr + 548;
     const int tmem_accumulator = taddr;
-    unsigned int taddr_1 = reinterpret_cast<const volatile unsigned int*>(reinterpret_cast<uint8_t*>(smem_raw) + CAKE_TMEM_HOLD_OFFSET)[0];
+    unsigned int taddr_1 = reinterpret_cast<const volatile unsigned int*>(reinterpret_cast<uint8_t*>(smem_raw) + 704)[0];
     int cluster = bid / 2;
     int cta_rank_0 = cta_rank;
     int gemm_deep = 0;
@@ -1768,7 +1767,7 @@ kernel_cake_mok_recompute_mxfp8_clamped(const __grid_constant__ CUtensorMap x_sh
                     if (task_1 >= mini_gate) {
                         gate_task = task_1 - mini_gate;
                     }
-                    int word0_1 = 0;
+                    int word0_2 = 0;
                     int word1_0 = 0;
                     int word2_0 = 0;
                     int first_block = mini * (mini_size / 256);
@@ -1777,11 +1776,11 @@ kernel_cake_mok_recompute_mxfp8_clamped(const __grid_constant__ CUtensorMap x_sh
                     uint32_t fast_div_r_1 = (uint32_t)((unsigned int)gate_task) - fast_div_q_1 * (uint32_t)(gate_col_blocks_div.divisor);
                     int block = first_block + (int)fast_div_q_1;
                     if (block < end_block) {
-                        word0_1 = counts[3 * experts + block];
-                        word1_0 = counts[experts + word0_1];
-                        word2_0 = counts[word0_1];
+                        word0_2 = counts[3 * experts + block];
+                        word1_0 = counts[experts + word0_2];
+                        word2_0 = counts[word0_2];
                     }
-                    word0 = word0_1;
+                    word0 = word0_2;
                     word1 = word1_0;
                     word2 = word2_0;
                 }
@@ -4389,10 +4388,9 @@ kernel_cake_mok_recompute_mxfp8_clamped(const __grid_constant__ CUtensorMap x_sh
                         int col_blocks_6 = intermediate / 128;
                         int num_tiles_1 = tokens / 128 * col_blocks_6;
                         int macro_row_offset_1 = 0;
-                        int first_tile_1 = (tile_word_1 - 2 * mini_gate) * 6 + cta_rank_0 * 3;
                         int global_mini_4 = tile_word_0;
                         int mini_tiles = mini_size / 128 * col_blocks_6;
-                        first_tile_1 = first_tile_1 + global_mini_4 * mini_tiles;
+                        int first_tile_1 = (tile_word_1 - 2 * mini_gate) * 6 + cta_rank_0 * 3 + global_mini_4 * mini_tiles;
                         int tile_end_1 = ((num_tiles_1) < ((global_mini_4 + 1) * mini_tiles) ? (num_tiles_1) : ((global_mini_4 + 1) * mini_tiles));
                         int macro_tiles_1 = macro_size / 128;
                         if (first_tile_1 < tile_end_1) {
@@ -4894,7 +4892,7 @@ kernel_cake_mok_recompute_mxfp8_clamped(const __grid_constant__ CUtensorMap x_sh
                         int tile_word_7 = 0;
                         int tile_word_8 = 0;
                         if (decoded_cluster < true_clusters) {
-                            int word0_2 = 0;
+                            int word0_1 = 0;
                             int word1_1 = 0;
                             int word2_1 = 0;
                             if (shared_tasks <= decoded_cluster - comm_clusters) {
@@ -4903,25 +4901,25 @@ kernel_cake_mok_recompute_mxfp8_clamped(const __grid_constant__ CUtensorMap x_sh
                                     if (task_0 >= mini_gate) {
                                         gate_task_1 = task_0 - mini_gate;
                                     }
-                                    int word0_2_1 = 0;
+                                    int word0_3 = 0;
                                     int word1_2 = 0;
-                                    int word2_1_1 = 0;
+                                    int word2_3 = 0;
                                     int first_block_3 = mini_2 * (mini_size / 256);
                                     int end_block_3 = ((first_block_3 + mini_size / 256) < (tokens / 256) ? (first_block_3 + mini_size / 256) : (tokens / 256));
                                     uint32_t fast_div_q_5 = (gate_col_blocks_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)gate_task_1), gate_col_blocks_div.multiplier) >> gate_col_blocks_div.shift_right) : (uint32_t)((unsigned int)gate_task_1);
                                     uint32_t fast_div_r_5 = (uint32_t)((unsigned int)gate_task_1) - fast_div_q_5 * (uint32_t)(gate_col_blocks_div.divisor);
                                     int block_16 = first_block_3 + (int)fast_div_q_5;
                                     if (block_16 < end_block_3) {
-                                        word0_2_1 = counts[3 * experts + block_16];
-                                        word1_2 = counts[experts + word0_2_1];
-                                        word2_1_1 = counts[word0_2_1];
+                                        word0_3 = counts[3 * experts + block_16];
+                                        word1_2 = counts[experts + word0_3];
+                                        word2_3 = counts[word0_3];
                                     }
-                                    word0_2 = word0_2_1;
+                                    word0_1 = word0_3;
                                     word1_1 = word1_2;
-                                    word2_1 = word2_1_1;
+                                    word2_1 = word2_3;
                                 }
                             }
-                            tile_word_6 = word0_2;
+                            tile_word_6 = word0_1;
                             tile_word_7 = word1_1;
                             tile_word_8 = word2_1;
                         }

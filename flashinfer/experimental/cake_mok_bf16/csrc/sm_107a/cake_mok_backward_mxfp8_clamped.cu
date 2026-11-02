@@ -273,7 +273,6 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
 #define SMEM_SMEM_V70_STRIDE 1024
 #define SMEM_TOTAL 232448
 #define THREADS 256
-#define CAKE_TMEM_HOLD_OFFSET 704
 #define LAUNCH_MIN_BLOCKS 1
 
 #include <math_constants.h>
@@ -848,7 +847,7 @@ kernel_cake_mok_backward_mxfp8_clamped(const __grid_constant__ CUtensorMap dy_s,
     const int tmem_tmem_sfb = taddr + 524;
     const int tmem_tmem_sfb_hi = taddr + 548;
     const int tmem_accumulator = taddr;
-    unsigned int taddr_1 = reinterpret_cast<const volatile unsigned int*>(reinterpret_cast<uint8_t*>(smem_raw) + CAKE_TMEM_HOLD_OFFSET)[0];
+    unsigned int taddr_1 = reinterpret_cast<const volatile unsigned int*>(reinterpret_cast<uint8_t*>(smem_raw) + 704)[0];
     int cta_rank_0 = cta_rank;
     int cluster = bid / 2;
     int gemm_deep = 0;
@@ -8336,10 +8335,9 @@ kernel_cake_mok_backward_mxfp8_clamped(const __grid_constant__ CUtensorMap dy_s,
                     int col_blocks_10 = intermediate / 128;
                     int num_tiles_1 = tokens / 128 * col_blocks_10;
                     int macro_row_offset_1 = tile_word_2 * (macro_size / 128);
-                    int first_tile_2 = tile_word_1 * 6 + cta_rank_0 * 3;
                     int global_mini_7 = tile_word_2 * (macro_size / mini_size) + tile_word_3;
                     int mini_tiles = mini_size / 128 * col_blocks_10;
-                    first_tile_2 = first_tile_2 + global_mini_7 * mini_tiles;
+                    int first_tile_2 = tile_word_1 * 6 + cta_rank_0 * 3 + global_mini_7 * mini_tiles;
                     int tile_end_1 = ((num_tiles_1) < ((global_mini_7 + 1) * mini_tiles) ? (num_tiles_1) : ((global_mini_7 + 1) * mini_tiles));
                     int macro_tiles_3 = macro_size / 128;
                     if (first_tile_2 < tile_end_1) {
@@ -11572,10 +11570,10 @@ kernel_cake_mok_backward_mxfp8_clamped(const __grid_constant__ CUtensorMap dy_s,
                                         task_2_1 = decoded_cluster - comm_clusters - shared_down - shared_swiglu;
                                     } else {
                                         int weight_task_2 = decoded_cluster - comm_clusters - shared_down - shared_swiglu - shared_dx;
-                                        uint32_t _fast_div_q_17 = (shared_wgrad_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)weight_task_2), shared_wgrad_div.multiplier) >> shared_wgrad_div.shift_right) : (uint32_t)((unsigned int)weight_task_2);
-                                        uint32_t _fast_div_r_17 = (uint32_t)((unsigned int)weight_task_2) - _fast_div_q_17 * (uint32_t)(shared_wgrad_div.divisor);
-                                        kind_1 = (int)_fast_div_q_17 + 3;
-                                        task_2_1 = (int)_fast_div_r_17;
+                                        uint32_t _fast_div_q_11 = (shared_wgrad_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)weight_task_2), shared_wgrad_div.multiplier) >> shared_wgrad_div.shift_right) : (uint32_t)((unsigned int)weight_task_2);
+                                        uint32_t _fast_div_r_11 = (uint32_t)((unsigned int)weight_task_2) - _fast_div_q_11 * (uint32_t)(shared_wgrad_div.divisor);
+                                        kind_1 = (int)_fast_div_q_11 + 3;
+                                        task_2_1 = (int)_fast_div_r_11;
                                     }
                                 }
                             } else {
@@ -11583,23 +11581,23 @@ kernel_cake_mok_backward_mxfp8_clamped(const __grid_constant__ CUtensorMap dy_s,
                                 int macro_task_1 = routed_1;
                                 int replay_tasks_1 = 0;
                                 if (routed_1 >= saved_tasks) {
-                                    uint32_t _fast_div_q_18 = (replay_macro_tasks_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)(routed_1 - saved_tasks)), replay_macro_tasks_div.multiplier) >> replay_macro_tasks_div.shift_right) : (uint32_t)((unsigned int)(routed_1 - saved_tasks));
-                                    uint32_t _fast_div_r_18 = (uint32_t)((unsigned int)(routed_1 - saved_tasks)) - _fast_div_q_18 * (uint32_t)(replay_macro_tasks_div.divisor);
-                                    macro_3 = (int)_fast_div_q_18 + 1;
-                                    macro_task_1 = (int)_fast_div_r_18;
+                                    uint32_t _fast_div_q_12 = (replay_macro_tasks_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)(routed_1 - saved_tasks)), replay_macro_tasks_div.multiplier) >> replay_macro_tasks_div.shift_right) : (uint32_t)((unsigned int)(routed_1 - saved_tasks));
+                                    uint32_t _fast_div_r_12 = (uint32_t)((unsigned int)(routed_1 - saved_tasks)) - _fast_div_q_12 * (uint32_t)(replay_macro_tasks_div.divisor);
+                                    macro_3 = (int)_fast_div_q_12 + 1;
+                                    macro_task_1 = (int)_fast_div_r_12;
                                 }
                                 int _min_286 = ((tokens - macro_3 * macro_size) < (macro_size) ? (tokens - macro_3 * macro_size) : (macro_size));
-                                uint32_t _fast_div_q_19 = (mini_size_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)(_min_286 + mini_size - 1)), mini_size_div.multiplier) >> mini_size_div.shift_right) : (uint32_t)((unsigned int)(_min_286 + mini_size - 1));
-                                uint32_t _fast_div_r_19 = (uint32_t)((unsigned int)(_min_286 + mini_size - 1)) - _fast_div_q_19 * (uint32_t)(mini_size_div.divisor);
-                                int macro_minis_1 = (int)_fast_div_q_19;
+                                uint32_t _fast_div_q_13 = (mini_size_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)(_min_286 + mini_size - 1)), mini_size_div.multiplier) >> mini_size_div.shift_right) : (uint32_t)((unsigned int)(_min_286 + mini_size - 1));
+                                uint32_t _fast_div_r_13 = (uint32_t)((unsigned int)(_min_286 + mini_size - 1)) - _fast_div_q_13 * (uint32_t)(mini_size_div.divisor);
+                                int macro_minis_1 = (int)_fast_div_q_13;
                                 if (routed_1 >= saved_tasks) {
                                     replay_tasks_1 = macro_minis_1 * mini_replay;
                                 }
                                 if (macro_task_1 < replay_tasks_1) {
-                                    uint32_t _fast_div_q_20 = (mini_replay_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)macro_task_1), mini_replay_div.multiplier) >> mini_replay_div.shift_right) : (uint32_t)((unsigned int)macro_task_1);
-                                    uint32_t _fast_div_r_20 = (uint32_t)((unsigned int)macro_task_1) - _fast_div_q_20 * (uint32_t)(mini_replay_div.divisor);
-                                    mini_4 = (int)_fast_div_q_20;
-                                    int mini_task_2 = (int)_fast_div_r_20;
+                                    uint32_t _fast_div_q_14 = (mini_replay_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)macro_task_1), mini_replay_div.multiplier) >> mini_replay_div.shift_right) : (uint32_t)((unsigned int)macro_task_1);
+                                    uint32_t _fast_div_r_14 = (uint32_t)((unsigned int)macro_task_1) - _fast_div_q_14 * (uint32_t)(mini_replay_div.divisor);
+                                    mini_4 = (int)_fast_div_q_14;
+                                    int mini_task_2 = (int)_fast_div_r_14;
                                     if (mini_task_2 < mini_replay_gate) {
                                         kind_1 = 6;
                                         task_2_1 = mini_task_2;
@@ -11613,10 +11611,10 @@ kernel_cake_mok_backward_mxfp8_clamped(const __grid_constant__ CUtensorMap dy_s,
                                 } else {
                                     int bwd_task_1 = macro_task_1 - replay_tasks_1;
                                     if (bwd_task_1 < macro_minis_1 * mini_bwd) {
-                                        uint32_t _fast_div_q_21 = (mini_bwd_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)bwd_task_1), mini_bwd_div.multiplier) >> mini_bwd_div.shift_right) : (uint32_t)((unsigned int)bwd_task_1);
-                                        uint32_t _fast_div_r_21 = (uint32_t)((unsigned int)bwd_task_1) - _fast_div_q_21 * (uint32_t)(mini_bwd_div.divisor);
-                                        mini_4 = (int)_fast_div_q_21;
-                                        int mini_task_3 = (int)_fast_div_r_21;
+                                        uint32_t _fast_div_q_15 = (mini_bwd_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)bwd_task_1), mini_bwd_div.multiplier) >> mini_bwd_div.shift_right) : (uint32_t)((unsigned int)bwd_task_1);
+                                        uint32_t _fast_div_r_15 = (uint32_t)((unsigned int)bwd_task_1) - _fast_div_q_15 * (uint32_t)(mini_bwd_div.divisor);
+                                        mini_4 = (int)_fast_div_q_15;
+                                        int mini_task_3 = (int)_fast_div_r_15;
                                         if (mini_task_3 < mini_down) {
                                             kind_1 = 0;
                                             task_2_1 = mini_task_3;
@@ -11629,10 +11627,10 @@ kernel_cake_mok_backward_mxfp8_clamped(const __grid_constant__ CUtensorMap dy_s,
                                         }
                                     } else {
                                         int weight_task_3 = bwd_task_1 - macro_minis_1 * mini_bwd;
-                                        uint32_t _fast_div_q_22 = (weight_tasks_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)weight_task_3), weight_tasks_div.multiplier) >> weight_tasks_div.shift_right) : (uint32_t)((unsigned int)weight_task_3);
-                                        uint32_t _fast_div_r_22 = (uint32_t)((unsigned int)weight_task_3) - _fast_div_q_22 * (uint32_t)(weight_tasks_div.divisor);
-                                        kind_1 = (int)_fast_div_q_22 + 3;
-                                        task_2_1 = (int)_fast_div_r_22;
+                                        uint32_t _fast_div_q_16 = (weight_tasks_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)weight_task_3), weight_tasks_div.multiplier) >> weight_tasks_div.shift_right) : (uint32_t)((unsigned int)weight_task_3);
+                                        uint32_t _fast_div_r_16 = (uint32_t)((unsigned int)weight_task_3) - _fast_div_q_16 * (uint32_t)(weight_tasks_div.divisor);
+                                        kind_1 = (int)_fast_div_q_16 + 3;
+                                        task_2_1 = (int)_fast_div_r_16;
                                     }
                                 }
                             }
