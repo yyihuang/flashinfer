@@ -312,6 +312,7 @@ def _wgrad_plan(sizes, n, k, arch, sm_count, out_dtype=torch.bfloat16):
         k256_tail=stage == "main_halves_k256t",
         unordered_tail=cb.wgrad_unordered_tail(tile_k, arch, c),
         constants=c,
+        arch=arch,
     )
     return stage, plan
 
@@ -416,6 +417,7 @@ def test_plan_invariants(sm_count, sizes):
                     k256_tail=k256_tail,
                     unordered_tail=unordered,
                     constants=c,
+                    arch=arch,
                 )
                 tail_tile_k = cb.K256_TAIL_TILE_K if k256_tail else tile_k
                 clusters = plan["clusters"]
@@ -757,6 +759,129 @@ def test_group_count_sweep_splits_the_tail_at_every_sm_count(arch, sm_count):
         assert plan["tile_k"] == 512 and plan["unordered_tail"], (groups, plan)
         splits[groups] = plan["tail_splits"]
     assert max(splits.values()) > 1, splits
+
+
+def test_wgrad_cohort_clusters():
+    """The cohort grid replaces the persistent grid's clusters with the largest multiple
+    of one group's 512-wide tiles below them, when the persistent grid leaves a partial
+    wave over at most ``max_groups`` groups, at most an eighth of the clusters go idle
+    and the multiple divides the tiles; otherwise the clusters stay."""
+    cohort = functools.partial(cb.wgrad_cohort_clusters, max_groups=4)
+    # (clusters, groups, tiles per group) -> clusters launched
+    cases = {
+        (106, 4, 96): 96,  # 384 tiles on 96 of 106 clusters
+        (104, 2, 96): 96,
+        (108, 3, 96): 96,  # 12 idle clusters, 108 // 8 = 13
+        (96, 1, 96): 96,  # the persistent grid is one group's tiles already
+        (106, 8, 96): 106,  # more groups than max_groups
+        (104, 4, 72): 104,  # 32 idle clusters
+        (104, 4, 104): 104,  # whole waves already
+        (106, 4, 104): 104,
+        (104, 4, 112): 104,  # one group's tiles do not fit
+        (104, 4, 32): 104,  # 96 clusters do not divide 128 tiles
+        (106, 3, 52): 106,  # 104 clusters do not divide 156 tiles
+        (106, 4, 52): 104,  # two groups' tiles per wave
+        (106, 0, 96): 106,  # no tiles
+        (106, 4, 0): 106,
+    }
+    for (clusters, groups, tiles), launched in cases.items():
+        assert cohort(clusters, groups, tiles) == launched, (clusters, groups, tiles)
+    assert cb.wgrad_cohort_clusters(106, 8, 96, max_groups=8) == 96
+
+
+# The SM counts of the R200 parts (sm_107a) the cohort grid is planned at.
+R200_SM_COUNTS = (208, 212, 216)
+
+
+def _expert_plan(n, k, groups, sm_count, out_dtype=torch.bfloat16):
+    """``(main stage, plan)`` of the weight gradient of ``groups`` balanced groups of
+    ``EXPERT_ROWS`` rows in all at ``(N, K)`` on sm_107a with ``sm_count`` SMs."""
+    sizes = [EXPERT_ROWS // groups] * groups
+    return _wgrad_plan(sizes, n, k, "sm_107a", sm_count, out_dtype)
+
+
+@pytest.mark.parametrize("out_dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("groups", [1, 2, 3, 4, 8, 16])
+@pytest.mark.parametrize("sm_count", R200_SM_COUNTS)
+def test_k256_tail_cohort_grid_of_the_down_projection(sm_count, groups, out_dtype):
+    """On sm_107a the down projection (``N`` 6144, ``K`` 2048: 96 512-wide tiles per
+    group) takes the k256-tail stage at 1 to 16 groups of ``EXPERT_ROWS`` rows in all.
+    Over two to four groups it launches the cohort grid, 96 clusters, with no tail; one
+    group already launches 96 clusters (its tiles), and 8 or 16 groups (more than
+    ``k256_tail_cohort_max_groups``) keep the persistent grid."""
+    stage, plan = _expert_plan(6144, 2048, groups, sm_count, out_dtype)
+    assert stage == "main_halves_k256t" and plan["unordered_tail"]
+    persistent = min(sm_count // 2, groups * 96)
+    clusters = 96 if groups <= 4 else persistent
+    assert plan["clusters"] == clusters and plan["grid"] == [2 * clusters, 1, 1]
+    assert plan["tile_k"] == 512 and plan["tail_tile_k"] == cb.K256_TAIL_TILE_K
+    assert plan["raster_rows"] == 0 and plan["launches"] == 1
+    if groups <= 4:
+        assert plan["num_tail"] == 0 and plan["tail_splits"] == 1
+        assert plan["tail_sum_elems"] == plan["tail_ticket_words"] == 0
+    else:
+        assert plan["num_tail"] == (2 * groups * 96) % persistent
+
+
+@pytest.mark.parametrize("groups", [2, 3, 4])
+@pytest.mark.parametrize(
+    "n,k,clusters",
+    [
+        (6144, 1536, None),  # 72 tiles per group: 32 to 36 clusters idle
+        (7168, 2048, None),  # 112 tiles per group: more than the clusters
+        (4096, 2048, None),  # 64 tiles per group: 40 to 44 clusters idle
+        (6656, 2048, 104),  # 104 tiles per group
+    ],
+)
+@pytest.mark.parametrize("sm_count", R200_SM_COUNTS)
+def test_k256_tail_cohort_grid_of_other_shapes(sm_count, n, k, clusters, groups):
+    """k256-tail shapes beside the down projection on sm_107a: where one group's tiles
+    would leave more than an eighth of the clusters idle, or do not fit in the grid, the
+    persistent grid stays (None); at ``N`` 6656 (104 tiles per group) every R200 part
+    launches 104 clusters: the persistent grid on 208 SMs (whole waves already), the
+    cohort grid on 212 and 216."""
+    stage, plan = _expert_plan(n, k, groups, sm_count)
+    assert stage == "main_halves_k256t"
+    clusters = sm_count // 2 if clusters is None else clusters
+    assert plan["clusters"] == clusters and plan["grid"] == [2 * clusters, 1, 1]
+    tiles = groups * (n // 256) * (k // 512)
+    assert plan["num_tail"] == (2 * tiles) % clusters
+
+
+def test_k256_tail_cohort_grid_is_the_listed_architectures(monkeypatch):
+    """The cohort grid is planned for the k256-tail stage on the architectures of
+    ``k256_tail_cohort_archs`` (sm_107a) over at most ``k256_tail_cohort_max_groups``
+    groups (4): ``arch`` None, sm_100a and sm_103a, the plain 512-wide k tile and an
+    empty list keep the persistent grid, and a larger group limit takes in more
+    groups."""
+    c = HOST_PLAN_CONSTANTS
+    assert c["k256_tail_cohort_archs"] == ["sm_107a"]
+    assert int(c["k256_tail_cohort_max_groups"]) == 4
+
+    def clusters(arch, groups=4, k256_tail=True):
+        return cb.plan_wgrad(
+            sum_m=EXPERT_ROWS,
+            num_groups=groups,
+            n=6144,
+            k=2048,
+            tile_k=512,
+            sm_count=212,
+            reduce_threads=256,
+            k256_tail=k256_tail,
+            unordered_tail=True,
+            constants=c,
+            arch=arch,
+        )["clusters"]
+
+    assert clusters("sm_107a") == 96
+    for arch in (None, "sm_100a", "sm_103a"):
+        assert clusters(arch) == 106, arch
+    assert clusters("sm_107a", k256_tail=False) == 106
+    assert clusters("sm_107a", groups=8) == clusters("sm_107a", groups=16) == 106
+    monkeypatch.setitem(c, "k256_tail_cohort_max_groups", 16)
+    assert clusters("sm_107a", groups=8) == clusters("sm_107a", groups=16) == 96
+    monkeypatch.setitem(c, "k256_tail_cohort_archs", [])
+    assert clusters("sm_107a") == 106
 
 
 # ---------------------------------------------------------------------------

@@ -67,7 +67,12 @@ What changes with `deterministic=False`:
 Numerical contract: only the run-to-run bitwise reproducibility of `dW` is
 relaxed, and only for split tail tiles of the 512-wide k tile. Every whole
 tile is reduced by one CTA pair over the group's rows in a fixed order (the
-deterministic bits). bf16 operands, fp32 accumulation, one round-to-nearest
+deterministic bits). On sm_107a the k256-tail stage may launch fewer clusters
+than the deterministic package (the cohort grid, a grid on which its tail does
+not split): there `dW` is bitwise reproducible run to run, equals the
+deterministic program run on that grid, and may differ from the deterministic
+package's `dW` in the last bits within the same error budgets.
+bf16 operands, fp32 accumulation, one round-to-nearest
 rounding to bf16 (or the fp32 store), the layouts, the offsets contract (no
 host synchronisation, no caller padding), the exact zeros of empty groups in
 overwrite mode and the deterministic package's error budgets are unchanged.
@@ -161,6 +166,16 @@ release, k256 tail); see that package's README. Differences:
   `plan["tail_ticket_words"]` show whether a launch adds a split tail in place
   and the workspace it needs. The 256-wide k tile keeps `tail_plan` and the
   ordered tail reduce.
+- Cohort grid (`plan_wgrad(..., arch=...)`): on the architectures of
+  `HOST_PLAN_CONSTANTS["k256_tail_cohort_archs"]` (sm_107a) the k256-tail
+  stage over at most `k256_tail_cohort_max_groups` groups (4) launches
+  `wgrad_cohort_clusters` clusters. Where the persistent grid leaves a
+  partial wave of the 512-wide k tile, the cohort grid is the largest
+  multiple of one group's 512-wide tiles (`(N / 256) * (K / 512)`) that
+  leaves at most an eighth of the clusters idle, if it divides the tiles:
+  every tile then runs in a full wave, and no tail is left or split. The
+  down projection (`N` 6144, `K` 2048) over two to four groups runs on 96
+  clusters of the 104 to 108 of an R200.
 - Tail workspaces: `tail_sums` (fp32, `num_tail * cluster_m * tail_tile_k`
   elements) and `tail_tickets` (u32, `num_tail * cta_group *
   TAIL_TICKETS_PER_CTA` words) rest at zero; a launch needs them zero at its
@@ -196,7 +211,7 @@ only); the 512-wide k tile's routes bind the unordered-tail builds.
 | `wgrad` k256 `main_wave` | yes | yes | - |
 | `wgrad` k512 unordered tail: `main`, `main_halves` | yes (planned walk, slack tail) | yes (planned walk, slack tail) | yes (planned walk, slack tail) |
 | `wgrad` k512 unordered tail: `main_wave`, `main_wave_halves` (wp8) | yes | yes | - |
-| `wgrad` k512 unordered tail: `main_halves_k256t` | - | - | yes (slack tail) |
+| `wgrad` k512 unordered tail: `main_halves_k256t` | - | - | yes (slack tail, cohort grid) |
 | `wgrad` output dtypes | bf16, fp32 | bf16, fp32 | bf16, fp32 |
 | CUDA toolkit floor (`min_cuda`) | 12.8 | 12.9 | 13.4 |
 

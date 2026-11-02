@@ -46,7 +46,11 @@ launch (the deterministic package writes fp32 partials and sums them in a fixed 
 a second launch).  With the slack tail placement, a launch whose tail tiles all fit in
 the room the full waves leave on the least-loaded clusters runs each tail tile whole on
 one cluster instead and touches no sum or ticket; otherwise its tail splits as above.
-Every whole tile is reduced by one CTA pair over the group's rows in a fixed order.  The
+Every whole tile is reduced by one CTA pair over the group's rows in a fixed order.  On
+sm_107a the k256-tail stage may launch fewer clusters than the deterministic package (a
+grid on which its tail does not split): there ``dW`` is bitwise reproducible run to run,
+equals the deterministic program run on that grid, and may differ from the deterministic
+package's ``dW`` in the last bits within the same error budgets.  The
 operands (bf16), the accumulation (fp32), the one round-to-nearest
 rounding to bf16 (or the fp32 store), the layouts, the device-resident group offsets (no
 host synchronisation, no caller padding), the exact zeros of empty groups and the error

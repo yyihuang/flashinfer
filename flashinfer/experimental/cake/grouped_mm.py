@@ -36,8 +36,13 @@ Every entry point takes ``deterministic: bool = True``:
 Numerical contract of ``deterministic=False``: only the run-to-run bitwise
 reproducibility of the weight gradient ``dW`` is relaxed.  ``Y`` and ``dX`` are
 bitwise the deterministic package's (copies of the same programs), and so is
-``dW`` wherever the 256-wide k tile runs or the 512-wide k tile does not split
-its tail.  Every whole tile of ``dW`` is reduced by one CTA pair over the
+``dW`` wherever the 256-wide k tile runs or both packages launch the 512-wide
+k tile on the same grid without a split tail.  On sm_107a the k256-tail stage
+may launch fewer clusters than the deterministic package (a grid on which its
+tail does not split): there ``dW`` is bitwise reproducible run to run, equals
+the deterministic program run on that grid, and may differ from the
+deterministic package's ``dW`` in the last bits within the same error budgets.
+Every whole tile of ``dW`` is reduced by one CTA pair over the
 group's rows in a fixed order; only the units of a split tail tile are added
 in an order the launch does not fix.  The operands (bf16), the accumulation
 (fp32), the one round-to-nearest rounding to bf16 (or the fp32 store), the

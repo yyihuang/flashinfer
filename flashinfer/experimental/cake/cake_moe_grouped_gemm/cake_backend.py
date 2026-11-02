@@ -43,7 +43,12 @@ reductions and the last unit to arrive rounds the sum once and stores it, in
 the same launch.  Every whole tile is still reduced by one CTA pair in a fixed
 order (the deterministic bits); only the order in which a split tail tile's
 units are added varies, so only the run-to-run bitwise reproducibility of such
-a ``dW`` is relaxed.  The operands (bf16), the accumulation (fp32), the one
+a ``dW`` is relaxed.  On sm_107a the k256-tail stage may launch fewer clusters
+than the deterministic package (the cohort grid, a grid on which its tail does
+not split): there ``dW`` is bitwise reproducible run to run, equals the
+deterministic program run on that grid, and may differ from the deterministic
+package's ``dW`` in the last bits within the same error budgets.  The
+operands (bf16), the accumulation (fp32), the one
 round-to-nearest rounding to bf16 (or the fp32 store), the layouts, the
 ``offs`` contract and the exact zeros of empty groups are the deterministic
 package's.  With ``torch.use_deterministic_algorithms(True)``,
@@ -64,7 +69,8 @@ architecture) so a prepared launch is CUDA-graph capturable and stays valid for
 any ``offs`` written later.  The host planner below reproduces the
 deterministic package's decisions exactly from ``HOST_PLAN_CONSTANTS``; only the
 split of the unordered tail follows ``atomic_tail_plan``
-(``wgrad_atomic_tail_plan``).
+(``wgrad_atomic_tail_plan``), and the k256-tail stage's grid the cohort rule
+(``k256_tail_cohort_archs``, ``wgrad_cohort_clusters``).
 
 Program choice.  ``fwd`` and ``dgrad`` launch the 512-column output tile (the
 route's ``main_wide`` stage) when the output columns are a multiple of
@@ -103,7 +109,13 @@ waves of the 512-wide k tile as 256-column half tiles, with the split tail of
 the 256-wide k tiling (``main_halves_k256t``), when ``K`` (the
 columns of ``dW[e]`` and of x) is at most ``k256_tail_max_k`` and the groups
 average at least ``k256_tail_min_rows`` rows (``sum_m // E``), the down
-projection of an MoE layer over few groups.  Every choice falls back to the
+projection of an MoE layer over few groups.  On the architectures of
+``k256_tail_cohort_archs`` that stage launches the cohort grid over at most
+``k256_tail_cohort_max_groups`` groups (``wgrad_cohort_clusters``): where the
+persistent grid leaves a partial wave of the 512-wide k tile, the largest
+multiple of one group's 512-wide tiles that leaves at most an eighth of its
+clusters idle, when that multiple divides the tiles, so every tile runs in a
+full wave and no tail is left.  Every choice falls back to the
 plain stage where the route serves no such stage on the architecture.  The
 512-wide k tile binds the unordered-tail builds on the architectures of
 ``unordered_tail_archs`` (``wgrad_unordered_tail``), which lists every
@@ -536,6 +548,35 @@ def plan_fwd_dgrad(
     )
 
 
+def wgrad_cohort_clusters(
+    clusters: int, num_groups: int, group_tiles: int, *, max_groups: int
+) -> int:
+    """Clusters of the cohort grid of a k256-tail weight gradient (``main_halves_k256t``).
+
+    ``clusters`` is the persistent grid in clusters and ``group_tiles`` the
+    512-wide tiles of one group, ``(N / block_n) * (K / 512)``.  The cohort
+    grid, ``group_tiles * (clusters // group_tiles)`` clusters, runs the tiles
+    of whole groups in every wave.  It replaces ``clusters`` when the
+    persistent grid leaves a partial wave (the ``num_groups * group_tiles``
+    tiles are not a multiple of ``clusters``), there are at most
+    ``max_groups`` groups, one group's tiles fit in the grid
+    (``group_tiles <= clusters``), it leaves at most an eighth of the clusters
+    idle and it divides the tiles: every tile then runs in a full wave of the
+    512-wide k tile, so no tile is left to the 256-wide half tiles and no tail
+    is split.  Otherwise ``clusters``."""
+    tiles = num_groups * group_tiles
+    if (
+        tiles % clusters == 0
+        or num_groups > max_groups
+        or not 0 < group_tiles <= clusters
+    ):
+        return clusters
+    cohort = clusters // group_tiles * group_tiles
+    if clusters - cohort > clusters // 8 or tiles % cohort:
+        return clusters
+    return cohort
+
+
 def plan_wgrad(
     *,
     sum_m: int,
@@ -548,6 +589,7 @@ def plan_wgrad(
     k256_tail: bool = False,
     unordered_tail: bool = False,
     constants: Optional[dict[str, Any]] = None,
+    arch: Optional[str] = None,
 ) -> dict[str, Any]:
     """Launch plan of ``wgrad`` for the selected ``tile_k``.
 
@@ -557,7 +599,11 @@ def plan_wgrad(
     full waves cover ``[0, total // clusters * clusters)`` of its tiles; the
     tiles left run n-major (``raster_rows`` 0) as the ``K256_TAIL_TILE_K``-wide
     half tiles of the 256-wide tiling, and the last partial wave of that tiling
-    is the tail (``tail_tile_k``), split as the 256-wide k tile's.
+    is the tail (``tail_tile_k``), split as the 256-wide k tile's.  On an
+    ``arch`` listed in ``k256_tail_cohort_archs`` that stage launches the
+    cohort grid where :func:`wgrad_cohort_clusters` (with
+    ``k256_tail_cohort_max_groups``) gives one; ``arch`` None plans the
+    persistent grid.
 
     ``unordered_tail`` plans a program that adds its split tail in place (the
     512-wide k tile's): the split comes from ``atomic_tail_plan``
@@ -574,6 +620,14 @@ def plan_wgrad(
     tiles = num_groups * (n // block_n) * (k // tile_k)
     grid_x = persistent_grid(sm_count, tiles, cta_group=cta_group)
     clusters = grid_x // cta_group
+    if k256_tail and arch in c["k256_tail_cohort_archs"]:
+        clusters = wgrad_cohort_clusters(
+            clusters,
+            num_groups,
+            (n // block_n) * (k // tile_k),
+            max_groups=int(c["k256_tail_cohort_max_groups"]),
+        )
+        grid_x = clusters * cta_group
     tail_tile_k = K256_TAIL_TILE_K if k256_tail else tile_k
     num_tail = 0
     if int(c["wgrad_tail_split"]):
@@ -1689,6 +1743,7 @@ def _prepare_wgrad(
         k256_tail=k256_tail,
         unordered_tail=unordered,
         constants=c,
+        arch=arch,
     )
     plan["wave_mode"] = int(c["wave_sync_mode"][arch]) if wave else 0
     if sum_m == 0:

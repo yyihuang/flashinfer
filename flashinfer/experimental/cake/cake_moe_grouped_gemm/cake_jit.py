@@ -79,8 +79,11 @@ from . import cake_build
 # 512-wide k tile routes bind the unordered-tail builds -- every architecture of
 # those routes, since the registry holds no ordered k512 build (leaving one out
 # needs the deterministic k512 builds and a ``tail_reduce`` stage on those routes,
-# a new render) -- and ``atomic_tail_plan`` holds the cost-model constants of the
-# unordered split tail (``tail_plan`` stays the ordered tail's).
+# a new render) -- ``atomic_tail_plan`` holds the cost-model constants of the
+# unordered split tail (``tail_plan`` stays the ordered tail's), and
+# ``k256_tail_cohort_archs`` lists the architectures whose k256-tail stage
+# launches the cohort grid over at most ``k256_tail_cohort_max_groups`` groups
+# (``cake_backend.wgrad_cohort_clusters``).
 PROGRAMS: dict[str, dict[str, Any]] = {
     "cake_moe_grouped_gemm_037c741e69a0ccc696e0": {
         "library": "cake_moe_grouped_gemm_037c741e69a0ccc696e0",
@@ -807,6 +810,12 @@ HOST_PLAN_CONSTANTS: dict[str, Any] = {
         "launch_us": 5.0,
         "cycles_per_step": {256: 512, 512: 1024},
     },
+    # The architectures whose k256-tail weight-gradient stage launches the
+    # cohort grid over at most ``k256_tail_cohort_max_groups`` groups
+    # (``cake_backend.wgrad_cohort_clusters``): fewer clusters, a multiple of
+    # one group's 512-wide tiles, whose full waves leave no tail.
+    "k256_tail_cohort_archs": ["sm_107a"],
+    "k256_tail_cohort_max_groups": 4,
     "int32_elems": 2147483647,
 }
 

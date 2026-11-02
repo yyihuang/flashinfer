@@ -27,9 +27,13 @@ deterministic package's determinism suite (seeded fixed inputs per case):
   ``FILL_BYTE``, stays within the deterministic package's budget of the
   deterministic weight gradient on every launch, and of its own first launch;
   the worst run-to-run variation is reported (``REPRO`` lines);
+* a weight gradient whose tail is not split gives the bits of the deterministic
+  package prepared on its grid: the deterministic package's own launch where the
+  grids agree, else (the k256-tail stage's cohort grid of ``k256_tail_cohort_archs``)
+  the deterministic package prepared at the non-deterministic grid;
 * with the tail split switched off in both packages, the 512-wide k tile's
-  unordered-tail builds give the deterministic builds' bits (every whole tile is
-  reduced in the deterministic order);
+  unordered-tail builds give the deterministic builds' bits on the same grid (every
+  whole tile is reduced in the deterministic order);
 * the cases reach the unordered split tail on this device for both output dtypes;
 * row-padded ``g`` and ``x`` on the shape of the 256-wide k tile's ``main_wave``
   weight gradient give the deterministic package's bits.
@@ -315,6 +319,17 @@ def _budget(out, ref, out_dtype):
     return float((out - ref).norm()) / norm / FP32_REL_L2
 
 
+def _det_on_grid(case, a, b, offs, out, grid):
+    """The deterministic package's weight gradient of ``case`` prepared on ``grid``: its
+    host planned with the SM count of that grid (``cake_backend.sm_count`` patched), so
+    its persistent grid is ``grid`` (no larger than the tiles)."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(det_cb, "sm_count", lambda device: int(grid[0]))
+        det = _prepare(det_cb, case, a, b, offs, out)
+    assert det.plan["grid"] == list(grid), (det.plan, grid)
+    return det
+
+
 def _plan_record(launch):
     keys = (
         "grid",
@@ -510,12 +525,28 @@ def test_against_the_deterministic_package(label, record_property):
         exercised=bool(
             launch.plan["unordered_tail"] and launch.plan["tail_splits"] > 1
         ),
+        det_grid=det.plan["grid"],
     )
+    same_grid = launch.plan["grid"] == det.plan["grid"]
+    if not record["exercised"] and not same_grid:
+        # The cohort grid: the deterministic package prepared on it gives the bits.
+        grid_out = _out(case, device)
+        on_grid = _det_on_grid(case, a, b, offs, grid_out, launch.plan["grid"])
+        assert on_grid.stages == launch.stages, (on_grid.stages, launch.stages)
+        grid_out.view(torch.uint8).fill_(FILL_BYTE ^ 0xFF)
+        on_grid.launch()
+        torch.cuda.synchronize(device)
+        record.update(equal_to_det_on_grid=torch.equal(_bits(out), _bits(grid_out)))
     print("REPRO " + json.dumps(record, sort_keys=True))
     record_property("repro", json.dumps(record, sort_keys=True))
     if not record["exercised"]:
-        # No split unordered tail: the deterministic programs' order, the same bits.
-        assert mismatches == 0 and differ_from_det == 0, record
+        # No split unordered tail: the deterministic programs' order, the same bits
+        # as the deterministic package on the same grid.
+        assert mismatches == 0, record
+        if same_grid:
+            assert differ_from_det == 0, record
+        else:
+            assert record["equal_to_det_on_grid"], record
     assert worst_vs_det <= 1.0, record
     assert worst_vs_first <= 1.0, record
 
@@ -524,7 +555,9 @@ def test_against_the_deterministic_package(label, record_property):
 def test_unsplit_k512_builds_give_the_deterministic_bits(label, monkeypatch):
     """With the tail split switched off in both packages (``max_splits`` 1), a weight
     gradient on the 512-wide k tile runs every tile whole in both, and the unordered-tail
-    build gives the deterministic build's bits for every form the case selects."""
+    build gives the deterministic build's bits on the same grid (the deterministic
+    package prepared at the non-deterministic grid where that is the cohort grid) for
+    every form the case selects."""
     case = CASE_BY_LABEL[label]
     device = _device()
     _require_programs(case, device)
@@ -536,6 +569,9 @@ def test_unsplit_k512_builds_give_the_deterministic_bits(label, monkeypatch):
     launch = _prepare(cb, case, a, b, offs, out)
     if launch.plan["tile_k"] != 512:
         pytest.skip("the case takes the 256-wide k tile on this device")
+    if launch.plan["grid"] != det.plan["grid"]:
+        # The cohort grid: compare with the deterministic build on the same grid.
+        det = _det_on_grid(case, a, b, offs, det_out, launch.plan["grid"])
     assert launch.stages == det.stages
     assert launch.plan["tail_splits"] == det.plan["tail_splits"] == 1
     for fill in (0, FILL_BYTE):
