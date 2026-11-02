@@ -1035,6 +1035,7 @@ def test_the_raw_gate_records_mirror_the_g_records() -> None:
                 num_heads=h,
                 sm_count=148,
             ) == (h, segments, 1)
+
     # the twin records are named for their g-mode program; every flag-off g record of a gate stage has its raw
     # counterpart but the gate epilogue (the raw drain is fused on every architecture)
     def flag_off(names: tuple[str, ...]) -> tuple[str, ...]:
@@ -1084,7 +1085,9 @@ def test_the_raw_gate_records_mirror_the_g_records() -> None:
             )
     for stage in ("fwd_intra", "bwd_prep", "glm_intra"):
         g_fused = fused_only(cake_jit.records_of_stage(stage))
-        assert g_fused == tuple(n for n in FUSED_L2N_RECORDS if modules[n]["stage"] == stage)
+        assert g_fused == tuple(
+            n for n in FUSED_L2N_RECORDS if modules[n]["stage"] == stage
+        )
         assert fused_only(cake_jit.records_of_stage(stage, "raw")) == tuple(
             FUSED_L2N_RECORDS[n] for n in g_fused
         ), stage
