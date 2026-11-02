@@ -8493,21 +8493,27 @@ def test_saved_rstd_twins() -> None:
         assert trec["select_rule"] == {"kind": "saved_rstd_twin"}
         assert set(trec["arches"]) <= set(rec["arches"])
         assert trec["library"] != rec["library"]
+        selected = 0
         for arch in cake_jit.ARCHES:
             assert cake_jit.saved_rstd_record(name, arch, 0) == name
             assert cake_jit.saved_rstd_record(name, arch, 1) == (twin if arch in trec["arches"] else name)
             for path in cake_jit.PATHS:
                 for docs in (1, 8, 300):
                     for heads in (16, 64):
-                        picked = cake_jit.select_record(
-                            rec["stage"],
-                            num_chunks_pad=264,
-                            num_seqs=docs,
-                            num_heads=heads,
-                            sm_count=148,
-                            arch=arch,
-                            path=path,
-                            l2n="fused",
-                        )
+                        try:
+                            picked = cake_jit.select_record(
+                                rec["stage"],
+                                num_chunks_pad=264,
+                                num_seqs=docs,
+                                num_heads=heads,
+                                sm_count=148,
+                                arch=arch,
+                                path=path,
+                                l2n="fused",
+                            )
+                        except ValueError:
+                            continue  # the stage does not run on this path
+                        selected += 1
                         assert picked != twin, (arch, path, docs, heads)
+        assert selected
     assert cake_jit.saved_rstd_record("bwd_prep_g8_l2n", "sm_100a", 1) == "bwd_prep_g8_l2n"
