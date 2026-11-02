@@ -6800,6 +6800,83 @@ MODULES: dict[str, dict[str, Any]] = {
                                               {'kind': 'docs_above', 'min': 256}]}]},
          'stage': 'bwd_prep',
          'variant': 'g8_replay_l2n'},
+    "bwd_prep_g8_replay_l2n_saved": {'arches': ['sm_100a'],
+         'arg_plan': [
+             ["buffer", "g"],
+             ["buffer", "beta"],
+             ["buffer", "do"],
+             ["buffer", "chunk_bos"],
+             ["buffer", "chunk_len"],
+             ["buffer", "gk_out"],
+             ["buffer", "kb_out"],
+             ["buffer", "qg_out"],
+             ["buffer", "kg_out"],
+             ["buffer", "do_int"],
+             ["buffer", "beta_int"],
+             ["buffer", "v_new"],
+             ["buffer", "dv2"],
+             ["parameter", "num_qk_heads"],
+             ["parameter", "num_heads"],
+             ["parameter", "group"],
+             ["buffer", "q_raw"],
+             ["buffer", "k_raw"],
+             ["buffer", "qn"],
+             ["buffer", "kn"],
+             ["buffer", "qk_rstd"],
+             ["parameter", "num_tokens"],
+             ["parameter", "q_raw_row_stride"],
+             ["parameter", "q_raw_head_stride"],
+             ["parameter", "k_raw_row_stride"],
+             ["parameter", "k_raw_head_stride"],
+             ["parameter", "read_rstd"],
+             ["parameter", "write_rstd"],
+             ["grid", "grid_x"],
+             ["grid", "grid_y"],
+             ["grid", "grid_z"],
+         ],
+         'ffi_entry': 'run',
+         'grid_rule': {'kind': 'chunks', 'x_factor': 1},
+         'kernel_symbol': "kernel_cake_kda_det_train_50721aa4cea4ff2fe68f",
+         'l2n': ['fused'],
+         'launch': {'block': (256, 1, 1),
+                    'cluster': (1, 1, 1),
+                    'cooperative': False,
+                    'dynamic_smem_bytes': 53248,
+                    'use_pdl': False},
+         'library': 'cake_kda_det_train_50721aa4cea4ff2fe68f',
+         'logical': {
+             "beta": "beta",
+             "beta_int": "beta_int",
+             "chunk_bos": "chunk_bos",
+             "chunk_len": "chunk_len",
+             "do": "dout",
+             "do_int": "do_int",
+             "dv2": "dv2",
+             "g": "g",
+             "gk_out": "gk",
+             "group": "group",
+             "k_raw": "k_raw",
+             "k_raw_head_stride": "k_raw_head_stride",
+             "k_raw_row_stride": "k_raw_row_stride",
+             "kb_out": "kb",
+             "kg_out": "kg",
+             "kn": "kn",
+             "num_heads": "num_heads",
+             "num_qk_heads": "num_heads",
+             "num_tokens": "num_tokens",
+             "q_raw": "q_raw",
+             "q_raw_head_stride": "q_raw_head_stride",
+             "q_raw_row_stride": "q_raw_row_stride",
+             "qg_out": "qg",
+             "qk_rstd": "qk_rstd",
+             "qn": "qn",
+             "read_rstd": "read_rstd",
+             "v_new": "v_new",
+             "write_rstd": "write_rstd",
+         },
+         'select_rule': {'kind': 'saved_rstd_twin'},
+         'stage': 'bwd_prep',
+         'variant': 'g8_replay_l2n_saved'},
     "bwd_prep_g8_noqg_l2n": {'arches': ['sm_100a', 'sm_103a', 'sm_107a'],
          'arg_plan': [
              ["buffer", "g"],
@@ -8102,7 +8179,26 @@ def _admits(
         return path in rule["paths"]
     if kind == "l2n_in":
         return l2n in rule["modes"]
+    if kind == "saved_rstd_twin":
+        # a saved-rstd twin (SAVED_RSTD_TWINS): launched in place of its record, never selected by a plan
+        return False
     raise ValueError(f"unknown Cake KDA training selection rule: {kind!r}")
+
+
+# The saved-rstd twin of a record (FlashInfer #7817): the program a launch of the record with ``read_rstd = 1`` runs
+# on the twin's architectures -- the replay prep that reads the saved rstd (glm_bwd_prep v11_g8), the first q / k
+# reader of a saved-mode KCP backward; ``read_rstd = 0`` (the replay that computes the rstd) keeps the record's
+# program.  A twin's select rule ``saved_rstd_twin`` admits no problem, so the plans select exactly what they did.
+SAVED_RSTD_TWINS: dict[str, str] = {"bwd_prep_g8_replay_l2n": "bwd_prep_g8_replay_l2n_saved"}
+
+
+def saved_rstd_record(name: str, arch: str, read_rstd: int) -> str:
+    """The record a launch of ``name`` with ``read_rstd`` runs on ``arch``: its saved-rstd twin
+    (:data:`SAVED_RSTD_TWINS`) when ``read_rstd`` is 1 and the twin ships on ``arch``, else ``name``."""
+    twin = SAVED_RSTD_TWINS.get(name)
+    if twin is not None and int(read_rstd) == 1 and arch in MODULES[twin]["arches"]:
+        return twin
+    return name
 
 
 def segment_plan(
@@ -8578,6 +8674,7 @@ __all__ = [
     "OPTIONAL_STAGES",
     "PAIR_ROWS",
     "PATHS",
+    "SAVED_RSTD_TWINS",
     "SEGMENTS",
     "STAGES",
     "STAGES_BWD",
@@ -8593,6 +8690,7 @@ __all__ = [
     "load",
     "records_of_stage",
     "run_module",
+    "saved_rstd_record",
     "segment_args",
     "segment_plan",
     "select_record",
