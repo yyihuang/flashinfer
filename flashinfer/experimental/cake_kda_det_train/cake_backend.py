@@ -1936,7 +1936,11 @@ def _l2n_prep_first(p: Plan, path: str, replay: bool) -> bool:
     its prep record first (no ``qk_apply`` / ``qk_l2norm`` stage, and not the replay's intra-first order: the replay
     without a table launch) and that record binds none of :data:`_PREP_LATE_NAMES`: the backward then allocates
     those after the prep launch, so the first backward kernel is queued before that host work."""
-    if p.l2n != "fused" or p.dispatched("qk_apply", path) or p.dispatched("qk_l2norm", path):
+    if (
+        p.l2n != "fused"
+        or p.dispatched("qk_apply", path)
+        or p.dispatched("qk_l2norm", path)
+    ):
         return False
     if replay and not p.dispatched("table", path):
         return False
@@ -4948,10 +4952,10 @@ def _backward(
     # which no prep record binds (:func:`_l2n_prep_first`): the first backward kernel is queued earlier
     late = False
     if l2n == "fused" and packing is None:
-        key = ("prep_first", path, replay)
-        late = ws._l2n_host_cache.get(key)
+        prep_key = ("prep_first", path, replay)
+        late = ws._l2n_host_cache.get(prep_key)
         if late is None:
-            late = ws._l2n_host_cache[key] = _l2n_prep_first(p, path, replay)
+            late = ws._l2n_host_cache[prep_key] = _l2n_prep_first(p, path, replay)
     if rows_in_arena:
         dqk = _alloc((2, S, H, D), torch.bfloat16, ws.device)
         dq, dk = dqk.unbind(0)
