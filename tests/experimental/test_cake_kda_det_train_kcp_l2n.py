@@ -914,7 +914,9 @@ class _NoCollectives:
     """``torch.distributed`` as the KCP modules see it in :func:`test_l2n_refusal_messages_are_pinned`: the queries
     pass through, any other attribute (a collective, a group constructor) raises :class:`_Stop`."""
 
-    _QUERIES = frozenset({"is_available", "is_initialized", "get_rank", "get_world_size"})
+    _QUERIES = frozenset(
+        {"is_available", "is_initialized", "get_rank", "get_world_size"}
+    )
 
     def __getattr__(self, name: str):
         if name in self._QUERIES:
@@ -1041,7 +1043,13 @@ def test_l2n_refusal_messages_are_pinned(capable, monkeypatch) -> None:
         "allocate the WorkspaceDetKcp with use_qk_l2norm_in_kernel=True"
     )
     for name, entry in entries(ops, ctx).items():
-        raises(entry, {"workspace": lean_off, **L2N}, ValueError, mode, f"lean_flag_off_workspace/{name}")
+        raises(
+            entry,
+            {"workspace": lean_off, **L2N},
+            ValueError,
+            mode,
+            f"lean_flag_off_workspace/{name}",
+        )
     # a rank without tokens: the same q / k metadata refusals with the same messages (the base address is per rank;
     # an empty v / g / beta has no element a stride addresses; the shape message names the rank's token count)
     for row, bad, kind, message in _refusal_rows(0, H):
@@ -1793,8 +1801,12 @@ def test_l2n_kernel_path_raises_until_bound() -> None:
             "the existing backend has the in-kernel Q/K L2 norm programs: delete this row"
         )
     real = cake_kcp_plan.qk_l2norm_missing
+    # the CUDA device of the refusal rows below reads as an architecture the existing backend does not serve yet
+    # (one exists while the check above fails); the workspace is built where the check passes, on another one
+    dev_arch = next(a for a in cake_jit.ARCHES if real("fused", "g", a) is not None)
+    other = next(a for a in cake_jit.ARCHES if a != dev_arch)
     want = f"{cake_kcp_plan.QK_L2NORM_PENDING} ({real('fused', 'g', None)})"
-    want_dev = f"{cake_kcp_plan.QK_L2NORM_PENDING} ({real('fused', 'g', 'sm_100a')})"
+    want_dev = f"{cake_kcp_plan.QK_L2NORM_PENDING} ({real('fused', 'g', dev_arch)})"
     H = 4
     ctxs = (_cpu_ctx(), _cpu_zero_ctx())
     for ctx in ctxs:
@@ -1802,12 +1814,12 @@ def test_l2n_kernel_path_raises_until_bound() -> None:
         args = _args(ops, ctx)
         with pytest.MonkeyPatch.context() as m:
             # a flag-on workspace and saved set built where the check passes: on another architecture
-            m.setattr(cake_kcp_plan, "qk_l2norm_arch", lambda device=None: "sm_103a")
+            m.setattr(cake_kcp_plan, "qk_l2norm_arch", lambda device=None: other)
             m.setattr(
                 cake_kcp_plan,
                 "qk_l2norm_missing",
                 lambda mode="fused", gate="g", arch=None: (
-                    None if arch == "sm_103a" else real(mode, gate, arch)
+                    None if arch == other else real(mode, gate, arch)
                 ),
             )
             ws = cake_kcp.WorkspaceDetKcp(**L2N)
@@ -1820,12 +1832,12 @@ def test_l2n_kernel_path_raises_until_bound() -> None:
             for name in ("plan", "workspace_bytes", "KdaDetWorkspace"):
                 real_fn = getattr(cake_backend, name)
                 m.setattr(cake_backend, name, _never(f"cake_backend.{name}", real_fn))
-            # a CUDA device reads as sm_100a (no device is touched: the refusal comes first)
+            # a CUDA device reads as dev_arch (no device is touched: the refusal comes first)
             m.setattr(
                 cake_kcp_plan,
                 "qk_l2norm_arch",
                 lambda device=None: (
-                    "sm_100a"
+                    dev_arch
                     if device is not None and torch.device(device).type == "cuda"
                     else None
                 ),
