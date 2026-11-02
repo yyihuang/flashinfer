@@ -658,15 +658,15 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_train_446adf6e2aa8ec228bc5",
+        "kernel_symbol": "kernel_cake_gdn_train_fe16a927b29e6c572b78",
         "launch": {
             "block": (512, 1, 1),
             "cluster": (1, 1, 1),
             "cooperative": False,
-            "dynamic_smem_bytes": 223488,
+            "dynamic_smem_bytes": 223616,
             "use_pdl": False,
         },
-        "library": "cake_gdn_train_446adf6e2aa8ec228bc5",
+        "library": "cake_gdn_train_fe16a927b29e6c572b78",
         "stage": "fwd_ho",
     },
     "dv_local": {
