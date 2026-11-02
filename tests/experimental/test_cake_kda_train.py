@@ -3472,6 +3472,25 @@ def test_manifest_is_well_formed(manifest: dict) -> None:
     assert set(names) == expected
 
 
+def _flag_off(rule: dict) -> dict | bool:
+    """The deterministic record's rule with the in-kernel Q/K L2 norm off (#7817): this package takes no such
+    keyword, so an ``l2n_in`` leaf reads its ``off`` mode; a decided ``any_of`` / ``all_of`` member folds away."""
+    kind = rule["kind"]
+    if kind == "l2n_in":
+        return "off" in rule["modes"]
+    if kind not in ("all_of", "any_of"):
+        return rule
+    rules = [_flag_off(sub_rule) for sub_rule in rule["rules"]]
+    if kind == "any_of" and True in rules:
+        return True
+    if kind == "all_of" and False in rules:
+        return False
+    rules = [sub_rule for sub_rule in rules if not isinstance(sub_rule, bool)]
+    if not rules:
+        return kind == "all_of"
+    return rules[0] if len(rules) == 1 else {"kind": kind, "rules": rules}
+
+
 def _det_manifest_or_skip() -> dict:
     path = Path(det_jit.__file__).resolve().parent / "build.json"
     if not path.exists():
@@ -3503,7 +3522,7 @@ def test_copied_programs_are_the_deterministic_packages_sources(
             assert record[key] == twin[key], (name, key)
         assert record["grid_rule"] == twin["grid_rule"], name
         if record["stage"] not in ("dqkg", "glm_intra"):
-            assert record["select_rule"] == twin["select_rule"], name
+            assert record["select_rule"] == _flag_off(twin["select_rule"]), name
             assert list(record["arches"]) == list(twin["arches"]), name
         else:
             # a pair-stage copy ships where its narrowed rule launches it: some of the twin's architectures
