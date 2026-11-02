@@ -1049,8 +1049,12 @@ class KernelBackend(Backend):
         values: dict[str, Any],
     ) -> None:
         """A record of the existing backend's registry on the local arena: the trimmed launch, or the arena's
-        launcher (a diagnostics launcher keeps the base path)."""
+        launcher (a diagnostics launcher keeps the base path).  A launch that reads the saved rstd (``read_rstd =
+        1``, a saved-mode backward's first q / k reader) runs the record's saved-rstd twin where one ships on the
+        arena's architecture (``cake_jit.saved_rstd_record``)."""
         local = call.local
+        if values.get("read_rstd", 0):
+            record = cake_jit.saved_rstd_record(record, local.arch, values["read_rstd"])
         if call.host_trim and local.launcher is cake_jit.run_module:
             _launch_record_trim(local, record, grid, values)
         else:
