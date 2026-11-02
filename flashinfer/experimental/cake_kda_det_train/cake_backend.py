@@ -2703,6 +2703,10 @@ class KdaDetWorkspace:
         self._batch_views: dict[tuple[int, int, int], KdaDetWorkspace] = {}
         self._doc_cache: dict[tuple[int, ...], _Packing] = {}
         self._doc_graphs: set[tuple[int, ...]] = set()
+        # :func:`_l2n_rows_in_arena` per (path, layout mode, tail passes) on this workspace's plan: a pure function of
+        # the plan, the layout's buffer names and the tail passes (host time of every in-kernel Q/K L2 norm backward);
+        # a view under another plan (:meth:`_view`) starts its own
+        self._l2n_rows_cache: dict[tuple[str, str, int], bool] = {}
 
     def views(self, mode: str) -> types.SimpleNamespace:
         """The buffer views of layout ``mode`` on this arena (``ValueError`` when the arena is too small for it);
@@ -2894,6 +2898,7 @@ class KdaDetWorkspace:
         other._batch_views = {}
         other._doc_cache = {}
         other._doc_graphs = set()
+        other._l2n_rows_cache = {}  # per plan: never shared with the parent's
         return other
 
     def with_plan(self, plan: Plan) -> KdaDetWorkspace:
@@ -3313,6 +3318,20 @@ def _check_qk_raw(
     ``c0 % 8 == 0``.  ``ValueError`` otherwise; the host never copies it.  An axis of extent 1 has no stride that
     matters: it is viewed with the canonical one (the same elements, no copy), so ``H == 1`` takes any head stride
     and ``S == 1`` any token stride; an empty view (``S == 0``) is checked for shape, dtype and device only."""
+    st = x.stride()
+    if (
+        len(st) == 3
+        and st[2] == 1
+        and st[1] == D
+        and (S > 1 or (S == 1 and st[0] == H * D))
+        and st[0] % 8 == 0
+        and st[0] >= H * D
+        and x.dtype == torch.bfloat16
+        and x.shape == (S, H, D)
+        and x.device == device
+        and x.data_ptr() % 16 == 0
+    ):  # a view the checks below accept and return unchanged (a contiguous tensor, a packed q / k column slice)
+        return x
     if tuple(x.shape) != (S, H, D):
         raise ValueError(
             f"{name}: expected shape {(S, H, D)} (or a leading batch axis of 1), got {tuple(x.shape)}"
@@ -4881,11 +4900,14 @@ def _backward(
     # the in-kernel Q/K L2 norm's qn / kn in the arena of a saved-set path (:func:`_l2n_rows_in_arena`): dq / dk are
     # then the two halves of one tensor, whose bytes carry dv2 until GLM intra / the pullback write them
     l2n = ws.l2n
-    rows_in_arena = (
-        l2n != "off"
-        and packing is None
-        and _l2n_rows_in_arena(p, path, vars(ws.views(mode)), ws.tail_passes)
-    )
+    rows_in_arena = False
+    if l2n != "off" and packing is None:
+        key = (path, mode, ws.tail_passes)
+        rows_in_arena = ws._l2n_rows_cache.get(key)
+        if rows_in_arena is None:
+            rows_in_arena = ws._l2n_rows_cache[key] = _l2n_rows_in_arena(
+                p, path, vars(ws.views(mode)), ws.tail_passes
+            )
     if rows_in_arena:
         dqk = _alloc((2, S, H, D), torch.bfloat16, ws.device)
         dq, dk = dqk[0], dqk[1]
