@@ -914,7 +914,9 @@ class _NoCollectives:
     """``torch.distributed`` as the KCP modules see it in :func:`test_l2n_refusal_messages_are_pinned`: the queries
     pass through, any other attribute (a collective, a group constructor) raises :class:`_Stop`."""
 
-    _QUERIES = frozenset({"is_available", "is_initialized", "get_rank", "get_world_size"})
+    _QUERIES = frozenset(
+        {"is_available", "is_initialized", "get_rank", "get_world_size"}
+    )
 
     def __getattr__(self, name: str):
         if name in self._QUERIES:
@@ -1041,7 +1043,13 @@ def test_l2n_refusal_messages_are_pinned(capable, monkeypatch) -> None:
         "allocate the WorkspaceDetKcp with use_qk_l2norm_in_kernel=True"
     )
     for name, entry in entries(ops, ctx).items():
-        raises(entry, {"workspace": lean_off, **L2N}, ValueError, mode, f"lean_flag_off_workspace/{name}")
+        raises(
+            entry,
+            {"workspace": lean_off, **L2N},
+            ValueError,
+            mode,
+            f"lean_flag_off_workspace/{name}",
+        )
     # a rank without tokens: the same q / k metadata refusals with the same messages (the base address is per rank;
     # an empty v / g / beta has no element a stride addresses; the shape message names the rank's token count)
     for row, bad, kind, message in _refusal_rows(0, H):
@@ -1304,7 +1312,7 @@ def test_l2n_call_values_per_path() -> None:
             assert cake_kcp._qk_l2norm_begin(call) is None and call.l2n_values is None
 
 
-def test_l2n_stage_order() -> None:
+def test_l2n_stage_order(monkeypatch) -> None:
     """The backward's rows before its walks (:func:`cake_kcp._bwd_rows`): flag off, the prep, the intra program, the
     WY program (as before the mode); fused, the plan's first q / k reader first (the intra program where its record is
     the ``_l2n`` twin, else the prep); fallback, ``qk_apply`` (from a saved rstd) or ``qk_l2norm`` before the
@@ -1329,6 +1337,21 @@ def test_l2n_stage_order() -> None:
         c.stage = lambda name, **extra: seq.append((name, extra.get("saved", "-")))
         return c
 
+    # the registry's l2n keys of the records below: a twin serves the fused mode only, whatever its name
+    plain = {"l2n": ["off", "fallback", "fused"]}
+    twin = {"l2n": ["fused"]}
+    monkeypatch.setattr(
+        cake_jit,
+        "MODULES",
+        {
+            "fwd_intra": plain,
+            "fwd_intra_v14": plain,
+            "fwd_intra_l2n": twin,
+            "fwd_intra_v14_l2n": twin,
+            "fwd_intra_l2n_v37": twin,
+        },
+    )
+
     saved = object()
     cases = (
         (("off", "fwd_intra_v14"), saved, ["bwd_prep", "fwd_intra", "wy"]),
@@ -1347,6 +1370,7 @@ def test_l2n_stage_order() -> None:
     cake_kcp._qk_l2norm_stage(call("fused", "fwd_intra_l2n", (0, 1)))
     assert seq == []
     assert cake_kcp_plan.qk_l2norm_intra_first(Plan("fwd_intra_v14_l2n"))
+    assert cake_kcp_plan.qk_l2norm_intra_first(Plan("fwd_intra_l2n_v37"))
     assert not cake_kcp_plan.qk_l2norm_intra_first(Plan("fwd_intra_v14"))
 
 
@@ -1426,7 +1450,12 @@ def _fake_registry(
 
     class Modules(dict):
         def __missing__(self, name):
-            return {"arches": list((arches or {}).get(name, cake_jit.ARCHES))}
+            # the l2n key as the real registry's: the twins (``_l2n``, any ``_v<N>`` suffix) serve the fused mode only
+            twin = re.search(r"_l2n(_v\d+)?$", name) is not None
+            return {
+                "arches": list((arches or {}).get(name, cake_jit.ARCHES)),
+                "l2n": ["fused"] if twin else ["off", "fallback", "fused"],
+            }
 
     class Libraries:
         def __contains__(self, lib):
@@ -1541,6 +1570,8 @@ def test_l2n_capability_check() -> None:
             f"selects no qk_apply on {B} ({where})",
         ),
         ({"pick": _pick_but(lambda s, p, *k: s == "qk_l2norm" and p == F, bad)}, "fallback", f"qk_l2norm on {F}"),
+        # a twin with a version suffix (the registry's l2n key decides, not the name)
+        ({"pick": _pick_but(lambda s, p, m, *k: s == "fwd_intra" and p == F and m == "fused", "fwd_intra_l2n_v37")}, None, None),
         # the fused form's first readers: both / neither on the replay, a plain forward intra program
         (
             {"pick": _pick_but(lambda s, p, m, *k: s == "bwd_prep" and m == "fused", "bwd_prep_g8_replay_l2n")},
@@ -1793,8 +1824,12 @@ def test_l2n_kernel_path_raises_until_bound() -> None:
             "the existing backend has the in-kernel Q/K L2 norm programs: delete this row"
         )
     real = cake_kcp_plan.qk_l2norm_missing
+    # the CUDA device of the refusal rows below reads as an architecture the existing backend does not serve yet
+    # (one exists while the check above fails); the workspace is built where the check passes, on another one
+    dev_arch = next(a for a in cake_jit.ARCHES if real("fused", "g", a) is not None)
+    other = next(a for a in cake_jit.ARCHES if a != dev_arch)
     want = f"{cake_kcp_plan.QK_L2NORM_PENDING} ({real('fused', 'g', None)})"
-    want_dev = f"{cake_kcp_plan.QK_L2NORM_PENDING} ({real('fused', 'g', 'sm_100a')})"
+    want_dev = f"{cake_kcp_plan.QK_L2NORM_PENDING} ({real('fused', 'g', dev_arch)})"
     H = 4
     ctxs = (_cpu_ctx(), _cpu_zero_ctx())
     for ctx in ctxs:
@@ -1802,12 +1837,12 @@ def test_l2n_kernel_path_raises_until_bound() -> None:
         args = _args(ops, ctx)
         with pytest.MonkeyPatch.context() as m:
             # a flag-on workspace and saved set built where the check passes: on another architecture
-            m.setattr(cake_kcp_plan, "qk_l2norm_arch", lambda device=None: "sm_103a")
+            m.setattr(cake_kcp_plan, "qk_l2norm_arch", lambda device=None: other)
             m.setattr(
                 cake_kcp_plan,
                 "qk_l2norm_missing",
                 lambda mode="fused", gate="g", arch=None: (
-                    None if arch == "sm_103a" else real(mode, gate, arch)
+                    None if arch == other else real(mode, gate, arch)
                 ),
             )
             ws = cake_kcp.WorkspaceDetKcp(**L2N)
@@ -1820,12 +1855,12 @@ def test_l2n_kernel_path_raises_until_bound() -> None:
             for name in ("plan", "workspace_bytes", "KdaDetWorkspace"):
                 real_fn = getattr(cake_backend, name)
                 m.setattr(cake_backend, name, _never(f"cake_backend.{name}", real_fn))
-            # a CUDA device reads as sm_100a (no device is touched: the refusal comes first)
+            # a CUDA device reads as dev_arch (no device is touched: the refusal comes first)
             m.setattr(
                 cake_kcp_plan,
                 "qk_l2norm_arch",
                 lambda device=None: (
-                    "sm_100a"
+                    dev_arch
                     if device is not None and torch.device(device).type == "cuda"
                     else None
                 ),
