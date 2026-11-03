@@ -780,7 +780,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         asm volatile("cp.async.bulk.wait_group.read 1;");
                     }
                     __syncthreads();
-                    if (tid < 128) {
+                    if (tid < 128 && !0) {
                         int r = tid % 64;
                         int row0 = r * 2;
                         int row1 = row0 + 1;
@@ -926,7 +926,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_5), "r"(_byte_5) : "memory");
                             }
                         }
-                    } else {
+                    } else if (tid >= 128 && !1) {
                         int row_0 = tid - 128;
                         unsigned int scale_word = 0;
                         #pragma unroll 1
@@ -1017,7 +1017,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         asm volatile("cp.async.bulk.wait_group.read 1;");
                     }
                     __syncthreads();
-                    if (tid < 128) {
+                    if (tid < 128 && !0) {
                         int r_1 = tid % 64;
                         int row0_1 = r_1 * 2;
                         int row1_1 = row0_1 + 1;
@@ -1163,7 +1163,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_13), "r"(_byte_13) : "memory");
                             }
                         }
-                    } else {
+                    } else if (tid >= 128 && !1) {
                         int row_1 = tid - 128;
                         unsigned int scale_word_1 = 0;
                         #pragma unroll 1
@@ -1284,7 +1284,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             asm volatile("cp.async.bulk.wait_group.read 1;");
                         }
                         __syncthreads();
-                        if (tid < 128) {
+                        if (tid < 128 && !0) {
                             int r_2 = tid % 64;
                             int row0_2 = r_2 * 2;
                             int row1_2 = row0_2 + 1;
@@ -1430,7 +1430,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_21), "r"(_byte_21) : "memory");
                                 }
                             }
-                        } else {
+                        } else if (tid >= 128 && !1) {
                             int row_2 = tid - 128;
                             unsigned int scale_word_2 = 0;
                             #pragma unroll 1
@@ -1521,7 +1521,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             asm volatile("cp.async.bulk.wait_group.read 1;");
                         }
                         __syncthreads();
-                        if (tid < 128) {
+                        if (tid < 128 && !0) {
                             int r_3 = tid % 64;
                             int row0_3 = r_3 * 2;
                             int row1_3 = row0_3 + 1;
@@ -1667,7 +1667,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_29), "r"(_byte_29) : "memory");
                                 }
                             }
-                        } else {
+                        } else if (tid >= 128 && !1) {
                             int row_3 = tid - 128;
                             unsigned int scale_word_3 = 0;
                             #pragma unroll 1
@@ -2393,7 +2393,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 asm volatile("cp.async.bulk.wait_group.read 1;");
                             }
                             __syncthreads();
-                            if (tid < 128) {
+                            if (tid < 128 && !0) {
                                 int r_4 = tid % 64;
                                 int row0_4 = r_4 * 2;
                                 int row1_4 = row0_4 + 1;
@@ -2539,7 +2539,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                         asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_83), "r"(_byte_83) : "memory");
                                     }
                                 }
-                            } else {
+                            } else if (tid >= 128 && !1) {
                                 int row_4_1 = tid - 128;
                                 unsigned int scale_word_4 = 0;
                                 #pragma unroll 1
@@ -2630,7 +2630,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 asm volatile("cp.async.bulk.wait_group.read 1;");
                             }
                             __syncthreads();
-                            if (tid < 128) {
+                            if (tid < 128 && !0) {
                                 int r_5 = tid % 64;
                                 int row0_5 = r_5 * 2;
                                 int row1_5 = row0_5 + 1;
@@ -2776,7 +2776,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                         asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_91), "r"(_byte_91) : "memory");
                                     }
                                 }
-                            } else {
+                            } else if (tid >= 128 && !1) {
                                 int row_5_1 = tid - 128;
                                 unsigned int scale_word_5 = 0;
                                 #pragma unroll 1
@@ -2898,7 +2898,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     asm volatile("cp.async.bulk.wait_group.read 1;");
                                 }
                                 __syncthreads();
-                                if (tid < 128) {
+                                if (tid < 128 && !0) {
                                     int r_6 = tid % 64;
                                     int row0_6 = r_6 * 2;
                                     int row1_6 = row0_6 + 1;
@@ -3044,7 +3044,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                             asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_101), "r"(_byte_101) : "memory");
                                         }
                                     }
-                                } else {
+                                } else if (tid >= 128 && !1) {
                                     int row_6_1 = tid - 128;
                                     unsigned int scale_word_6 = 0;
                                     #pragma unroll 1
@@ -3135,7 +3135,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     asm volatile("cp.async.bulk.wait_group.read 1;");
                                 }
                                 __syncthreads();
-                                if (tid < 128) {
+                                if (tid < 128 && !0) {
                                     int r_7 = tid % 64;
                                     int row0_7 = r_7 * 2;
                                     int row1_7 = row0_7 + 1;
@@ -3281,7 +3281,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                             asm volatile("st.shared.u8 [%0], %1;" :: "r"(_addr_109), "r"(_byte_109) : "memory");
                                         }
                                     }
-                                } else {
+                                } else if (tid >= 128 && !1) {
                                     int row_7 = tid - 128;
                                     unsigned int scale_word_7 = 0;
                                     #pragma unroll 1
