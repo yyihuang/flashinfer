@@ -1,3 +1,20 @@
+// fi-7821 round 5 DIAGNOSTIC-ONLY ablation guards (mkdiag5.py); never ship.
+#define MOK_DIAG_NOQUANT 1  // arm=noquant
+#ifndef MOK_DIAG_NOQUANT
+#define MOK_DIAG_NOQUANT 0
+#endif
+#ifndef MOK_DIAG_NOPULL
+#define MOK_DIAG_NOPULL 0
+#endif
+#ifndef MOK_DIAG_NOALIAS
+#define MOK_DIAG_NOALIAS 0
+#endif
+#ifndef MOK_DIAG_NOBND
+#define MOK_DIAG_NOBND 0
+#endif
+#ifndef MOK_DIAG_NODRAIN
+#define MOK_DIAG_NODRAIN 0
+#endif
 /*
  * Copyright 2026 Cursor Research
  * Copyright (c) 2026 by FlashInfer team.
@@ -602,6 +619,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                     asm volatile("cp.async.bulk.wait_group.read 1;");
                 }
                 __syncthreads();
+                #if !MOK_DIAG_NOQUANT
                 if (tid < 128) {
                     int r = tid % 64;
                     int row0 = r * 2;
@@ -823,6 +841,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                     }
                     smem_v21[row_0 % 32 * 4 + row_0 / 32] = scale_word;
                 }
+                #endif  // MOK_DIAG_NOQUANT
                 __syncthreads();
                 if (tid == 0) {
                     int col_tile_0 = col_block * 4;
@@ -839,6 +858,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                     asm volatile("cp.async.bulk.wait_group.read 1;");
                 }
                 __syncthreads();
+                #if !MOK_DIAG_NOQUANT
                 if (tid < 128) {
                     int r_1 = tid % 64;
                     int row0_1 = r_1 * 2;
@@ -1060,6 +1080,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                     }
                     smem_v22[row_1 % 32 * 4 + row_1 / 32] = scale_word_1;
                 }
+                #endif  // MOK_DIAG_NOQUANT
                 __syncthreads();
                 if (tid == 0) {
                     int col_tile_1 = col_block * 4 + 1;
@@ -1106,6 +1127,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                         asm volatile("cp.async.bulk.wait_group.read 1;");
                     }
                     __syncthreads();
+                    #if !MOK_DIAG_NOQUANT
                     if (tid < 128) {
                         int r_2 = tid % 64;
                         int row0_2 = r_2 * 2;
@@ -1327,6 +1349,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                         }
                         smem_v21[row_2 % 32 * 4 + row_2 / 32] = scale_word_2;
                     }
+                    #endif  // MOK_DIAG_NOQUANT
                     __syncthreads();
                     if (tid == 0) {
                         int col_tile_2 = col_block * 4 + 2;
@@ -1343,6 +1366,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                         asm volatile("cp.async.bulk.wait_group.read 1;");
                     }
                     __syncthreads();
+                    #if !MOK_DIAG_NOQUANT
                     if (tid < 128) {
                         int r_3 = tid % 64;
                         int row0_3 = r_3 * 2;
@@ -1564,6 +1588,7 @@ kernel_cake_mok_recompute_mxfp8(const __grid_constant__ CUtensorMap x_shared, co
                         }
                         smem_v22[row_3 % 32 * 4 + row_3 / 32] = scale_word_3;
                     }
+                    #endif  // MOK_DIAG_NOQUANT
                     __syncthreads();
                     if (tid == 0) {
                         int col_tile_3 = col_block * 4 + 2 + 1;
