@@ -417,9 +417,9 @@ RECORD_ARCHES = {
 # rows of the builds with the L2 hints off) run the S1 pair on every backward path, the raw forget-gate class
 # (gate "raw": the forward intra, backward prep and GLM intra programs that read the raw gate, and the backward's
 # A_log / dt_bias gradient finalize) runs only under use_gate_in_kernel=True, and the in-kernel Q/K L2 norm's
-# records (#7817: its fused class, 7 g records with their 7 raw twins and the sm_103a forward intra form, the 2
-# GLM intra capture forms and the 3 programs of its fallback route) run only under use_qk_l2norm_in_kernel=True;
-# this package refuses both modes.
+# records (#7817: its fused class, 7 g records with their 7 raw twins and the sm_103a forward intra and GLM intra
+# forms, the 2 GLM intra capture forms and the 3 programs of its fallback route) run only under
+# use_qk_l2norm_in_kernel=True; this package refuses both modes.
 DET_RECORDS_NOT_LAUNCHED = frozenset(
     (
         "dqkg_davq_nohint",
@@ -440,6 +440,7 @@ DET_RECORDS_NOT_LAUNCHED = frozenset(
         "bwd_prep_g8_noqg_l2n",
         "bwd_prep_g8_noqg_nokb_l2n",
         "glm_intra_l2n",
+        "glm_intra_v30_l2n",  # the fused class's sm_103a GLM intra form
         "fwd_intra_raw_l2n",
         "fwd_intra_v14_raw_l2n",
         "bwd_prep_g8_raw_l2n",
@@ -464,10 +465,10 @@ TAPE_TWINS = {"wy_bwd": "wy_bwd_v9"}
 TAPE_WY_RECORDS = frozenset(TAPE_TWINS.values())
 # The logical names of the WY record's parameters the twin does not take: u and the operands only u reads.
 TAPE_WY_DROPPED = frozenset({"v", "beta", "u"})
-# The registry's size: the deterministic package's 95 records, less those, plus the seven S1 records, the hand-off
+# The registry's size: the deterministic package's 96 records, less those, plus the seven S1 records, the hand-off
 # twins and the tape WY twin.
 MODULE_COUNT = (
-    95 - len(DET_RECORDS_NOT_LAUNCHED) + 7 + len(TWIN_RECORDS) + len(TAPE_WY_RECORDS)
+    96 - len(DET_RECORDS_NOT_LAUNCHED) + 7 + len(TWIN_RECORDS) + len(TAPE_WY_RECORDS)
 )
 # The records of the segmented adjoint recurrence launch twice per stage (the carry between the passes); the
 # forward recurrence's passes are two stages (fwdh, fwdh_p3).
