@@ -805,16 +805,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 pairs0[k] = lo;
                                 pairs1[k] = hi;
                             }
-                            uint32_t bf16x2_abs;
-                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs) : "r"(pairs0[0]));
-                            unsigned int amax_pair = bf16x2_abs;
-                            #pragma unroll
-                            for (int i = 1; i < 16; i++) {
-                                uint32_t bf16x2_abs_1;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1) : "r"(pairs0[i]));
-                                uint32_t bf16x2_max;
-                                asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max) : "r"(amax_pair), "r"(bf16x2_abs_1));
-                                amax_pair = bf16x2_max;
+                            unsigned int amax_pair;
+                            {
+                                uint32_t _tq0[16];
+                                #pragma unroll
+                                for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq0[_i]) : "r"(pairs0[_i])); }
+                                #pragma unroll
+                                for (int _s = 8; _s > 0; _s >>= 1) {
+                                    #pragma unroll
+                                    for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq0[_i]) : "r"(_tq0[_i]), "r"(_tq0[_i + _s])); }
+                                }
+                                amax_pair = _tq0[0];
                             }
                             uint16_t bf16_max;
                             asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max) : "h"((uint16_t)(amax_pair & 65535)), "h"((uint16_t)(amax_pair >> 16)));
@@ -857,16 +858,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 #endif
                                 words[i_1] = (unsigned int)e4m3x2_bf16x2 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_1 << 16;
                             }
-                            uint32_t bf16x2_abs_0;
-                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_0) : "r"(pairs1[0]));
-                            unsigned int amax_pair_0 = bf16x2_abs_0;
-                            #pragma unroll
-                            for (int i_2 = 1; i_2 < 16; i_2++) {
-                                uint32_t bf16x2_abs_1_1;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_1) : "r"(pairs1[i_2]));
-                                uint32_t bf16x2_max_1;
-                                asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_1) : "r"(amax_pair_0), "r"(bf16x2_abs_1_1));
-                                amax_pair_0 = bf16x2_max_1;
+                            unsigned int amax_pair_0;
+                            {
+                                uint32_t _tq1[16];
+                                #pragma unroll
+                                for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq1[_i]) : "r"(pairs1[_i])); }
+                                #pragma unroll
+                                for (int _s = 8; _s > 0; _s >>= 1) {
+                                    #pragma unroll
+                                    for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq1[_i]) : "r"(_tq1[_i]), "r"(_tq1[_i + _s])); }
+                                }
+                                amax_pair_0 = _tq1[0];
                             }
                             uint16_t bf16_max_0;
                             asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_0) : "h"((uint16_t)(amax_pair_0 & 65535)), "h"((uint16_t)(amax_pair_0 >> 16)));
@@ -940,16 +942,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 float x1 = 0.0f;
                                 pairs[k_2] = flat_view_5[(row_0 * 256 + col_2) / 2];
                             }
-                            uint32_t bf16x2_abs_2;
-                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_2) : "r"(pairs[0]));
-                            unsigned int amax_pair_1 = bf16x2_abs_2;
-                            #pragma unroll
-                            for (int i_4 = 1; i_4 < 16; i_4++) {
-                                uint32_t bf16x2_abs_1_2;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_2) : "r"(pairs[i_4]));
-                                uint32_t bf16x2_max_2;
-                                asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_2) : "r"(amax_pair_1), "r"(bf16x2_abs_1_2));
-                                amax_pair_1 = bf16x2_max_2;
+                            unsigned int amax_pair_1;
+                            {
+                                uint32_t _tq2[16];
+                                #pragma unroll
+                                for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq2[_i]) : "r"(pairs[_i])); }
+                                #pragma unroll
+                                for (int _s = 8; _s > 0; _s >>= 1) {
+                                    #pragma unroll
+                                    for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq2[_i]) : "r"(_tq2[_i]), "r"(_tq2[_i + _s])); }
+                                }
+                                amax_pair_1 = _tq2[0];
                             }
                             uint16_t bf16_max_1;
                             asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_1) : "h"((uint16_t)(amax_pair_1 & 65535)), "h"((uint16_t)(amax_pair_1 >> 16)));
@@ -1042,16 +1045,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 pairs0_1[k_4] = lo_1;
                                 pairs1_1[k_4] = hi_1;
                             }
-                            uint32_t bf16x2_abs_3;
-                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_3) : "r"(pairs0_1[0]));
-                            unsigned int amax_pair_2 = bf16x2_abs_3;
-                            #pragma unroll
-                            for (int i_6 = 1; i_6 < 16; i_6++) {
-                                uint32_t bf16x2_abs_1_3;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_3) : "r"(pairs0_1[i_6]));
-                                uint32_t bf16x2_max_3;
-                                asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_3) : "r"(amax_pair_2), "r"(bf16x2_abs_1_3));
-                                amax_pair_2 = bf16x2_max_3;
+                            unsigned int amax_pair_2;
+                            {
+                                uint32_t _tq3[16];
+                                #pragma unroll
+                                for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq3[_i]) : "r"(pairs0_1[_i])); }
+                                #pragma unroll
+                                for (int _s = 8; _s > 0; _s >>= 1) {
+                                    #pragma unroll
+                                    for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq3[_i]) : "r"(_tq3[_i]), "r"(_tq3[_i + _s])); }
+                                }
+                                amax_pair_2 = _tq3[0];
                             }
                             uint16_t bf16_max_2;
                             asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_2) : "h"((uint16_t)(amax_pair_2 & 65535)), "h"((uint16_t)(amax_pair_2 >> 16)));
@@ -1094,16 +1098,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 #endif
                                 words_2[i_7] = (unsigned int)e4m3x2_bf16x2_3 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_9 << 16;
                             }
-                            uint32_t bf16x2_abs_1_4;
-                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_4) : "r"(pairs1_1[0]));
-                            unsigned int amax_pair_1_1 = bf16x2_abs_1_4;
-                            #pragma unroll
-                            for (int i_8 = 1; i_8 < 16; i_8++) {
-                                uint32_t bf16x2_abs_1_0;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_0) : "r"(pairs1_1[i_8]));
-                                uint32_t bf16x2_max_4;
-                                asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_4) : "r"(amax_pair_1_1), "r"(bf16x2_abs_1_0));
-                                amax_pair_1_1 = bf16x2_max_4;
+                            unsigned int amax_pair_1_1;
+                            {
+                                uint32_t _tq4[16];
+                                #pragma unroll
+                                for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq4[_i]) : "r"(pairs1_1[_i])); }
+                                #pragma unroll
+                                for (int _s = 8; _s > 0; _s >>= 1) {
+                                    #pragma unroll
+                                    for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq4[_i]) : "r"(_tq4[_i]), "r"(_tq4[_i + _s])); }
+                                }
+                                amax_pair_1_1 = _tq4[0];
                             }
                             uint16_t bf16_max_1_1;
                             asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_1_1) : "h"((uint16_t)(amax_pair_1_1 & 65535)), "h"((uint16_t)(amax_pair_1_1 >> 16)));
@@ -1177,16 +1182,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                 float x1_1 = 0.0f;
                                 pairs_1[k_6] = flat_view_5[64 + (row_1 * 256 + col_6) / 2];
                             }
-                            uint32_t bf16x2_abs_4;
-                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_4) : "r"(pairs_1[0]));
-                            unsigned int amax_pair_3 = bf16x2_abs_4;
-                            #pragma unroll
-                            for (int i_10 = 1; i_10 < 16; i_10++) {
-                                uint32_t bf16x2_abs_1_5;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_5) : "r"(pairs_1[i_10]));
-                                uint32_t bf16x2_max_5;
-                                asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_5) : "r"(amax_pair_3), "r"(bf16x2_abs_1_5));
-                                amax_pair_3 = bf16x2_max_5;
+                            unsigned int amax_pair_3;
+                            {
+                                uint32_t _tq5[16];
+                                #pragma unroll
+                                for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq5[_i]) : "r"(pairs_1[_i])); }
+                                #pragma unroll
+                                for (int _s = 8; _s > 0; _s >>= 1) {
+                                    #pragma unroll
+                                    for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq5[_i]) : "r"(_tq5[_i]), "r"(_tq5[_i + _s])); }
+                                }
+                                amax_pair_3 = _tq5[0];
                             }
                             uint16_t bf16_max_3;
                             asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_3) : "h"((uint16_t)(amax_pair_3 & 65535)), "h"((uint16_t)(amax_pair_3 >> 16)));
@@ -1309,16 +1315,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     pairs0_2[k_8] = lo_2;
                                     pairs1_2[k_8] = hi_2;
                                 }
-                                uint32_t bf16x2_abs_5;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_5) : "r"(pairs0_2[0]));
-                                unsigned int amax_pair_4 = bf16x2_abs_5;
-                                #pragma unroll
-                                for (int i_12 = 1; i_12 < 16; i_12++) {
-                                    uint32_t bf16x2_abs_1_6;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_6) : "r"(pairs0_2[i_12]));
-                                    uint32_t bf16x2_max_6;
-                                    asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_6) : "r"(amax_pair_4), "r"(bf16x2_abs_1_6));
-                                    amax_pair_4 = bf16x2_max_6;
+                                unsigned int amax_pair_4;
+                                {
+                                    uint32_t _tq6[16];
+                                    #pragma unroll
+                                    for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq6[_i]) : "r"(pairs0_2[_i])); }
+                                    #pragma unroll
+                                    for (int _s = 8; _s > 0; _s >>= 1) {
+                                        #pragma unroll
+                                        for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq6[_i]) : "r"(_tq6[_i]), "r"(_tq6[_i + _s])); }
+                                    }
+                                    amax_pair_4 = _tq6[0];
                                 }
                                 uint16_t bf16_max_4;
                                 asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_4) : "h"((uint16_t)(amax_pair_4 & 65535)), "h"((uint16_t)(amax_pair_4 >> 16)));
@@ -1361,16 +1368,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     #endif
                                     words_4[i_13] = (unsigned int)e4m3x2_bf16x2_6 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_17 << 16;
                                 }
-                                uint32_t bf16x2_abs_2_1;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_2_1) : "r"(pairs1_2[0]));
-                                unsigned int amax_pair_2_1 = bf16x2_abs_2_1;
-                                #pragma unroll
-                                for (int i_14 = 1; i_14 < 16; i_14++) {
-                                    uint32_t bf16x2_abs_1_7;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_7) : "r"(pairs1_2[i_14]));
-                                    uint32_t bf16x2_max_7;
-                                    asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_7) : "r"(amax_pair_2_1), "r"(bf16x2_abs_1_7));
-                                    amax_pair_2_1 = bf16x2_max_7;
+                                unsigned int amax_pair_2_1;
+                                {
+                                    uint32_t _tq7[16];
+                                    #pragma unroll
+                                    for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq7[_i]) : "r"(pairs1_2[_i])); }
+                                    #pragma unroll
+                                    for (int _s = 8; _s > 0; _s >>= 1) {
+                                        #pragma unroll
+                                        for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq7[_i]) : "r"(_tq7[_i]), "r"(_tq7[_i + _s])); }
+                                    }
+                                    amax_pair_2_1 = _tq7[0];
                                 }
                                 uint16_t bf16_max_2_1;
                                 asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_2_1) : "h"((uint16_t)(amax_pair_2_1 & 65535)), "h"((uint16_t)(amax_pair_2_1 >> 16)));
@@ -1444,16 +1452,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     float x1_2 = 0.0f;
                                     pairs_2[k_10] = flat_view_5[16384 + (row_2 * 256 + col_10) / 2];
                                 }
-                                uint32_t bf16x2_abs_6;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_6) : "r"(pairs_2[0]));
-                                unsigned int amax_pair_5 = bf16x2_abs_6;
-                                #pragma unroll
-                                for (int i_16 = 1; i_16 < 16; i_16++) {
-                                    uint32_t bf16x2_abs_1_8;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_8) : "r"(pairs_2[i_16]));
-                                    uint32_t bf16x2_max_8;
-                                    asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_8) : "r"(amax_pair_5), "r"(bf16x2_abs_1_8));
-                                    amax_pair_5 = bf16x2_max_8;
+                                unsigned int amax_pair_5;
+                                {
+                                    uint32_t _tq8[16];
+                                    #pragma unroll
+                                    for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq8[_i]) : "r"(pairs_2[_i])); }
+                                    #pragma unroll
+                                    for (int _s = 8; _s > 0; _s >>= 1) {
+                                        #pragma unroll
+                                        for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq8[_i]) : "r"(_tq8[_i]), "r"(_tq8[_i + _s])); }
+                                    }
+                                    amax_pair_5 = _tq8[0];
                                 }
                                 uint16_t bf16_max_5;
                                 asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_5) : "h"((uint16_t)(amax_pair_5 & 65535)), "h"((uint16_t)(amax_pair_5 >> 16)));
@@ -1546,16 +1555,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     pairs0_3[k_12] = lo_3;
                                     pairs1_3[k_12] = hi_3;
                                 }
-                                uint32_t bf16x2_abs_7;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_7) : "r"(pairs0_3[0]));
-                                unsigned int amax_pair_6 = bf16x2_abs_7;
-                                #pragma unroll
-                                for (int i_18 = 1; i_18 < 16; i_18++) {
-                                    uint32_t bf16x2_abs_1_9;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_9) : "r"(pairs0_3[i_18]));
-                                    uint32_t bf16x2_max_9;
-                                    asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_9) : "r"(amax_pair_6), "r"(bf16x2_abs_1_9));
-                                    amax_pair_6 = bf16x2_max_9;
+                                unsigned int amax_pair_6;
+                                {
+                                    uint32_t _tq9[16];
+                                    #pragma unroll
+                                    for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq9[_i]) : "r"(pairs0_3[_i])); }
+                                    #pragma unroll
+                                    for (int _s = 8; _s > 0; _s >>= 1) {
+                                        #pragma unroll
+                                        for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq9[_i]) : "r"(_tq9[_i]), "r"(_tq9[_i + _s])); }
+                                    }
+                                    amax_pair_6 = _tq9[0];
                                 }
                                 uint16_t bf16_max_6;
                                 asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_6) : "h"((uint16_t)(amax_pair_6 & 65535)), "h"((uint16_t)(amax_pair_6 >> 16)));
@@ -1598,16 +1608,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     #endif
                                     words_6[i_19] = (unsigned int)e4m3x2_bf16x2_9 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_25 << 16;
                                 }
-                                uint32_t bf16x2_abs_3_1;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_3_1) : "r"(pairs1_3[0]));
-                                unsigned int amax_pair_3_1 = bf16x2_abs_3_1;
-                                #pragma unroll
-                                for (int i_20 = 1; i_20 < 16; i_20++) {
-                                    uint32_t bf16x2_abs_1_10;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_10) : "r"(pairs1_3[i_20]));
-                                    uint32_t bf16x2_max_10;
-                                    asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_10) : "r"(amax_pair_3_1), "r"(bf16x2_abs_1_10));
-                                    amax_pair_3_1 = bf16x2_max_10;
+                                unsigned int amax_pair_3_1;
+                                {
+                                    uint32_t _tq10[16];
+                                    #pragma unroll
+                                    for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq10[_i]) : "r"(pairs1_3[_i])); }
+                                    #pragma unroll
+                                    for (int _s = 8; _s > 0; _s >>= 1) {
+                                        #pragma unroll
+                                        for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq10[_i]) : "r"(_tq10[_i]), "r"(_tq10[_i + _s])); }
+                                    }
+                                    amax_pair_3_1 = _tq10[0];
                                 }
                                 uint16_t bf16_max_3_1;
                                 asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_3_1) : "h"((uint16_t)(amax_pair_3_1 & 65535)), "h"((uint16_t)(amax_pair_3_1 >> 16)));
@@ -1681,16 +1692,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                     float x1_3 = 0.0f;
                                     pairs_3[k_14] = flat_view_5[16448 + (row_3 * 256 + col_14) / 2];
                                 }
-                                uint32_t bf16x2_abs_8;
-                                asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_8) : "r"(pairs_3[0]));
-                                unsigned int amax_pair_7 = bf16x2_abs_8;
-                                #pragma unroll
-                                for (int i_22 = 1; i_22 < 16; i_22++) {
-                                    uint32_t bf16x2_abs_1_11;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_11) : "r"(pairs_3[i_22]));
-                                    uint32_t bf16x2_max_11;
-                                    asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_11) : "r"(amax_pair_7), "r"(bf16x2_abs_1_11));
-                                    amax_pair_7 = bf16x2_max_11;
+                                unsigned int amax_pair_7;
+                                {
+                                    uint32_t _tq11[16];
+                                    #pragma unroll
+                                    for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq11[_i]) : "r"(pairs_3[_i])); }
+                                    #pragma unroll
+                                    for (int _s = 8; _s > 0; _s >>= 1) {
+                                        #pragma unroll
+                                        for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq11[_i]) : "r"(_tq11[_i]), "r"(_tq11[_i + _s])); }
+                                    }
+                                    amax_pair_7 = _tq11[0];
                                 }
                                 uint16_t bf16_max_7;
                                 asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_7) : "h"((uint16_t)(amax_pair_7 & 65535)), "h"((uint16_t)(amax_pair_7 >> 16)));
@@ -2418,16 +2430,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         pairs0_4[k_16] = lo_4;
                                         pairs1_4[k_16] = hi_4;
                                     }
-                                    uint32_t bf16x2_abs_9;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_9) : "r"(pairs0_4[0]));
-                                    unsigned int amax_pair_8 = bf16x2_abs_9;
-                                    #pragma unroll
-                                    for (int i_24 = 1; i_24 < 16; i_24++) {
-                                        uint32_t bf16x2_abs_1_12;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_12) : "r"(pairs0_4[i_24]));
-                                        uint32_t bf16x2_max_12;
-                                        asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_12) : "r"(amax_pair_8), "r"(bf16x2_abs_1_12));
-                                        amax_pair_8 = bf16x2_max_12;
+                                    unsigned int amax_pair_8;
+                                    {
+                                        uint32_t _tq12[16];
+                                        #pragma unroll
+                                        for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq12[_i]) : "r"(pairs0_4[_i])); }
+                                        #pragma unroll
+                                        for (int _s = 8; _s > 0; _s >>= 1) {
+                                            #pragma unroll
+                                            for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq12[_i]) : "r"(_tq12[_i]), "r"(_tq12[_i + _s])); }
+                                        }
+                                        amax_pair_8 = _tq12[0];
                                     }
                                     uint16_t bf16_max_8;
                                     asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_8) : "h"((uint16_t)(amax_pair_8 & 65535)), "h"((uint16_t)(amax_pair_8 >> 16)));
@@ -2470,16 +2483,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         #endif
                                         words_8[i_25] = (unsigned int)e4m3x2_bf16x2_12 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_79 << 16;
                                     }
-                                    uint32_t bf16x2_abs_4_1;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_4_1) : "r"(pairs1_4[0]));
-                                    unsigned int amax_pair_4_1 = bf16x2_abs_4_1;
-                                    #pragma unroll
-                                    for (int i_26 = 1; i_26 < 16; i_26++) {
-                                        uint32_t bf16x2_abs_1_13;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_13) : "r"(pairs1_4[i_26]));
-                                        uint32_t bf16x2_max_13;
-                                        asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_13) : "r"(amax_pair_4_1), "r"(bf16x2_abs_1_13));
-                                        amax_pair_4_1 = bf16x2_max_13;
+                                    unsigned int amax_pair_4_1;
+                                    {
+                                        uint32_t _tq13[16];
+                                        #pragma unroll
+                                        for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq13[_i]) : "r"(pairs1_4[_i])); }
+                                        #pragma unroll
+                                        for (int _s = 8; _s > 0; _s >>= 1) {
+                                            #pragma unroll
+                                            for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq13[_i]) : "r"(_tq13[_i]), "r"(_tq13[_i + _s])); }
+                                        }
+                                        amax_pair_4_1 = _tq13[0];
                                     }
                                     uint16_t bf16_max_4_1;
                                     asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_4_1) : "h"((uint16_t)(amax_pair_4_1 & 65535)), "h"((uint16_t)(amax_pair_4_1 >> 16)));
@@ -2553,16 +2567,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         float x1_4 = 0.0f;
                                         pairs_4[k_18] = flat_view_5[(row_4_1 * 256 + col_18) / 2];
                                     }
-                                    uint32_t bf16x2_abs_10;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_10) : "r"(pairs_4[0]));
-                                    unsigned int amax_pair_9 = bf16x2_abs_10;
-                                    #pragma unroll
-                                    for (int i_28 = 1; i_28 < 16; i_28++) {
-                                        uint32_t bf16x2_abs_1_14;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_14) : "r"(pairs_4[i_28]));
-                                        uint32_t bf16x2_max_14;
-                                        asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_14) : "r"(amax_pair_9), "r"(bf16x2_abs_1_14));
-                                        amax_pair_9 = bf16x2_max_14;
+                                    unsigned int amax_pair_9;
+                                    {
+                                        uint32_t _tq14[16];
+                                        #pragma unroll
+                                        for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq14[_i]) : "r"(pairs_4[_i])); }
+                                        #pragma unroll
+                                        for (int _s = 8; _s > 0; _s >>= 1) {
+                                            #pragma unroll
+                                            for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq14[_i]) : "r"(_tq14[_i]), "r"(_tq14[_i + _s])); }
+                                        }
+                                        amax_pair_9 = _tq14[0];
                                     }
                                     uint16_t bf16_max_9;
                                     asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_9) : "h"((uint16_t)(amax_pair_9 & 65535)), "h"((uint16_t)(amax_pair_9 >> 16)));
@@ -2655,16 +2670,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         pairs0_5[k_20] = lo_5;
                                         pairs1_5[k_20] = hi_5;
                                     }
-                                    uint32_t bf16x2_abs_11;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_11) : "r"(pairs0_5[0]));
-                                    unsigned int amax_pair_10 = bf16x2_abs_11;
-                                    #pragma unroll
-                                    for (int i_30 = 1; i_30 < 16; i_30++) {
-                                        uint32_t bf16x2_abs_1_15;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_15) : "r"(pairs0_5[i_30]));
-                                        uint32_t bf16x2_max_15;
-                                        asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_15) : "r"(amax_pair_10), "r"(bf16x2_abs_1_15));
-                                        amax_pair_10 = bf16x2_max_15;
+                                    unsigned int amax_pair_10;
+                                    {
+                                        uint32_t _tq15[16];
+                                        #pragma unroll
+                                        for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq15[_i]) : "r"(pairs0_5[_i])); }
+                                        #pragma unroll
+                                        for (int _s = 8; _s > 0; _s >>= 1) {
+                                            #pragma unroll
+                                            for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq15[_i]) : "r"(_tq15[_i]), "r"(_tq15[_i + _s])); }
+                                        }
+                                        amax_pair_10 = _tq15[0];
                                     }
                                     uint16_t bf16_max_10;
                                     asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_10) : "h"((uint16_t)(amax_pair_10 & 65535)), "h"((uint16_t)(amax_pair_10 >> 16)));
@@ -2707,16 +2723,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         #endif
                                         words_10[i_31] = (unsigned int)e4m3x2_bf16x2_15 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_87 << 16;
                                     }
-                                    uint32_t bf16x2_abs_5_1;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_5_1) : "r"(pairs1_5[0]));
-                                    unsigned int amax_pair_5_1 = bf16x2_abs_5_1;
-                                    #pragma unroll
-                                    for (int i_32 = 1; i_32 < 16; i_32++) {
-                                        uint32_t bf16x2_abs_1_16;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_16) : "r"(pairs1_5[i_32]));
-                                        uint32_t bf16x2_max_16;
-                                        asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_16) : "r"(amax_pair_5_1), "r"(bf16x2_abs_1_16));
-                                        amax_pair_5_1 = bf16x2_max_16;
+                                    unsigned int amax_pair_5_1;
+                                    {
+                                        uint32_t _tq16[16];
+                                        #pragma unroll
+                                        for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq16[_i]) : "r"(pairs1_5[_i])); }
+                                        #pragma unroll
+                                        for (int _s = 8; _s > 0; _s >>= 1) {
+                                            #pragma unroll
+                                            for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq16[_i]) : "r"(_tq16[_i]), "r"(_tq16[_i + _s])); }
+                                        }
+                                        amax_pair_5_1 = _tq16[0];
                                     }
                                     uint16_t bf16_max_5_1;
                                     asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_5_1) : "h"((uint16_t)(amax_pair_5_1 & 65535)), "h"((uint16_t)(amax_pair_5_1 >> 16)));
@@ -2790,16 +2807,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                         float x1_5 = 0.0f;
                                         pairs_5[k_22] = flat_view_5[64 + (row_5_1 * 256 + col_22) / 2];
                                     }
-                                    uint32_t bf16x2_abs_12;
-                                    asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_12) : "r"(pairs_5[0]));
-                                    unsigned int amax_pair_11 = bf16x2_abs_12;
-                                    #pragma unroll
-                                    for (int i_34 = 1; i_34 < 16; i_34++) {
-                                        uint32_t bf16x2_abs_1_17;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_17) : "r"(pairs_5[i_34]));
-                                        uint32_t bf16x2_max_17;
-                                        asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_17) : "r"(amax_pair_11), "r"(bf16x2_abs_1_17));
-                                        amax_pair_11 = bf16x2_max_17;
+                                    unsigned int amax_pair_11;
+                                    {
+                                        uint32_t _tq17[16];
+                                        #pragma unroll
+                                        for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq17[_i]) : "r"(pairs_5[_i])); }
+                                        #pragma unroll
+                                        for (int _s = 8; _s > 0; _s >>= 1) {
+                                            #pragma unroll
+                                            for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq17[_i]) : "r"(_tq17[_i]), "r"(_tq17[_i + _s])); }
+                                        }
+                                        amax_pair_11 = _tq17[0];
                                     }
                                     uint16_t bf16_max_11;
                                     asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_11) : "h"((uint16_t)(amax_pair_11 & 65535)), "h"((uint16_t)(amax_pair_11 >> 16)));
@@ -2923,16 +2941,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             pairs0_6[k_24] = lo_6;
                                             pairs1_6[k_24] = hi_6;
                                         }
-                                        uint32_t bf16x2_abs_13;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_13) : "r"(pairs0_6[0]));
-                                        unsigned int amax_pair_12 = bf16x2_abs_13;
-                                        #pragma unroll
-                                        for (int i_36 = 1; i_36 < 16; i_36++) {
-                                            uint32_t bf16x2_abs_1_18;
-                                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_18) : "r"(pairs0_6[i_36]));
-                                            uint32_t bf16x2_max_18;
-                                            asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_18) : "r"(amax_pair_12), "r"(bf16x2_abs_1_18));
-                                            amax_pair_12 = bf16x2_max_18;
+                                        unsigned int amax_pair_12;
+                                        {
+                                            uint32_t _tq18[16];
+                                            #pragma unroll
+                                            for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq18[_i]) : "r"(pairs0_6[_i])); }
+                                            #pragma unroll
+                                            for (int _s = 8; _s > 0; _s >>= 1) {
+                                                #pragma unroll
+                                                for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq18[_i]) : "r"(_tq18[_i]), "r"(_tq18[_i + _s])); }
+                                            }
+                                            amax_pair_12 = _tq18[0];
                                         }
                                         uint16_t bf16_max_12;
                                         asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_12) : "h"((uint16_t)(amax_pair_12 & 65535)), "h"((uint16_t)(amax_pair_12 >> 16)));
@@ -2975,16 +2994,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             #endif
                                             words_12[i_37] = (unsigned int)e4m3x2_bf16x2_18 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_97 << 16;
                                         }
-                                        uint32_t bf16x2_abs_6_1;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_6_1) : "r"(pairs1_6[0]));
-                                        unsigned int amax_pair_6_1 = bf16x2_abs_6_1;
-                                        #pragma unroll
-                                        for (int i_38 = 1; i_38 < 16; i_38++) {
-                                            uint32_t bf16x2_abs_1_19;
-                                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_19) : "r"(pairs1_6[i_38]));
-                                            uint32_t bf16x2_max_19;
-                                            asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_19) : "r"(amax_pair_6_1), "r"(bf16x2_abs_1_19));
-                                            amax_pair_6_1 = bf16x2_max_19;
+                                        unsigned int amax_pair_6_1;
+                                        {
+                                            uint32_t _tq19[16];
+                                            #pragma unroll
+                                            for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq19[_i]) : "r"(pairs1_6[_i])); }
+                                            #pragma unroll
+                                            for (int _s = 8; _s > 0; _s >>= 1) {
+                                                #pragma unroll
+                                                for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq19[_i]) : "r"(_tq19[_i]), "r"(_tq19[_i + _s])); }
+                                            }
+                                            amax_pair_6_1 = _tq19[0];
                                         }
                                         uint16_t bf16_max_6_1;
                                         asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_6_1) : "h"((uint16_t)(amax_pair_6_1 & 65535)), "h"((uint16_t)(amax_pair_6_1 >> 16)));
@@ -3058,16 +3078,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             float x1_6 = 0.0f;
                                             pairs_6[k_26] = flat_view_5[16384 + (row_6_1 * 256 + col_26) / 2];
                                         }
-                                        uint32_t bf16x2_abs_14;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_14) : "r"(pairs_6[0]));
-                                        unsigned int amax_pair_13 = bf16x2_abs_14;
-                                        #pragma unroll
-                                        for (int i_40 = 1; i_40 < 16; i_40++) {
-                                            uint32_t bf16x2_abs_1_20;
-                                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_20) : "r"(pairs_6[i_40]));
-                                            uint32_t bf16x2_max_20;
-                                            asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_20) : "r"(amax_pair_13), "r"(bf16x2_abs_1_20));
-                                            amax_pair_13 = bf16x2_max_20;
+                                        unsigned int amax_pair_13;
+                                        {
+                                            uint32_t _tq20[16];
+                                            #pragma unroll
+                                            for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq20[_i]) : "r"(pairs_6[_i])); }
+                                            #pragma unroll
+                                            for (int _s = 8; _s > 0; _s >>= 1) {
+                                                #pragma unroll
+                                                for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq20[_i]) : "r"(_tq20[_i]), "r"(_tq20[_i + _s])); }
+                                            }
+                                            amax_pair_13 = _tq20[0];
                                         }
                                         uint16_t bf16_max_13;
                                         asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_13) : "h"((uint16_t)(amax_pair_13 & 65535)), "h"((uint16_t)(amax_pair_13 >> 16)));
@@ -3160,16 +3181,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             pairs0_7[k_28] = lo_7;
                                             pairs1_7[k_28] = hi_7;
                                         }
-                                        uint32_t bf16x2_abs_15;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_15) : "r"(pairs0_7[0]));
-                                        unsigned int amax_pair_14 = bf16x2_abs_15;
-                                        #pragma unroll
-                                        for (int i_42 = 1; i_42 < 16; i_42++) {
-                                            uint32_t bf16x2_abs_1_21;
-                                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_21) : "r"(pairs0_7[i_42]));
-                                            uint32_t bf16x2_max_21;
-                                            asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_21) : "r"(amax_pair_14), "r"(bf16x2_abs_1_21));
-                                            amax_pair_14 = bf16x2_max_21;
+                                        unsigned int amax_pair_14;
+                                        {
+                                            uint32_t _tq21[16];
+                                            #pragma unroll
+                                            for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq21[_i]) : "r"(pairs0_7[_i])); }
+                                            #pragma unroll
+                                            for (int _s = 8; _s > 0; _s >>= 1) {
+                                                #pragma unroll
+                                                for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq21[_i]) : "r"(_tq21[_i]), "r"(_tq21[_i + _s])); }
+                                            }
+                                            amax_pair_14 = _tq21[0];
                                         }
                                         uint16_t bf16_max_14;
                                         asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_14) : "h"((uint16_t)(amax_pair_14 & 65535)), "h"((uint16_t)(amax_pair_14 >> 16)));
@@ -3212,16 +3234,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             #endif
                                             words_14[i_43] = (unsigned int)e4m3x2_bf16x2_21 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_105 << 16;
                                         }
-                                        uint32_t bf16x2_abs_7_1;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_7_1) : "r"(pairs1_7[0]));
-                                        unsigned int amax_pair_7_1 = bf16x2_abs_7_1;
-                                        #pragma unroll
-                                        for (int i_44 = 1; i_44 < 16; i_44++) {
-                                            uint32_t bf16x2_abs_1_22;
-                                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_22) : "r"(pairs1_7[i_44]));
-                                            uint32_t bf16x2_max_22;
-                                            asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_22) : "r"(amax_pair_7_1), "r"(bf16x2_abs_1_22));
-                                            amax_pair_7_1 = bf16x2_max_22;
+                                        unsigned int amax_pair_7_1;
+                                        {
+                                            uint32_t _tq22[16];
+                                            #pragma unroll
+                                            for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq22[_i]) : "r"(pairs1_7[_i])); }
+                                            #pragma unroll
+                                            for (int _s = 8; _s > 0; _s >>= 1) {
+                                                #pragma unroll
+                                                for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq22[_i]) : "r"(_tq22[_i]), "r"(_tq22[_i + _s])); }
+                                            }
+                                            amax_pair_7_1 = _tq22[0];
                                         }
                                         uint16_t bf16_max_7_1;
                                         asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_7_1) : "h"((uint16_t)(amax_pair_7_1 & 65535)), "h"((uint16_t)(amax_pair_7_1 >> 16)));
@@ -3295,16 +3318,17 @@ kernel_cake_mok_forward_mxfp8_clamped(const __grid_constant__ CUtensorMap x_shar
                                             float x1_7 = 0.0f;
                                             pairs_7[k_30] = flat_view_5[16448 + (row_7 * 256 + col_30) / 2];
                                         }
-                                        uint32_t bf16x2_abs_16;
-                                        asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_16) : "r"(pairs_7[0]));
-                                        unsigned int amax_pair_15 = bf16x2_abs_16;
-                                        #pragma unroll
-                                        for (int i_46 = 1; i_46 < 16; i_46++) {
-                                            uint32_t bf16x2_abs_1_23;
-                                            asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_1_23) : "r"(pairs_7[i_46]));
-                                            uint32_t bf16x2_max_23;
-                                            asm("max.bf16x2 %0, %1, %2;" : "=r"(bf16x2_max_23) : "r"(amax_pair_15), "r"(bf16x2_abs_1_23));
-                                            amax_pair_15 = bf16x2_max_23;
+                                        unsigned int amax_pair_15;
+                                        {
+                                            uint32_t _tq23[16];
+                                            #pragma unroll
+                                            for (int _i = 0; _i < 16; _i++) { asm("abs.bf16x2 %0, %1;" : "=r"(_tq23[_i]) : "r"(pairs_7[_i])); }
+                                            #pragma unroll
+                                            for (int _s = 8; _s > 0; _s >>= 1) {
+                                                #pragma unroll
+                                                for (int _i = 0; _i < _s; _i++) { asm("max.bf16x2 %0, %1, %2;" : "=r"(_tq23[_i]) : "r"(_tq23[_i]), "r"(_tq23[_i + _s])); }
+                                            }
+                                            amax_pair_15 = _tq23[0];
                                         }
                                         uint16_t bf16_max_15;
                                         asm("max.bf16 %0, %1, %2;" : "=h"(bf16_max_15) : "h"((uint16_t)(amax_pair_15 & 65535)), "h"((uint16_t)(amax_pair_15 >> 16)));
