@@ -790,12 +790,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         int scale_base1 = (row1 % 32 * 4 + row1 / 32) * 4;
                         #pragma unroll 1
                         for (int j = 0; j < 2; j++) {
-                            int k_block = (half * 2 + j + tid / 8) % 4;
+                            int k_block = (half * 2 + j + tid / 2) % 4;
                             unsigned int pairs0[16];
                             unsigned int pairs1[16];
                             #pragma unroll
                             for (int k = 0; k < 16; k++) {
-                                int col = k_block * 32 + (tid * 4 + k * 2) % 32;
+                                int col = k_block * 32 + (k * 2 + (tid & 1) * 16) % 32;
                                 unsigned int w0 = flat_view_5[col * word_stride + r];
                                 unsigned int w1 = flat_view_5[(col + 1) * word_stride + r];
                                 uint32_t lo;
@@ -909,11 +909,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 #endif
                                 words_0[i_3] = (unsigned int)e4m3x2_bf16x2_1 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_3 << 16;
                             }
-                            #pragma unroll
-                            for (int k_1 = 0; k_1 < 8; k_1++) {
-                                int col_1 = k_block * 32 + (tid * 4 + k_1 * 4) % 32;
-                                smem_v22[(row0 * 128 + col_1) / 4] = words[k_1];
-                                smem_v22[(row1 * 128 + col_1) / 4] = words_0[k_1];
+                            {
+                                uint4* _vp_row0 = reinterpret_cast<uint4*>(&smem_v22[row0 * 32 + k_block * 8]);
+                                _vp_row0[tid & 1] = make_uint4(words[0], words[1], words[2], words[3]);
+                                _vp_row0[(tid & 1) ^ 1] = make_uint4(words[4], words[5], words[6], words[7]);
+                                uint4* _vp_row1 = reinterpret_cast<uint4*>(&smem_v22[row1 * 32 + k_block * 8]);
+                                _vp_row1[tid & 1] = make_uint4(words_0[0], words_0[1], words_0[2], words_0[3]);
+                                _vp_row1[(tid & 1) ^ 1] = make_uint4(words_0[4], words_0[5], words_0[6], words_0[7]);
                             }
                             {
                                 uint32_t _byte_4 = static_cast<uint32_t>(scale_byte) & 0xFFu;
@@ -931,14 +933,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         unsigned int scale_word = 0;
                         #pragma unroll 1
                         for (int j_1 = 0; j_1 < 4; j_1++) {
-                            int k_block_1 = (j_1 + (tid - 128) / 8) % 4;
+                            int k_block_1 = (j_1 + (tid - 128) / 2) % 4;
                             unsigned int pairs[16];
-                            #pragma unroll
-                            for (int k_2 = 0; k_2 < 16; k_2++) {
-                                int col_2 = k_block_1 * 32 + ((tid - 128) * 4 + k_2 * 2) % 32;
-                                float x0 = 0.0f;
-                                float x1 = 0.0f;
-                                pairs[k_2] = flat_view_5[(row_0 * 256 + col_2) / 2];
+                            {
+                                const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[0 + row_0 * 128 + k_block_1 * 16]);
+                                #pragma unroll
+                                for (int _vi = 0; _vi < 4; _vi++) {
+                                    uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                    pairs[4 * _vi] = _vv.x; pairs[4 * _vi + 1] = _vv.y; pairs[4 * _vi + 2] = _vv.z; pairs[4 * _vi + 3] = _vv.w;
+                                }
                             }
                             uint32_t bf16x2_abs_2;
                             asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_2) : "r"(pairs[0]));
@@ -993,10 +996,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 words_1[i_5] = (unsigned int)e4m3x2_bf16x2_2 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_7 << 16;
                             }
                             scale_word = scale_word | scale_byte_1 << (unsigned int)(k_block_1 * 8);
-                            #pragma unroll
-                            for (int k_3 = 0; k_3 < 8; k_3++) {
-                                int col_3 = k_block_1 * 32 + ((tid - 128) * 4 + k_3 * 4) % 32;
-                                smem_v18[(row_0 * 128 + col_3) / 4] = words_1[k_3];
+                            {
+                                uint2* _vd = reinterpret_cast<uint2*>(&smem_v18[row_0 * 32 + k_block_1 * 8]);
+                                #pragma unroll
+                                for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_1[2 * _vi], words_1[2 * _vi + 1]); }
                             }
                         }
                         smem_v20[row_0 % 32 * 4 + row_0 / 32] = scale_word;
@@ -1027,12 +1030,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         int scale_base1_1 = (row1_1 % 32 * 4 + row1_1 / 32) * 4;
                         #pragma unroll 1
                         for (int j_2 = 0; j_2 < 2; j_2++) {
-                            int k_block_2 = (half_1 * 2 + j_2 + tid / 8) % 4;
+                            int k_block_2 = (half_1 * 2 + j_2 + tid / 2) % 4;
                             unsigned int pairs0_1[16];
                             unsigned int pairs1_1[16];
                             #pragma unroll
                             for (int k_4 = 0; k_4 < 16; k_4++) {
-                                int col_4 = k_block_2 * 32 + (tid * 4 + k_4 * 2) % 32;
+                                int col_4 = k_block_2 * 32 + (k_4 * 2 + (tid & 1) * 16) % 32;
                                 unsigned int w0_1 = flat_view_5[64 + col_4 * word_stride_1 + r_1];
                                 unsigned int w1_1 = flat_view_5[64 + (col_4 + 1) * word_stride_1 + r_1];
                                 uint32_t lo_1;
@@ -1146,11 +1149,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 #endif
                                 words_1_1[i_9] = (unsigned int)e4m3x2_bf16x2_4 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_11 << 16;
                             }
-                            #pragma unroll
-                            for (int k_5 = 0; k_5 < 8; k_5++) {
-                                int col_5 = k_block_2 * 32 + (tid * 4 + k_5 * 4) % 32;
-                                smem_v23[(row0_1 * 128 + col_5) / 4] = words_2[k_5];
-                                smem_v23[(row1_1 * 128 + col_5) / 4] = words_1_1[k_5];
+                            {
+                                uint4* _vp_row0_1 = reinterpret_cast<uint4*>(&smem_v23[row0_1 * 32 + k_block_2 * 8]);
+                                _vp_row0_1[tid & 1] = make_uint4(words_2[0], words_2[1], words_2[2], words_2[3]);
+                                _vp_row0_1[(tid & 1) ^ 1] = make_uint4(words_2[4], words_2[5], words_2[6], words_2[7]);
+                                uint4* _vp_row1_1 = reinterpret_cast<uint4*>(&smem_v23[row1_1 * 32 + k_block_2 * 8]);
+                                _vp_row1_1[tid & 1] = make_uint4(words_1_1[0], words_1_1[1], words_1_1[2], words_1_1[3]);
+                                _vp_row1_1[(tid & 1) ^ 1] = make_uint4(words_1_1[4], words_1_1[5], words_1_1[6], words_1_1[7]);
                             }
                             {
                                 uint32_t _byte_12 = static_cast<uint32_t>(scale_byte_2) & 0xFFu;
@@ -1168,14 +1173,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         unsigned int scale_word_1 = 0;
                         #pragma unroll 1
                         for (int j_3 = 0; j_3 < 4; j_3++) {
-                            int k_block_3 = (j_3 + (tid - 128) / 8) % 4;
+                            int k_block_3 = (j_3 + (tid - 128) / 2) % 4;
                             unsigned int pairs_1[16];
-                            #pragma unroll
-                            for (int k_6 = 0; k_6 < 16; k_6++) {
-                                int col_6 = k_block_3 * 32 + ((tid - 128) * 4 + k_6 * 2) % 32;
-                                float x0_1 = 0.0f;
-                                float x1_1 = 0.0f;
-                                pairs_1[k_6] = flat_view_5[64 + (row_1 * 256 + col_6) / 2];
+                            {
+                                const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[64 + row_1 * 128 + k_block_3 * 16]);
+                                #pragma unroll
+                                for (int _vi = 0; _vi < 4; _vi++) {
+                                    uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                    pairs_1[4 * _vi] = _vv.x; pairs_1[4 * _vi + 1] = _vv.y; pairs_1[4 * _vi + 2] = _vv.z; pairs_1[4 * _vi + 3] = _vv.w;
+                                }
                             }
                             uint32_t bf16x2_abs_4;
                             asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_4) : "r"(pairs_1[0]));
@@ -1230,10 +1236,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 words_3[i_11] = (unsigned int)e4m3x2_bf16x2_5 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_15 << 16;
                             }
                             scale_word_1 = scale_word_1 | scale_byte_3 << (unsigned int)(k_block_3 * 8);
-                            #pragma unroll
-                            for (int k_7 = 0; k_7 < 8; k_7++) {
-                                int col_7 = k_block_3 * 32 + ((tid - 128) * 4 + k_7 * 4) % 32;
-                                smem_v19[(row_1 * 128 + col_7) / 4] = words_3[k_7];
+                            {
+                                uint2* _vd = reinterpret_cast<uint2*>(&smem_v19[row_1 * 32 + k_block_3 * 8]);
+                                #pragma unroll
+                                for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_3[2 * _vi], words_3[2 * _vi + 1]); }
                             }
                         }
                         smem_v21[row_1 % 32 * 4 + row_1 / 32] = scale_word_1;
@@ -1294,12 +1300,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             int scale_base1_2 = (row1_2 % 32 * 4 + row1_2 / 32) * 4;
                             #pragma unroll 1
                             for (int j_4 = 0; j_4 < 2; j_4++) {
-                                int k_block_4 = (half_2 * 2 + j_4 + tid / 8) % 4;
+                                int k_block_4 = (half_2 * 2 + j_4 + tid / 2) % 4;
                                 unsigned int pairs0_2[16];
                                 unsigned int pairs1_2[16];
                                 #pragma unroll
                                 for (int k_8 = 0; k_8 < 16; k_8++) {
-                                    int col_8 = k_block_4 * 32 + (tid * 4 + k_8 * 2) % 32;
+                                    int col_8 = k_block_4 * 32 + (k_8 * 2 + (tid & 1) * 16) % 32;
                                     unsigned int w0_2 = flat_view_5[16384 + col_8 * word_stride_2 + r_2];
                                     unsigned int w1_2 = flat_view_5[16384 + (col_8 + 1) * word_stride_2 + r_2];
                                     uint32_t lo_2;
@@ -1413,11 +1419,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     #endif
                                     words_2_1[i_15] = (unsigned int)e4m3x2_bf16x2_7 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_19 << 16;
                                 }
-                                #pragma unroll
-                                for (int k_9 = 0; k_9 < 8; k_9++) {
-                                    int col_9 = k_block_4 * 32 + (tid * 4 + k_9 * 4) % 32;
-                                    smem_v22[(row0_2 * 128 + col_9) / 4] = words_4[k_9];
-                                    smem_v22[(row1_2 * 128 + col_9) / 4] = words_2_1[k_9];
+                                {
+                                    uint4* _vp_row0_2 = reinterpret_cast<uint4*>(&smem_v22[row0_2 * 32 + k_block_4 * 8]);
+                                    _vp_row0_2[tid & 1] = make_uint4(words_4[0], words_4[1], words_4[2], words_4[3]);
+                                    _vp_row0_2[(tid & 1) ^ 1] = make_uint4(words_4[4], words_4[5], words_4[6], words_4[7]);
+                                    uint4* _vp_row1_2 = reinterpret_cast<uint4*>(&smem_v22[row1_2 * 32 + k_block_4 * 8]);
+                                    _vp_row1_2[tid & 1] = make_uint4(words_2_1[0], words_2_1[1], words_2_1[2], words_2_1[3]);
+                                    _vp_row1_2[(tid & 1) ^ 1] = make_uint4(words_2_1[4], words_2_1[5], words_2_1[6], words_2_1[7]);
                                 }
                                 {
                                     uint32_t _byte_20 = static_cast<uint32_t>(scale_byte_4) & 0xFFu;
@@ -1435,14 +1443,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             unsigned int scale_word_2 = 0;
                             #pragma unroll 1
                             for (int j_5 = 0; j_5 < 4; j_5++) {
-                                int k_block_5 = (j_5 + (tid - 128) / 8) % 4;
+                                int k_block_5 = (j_5 + (tid - 128) / 2) % 4;
                                 unsigned int pairs_2[16];
-                                #pragma unroll
-                                for (int k_10 = 0; k_10 < 16; k_10++) {
-                                    int col_10 = k_block_5 * 32 + ((tid - 128) * 4 + k_10 * 2) % 32;
-                                    float x0_2 = 0.0f;
-                                    float x1_2 = 0.0f;
-                                    pairs_2[k_10] = flat_view_5[16384 + (row_2 * 256 + col_10) / 2];
+                                {
+                                    const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[16384 + row_2 * 128 + k_block_5 * 16]);
+                                    #pragma unroll
+                                    for (int _vi = 0; _vi < 4; _vi++) {
+                                        uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                        pairs_2[4 * _vi] = _vv.x; pairs_2[4 * _vi + 1] = _vv.y; pairs_2[4 * _vi + 2] = _vv.z; pairs_2[4 * _vi + 3] = _vv.w;
+                                    }
                                 }
                                 uint32_t bf16x2_abs_6;
                                 asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_6) : "r"(pairs_2[0]));
@@ -1497,10 +1506,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     words_5[i_17] = (unsigned int)e4m3x2_bf16x2_8 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_23 << 16;
                                 }
                                 scale_word_2 = scale_word_2 | scale_byte_5 << (unsigned int)(k_block_5 * 8);
-                                #pragma unroll
-                                for (int k_11 = 0; k_11 < 8; k_11++) {
-                                    int col_11 = k_block_5 * 32 + ((tid - 128) * 4 + k_11 * 4) % 32;
-                                    smem_v18[(row_2 * 128 + col_11) / 4] = words_5[k_11];
+                                {
+                                    uint2* _vd = reinterpret_cast<uint2*>(&smem_v18[row_2 * 32 + k_block_5 * 8]);
+                                    #pragma unroll
+                                    for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_5[2 * _vi], words_5[2 * _vi + 1]); }
                                 }
                             }
                             smem_v20[row_2 % 32 * 4 + row_2 / 32] = scale_word_2;
@@ -1531,12 +1540,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             int scale_base1_3 = (row1_3 % 32 * 4 + row1_3 / 32) * 4;
                             #pragma unroll 1
                             for (int j_6 = 0; j_6 < 2; j_6++) {
-                                int k_block_6 = (half_3 * 2 + j_6 + tid / 8) % 4;
+                                int k_block_6 = (half_3 * 2 + j_6 + tid / 2) % 4;
                                 unsigned int pairs0_3[16];
                                 unsigned int pairs1_3[16];
                                 #pragma unroll
                                 for (int k_12 = 0; k_12 < 16; k_12++) {
-                                    int col_12 = k_block_6 * 32 + (tid * 4 + k_12 * 2) % 32;
+                                    int col_12 = k_block_6 * 32 + (k_12 * 2 + (tid & 1) * 16) % 32;
                                     unsigned int w0_3 = flat_view_5[16448 + col_12 * word_stride_3 + r_3];
                                     unsigned int w1_3 = flat_view_5[16448 + (col_12 + 1) * word_stride_3 + r_3];
                                     uint32_t lo_3;
@@ -1650,11 +1659,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     #endif
                                     words_3_1[i_21] = (unsigned int)e4m3x2_bf16x2_10 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_27 << 16;
                                 }
-                                #pragma unroll
-                                for (int k_13 = 0; k_13 < 8; k_13++) {
-                                    int col_13 = k_block_6 * 32 + (tid * 4 + k_13 * 4) % 32;
-                                    smem_v23[(row0_3 * 128 + col_13) / 4] = words_6[k_13];
-                                    smem_v23[(row1_3 * 128 + col_13) / 4] = words_3_1[k_13];
+                                {
+                                    uint4* _vp_row0_3 = reinterpret_cast<uint4*>(&smem_v23[row0_3 * 32 + k_block_6 * 8]);
+                                    _vp_row0_3[tid & 1] = make_uint4(words_6[0], words_6[1], words_6[2], words_6[3]);
+                                    _vp_row0_3[(tid & 1) ^ 1] = make_uint4(words_6[4], words_6[5], words_6[6], words_6[7]);
+                                    uint4* _vp_row1_3 = reinterpret_cast<uint4*>(&smem_v23[row1_3 * 32 + k_block_6 * 8]);
+                                    _vp_row1_3[tid & 1] = make_uint4(words_3_1[0], words_3_1[1], words_3_1[2], words_3_1[3]);
+                                    _vp_row1_3[(tid & 1) ^ 1] = make_uint4(words_3_1[4], words_3_1[5], words_3_1[6], words_3_1[7]);
                                 }
                                 {
                                     uint32_t _byte_28 = static_cast<uint32_t>(scale_byte_6) & 0xFFu;
@@ -1672,14 +1683,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             unsigned int scale_word_3 = 0;
                             #pragma unroll 1
                             for (int j_7 = 0; j_7 < 4; j_7++) {
-                                int k_block_7 = (j_7 + (tid - 128) / 8) % 4;
+                                int k_block_7 = (j_7 + (tid - 128) / 2) % 4;
                                 unsigned int pairs_3[16];
-                                #pragma unroll
-                                for (int k_14 = 0; k_14 < 16; k_14++) {
-                                    int col_14 = k_block_7 * 32 + ((tid - 128) * 4 + k_14 * 2) % 32;
-                                    float x0_3 = 0.0f;
-                                    float x1_3 = 0.0f;
-                                    pairs_3[k_14] = flat_view_5[16448 + (row_3 * 256 + col_14) / 2];
+                                {
+                                    const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[16448 + row_3 * 128 + k_block_7 * 16]);
+                                    #pragma unroll
+                                    for (int _vi = 0; _vi < 4; _vi++) {
+                                        uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                        pairs_3[4 * _vi] = _vv.x; pairs_3[4 * _vi + 1] = _vv.y; pairs_3[4 * _vi + 2] = _vv.z; pairs_3[4 * _vi + 3] = _vv.w;
+                                    }
                                 }
                                 uint32_t bf16x2_abs_8;
                                 asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_8) : "r"(pairs_3[0]));
@@ -1734,10 +1746,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     words_7[i_23] = (unsigned int)e4m3x2_bf16x2_11 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_31 << 16;
                                 }
                                 scale_word_3 = scale_word_3 | scale_byte_7 << (unsigned int)(k_block_7 * 8);
-                                #pragma unroll
-                                for (int k_15 = 0; k_15 < 8; k_15++) {
-                                    int col_15 = k_block_7 * 32 + ((tid - 128) * 4 + k_15 * 4) % 32;
-                                    smem_v19[(row_3 * 128 + col_15) / 4] = words_7[k_15];
+                                {
+                                    uint2* _vd = reinterpret_cast<uint2*>(&smem_v19[row_3 * 32 + k_block_7 * 8]);
+                                    #pragma unroll
+                                    for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_7[2 * _vi], words_7[2 * _vi + 1]); }
                                 }
                             }
                             smem_v21[row_3 % 32 * 4 + row_3 / 32] = scale_word_3;
@@ -2403,12 +2415,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 int scale_base1_4 = (row1_4 % 32 * 4 + row1_4 / 32) * 4;
                                 #pragma unroll 1
                                 for (int j_8 = 0; j_8 < 2; j_8++) {
-                                    int k_block_8 = (half_4 * 2 + j_8 + tid / 8) % 4;
+                                    int k_block_8 = (half_4 * 2 + j_8 + tid / 2) % 4;
                                     unsigned int pairs0_4[16];
                                     unsigned int pairs1_4[16];
                                     #pragma unroll
                                     for (int k_16 = 0; k_16 < 16; k_16++) {
-                                        int col_16 = k_block_8 * 32 + (tid * 4 + k_16 * 2) % 32;
+                                        int col_16 = k_block_8 * 32 + (k_16 * 2 + (tid & 1) * 16) % 32;
                                         unsigned int w0_4 = flat_view_5[col_16 * word_stride_4 + r_4];
                                         unsigned int w1_4 = flat_view_5[(col_16 + 1) * word_stride_4 + r_4];
                                         uint32_t lo_4;
@@ -2522,11 +2534,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                         #endif
                                         words_4_1[i_27] = (unsigned int)e4m3x2_bf16x2_13 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_81 << 16;
                                     }
-                                    #pragma unroll
-                                    for (int k_17 = 0; k_17 < 8; k_17++) {
-                                        int col_17 = k_block_8 * 32 + (tid * 4 + k_17 * 4) % 32;
-                                        smem_v22[(row0_4 * 128 + col_17) / 4] = words_8[k_17];
-                                        smem_v22[(row1_4 * 128 + col_17) / 4] = words_4_1[k_17];
+                                    {
+                                        uint4* _vp_row0_4 = reinterpret_cast<uint4*>(&smem_v22[row0_4 * 32 + k_block_8 * 8]);
+                                        _vp_row0_4[tid & 1] = make_uint4(words_8[0], words_8[1], words_8[2], words_8[3]);
+                                        _vp_row0_4[(tid & 1) ^ 1] = make_uint4(words_8[4], words_8[5], words_8[6], words_8[7]);
+                                        uint4* _vp_row1_4 = reinterpret_cast<uint4*>(&smem_v22[row1_4 * 32 + k_block_8 * 8]);
+                                        _vp_row1_4[tid & 1] = make_uint4(words_4_1[0], words_4_1[1], words_4_1[2], words_4_1[3]);
+                                        _vp_row1_4[(tid & 1) ^ 1] = make_uint4(words_4_1[4], words_4_1[5], words_4_1[6], words_4_1[7]);
                                     }
                                     {
                                         uint32_t _byte_82 = static_cast<uint32_t>(scale_byte_8) & 0xFFu;
@@ -2544,14 +2558,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 unsigned int scale_word_4 = 0;
                                 #pragma unroll 1
                                 for (int j_9 = 0; j_9 < 4; j_9++) {
-                                    int k_block_9 = (j_9 + (tid - 128) / 8) % 4;
+                                    int k_block_9 = (j_9 + (tid - 128) / 2) % 4;
                                     unsigned int pairs_4[16];
-                                    #pragma unroll
-                                    for (int k_18 = 0; k_18 < 16; k_18++) {
-                                        int col_18 = k_block_9 * 32 + ((tid - 128) * 4 + k_18 * 2) % 32;
-                                        float x0_4 = 0.0f;
-                                        float x1_4 = 0.0f;
-                                        pairs_4[k_18] = flat_view_5[(row_4_1 * 256 + col_18) / 2];
+                                    {
+                                        const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[0 + row_4_1 * 128 + k_block_9 * 16]);
+                                        #pragma unroll
+                                        for (int _vi = 0; _vi < 4; _vi++) {
+                                            uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                            pairs_4[4 * _vi] = _vv.x; pairs_4[4 * _vi + 1] = _vv.y; pairs_4[4 * _vi + 2] = _vv.z; pairs_4[4 * _vi + 3] = _vv.w;
+                                        }
                                     }
                                     uint32_t bf16x2_abs_10;
                                     asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_10) : "r"(pairs_4[0]));
@@ -2606,10 +2621,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                         words_9[i_29] = (unsigned int)e4m3x2_bf16x2_14 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_85 << 16;
                                     }
                                     scale_word_4 = scale_word_4 | scale_byte_9 << (unsigned int)(k_block_9 * 8);
-                                    #pragma unroll
-                                    for (int k_19 = 0; k_19 < 8; k_19++) {
-                                        int col_19 = k_block_9 * 32 + ((tid - 128) * 4 + k_19 * 4) % 32;
-                                        smem_v18[(row_4_1 * 128 + col_19) / 4] = words_9[k_19];
+                                    {
+                                        uint2* _vd = reinterpret_cast<uint2*>(&smem_v18[row_4_1 * 32 + k_block_9 * 8]);
+                                        #pragma unroll
+                                        for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_9[2 * _vi], words_9[2 * _vi + 1]); }
                                     }
                                 }
                                 smem_v20[row_4_1 % 32 * 4 + row_4_1 / 32] = scale_word_4;
@@ -2640,12 +2655,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 int scale_base1_5 = (row1_5 % 32 * 4 + row1_5 / 32) * 4;
                                 #pragma unroll 1
                                 for (int j_10 = 0; j_10 < 2; j_10++) {
-                                    int k_block_10 = (half_5 * 2 + j_10 + tid / 8) % 4;
+                                    int k_block_10 = (half_5 * 2 + j_10 + tid / 2) % 4;
                                     unsigned int pairs0_5[16];
                                     unsigned int pairs1_5[16];
                                     #pragma unroll
                                     for (int k_20 = 0; k_20 < 16; k_20++) {
-                                        int col_20 = k_block_10 * 32 + (tid * 4 + k_20 * 2) % 32;
+                                        int col_20 = k_block_10 * 32 + (k_20 * 2 + (tid & 1) * 16) % 32;
                                         unsigned int w0_5 = flat_view_5[64 + col_20 * word_stride_5 + r_5];
                                         unsigned int w1_5 = flat_view_5[64 + (col_20 + 1) * word_stride_5 + r_5];
                                         uint32_t lo_5;
@@ -2759,11 +2774,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                         #endif
                                         words_5_1[i_33] = (unsigned int)e4m3x2_bf16x2_16 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_89 << 16;
                                     }
-                                    #pragma unroll
-                                    for (int k_21 = 0; k_21 < 8; k_21++) {
-                                        int col_21 = k_block_10 * 32 + (tid * 4 + k_21 * 4) % 32;
-                                        smem_v23[(row0_5 * 128 + col_21) / 4] = words_10[k_21];
-                                        smem_v23[(row1_5 * 128 + col_21) / 4] = words_5_1[k_21];
+                                    {
+                                        uint4* _vp_row0_5 = reinterpret_cast<uint4*>(&smem_v23[row0_5 * 32 + k_block_10 * 8]);
+                                        _vp_row0_5[tid & 1] = make_uint4(words_10[0], words_10[1], words_10[2], words_10[3]);
+                                        _vp_row0_5[(tid & 1) ^ 1] = make_uint4(words_10[4], words_10[5], words_10[6], words_10[7]);
+                                        uint4* _vp_row1_5 = reinterpret_cast<uint4*>(&smem_v23[row1_5 * 32 + k_block_10 * 8]);
+                                        _vp_row1_5[tid & 1] = make_uint4(words_5_1[0], words_5_1[1], words_5_1[2], words_5_1[3]);
+                                        _vp_row1_5[(tid & 1) ^ 1] = make_uint4(words_5_1[4], words_5_1[5], words_5_1[6], words_5_1[7]);
                                     }
                                     {
                                         uint32_t _byte_90 = static_cast<uint32_t>(scale_byte_10) & 0xFFu;
@@ -2781,14 +2798,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 unsigned int scale_word_5 = 0;
                                 #pragma unroll 1
                                 for (int j_11 = 0; j_11 < 4; j_11++) {
-                                    int k_block_11 = (j_11 + (tid - 128) / 8) % 4;
+                                    int k_block_11 = (j_11 + (tid - 128) / 2) % 4;
                                     unsigned int pairs_5[16];
-                                    #pragma unroll
-                                    for (int k_22 = 0; k_22 < 16; k_22++) {
-                                        int col_22 = k_block_11 * 32 + ((tid - 128) * 4 + k_22 * 2) % 32;
-                                        float x0_5 = 0.0f;
-                                        float x1_5 = 0.0f;
-                                        pairs_5[k_22] = flat_view_5[64 + (row_5_1 * 256 + col_22) / 2];
+                                    {
+                                        const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[64 + row_5_1 * 128 + k_block_11 * 16]);
+                                        #pragma unroll
+                                        for (int _vi = 0; _vi < 4; _vi++) {
+                                            uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                            pairs_5[4 * _vi] = _vv.x; pairs_5[4 * _vi + 1] = _vv.y; pairs_5[4 * _vi + 2] = _vv.z; pairs_5[4 * _vi + 3] = _vv.w;
+                                        }
                                     }
                                     uint32_t bf16x2_abs_12;
                                     asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_12) : "r"(pairs_5[0]));
@@ -2843,10 +2861,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                         words_11[i_35] = (unsigned int)e4m3x2_bf16x2_17 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_93 << 16;
                                     }
                                     scale_word_5 = scale_word_5 | scale_byte_11 << (unsigned int)(k_block_11 * 8);
-                                    #pragma unroll
-                                    for (int k_23 = 0; k_23 < 8; k_23++) {
-                                        int col_23 = k_block_11 * 32 + ((tid - 128) * 4 + k_23 * 4) % 32;
-                                        smem_v19[(row_5_1 * 128 + col_23) / 4] = words_11[k_23];
+                                    {
+                                        uint2* _vd = reinterpret_cast<uint2*>(&smem_v19[row_5_1 * 32 + k_block_11 * 8]);
+                                        #pragma unroll
+                                        for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_11[2 * _vi], words_11[2 * _vi + 1]); }
                                     }
                                 }
                                 smem_v21[row_5_1 % 32 * 4 + row_5_1 / 32] = scale_word_5;
@@ -2908,12 +2926,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     int scale_base1_6 = (row1_6 % 32 * 4 + row1_6 / 32) * 4;
                                     #pragma unroll 1
                                     for (int j_12 = 0; j_12 < 2; j_12++) {
-                                        int k_block_12 = (half_6 * 2 + j_12 + tid / 8) % 4;
+                                        int k_block_12 = (half_6 * 2 + j_12 + tid / 2) % 4;
                                         unsigned int pairs0_6[16];
                                         unsigned int pairs1_6[16];
                                         #pragma unroll
                                         for (int k_24 = 0; k_24 < 16; k_24++) {
-                                            int col_24 = k_block_12 * 32 + (tid * 4 + k_24 * 2) % 32;
+                                            int col_24 = k_block_12 * 32 + (k_24 * 2 + (tid & 1) * 16) % 32;
                                             unsigned int w0_6 = flat_view_5[16384 + col_24 * word_stride_6 + r_6];
                                             unsigned int w1_6 = flat_view_5[16384 + (col_24 + 1) * word_stride_6 + r_6];
                                             uint32_t lo_6;
@@ -3027,11 +3045,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                             #endif
                                             words_6_1[i_39] = (unsigned int)e4m3x2_bf16x2_19 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_99 << 16;
                                         }
-                                        #pragma unroll
-                                        for (int k_25 = 0; k_25 < 8; k_25++) {
-                                            int col_25 = k_block_12 * 32 + (tid * 4 + k_25 * 4) % 32;
-                                            smem_v22[(row0_6 * 128 + col_25) / 4] = words_12[k_25];
-                                            smem_v22[(row1_6 * 128 + col_25) / 4] = words_6_1[k_25];
+                                        {
+                                            uint4* _vp_row0_6 = reinterpret_cast<uint4*>(&smem_v22[row0_6 * 32 + k_block_12 * 8]);
+                                            _vp_row0_6[tid & 1] = make_uint4(words_12[0], words_12[1], words_12[2], words_12[3]);
+                                            _vp_row0_6[(tid & 1) ^ 1] = make_uint4(words_12[4], words_12[5], words_12[6], words_12[7]);
+                                            uint4* _vp_row1_6 = reinterpret_cast<uint4*>(&smem_v22[row1_6 * 32 + k_block_12 * 8]);
+                                            _vp_row1_6[tid & 1] = make_uint4(words_6_1[0], words_6_1[1], words_6_1[2], words_6_1[3]);
+                                            _vp_row1_6[(tid & 1) ^ 1] = make_uint4(words_6_1[4], words_6_1[5], words_6_1[6], words_6_1[7]);
                                         }
                                         {
                                             uint32_t _byte_100 = static_cast<uint32_t>(scale_byte_12) & 0xFFu;
@@ -3049,14 +3069,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     unsigned int scale_word_6 = 0;
                                     #pragma unroll 1
                                     for (int j_13 = 0; j_13 < 4; j_13++) {
-                                        int k_block_13 = (j_13 + (tid - 128) / 8) % 4;
+                                        int k_block_13 = (j_13 + (tid - 128) / 2) % 4;
                                         unsigned int pairs_6[16];
-                                        #pragma unroll
-                                        for (int k_26 = 0; k_26 < 16; k_26++) {
-                                            int col_26 = k_block_13 * 32 + ((tid - 128) * 4 + k_26 * 2) % 32;
-                                            float x0_6 = 0.0f;
-                                            float x1_6 = 0.0f;
-                                            pairs_6[k_26] = flat_view_5[16384 + (row_6_1 * 256 + col_26) / 2];
+                                        {
+                                            const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[16384 + row_6_1 * 128 + k_block_13 * 16]);
+                                            #pragma unroll
+                                            for (int _vi = 0; _vi < 4; _vi++) {
+                                                uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                                pairs_6[4 * _vi] = _vv.x; pairs_6[4 * _vi + 1] = _vv.y; pairs_6[4 * _vi + 2] = _vv.z; pairs_6[4 * _vi + 3] = _vv.w;
+                                            }
                                         }
                                         uint32_t bf16x2_abs_14;
                                         asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_14) : "r"(pairs_6[0]));
@@ -3111,10 +3132,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                             words_13[i_41] = (unsigned int)e4m3x2_bf16x2_20 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_103 << 16;
                                         }
                                         scale_word_6 = scale_word_6 | scale_byte_13 << (unsigned int)(k_block_13 * 8);
-                                        #pragma unroll
-                                        for (int k_27 = 0; k_27 < 8; k_27++) {
-                                            int col_27 = k_block_13 * 32 + ((tid - 128) * 4 + k_27 * 4) % 32;
-                                            smem_v18[(row_6_1 * 128 + col_27) / 4] = words_13[k_27];
+                                        {
+                                            uint2* _vd = reinterpret_cast<uint2*>(&smem_v18[row_6_1 * 32 + k_block_13 * 8]);
+                                            #pragma unroll
+                                            for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_13[2 * _vi], words_13[2 * _vi + 1]); }
                                         }
                                     }
                                     smem_v20[row_6_1 % 32 * 4 + row_6_1 / 32] = scale_word_6;
@@ -3145,12 +3166,12 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     int scale_base1_7 = (row1_7 % 32 * 4 + row1_7 / 32) * 4;
                                     #pragma unroll 1
                                     for (int j_14 = 0; j_14 < 2; j_14++) {
-                                        int k_block_14 = (half_7 * 2 + j_14 + tid / 8) % 4;
+                                        int k_block_14 = (half_7 * 2 + j_14 + tid / 2) % 4;
                                         unsigned int pairs0_7[16];
                                         unsigned int pairs1_7[16];
                                         #pragma unroll
                                         for (int k_28 = 0; k_28 < 16; k_28++) {
-                                            int col_28 = k_block_14 * 32 + (tid * 4 + k_28 * 2) % 32;
+                                            int col_28 = k_block_14 * 32 + (k_28 * 2 + (tid & 1) * 16) % 32;
                                             unsigned int w0_7 = flat_view_5[16448 + col_28 * word_stride_7 + r_7];
                                             unsigned int w1_7 = flat_view_5[16448 + (col_28 + 1) * word_stride_7 + r_7];
                                             uint32_t lo_7;
@@ -3264,11 +3285,13 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                             #endif
                                             words_7_1[i_45] = (unsigned int)e4m3x2_bf16x2_22 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_107 << 16;
                                         }
-                                        #pragma unroll
-                                        for (int k_29 = 0; k_29 < 8; k_29++) {
-                                            int col_29 = k_block_14 * 32 + (tid * 4 + k_29 * 4) % 32;
-                                            smem_v23[(row0_7 * 128 + col_29) / 4] = words_14[k_29];
-                                            smem_v23[(row1_7 * 128 + col_29) / 4] = words_7_1[k_29];
+                                        {
+                                            uint4* _vp_row0_7 = reinterpret_cast<uint4*>(&smem_v23[row0_7 * 32 + k_block_14 * 8]);
+                                            _vp_row0_7[tid & 1] = make_uint4(words_14[0], words_14[1], words_14[2], words_14[3]);
+                                            _vp_row0_7[(tid & 1) ^ 1] = make_uint4(words_14[4], words_14[5], words_14[6], words_14[7]);
+                                            uint4* _vp_row1_7 = reinterpret_cast<uint4*>(&smem_v23[row1_7 * 32 + k_block_14 * 8]);
+                                            _vp_row1_7[tid & 1] = make_uint4(words_7_1[0], words_7_1[1], words_7_1[2], words_7_1[3]);
+                                            _vp_row1_7[(tid & 1) ^ 1] = make_uint4(words_7_1[4], words_7_1[5], words_7_1[6], words_7_1[7]);
                                         }
                                         {
                                             uint32_t _byte_108 = static_cast<uint32_t>(scale_byte_14) & 0xFFu;
@@ -3286,14 +3309,15 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     unsigned int scale_word_7 = 0;
                                     #pragma unroll 1
                                     for (int j_15 = 0; j_15 < 4; j_15++) {
-                                        int k_block_15 = (j_15 + (tid - 128) / 8) % 4;
+                                        int k_block_15 = (j_15 + (tid - 128) / 2) % 4;
                                         unsigned int pairs_7[16];
-                                        #pragma unroll
-                                        for (int k_30 = 0; k_30 < 16; k_30++) {
-                                            int col_30 = k_block_15 * 32 + ((tid - 128) * 4 + k_30 * 2) % 32;
-                                            float x0_7 = 0.0f;
-                                            float x1_7 = 0.0f;
-                                            pairs_7[k_30] = flat_view_5[16448 + (row_7 * 256 + col_30) / 2];
+                                        {
+                                            const uint4* _vs = reinterpret_cast<const uint4*>(&flat_view_5[16448 + row_7 * 128 + k_block_15 * 16]);
+                                            #pragma unroll
+                                            for (int _vi = 0; _vi < 4; _vi++) {
+                                                uint4 _vv = _vs[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3];
+                                                pairs_7[4 * _vi] = _vv.x; pairs_7[4 * _vi + 1] = _vv.y; pairs_7[4 * _vi + 2] = _vv.z; pairs_7[4 * _vi + 3] = _vv.w;
+                                            }
                                         }
                                         uint32_t bf16x2_abs_16;
                                         asm("abs.bf16x2 %0, %1;" : "=r"(bf16x2_abs_16) : "r"(pairs_7[0]));
@@ -3348,10 +3372,10 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                             words_15[i_47] = (unsigned int)e4m3x2_bf16x2_23 | (unsigned int)_cvt_satfinite_e4m3x2_bf16x2_111 << 16;
                                         }
                                         scale_word_7 = scale_word_7 | scale_byte_15 << (unsigned int)(k_block_15 * 8);
-                                        #pragma unroll
-                                        for (int k_31 = 0; k_31 < 8; k_31++) {
-                                            int col_31 = k_block_15 * 32 + ((tid - 128) * 4 + k_31 * 4) % 32;
-                                            smem_v19[(row_7 * 128 + col_31) / 4] = words_15[k_31];
+                                        {
+                                            uint2* _vd = reinterpret_cast<uint2*>(&smem_v19[row_7 * 32 + k_block_15 * 8]);
+                                            #pragma unroll
+                                            for (int _vi = 0; _vi < 4; _vi++) { _vd[(_vi + (((tid - 128) & 1) + 2 * ((((tid - 128) >> 2) ^ ((tid - 128) >> 3)) & 1))) & 3] = make_uint2(words_15[2 * _vi], words_15[2 * _vi + 1]); }
                                         }
                                     }
                                     smem_v21[row_7 % 32 * 4 + row_7 / 32] = scale_word_7;
