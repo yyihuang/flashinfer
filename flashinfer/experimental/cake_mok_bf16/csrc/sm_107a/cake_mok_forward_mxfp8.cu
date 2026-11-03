@@ -788,7 +788,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         int word_stride = 128;
                         int scale_base0 = (row0 % 32 * 4 + row0 / 32) * 4;
                         int scale_base1 = (row1 % 32 * 4 + row1 / 32) * 4;
-                        #pragma unroll 1
+                        #pragma unroll
                         for (int j = 0; j < 2; j++) {
                             int k_block = (half * 2 + j + tid / 8) % 4;
                             unsigned int pairs0[16];
@@ -929,7 +929,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                     } else {
                         int row_0 = tid - 128;
                         unsigned int scale_word = 0;
-                        #pragma unroll 1
+                        #pragma unroll
                         for (int j_1 = 0; j_1 < 4; j_1++) {
                             int k_block_1 = (j_1 + (tid - 128) / 8) % 4;
                             unsigned int pairs[16];
@@ -1025,7 +1025,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         int word_stride_1 = 128;
                         int scale_base0_1 = (row0_1 % 32 * 4 + row0_1 / 32) * 4;
                         int scale_base1_1 = (row1_1 % 32 * 4 + row1_1 / 32) * 4;
-                        #pragma unroll 1
+                        #pragma unroll
                         for (int j_2 = 0; j_2 < 2; j_2++) {
                             int k_block_2 = (half_1 * 2 + j_2 + tid / 8) % 4;
                             unsigned int pairs0_1[16];
@@ -1166,7 +1166,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                     } else {
                         int row_1 = tid - 128;
                         unsigned int scale_word_1 = 0;
-                        #pragma unroll 1
+                        #pragma unroll
                         for (int j_3 = 0; j_3 < 4; j_3++) {
                             int k_block_3 = (j_3 + (tid - 128) / 8) % 4;
                             unsigned int pairs_1[16];
@@ -1292,7 +1292,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             int word_stride_2 = 128;
                             int scale_base0_2 = (row0_2 % 32 * 4 + row0_2 / 32) * 4;
                             int scale_base1_2 = (row1_2 % 32 * 4 + row1_2 / 32) * 4;
-                            #pragma unroll 1
+                            #pragma unroll
                             for (int j_4 = 0; j_4 < 2; j_4++) {
                                 int k_block_4 = (half_2 * 2 + j_4 + tid / 8) % 4;
                                 unsigned int pairs0_2[16];
@@ -1433,7 +1433,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         } else {
                             int row_2 = tid - 128;
                             unsigned int scale_word_2 = 0;
-                            #pragma unroll 1
+                            #pragma unroll
                             for (int j_5 = 0; j_5 < 4; j_5++) {
                                 int k_block_5 = (j_5 + (tid - 128) / 8) % 4;
                                 unsigned int pairs_2[16];
@@ -1529,7 +1529,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             int word_stride_3 = 128;
                             int scale_base0_3 = (row0_3 % 32 * 4 + row0_3 / 32) * 4;
                             int scale_base1_3 = (row1_3 % 32 * 4 + row1_3 / 32) * 4;
-                            #pragma unroll 1
+                            #pragma unroll
                             for (int j_6 = 0; j_6 < 2; j_6++) {
                                 int k_block_6 = (half_3 * 2 + j_6 + tid / 8) % 4;
                                 unsigned int pairs0_3[16];
@@ -1670,7 +1670,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                         } else {
                             int row_3 = tid - 128;
                             unsigned int scale_word_3 = 0;
-                            #pragma unroll 1
+                            #pragma unroll
                             for (int j_7 = 0; j_7 < 4; j_7++) {
                                 int k_block_7 = (j_7 + (tid - 128) / 8) % 4;
                                 unsigned int pairs_3[16];
@@ -2401,7 +2401,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 int word_stride_4 = 128;
                                 int scale_base0_4 = (row0_4 % 32 * 4 + row0_4 / 32) * 4;
                                 int scale_base1_4 = (row1_4 % 32 * 4 + row1_4 / 32) * 4;
-                                #pragma unroll 1
+                                #pragma unroll
                                 for (int j_8 = 0; j_8 < 2; j_8++) {
                                     int k_block_8 = (half_4 * 2 + j_8 + tid / 8) % 4;
                                     unsigned int pairs0_4[16];
@@ -2542,7 +2542,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             } else {
                                 int row_4_1 = tid - 128;
                                 unsigned int scale_word_4 = 0;
-                                #pragma unroll 1
+                                #pragma unroll
                                 for (int j_9 = 0; j_9 < 4; j_9++) {
                                     int k_block_9 = (j_9 + (tid - 128) / 8) % 4;
                                     unsigned int pairs_4[16];
@@ -2638,7 +2638,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 int word_stride_5 = 128;
                                 int scale_base0_5 = (row0_5 % 32 * 4 + row0_5 / 32) * 4;
                                 int scale_base1_5 = (row1_5 % 32 * 4 + row1_5 / 32) * 4;
-                                #pragma unroll 1
+                                #pragma unroll
                                 for (int j_10 = 0; j_10 < 2; j_10++) {
                                     int k_block_10 = (half_5 * 2 + j_10 + tid / 8) % 4;
                                     unsigned int pairs0_5[16];
@@ -2779,7 +2779,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                             } else {
                                 int row_5_1 = tid - 128;
                                 unsigned int scale_word_5 = 0;
-                                #pragma unroll 1
+                                #pragma unroll
                                 for (int j_11 = 0; j_11 < 4; j_11++) {
                                     int k_block_11 = (j_11 + (tid - 128) / 8) % 4;
                                     unsigned int pairs_5[16];
@@ -2906,7 +2906,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     int word_stride_6 = 128;
                                     int scale_base0_6 = (row0_6 % 32 * 4 + row0_6 / 32) * 4;
                                     int scale_base1_6 = (row1_6 % 32 * 4 + row1_6 / 32) * 4;
-                                    #pragma unroll 1
+                                    #pragma unroll
                                     for (int j_12 = 0; j_12 < 2; j_12++) {
                                         int k_block_12 = (half_6 * 2 + j_12 + tid / 8) % 4;
                                         unsigned int pairs0_6[16];
@@ -3047,7 +3047,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 } else {
                                     int row_6_1 = tid - 128;
                                     unsigned int scale_word_6 = 0;
-                                    #pragma unroll 1
+                                    #pragma unroll
                                     for (int j_13 = 0; j_13 < 4; j_13++) {
                                         int k_block_13 = (j_13 + (tid - 128) / 8) % 4;
                                         unsigned int pairs_6[16];
@@ -3143,7 +3143,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                     int word_stride_7 = 128;
                                     int scale_base0_7 = (row0_7 % 32 * 4 + row0_7 / 32) * 4;
                                     int scale_base1_7 = (row1_7 % 32 * 4 + row1_7 / 32) * 4;
-                                    #pragma unroll 1
+                                    #pragma unroll
                                     for (int j_14 = 0; j_14 < 2; j_14++) {
                                         int k_block_14 = (half_7 * 2 + j_14 + tid / 8) % 4;
                                         unsigned int pairs0_7[16];
@@ -3284,7 +3284,7 @@ kernel_cake_mok_forward_mxfp8(const __grid_constant__ CUtensorMap x_shared, cons
                                 } else {
                                     int row_7 = tid - 128;
                                     unsigned int scale_word_7 = 0;
-                                    #pragma unroll 1
+                                    #pragma unroll
                                     for (int j_15 = 0; j_15 < 4; j_15++) {
                                         int k_block_15 = (j_15 + (tid - 128) / 8) % 4;
                                         unsigned int pairs_7[16];
