@@ -9209,11 +9209,19 @@ def test_the_tape_wy_rule(monkeypatch, private_tape_wy_state) -> None:
     not read), the toolkit of the one build of the twin and the plan's WY record completes the key (another
     toolkit: ``unverified``; a mixed build or an unreadable toolkit: ``unready``) and the twin loads (else
     ``unready``); ``_TAPE_WY`` overrides all of it but the twin.  The rule counts no launch (the backward does).
-    The shipped entries name exported architectures and ``major.minor.patch`` toolkits."""
+    The shipped entries name exported architectures and ``major.minor.patch`` toolkits: B200, GB200, B300, GB300
+    and R200."""
     for key in cake_backend.TAPE_WY_VERIFIED:
         arch, sms, toolkit = key
         assert arch in ARCHES and sms > 0, key
         assert re.fullmatch(r"\d+\.\d+\.\d+", toolkit), key
+    assert {key[:2] for key in cake_backend.TAPE_WY_VERIFIED} == {
+        ("sm_100a", 148),
+        ("sm_100a", 152),
+        ("sm_103a", 148),
+        ("sm_103a", 152),
+        ("sm_107a", 212),
+    }
     arch = ARCHES[0]
     monkeypatch.setattr(
         cake_backend, "TAPE_WY_VERIFIED", frozenset({(arch, 152, "9.9.1")})

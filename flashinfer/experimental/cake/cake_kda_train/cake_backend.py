@@ -239,7 +239,7 @@ launches reads the ``u`` its WY record also writes.  The registry maps that
 record to a twin (:data:`cake_jit.TAPE_TWINS`: the same program without the
 ``u`` half, writing the same ``w``; no rule selects it), which the tape
 backward launches in its place on the (architecture, SM count, full toolkit
-version) devices of :data:`TAPE_WY_VERIFIED` (none yet), when the twin and the
+version) devices of :data:`TAPE_WY_VERIFIED`, when the twin and the
 WY record come from one build and the twin loads; otherwise it launches the
 WY record.  The launch count, the arena and the gradients do not change.
 """
@@ -6316,6 +6316,7 @@ TAPE_WY_VERIFIED: frozenset[tuple[str, int, str]] = frozenset(
         ("sm_100a", 148, "13.4.92"),
         ("sm_100a", 152, "13.4.92"),
         ("sm_103a", 148, "13.4.92"),
+        ("sm_103a", 152, "13.4.92"),
         ("sm_107a", 212, "13.4.92"),
     }
 )
