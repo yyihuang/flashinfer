@@ -30,6 +30,7 @@ flashinfer.
 
 import contextlib
 import dataclasses
+import inspect
 import json
 import os
 import re
@@ -928,9 +929,9 @@ def test_a_record_the_backward_refuses_is_released_and_stays_correct(
             backward_arenas.append((kwargs.get("layout"), type(ws).__name__, ws.bytes))
         return ws, key
 
-    def key(p, scale):  # the recompute's key, then another one in the backward
+    def key(p, scale, *rest):  # the recompute's key, then another one in the backward
         calls.append(1)
-        k = real_key(p, scale)
+        k = real_key(p, scale, *rest)
         return k if len(calls) == 1 else (*k, "mismatch")
 
     def take(*args):
@@ -1515,8 +1516,11 @@ def test_the_auto_rule(monkeypatch) -> None:
     on a ``HANDOFF_VERIFIED`` (architecture, SM count, toolkit) device, counting ``unverified`` at those head counts
     on another architecture, SM count or toolkit (also one that cannot be read).  The node makes no ``"auto"``
     request at other head counts, before it reads any torch state.  A plan of the raw gate mode (``gate="raw"``)
-    engages in no mode and counts nothing.  The shipped devices name exported architectures and ``major.minor``
-    toolkits; the head counts start at two (one head is host-bound)."""
+    engages by the same rule (its records are tape records) and, under ``"auto"``, only at ``H * S`` of at least
+    ``HANDOFF_RAW_MIN_HEAD_TOKENS`` (below it nothing is counted); ``"on"`` ignores the floor and g-mode plans never
+    read it.  The node makes no raw ``"auto"`` request below the floor, before it reads any torch state, and a raw
+    request also follows the gradients of ``A_log`` / ``dt_bias``.  The shipped devices name exported architectures
+    and ``major.minor`` toolkits; the head counts start at two (one head is host-bound)."""
     for arch, sms, toolkit in cake_backend.HANDOFF_VERIFIED:
         assert arch in ARCHES and sms > 0, (arch, sms, toolkit)
         assert re.fullmatch(r"\d+\.\d+", toolkit), (arch, sms, toolkit)
@@ -1548,28 +1552,59 @@ def test_the_auto_rule(monkeypatch) -> None:
         unverified += counted
         assert cake_backend._handoff_stats(0)["unverified"] == unverified, (mode, p)
     monkeypatch.setattr(cake_backend, "_handoff_toolkit", lambda a: "9.9")
+    floor = 1000
+    monkeypatch.setattr(cake_backend, "HANDOFF_RAW_MIN_HEAD_TOKENS", floor)
     for mode in ("on", "auto", "off"):
         for sms in (152, 148):
-            p = types.SimpleNamespace(arch=arch, sm_count=sms, H=heads, gate="raw")
-            assert cake_backend._handoff_engages(p, mode, 0) is False, (mode, sms)
-    assert cake_backend._handoff_stats(0)["unverified"] == unverified
+            # below, at and above the floor (heads x tokens)
+            for S in (floor // heads - 1, floor // heads, 4 * floor):
+                p = types.SimpleNamespace(
+                    arch=arch, sm_count=sms, H=heads, S=S, gate="raw"
+                )
+                admitted = mode == "auto" and heads * S >= floor
+                want = mode == "on" or (admitted and sms == 152)
+                assert cake_backend._handoff_engages(p, mode, 0) is want, (mode, sms, S)
+                unverified += admitted and sms == 148
+                assert cake_backend._handoff_stats(0)["unverified"] == unverified
+    # a g-mode plan never reads the floor (a stand-in without S)
+    p = types.SimpleNamespace(arch=arch, sm_count=152, H=heads, gate="g")
+    assert cake_backend._handoff_engages(p, "auto", 0) is True
 
     def read_torch_state():
         raise RuntimeError("the request read torch state")
 
     monkeypatch.setattr(cake_backend, "_handoff_task", read_torch_state)
-    ctx = types.SimpleNamespace(needs_input_grad=(True,) * 5)
+    # ChunkKDAFunction.forward's inputs: q k v g beta ... A_log dt_bias (cake_backend._RAW_PARAM_SLOTS) lower_bound
+    ctx = types.SimpleNamespace(needs_input_grad=(True,) * 5 + (False,) * 12)
+    params_only = types.SimpleNamespace(
+        needs_input_grad=tuple(i in cake_backend._RAW_PARAM_SLOTS for i in range(17))
+    )
 
-    def v(H):  # an operand on a CUDA device, without one
+    def v(H, S=64):  # an operand on a CUDA device, without one
         return types.SimpleNamespace(
-            device=torch.device("cuda", 0), shape=(64, H, D), dim=lambda: 3
+            device=torch.device("cuda", 0), shape=(1, S, H, D), dim=lambda: 4
         )
 
-    for mode, H in (("auto", 1), ("auto", gap), ("off", heads)):
-        assert cake_backend._handoff_request(ctx, mode, v(H)) is None, (mode, H)
-    for mode, H in (("auto", heads), ("on", 1)):
+    below, at = v(heads, floor // heads - 1), v(heads, floor // heads)
+    for mode, v_, raw in (
+        ("auto", v(1), False),
+        ("auto", v(gap), False),
+        ("off", v(heads), False),
+        ("auto", below, True),
+        ("auto", v(1, 4 * floor), True),
+    ):
+        assert cake_backend._handoff_request(ctx, mode, v_, raw) is None, (mode, raw)
+    # no input of a g-mode node needs a gradient (its A_log / dt_bias slots are None)
+    assert cake_backend._handoff_request(params_only, "on", at) is None
+    for ctx_, mode, v_, raw in (
+        (ctx, "auto", v(heads), False),
+        (ctx, "on", v(1), False),
+        (ctx, "auto", at, True),
+        (ctx, "on", below, True),
+        (params_only, "auto", at, True),
+    ):
         with pytest.raises(RuntimeError, match="torch state"):
-            cake_backend._handoff_request(ctx, mode, v(H))
+            cake_backend._handoff_request(ctx_, mode, v_, raw)
 
 
 def test_a_full_window_of_misses_and_hits_turns_the_handoff_off(monkeypatch) -> None:
@@ -1839,6 +1874,52 @@ def test_memory_report_covers_the_handoff() -> None:
                         assert report["arena_bwd_handoff"] == lean, tag
 
 
+def test_memory_report_covers_the_raw_handoff() -> None:
+    """Host only: in the raw gate mode ``memory_report(..., gate="raw")["handoff_bytes"]`` is one tape record of the
+    raw plan (``Plan.handoff_bytes``; reported whatever the ``"auto"`` rule decides for the problem),
+    ``handoff_budget_bytes`` two such records and ``handoff_bytes_rows`` ``None`` (a raw record is never a row
+    record)."""
+    for lengths in (P8, (100, 640, 77, 1000, 129), (63, 1, 65)):
+        S, N = sum(lengths), len(lengths)
+        for arch in ARCHES:
+            for sm in (148, 152):
+                for H in (1, 2, 4, 8, 12, 16, 32, 64):
+                    tag = (_shape_id((lengths, H)), arch, sm)
+                    p = cake_backend.plan(S, N, H, sm, arch, gate="raw")
+                    want = p.handoff_bytes()
+                    assert want >= p.NC_pad * H * D * D * 2 + p.R * H * D * 2, tag
+                    for save_mode in ("light", "tape"):
+                        report = cake_backend.memory_report(
+                            S, N, H, save_mode, sm_count=sm, arch=arch, gate="raw"
+                        )
+                        assert report["handoff_bytes"] == want, tag
+                        assert (
+                            report["handoff_budget_bytes"]
+                            == cake_backend._HANDOFF_BUDGET_RECORDS * want
+                        ), tag
+                        assert report["handoff_bytes_rows"] is None, tag
+
+
+def test_the_raw_parameter_slots_are_the_function_inputs() -> None:
+    """Host only: ``_RAW_PARAM_SLOTS`` (the raw request's ``ctx.needs_input_grad`` positions) are those of ``A_log``
+    and ``dt_bias`` among ``ChunkKDAFunction.forward``'s inputs."""
+    names = list(inspect.signature(cake_backend.ChunkKDAFunction.forward).parameters)
+    assert names[0] == "ctx", names
+    names = names[1:]
+    assert names[:5] == list(LEAVES), names
+    slots = (names.index("A_log"), names.index("dt_bias"))
+    assert slots == cake_backend._RAW_PARAM_SLOTS, names
+
+
+def test_the_raw_work_floor_as_shipped() -> None:
+    """Host only: the shipped raw work floor (``HANDOFF_RAW_MIN_HEAD_TOKENS``, from the floor sweep in the README)
+    turns off the host-bound rows the sweep measured losing (4 heads x 16384 tokens; 2 heads x the P8 pack) and keeps
+    every checkpoint parity row the hand-off gains on (4 heads x 239718 tokens and up, P8 at 4 heads)."""
+    floor = cake_backend.HANDOFF_RAW_MIN_HEAD_TOKENS
+    assert floor == 786432
+    assert 4 * 16384 < 2 * sum(P8) < floor <= 4 * 239718 < 4 * sum(P8)
+
+
 def test_the_row_record_rule(monkeypatch) -> None:
     """Host only (a stand-in plan): an engaged recompute asks for a row record when the plan has an intra twin, the
     call runs on its own workspace, the head count is a ``HANDOFF_HEADS`` one, the device (architecture, SM count)
@@ -1873,12 +1954,13 @@ def test_the_row_record_rule(monkeypatch) -> None:
     monkeypatch.setattr(cake_backend, "_handoff_rows_toolkit", rows_toolkit)
     monkeypatch.setattr(cake_backend, "_handoff_rows_loads", rows_loads)
 
-    def plan_(twin="twin", sms=152, H=heads, arch_=arch):
+    def plan_(twin="twin", sms=152, H=heads, arch_=arch, gate="g"):
         return types.SimpleNamespace(
             handoff_twin=twin,
             arch=arch_,
             sm_count=sms,
             H=H,
+            gate=gate,
             light_path="light",
             record=lambda stage, path: f"{stage}@{path}",
         )
@@ -1899,6 +1981,9 @@ def test_the_row_record_rule(monkeypatch) -> None:
         (False, plan_(), True, "9.9.1", True, False, None, 0),
         (True, plan_(sms=148, H=gap), False, None, False, True, None, 0),
         (True, plan_(twin=None), True, "9.9.1", True, False, None, 0),
+        # raw gate mode: tape records whatever the override (no raw intra twin), nothing read or counted
+        (None, plan_(gate="raw"), True, "9.9.1", True, False, None, 0),
+        (True, plan_(gate="raw"), True, "9.9.1", True, False, None, 0),
     )
     for override, p, own_ws, toolkit, loads, want, counter, checks in cases:
         tag = (override, p.arch, p.sm_count, p.H, p.handoff_twin, own_ws, toolkit)
@@ -2125,3 +2210,416 @@ def test_the_budget_demotes_row_records_before_it_refuses(monkeypatch) -> None:
     # a turned-off device admits nothing
     cake_backend._handoff_devices[0].disabled = True
     assert cake_backend._handoff_admit(0, 7, 1, 1) is None
+
+
+# --------------------------------------------------------------------------- raw gate mode
+#
+# ``use_gate_in_kernel=True``: the recompute publishes a tape record (no raw intra twin) stamped with ``A_log`` /
+# ``dt_bias`` and keyed with the gate mode and the FP32 lower bound; the backward runs the tape path with the raw
+# light prep.  Every result but ``dA_log`` / ``ddt_bias`` is bitwise ``"off"``'s; those two are bitwise on the
+# deterministic pair's rows (``sm_107a``) and within the R1c bound of the test module of the backend suite on the R1c
+# rows (``sm_100a`` / ``sm_103a``), for both arms.  ``"auto"`` engages in raw mode only at ``H * S`` head-tokens of at
+# least ``HANDOFF_RAW_MIN_HEAD_TOKENS``; the tests below force ``"on"`` unless they test that rule.
+
+from tests.test_helpers.cake_kda_det_train_reference import (  # noqa: E402
+    LOWER_BOUND,
+    make_raw_inputs,
+)
+
+RAW_LEAVES = ("q", "k", "v", "g", "beta", "A_log", "dt_bias")
+RAW_GRAD_OF_LEAF = ("dq", "dk", "dv", "dg", "dbeta", "dA_log", "ddt_bias")
+RAW_PARAMS = ("dA_log", "ddt_bias")
+
+
+def _raw_plan(lengths, heads, device):
+    return cake_backend.plan(
+        sum(lengths),
+        len(lengths),
+        heads,
+        cake_jit.sm_count(device.index),
+        cake_jit.device_arch(device.index),
+        gate="raw",
+    )
+
+
+def _raw_r1c(inputs):
+    """The R1c bound of ``inputs`` (``None`` on the deterministic pair's rows), from the backend suite."""
+    from tests.experimental import test_cake_kda_train as tsr
+
+    return tsr._r1c_exact(inputs)
+
+
+def _raw_kw(params, workspace=None, **kw) -> dict:
+    a_log, dt_bias = params
+    return {
+        "use_gate_in_kernel": True,
+        "A_log": a_log,
+        "dt_bias": dt_bias,
+        "lower_bound": LOWER_BOUND,
+        "workspace": workspace,
+        **kw,
+    }
+
+
+def _raw_step(inputs, *, reentrant: bool, handoff, workspace=None, action=None):
+    """One raw-mode ``chunk_kda`` under ``torch.utils.checkpoint`` and its backward on fresh leaves (``A_log`` /
+    ``dt_bias`` leaves too): ``out`` (detached) and the seven gradients by name.  ``action`` runs after the recompute
+    and before the KDA node's backward (non-reentrant only)."""
+    leaves = [inputs[n].detach().clone().requires_grad_(True) for n in RAW_LEAVES]
+    cu = inputs["cu_seqlens"]
+    kw = {} if handoff is None else {"checkpoint_handoff": handoff}
+
+    def layer(q, k, v, g, beta, a_log, dt_bias):
+        o = chunk_kda(
+            q, k, v, g, beta, cu, **_raw_kw((a_log, dt_bias), workspace, **kw)
+        )
+        return o if action is None else _AfterRecompute.apply(o, action)
+
+    out = checkpoint(layer, *leaves, use_reentrant=reentrant)
+    out.backward(inputs["dout"])
+    grads = {n: leaf.grad for n, leaf in zip(RAW_GRAD_OF_LEAF, leaves, strict=True)}
+    return out.detach(), grads, leaves
+
+
+def _raw_param_check(on: dict, off: dict, r1c, tag) -> None:
+    """``dA_log`` / ``ddt_bias``: bitwise on the deterministic pair's rows, else both arms within the R1c bound."""
+    if r1c is None:
+        for n in RAW_PARAMS:
+            assert _bits_equal(on[n], off[n]), (tag, n)
+    else:
+        from tests.experimental import test_cake_kda_train as tsr
+
+        tsr._r1c_param_check(on, r1c, tag=(*tag, "on"))
+        tsr._r1c_param_check(off, r1c, tag=(*tag, "off"))
+
+
+def _check_raw_handoff_against_off(
+    inputs,
+    device,
+    lengths,
+    heads,
+    *,
+    reentrant: bool,
+    r1c=None,
+    host_reference: bool = False,
+) -> None:
+    """The raw-mode gate: ``"off"`` then ``"on"`` (record tensors and ``dv2`` NaN-filled) under one checkpoint mode;
+    the on arm publishes one TAPE record (also where ``_HANDOFF_ROWS`` forces rows) that its backward takes; ``out``
+    and dq / dk / dv / dg / dbeta bitwise; the parameters by :func:`_raw_param_check`."""
+    tag = (
+        "raw",
+        _shape_id((lengths, heads)),
+        "reentrant" if reentrant else "nonreentrant",
+    )
+    cake_backend._handoff_reset()
+    off_out, off, _ = _raw_step(inputs, reentrant=reentrant, handoff="off")
+    if host_reference:
+        off_out, off = off_out.cpu(), {n: g.cpu() for n, g in off.items()}
+        torch.cuda.empty_cache()
+    s = _stats(device)
+    assert s["published"] == 0 and s["live_records"] == 0, (tag, "off", s)
+    with _poisoned():
+        on_out, on, _ = _raw_step(inputs, reentrant=reentrant, handoff="on")
+    if host_reference:
+        on_out, on = on_out.cpu(), {n: g.cpu() for n, g in on.items()}
+    s = _stats(device)
+    assert s["published"] == 1 and s["hits"] == 1 and s["misses"] == 0, (tag, s)
+    assert s["published_rows"] == 0 and s["demoted"] == 0, (tag, s)
+    assert s["live_records"] == 0 and s["live_bytes"] == 0, (tag, s)
+    assert _bits_equal(on_out, off_out), (tag, "out")
+    for n in RAW_GRAD_OF_LEAF[:5]:
+        assert _bits_equal(on[n], off[n]), (tag, n)
+    _raw_param_check(on, off, r1c, tag)
+
+
+@pytest.mark.parametrize("heads", P8_HEADS, ids=lambda h: f"P8-h{h}")
+def test_raw_handoff_gradients_are_bitwise_off_on_the_p8_pack(
+    device, manifest, heads, record_kind
+) -> None:
+    """Raw gate mode, the P8 pack: under both checkpoint modes the hand-off (a tape record, whatever
+    ``_HANDOFF_ROWS`` forces) gives ``"off"``'s results (params: bitwise, or the R1c bound)."""
+    inputs = make_raw_inputs(P8, heads, device)
+    r1c = _raw_r1c(inputs)
+    for reentrant in (False, True):
+        _check_raw_handoff_against_off(
+            inputs, device, P8, heads, reentrant=reentrant, r1c=r1c
+        )
+
+
+@pytest.mark.parametrize("reentrant", (False, True), ids=("nonreentrant", "reentrant"))
+def test_raw_handoff_gradients_are_bitwise_off_on_the_p8_pack_at_64_heads(
+    device, manifest, reentrant
+) -> None:
+    """Raw gate mode, P8 at 64 heads, one checkpoint mode per process.  Opt-in by ``CAKE_KDA_HANDOFF_TEST_P8_H64=1``."""
+    if os.environ.get(P8_H64_ENV) != "1":
+        pytest.skip(f"opt-in: {P8_H64_ENV}=1, one id per process")
+    inputs = make_raw_inputs(P8, 64, device)
+    r1c = _raw_r1c(inputs)
+    _check_raw_handoff_against_off(
+        inputs, device, P8, 64, reentrant=reentrant, r1c=r1c, host_reference=True
+    )
+
+
+@pytest.mark.parametrize("shape", SHORT_ROWS, ids=_shape_id)
+def test_raw_handoff_gradients_are_bitwise_off_on_short_packs(
+    device, manifest, shape
+) -> None:
+    """Raw gate mode on the short packs (both routes, forward w kept or not, w from the light set, the transfers,
+    the table launches, more than 256 documents)."""
+    lengths, heads = shape
+    inputs = make_raw_inputs(lengths, heads, device)
+    r1c = _raw_r1c(inputs)
+    for reentrant in (False, True):
+        _check_raw_handoff_against_off(
+            inputs, device, lengths, heads, reentrant=reentrant, r1c=r1c
+        )
+
+
+def test_raw_handoff_is_bitwise_off_on_every_raw_plan_family_of_the_device(
+    device, manifest
+) -> None:
+    """The raw plans' families over ``FAMILY_PACKS`` x ``FAMILY_HEADS``: the cheapest row of each passes the raw gate
+    under both checkpoint modes; every failure reported together."""
+    sms, arch = cake_jit.sm_count(device.index), cake_jit.device_arch(device.index)
+    families: dict[tuple, tuple[int, tuple[int, ...], int]] = {}
+    for lengths in FAMILY_PACKS:
+        for heads in FAMILY_HEADS:
+            try:
+                p = cake_backend.plan(
+                    sum(lengths), len(lengths), heads, sms, arch, gate="raw"
+                )
+            except ValueError:
+                continue
+            cost = sum(lengths) * heads
+            key = _family(p)
+            if key not in families or cost < families[key][0]:
+                families[key] = (cost, lengths, heads)
+    assert families
+    failures = []
+    for _cost, lengths, heads in sorted(families.values()):
+        inputs = make_raw_inputs(lengths, heads, device)
+        r1c = _raw_r1c(inputs)
+        for reentrant in (False, True):
+            try:
+                _check_raw_handoff_against_off(
+                    inputs, device, lengths, heads, reentrant=reentrant, r1c=r1c
+                )
+            except AssertionError as exc:
+                failures.append(
+                    (_shape_id((lengths, heads)), reentrant, str(exc)[:200])
+                )
+        del inputs
+        torch.cuda.empty_cache()
+    assert not failures, (
+        f"{len(failures)} of {2 * len(families)} raw family checks failed",
+        failures,
+    )
+
+
+@pytest.mark.parametrize("shape", TAPE_WY_ROWS, ids=_shape_id)
+def test_raw_tape_wy_twin_hands_off_bitwise_off(
+    device, manifest, monkeypatch, shape
+) -> None:
+    """Raw gate mode with the tape WY twin forced (``_TAPE_WY = True``): the rows whose record keeps no ``w`` launch
+    the twin once per tape backward, and the gate holds."""
+    lengths, heads = shape
+    p = _raw_plan(lengths, heads, device)
+    launches = p.dispatched("wy", "tape") and not p.handoff_keeps_w
+    assert not launches or p.tape_wy_twin is not None, (p.arch, p.record("wy", "tape"))
+    monkeypatch.setattr(cake_backend, "_TAPE_WY", True)
+    runs = _tape_wy_runs(monkeypatch)
+    inputs = make_raw_inputs(lengths, heads, device)
+    r1c = _raw_r1c(inputs)
+    for reentrant in (False, True):
+        runs.clear()
+        _check_raw_handoff_against_off(
+            inputs, device, lengths, heads, reentrant=reentrant, r1c=r1c
+        )
+        assert runs == ([p.tape_wy_twin] if launches else []), (reentrant, runs)
+
+
+@pytest.mark.parametrize("shape", LAUNCH_ROWS, ids=_shape_id)
+def test_raw_handoff_backward_launches_the_tape_path_with_the_raw_light_prep(
+    device, manifest, shape, tape_wy
+) -> None:
+    """On a caller raw workspace: the recompute with a (tape) record launches the saving forward's raw records; the
+    backward launches the tape path's raw records with the raw light path's prep record (it writes ``gk`` from the
+    raw gate), no ``wy`` where the record carries ``w`` (else its WY record or, with ``tape_wy``, the w-only twin)
+    and the one parameter finalize last; ``"off"`` launches the raw light path; the results agree."""
+    lengths, heads = shape
+    inputs = make_raw_inputs(lengths, heads, device)
+    p = _raw_plan(lengths, heads, device)
+    launched: list[str] = []
+
+    def recording(name, values, *, grid, device_index):
+        launched.append(name)
+        cake_jit.run_module(name, values, grid=grid, device_index=device_index)
+
+    ws = KdaWorkspace(
+        p, device, backward=True, launcher=recording, deterministic=False, gate="raw"
+    )
+    fwd = _expected_fwd(p)
+    fin = p.record("param_finalize", "tape")
+    handoff_bwd = _expected_bwd(
+        p, "tape", prep_path=p.light_path, skip_wy=p.handoff_keeps_w, tape_wy=tape_wy
+    ) + [fin]
+    assert p.record("bwd_prep", p.light_path) in handoff_bwd
+    assert cake_jit.MODULES[p.record("bwd_prep", p.light_path)].get("gate") == "raw"
+    light_bwd = _expected_bwd(p, p.light_path) + [
+        p.record("param_finalize", p.light_path)
+    ]
+    got = {}
+    for mode, bwd in (("off", light_bwd), ("on", handoff_bwd)):
+        cake_backend._handoff_reset()
+        launched.clear()
+        leaves = [inputs[n].detach().clone().requires_grad_(True) for n in RAW_LEAVES]
+        cu = inputs["cu_seqlens"]
+        out = checkpoint(
+            lambda q, k, v, g, b, a, d, m=mode: chunk_kda(
+                q, k, v, g, b, cu, **_raw_kw((a, d), ws, checkpoint_handoff=m)
+            ),
+            *leaves,
+            use_reentrant=False,
+        )
+        assert launched == fwd, (mode, launched)
+        launched.clear()
+        out.backward(inputs["dout"])
+        assert launched == fwd + bwd, (mode, launched)
+        s = _stats(device)
+        assert s["hits"] == (mode == "on") and s["live_records"] == 0, (mode, s)
+        assert s["published_rows"] == 0, (mode, s)
+        got[mode] = {
+            n: leaf.grad for n, leaf in zip(RAW_GRAD_OF_LEAF, leaves, strict=True)
+        }
+    for n in RAW_GRAD_OF_LEAF[:5]:
+        assert _bits_equal(got["on"][n], got["off"][n]), (shape, n)
+    _raw_param_check(got["on"], got["off"], _raw_r1c(inputs), ("raw launches", shape))
+
+
+@pytest.mark.parametrize("shape", STALE_ROWS, ids=_shape_id)
+def test_raw_stale_records_fall_back_and_stay_correct(device, manifest, shape) -> None:
+    """Raw gate mode: ``A_log`` or ``dt_bias`` (or the raw gate) changed in place between the recompute and the KDA
+    node's backward: the record's stamp no longer matches, the backward drops it (one miss) and runs the light
+    path; the results equal ``"off"``'s under the same change.  Without a change the record is taken."""
+    lengths, heads = shape
+    inputs = make_raw_inputs(lengths, heads, device)
+
+    def run(mode: str, change: str | None):
+        holder: dict = {}
+
+        def action():
+            with torch.no_grad():
+                if change == "A_log":
+                    holder["leaves"][5].mul_(0.5)
+                elif change == "dt_bias":
+                    holder["leaves"][6].add_(0.25)
+                elif change == "g_raw":
+                    holder["leaves"][3].mul_(0.5)
+
+        leaves = [inputs[n].detach().clone().requires_grad_(True) for n in RAW_LEAVES]
+        holder["leaves"] = leaves
+        cu = inputs["cu_seqlens"]
+
+        def layer(q, k, v, g, beta, a_log, dt_bias):
+            o = chunk_kda(
+                q,
+                k,
+                v,
+                g,
+                beta,
+                cu,
+                **_raw_kw((a_log, dt_bias), None, checkpoint_handoff=mode),
+            )
+            return _AfterRecompute.apply(o, action if change else None)
+
+        out = checkpoint(layer, *leaves, use_reentrant=False)
+        out.backward(inputs["dout"])
+        return {n: leaf.grad for n, leaf in zip(RAW_GRAD_OF_LEAF, leaves, strict=True)}
+
+    for change in (None, "A_log", "dt_bias", "g_raw"):
+        cake_backend._handoff_reset()
+        off = run("off", change)
+        assert _stats(device)["published"] == 0
+        cake_backend._handoff_reset()
+        on = run("on", change)
+        s = _stats(device)
+        assert s["published"] == 1 and s["live_records"] == 0, (change, s)
+        if change is None:
+            assert s["hits"] == 1 and s["misses"] == 0, s
+        else:
+            assert s["hits"] == 0 and s["misses"] == 1, (change, s)
+        for n in RAW_GRAD_OF_LEAF[:5]:
+            assert _bits_equal(on[n], off[n]), (shape, change, n)
+        r1c = None if change is not None else _raw_r1c(inputs)
+        if change is None:
+            _raw_param_check(on, off, r1c, ("raw stale", shape, change))
+        elif _raw_r1c(inputs) is None:
+            for n in RAW_PARAMS:
+                assert _bits_equal(on[n], off[n]), (shape, change, n)
+
+
+def test_raw_and_g_records_and_lower_bounds_never_match(device) -> None:
+    """Host only on the device's plans: the record key carries the gate mode and the FP32 lower bound, so a raw
+    record never fits a g-mode backward of the same problem (or the reverse), nor a raw backward with another bound."""
+    lengths, heads = (63, 1, 65), 4
+    pg = _plan(lengths, heads, device)
+    pr = _raw_plan(lengths, heads, device)
+    kg = cake_backend._handoff_key(pg, SCALE)
+    kr = cake_backend._handoff_key(pr, SCALE, LOWER_BOUND)
+    assert kg != kr
+    assert kr != cake_backend._handoff_key(pr, SCALE, -4.0)
+    assert kr == cake_backend._handoff_key(pr, SCALE, float(LOWER_BOUND))
+    assert cake_backend._handoff_wants_rows(pr, device.index, True) is False
+
+
+def _raw_auto_case(lengths, heads, device, engaged: int, unverified: int, tag) -> None:
+    """``"off"`` then the default (``"auto"``) of one raw problem under non-reentrant checkpoint: ``"auto"``
+    publishes ``engaged`` tape records its backward takes and counts ``unverified``; the results equal ``"off"``'s
+    (parameters by the R1c rule)."""
+    inputs = make_raw_inputs(lengths, heads, device)
+    cake_backend._handoff_reset()
+    _, off, _ = _raw_step(inputs, reentrant=False, handoff="off")
+    cake_backend._handoff_reset()
+    _, auto, _ = _raw_step(inputs, reentrant=False, handoff=None)
+    s = _stats(device)
+    got = (s["published"], s["hits"], s["misses"], s["published_rows"])
+    assert got == (engaged, engaged, 0, 0), (tag, s)
+    assert s["unverified"] == unverified and s["live_records"] == 0, (tag, s)
+    for n in RAW_GRAD_OF_LEAF[:5]:
+        assert _bits_equal(auto[n], off[n]), (tag, n)
+    _raw_param_check(auto, off, _raw_r1c(inputs), (*tag, "raw auto"))
+
+
+def test_raw_auto_follows_the_work_floor(device, manifest, monkeypatch) -> None:
+    """The default (``"auto"``) in raw gate mode, this device listed (toolkit patched) and the floor patched to the
+    larger of two short problems: the smaller makes no request (nothing published or counted), the larger (at the
+    floor) publishes a tape record its backward takes, one head makes no request; the results equal ``"off"``'s."""
+    small, large = (63, 1, 65), (100, 640, 77, 1000, 129)
+    heads = min(cake_backend.HANDOFF_HEADS)
+    arch, sms = cake_jit.device_arch(device.index), cake_jit.sm_count(device.index)
+    monkeypatch.setattr(
+        cake_backend, "HANDOFF_VERIFIED", frozenset({(arch, sms, "9.9")})
+    )
+    monkeypatch.setattr(cake_backend, "_handoff_toolkit", lambda a: "9.9")
+    monkeypatch.setattr(cake_backend, "HANDOFF_RAW_MIN_HEAD_TOKENS", heads * sum(large))
+    for lengths, H, engaged in ((small, heads, 0), (large, heads, 1), (large, 1, 0)):
+        _raw_auto_case(lengths, H, device, engaged, 0, (_shape_id((lengths, H)),))
+
+
+def test_raw_auto_engages_on_the_shipped_rule(device, manifest) -> None:
+    """The default (``"auto"``) in raw gate mode, nothing patched, at 64 heads: one token below the shipped floor
+    (``HANDOFF_RAW_MIN_HEAD_TOKENS``) it makes no request; at the floor it hands off exactly when the device is in
+    ``HANDOFF_VERIFIED`` (else counts ``unverified``); the results equal ``"off"``'s."""
+    heads = 64
+    arch, sms = cake_jit.device_arch(device.index), cake_jit.sm_count(device.index)
+    verified = int(
+        (arch, sms, cake_backend._handoff_toolkit(arch))
+        in cake_backend.HANDOFF_VERIFIED
+    )
+    tokens = -(-cake_backend.HANDOFF_RAW_MIN_HEAD_TOKENS // heads)
+    for S, engaged, unverified in (
+        (tokens - 1, 0, 0),
+        (tokens, verified, 1 - verified),
+    ):
+        lengths = (S // 3, S // 3 + 7, S - 2 * (S // 3) - 7)
+        _raw_auto_case(lengths, heads, device, engaged, unverified, (S, heads))

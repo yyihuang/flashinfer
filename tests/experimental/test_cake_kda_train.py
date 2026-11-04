@@ -1679,10 +1679,12 @@ def test_raw_plans_are_the_deterministic_raw_plans() -> None:
     per backward path (one CTA per head and segment of 128 chunks) -- but on ``sm_100a`` / ``sm_103a``, where the
     GLM intra and finalize stages take the R1c pair of :func:`_r1c_glm` (the GLM intra grid the deterministic one,
     the cast one CTA per head) with the same launch counts; a separate cache entry from the g-mode plan of the
-    problem, whose records it shares on every stage outside ``GATE_STAGES``; the checkpoint hand-off never engages on
-    it, in any mode; the raw mode's byte queries (the workspace, the outputs, the memory report outside the
-    hand-off's fields) are the deterministic package's, plus on the R1c rows the accumulators ``param_acc``
-    (``[stripes, H, 2, 128]`` FP64) in place of the per-call partials; an unknown gate mode is a ``ValueError``."""
+    problem, whose records it shares on every stage outside ``GATE_STAGES``; the checkpoint hand-off engages on it
+    where it engages on the g-mode plan (but ``"auto"`` not below ``HANDOFF_RAW_MIN_HEAD_TOKENS`` head-tokens), with
+    tape records only (no raw intra twin), and the memory report's hand-off fields are one tape record of it; the
+    raw mode's byte queries (the workspace, the outputs, the memory report outside the hand-off's fields) are the deterministic
+    package's, plus on the R1c rows the accumulators ``param_acc`` (``[stripes, H, 2, 128]`` FP64) in place of the
+    per-call partials; an unknown gate mode is a ``ValueError``."""
     rows = list(SHAPES) + [
         ((2000,) * 3, 64),
         ((129, 300), 16),
@@ -1774,8 +1776,18 @@ def test_raw_plans_are_the_deterministic_raw_plans() -> None:
                         assert pr.launch_count(path, tables=tables) == (
                             dr.launch_count(path, tables=tables)
                         ), (*at, tables)
+                # the hand-off engages on the raw plan as on the g-mode plan, but under "auto" not below the raw
+                # work floor
+                below = pr.H * pr.S < cake_backend.HANDOFF_RAW_MIN_HEAD_TOKENS
                 for mode in ("on", "auto", "off"):
-                    assert not cake_backend._handoff_engages(pr, mode, 0), (where, mode)
+                    want = cake_backend._handoff_engages(pg, mode, 0) and not (
+                        mode == "auto" and below
+                    )
+                    assert cake_backend._handoff_engages(pr, mode, 0) == want, (
+                        where,
+                        mode,
+                    )
+                assert cake_backend._handoff_wants_rows(pr, 0, True) is False, where
                 for mode in cake_backend.MODES:
                     assert pr.workspace_bytes(mode) == dr.workspace_bytes(mode), (
                         where,
@@ -1830,8 +1842,10 @@ def test_raw_plans_are_the_deterministic_raw_plans() -> None:
                     ), (*tag, key)
                 fwd_total = det["fwd_total_bwd_arena"] + acc
                 assert nd["fwd_total_bwd_arena"] == fwd_total, tag
-                assert nd["handoff_bytes"] == nd["handoff_budget_bytes"] == 0
-                assert nd["handoff_bytes_rows"] is None
+                record = cake_backend.plan(S, N, heads, gate="raw", **q).handoff_bytes()
+                assert nd["handoff_bytes"] == record > 0, tag
+                assert nd["handoff_budget_bytes"] == 2 * record, tag
+                assert nd["handoff_bytes_rows"] is None, tag
                 g_report = cake_backend.memory_report(S, N, heads, save_mode, **q)
                 assert g_report["param_acc"] == g_report["bwd_partials"] == 0, tag
         for backward in (True, False):
@@ -9948,7 +9962,9 @@ def test_raw_gate_autograd_and_checkpoint_match_the_deterministic_raw_mode(
     """The autograd entry gives the leaves the deterministic package's raw-mode gradients (``dg`` to the raw gate,
     ``dA_log`` / ``ddt_bias`` to the parameters, the latter in ``dt_bias``'s shape) bit for bit, directly and under
     ``torch.utils.checkpoint`` (non-reentrant and reentrant) with every ``checkpoint_handoff`` value and the
-    environment override: the raw mode never makes or takes a hand-off record.  The parameters may be frozen; a
+    environment override: the raw mode hands off (a tape record) exactly where the mode resolves to ``"on"``, or to
+    ``"auto"`` at a ``HANDOFF_HEADS`` head count on a ``HANDOFF_VERIFIED`` device at ``H * S`` of at least
+    ``HANDOFF_RAW_MIN_HEAD_TOKENS``, every record taken.  The parameters may be frozen; a
     non-contiguous upstream gradient is accepted; under torch's deterministic algorithms (an alert as an error) the
     package's backward raises PyTorch's alert on an R1c row (and with ``warn_only`` warns and gives the same
     results) and raises nothing on the deterministic pair's rows, with the same bits.  The node rebuilds the saved set with its gate mode and FP32
@@ -9964,14 +9980,18 @@ def test_raw_gate_autograd_and_checkpoint_match_the_deterministic_raw_mode(
     o.backward(dout)
     _rg_leaf_check(leaves, ref, tag="deterministic autograd")
 
-    def no_handoff(*args, **kwargs):
-        raise AssertionError(
-            "the raw gate mode made or took a checkpoint hand-off record"
-        )
+    arch, sms = cake_jit.device_arch(device.index), cake_jit.sm_count(device.index)
+    verified = (
+        arch,
+        sms,
+        cake_backend._handoff_toolkit(arch),
+    ) in cake_backend.HANDOFF_VERIFIED
+    cake_backend._handoff_reset()
 
-    monkeypatch.setattr(cake_backend, "_handoff_request", no_handoff)
-    monkeypatch.setattr(cake_backend, "_handoff_take", no_handoff)
-    monkeypatch.setattr(cake_backend, "_handoff_publish", no_handoff)
+    def handoff_counts():
+        s = cake_backend._handoff_stats(device.index)
+        return s["published"], s["hits"], s["misses"], s["published_rows"]
+
     for env in (None, "on", "off"):
         if env is None:
             monkeypatch.delenv(cake_backend.HANDOFF_ENV, raising=False)
@@ -9984,7 +10004,15 @@ def test_raw_gate_autograd_and_checkpoint_match_the_deterministic_raw_mode(
             assert _bits_equal(o, ref_out), tag
             o.backward(dout)
             _rg_leaf_check(leaves, ref, tag=(*tag, "autograd"))
+            resolved = cake_backend._handoff_mode(mode)
+            engages = resolved == "on" or (
+                resolved == "auto"
+                and heads in cake_backend.HANDOFF_HEADS
+                and verified
+                and heads * sum(lengths) >= cake_backend.HANDOFF_RAW_MIN_HEAD_TOKENS
+            )
             for reentrant in (False, True):
+                before = handoff_counts()
                 leaves = _rg_leaves(inputs)
                 o = checkpoint(
                     lambda *a, _m=mode: _rg_autograd(
@@ -9995,6 +10023,13 @@ def test_raw_gate_autograd_and_checkpoint_match_the_deterministic_raw_mode(
                 )
                 o.backward(dout)
                 _rg_leaf_check(leaves, ref, tag=(*tag, "checkpoint", reentrant))
+                after = handoff_counts()
+                delta = tuple(a - b for a, b in zip(after, before, strict=True))
+                assert delta == (int(engages), int(engages), 0, 0), (
+                    *tag,
+                    reentrant,
+                    delta,
+                )
     monkeypatch.delenv(cake_backend.HANDOFF_ENV, raising=False)
     # dt_bias as [H, 128]: the same values, its gradient in that shape (explicit and autograd)
     inputs_2d = dict(inputs, dt_bias=inputs["dt_bias"].view(heads, D).clone())

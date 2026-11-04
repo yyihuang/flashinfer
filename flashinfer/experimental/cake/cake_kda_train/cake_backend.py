@@ -197,7 +197,11 @@ when every stamp matches and runs the tape path from it (the light path's prep
 record; no ``wy`` where the record carries ``w``); otherwise it drops the
 record and runs the light path.  ``"auto"`` (the default) engages at the head
 counts of :data:`HANDOFF_HEADS` on the (architecture, SM count, Cake build
-toolkit) devices of :data:`HANDOFF_VERIFIED`, ``"on"`` on every call it
+toolkit) devices of :data:`HANDOFF_VERIFIED` (in the raw gate mode also at
+``H * S`` head-tokens of at least :data:`HANDOFF_RAW_MIN_HEAD_TOKENS`; a
+raw-mode record is a tape record stamped with ``A_log`` / ``dt_bias`` and keyed
+with the gate mode and the FP32 lower bound, and its backward runs the raw
+light prep and the parameter finalize), ``"on"`` on every call it
 supports, ``"off"`` never; ``CAKE_KDA_CKPT_HANDOFF`` (``off`` / ``on``, read
 by :func:`chunk_kda` at each call) turns every call off or ``"auto"`` into
 ``"on"``.  A per-device byte budget (two
@@ -205,7 +209,7 @@ records of the call's shape) admits a record before its writes; untaken
 records are dropped at the end of the graph task (or by the next forward
 outside any backward), and repeated misses turn the hand-off off on the
 device.  The original forward, an arena option, ``doc_lengths``, the tape
-saved set, the raw gate mode, CUDA-graph capture, ``torch.compile``, compiled
+saved set, CUDA-graph capture, ``torch.compile``, compiled
 autograd and Python dispatch modes take the light path.
 
 Row records.  The registry maps each forward intra record to a twin
@@ -2311,8 +2315,9 @@ def memory_report(
     ``"g"`` mode and on the ``R1c`` rows, :func:`_r1c_stripes`) and ``param_acc`` the ``R1c`` rows' FP64
     accumulators (:attr:`KdaWorkspace.param_acc_bytes`, held by the workspace outside the arena; 0 elsewhere), both
     of which the backward totals include (``param_acc`` also ``fwd_total_bwd_arena``: a backward workspace holds the
-    accumulators while it serves the forwards); the raw mode never engages the checkpoint hand-off, so
-    ``handoff_bytes`` and ``handoff_budget_bytes`` are 0 and ``handoff_bytes_rows`` ``None`` there."""
+    accumulators while it serves the forwards); the raw mode's hand-off records are tape records
+    (:attr:`Plan.handoff_bytes` of the raw plan; ``handoff_bytes_rows`` is ``None``), reported whatever the
+    ``"auto"`` rule decides for the problem (:data:`HANDOFF_RAW_MIN_HEAD_TOKENS`)."""
     if save_mode not in SAVE_MODES:
         raise ValueError(
             f"memory_report: save_mode must be one of {SAVE_MODES}, got {save_mode!r}"
@@ -2440,9 +2445,9 @@ def memory_report(
     twin = cake_jit.HANDOFF_TWINS.get(cake_jit.select_record("fwd_intra", **scalars))
     twin_record = None if twin is None else cake_jit.MODULES.get(twin)
     handoff_rows = None
-    # no hand-off in raw mode (the intra twins read the activated gate)
     if gate == "raw":
-        handoff = 0
+        # a raw-mode record is a tape record of the raw plan (no raw intra twin: no row record)
+        handoff = plan(S, num_docs, H, sms, arch, gate="raw").handoff_bytes()
     elif twin_record is not None and plan_arch in twin_record["arches"]:
         handoff_rows = _handoff_bytes(
             nc_pad,
@@ -3403,13 +3408,15 @@ def _entry_acquire(
     """The workspace of one call without a workspace argument, with its arena storage allocated, and its pool key
     (``None``: a workspace of this call alone, under CUDA-graph capture, whose device allocations belong to the
     graph; a batched arena is refused there, :meth:`KdaWorkspace.batches`).  ``layout`` (a backward that took a
-    checkpoint hand-off record, ``"g"`` mode only): a :class:`_HandoffWorkspace` of that one layout, pooled apart.
+    checkpoint hand-off record): a :class:`_HandoffWorkspace` of that one layout and gate mode, pooled apart.
     ``gate``: the call's gate mode."""
 
     def build() -> KdaWorkspace:
         if layout is not None:
             at = _device_index(device)
-            p = plan(S, N, H, cake_jit.sm_count(at), cake_jit.device_arch(at))
+            p = plan(
+                S, N, H, cake_jit.sm_count(at), cake_jit.device_arch(at), gate=gate
+            )
             return _HandoffWorkspace(p, device, layout=layout)
         return KdaWorkspace.for_problem(
             S,
@@ -4376,7 +4383,7 @@ def _fwd_call(
     handoff: dict[str, Any] | None = None,
 ) -> tuple[torch.Tensor, KdaChunkSaved | None]:
     """:func:`chunk_kda_fwd` after its mode check; ``handoff`` is the autograd node's checkpoint hand-off request
-    (:func:`_forward`; a call without a caller workspace may write a row record; never in raw gate mode)."""
+    (:func:`_forward`; a call without a caller workspace may write a row record; a tape record in raw gate mode)."""
     gate = _gate_mode(use_gate_in_kernel)
     q, k, v, g, beta, S, N, H, batched = _operands(
         q, k, v, g, beta, cu_seqlens, gate=gate
@@ -4406,7 +4413,7 @@ def _fwd_call(
             save_for_backward=save_for_backward,
             save_mode=save_mode,
             doc_lengths=doc_lengths,
-            handoff=handoff if gp is None else None,
+            handoff=handoff,
             own_ws=workspace is None,
             gate_params=gp,
         )
@@ -4431,8 +4438,8 @@ def _forward(
     gate_params: _GateParams | None = None,
 ) -> tuple[torch.Tensor, KdaChunkSaved | None]:
     """:func:`chunk_kda_fwd` on the call's workspace, the operands without their batch axis: ``out`` ``[S, H, 128]``
-    and the saved set.  ``gate_params``: the raw gate mode's parameters (``g`` is then the raw gate view; no
-    hand-off: :func:`_handoff_engages` is False on a raw-mode plan).
+    and the saved set.  ``gate_params``: the raw gate mode's parameters (``g`` is then the raw gate view; a
+    hand-off record is a tape record, :func:`_handoff_wants_rows`).
 
     ``handoff`` (the autograd node's checkpoint recompute, :func:`_handoff_request`): where the call saves a light
     set of the whole problem on the default arena option, the request's mode engages (:func:`_handoff_engages`)
@@ -4589,7 +4596,11 @@ def _forward(
                     **rows_ho,
                 },
                 nbytes=p.handoff_bytes(rows=kind == "rows"),
-                key=_handoff_key(p, scale),
+                key=_handoff_key(
+                    p,
+                    scale,
+                    None if gate_params is None else gate_params.lower_bound,
+                ),
                 stream=torch.cuda.current_stream(ws.device_index).cuda_stream,
             )
     else:
@@ -4987,7 +4998,7 @@ def _bwd_call(
     handoff: _HandoffRecord | None = None,
 ) -> tuple[torch.Tensor, ...]:
     """:func:`chunk_kda_bwd` after its mode check; ``handoff`` is a checkpoint hand-off record the autograd node
-    took (:func:`_handoff_take`; ``"g"`` mode only), accepted or refused here before any workspace is acquired
+    took (:func:`_handoff_take`; either gate mode), accepted or refused here before any workspace is acquired
     (:func:`_handoff_accept`).  An accepted record runs the tape path (:func:`_backward`): without a caller
     workspace on a per-call arena of its one layout (``bwd_tape``, or :data:`HANDOFF_LAYOUT` for a row record),
     on a caller's workspace as it is (a backward arena holds both layouts).  A refused record leaves the call
@@ -5024,14 +5035,28 @@ def _bwd_call(
     lean_tape = (
         option.lean and saved is not None and saved.version == SAVED_VERSION_TAPE
     )
-    # the hand-off's verdict before the workspace: an accepted record's own per-call arena is its one layout (the
-    # node takes no record in raw gate mode)
+    # the hand-off's verdict before the workspace: an accepted record's own per-call arena is its one layout (raw
+    # gate mode: on the raw plan, its key carrying the FP32 lower bound)
     accepted = None
-    if handoff is not None and gp is None:
+    if handoff is not None:
         index = _device_index(v.device)
-        p = plan(S, N, H, cake_jit.sm_count(index), cake_jit.device_arch(index))
+        p = plan(
+            S,
+            N,
+            H,
+            cake_jit.sm_count(index),
+            cake_jit.device_arch(index),
+            gate=gate,
+        )
         accepted = _handoff_accept(
-            handoff, p, saved, option, doc_lengths, scale, index=index
+            handoff,
+            p,
+            saved,
+            option,
+            doc_lengths,
+            scale,
+            index=index,
+            lower_bound=None if gp is None else gp.lower_bound,
         )
     layout = None
     if accepted is not None and workspace is None:
@@ -5525,6 +5550,14 @@ HANDOFF_VERIFIED = frozenset(
 # is host-bound (the record's host work cancels its kernel savings).  A new device, toolkit or registry needs the
 # suite again on each device before it enters either set.
 HANDOFF_HEADS = frozenset({2, 4, 8, 12, 16, 32, 64})
+# The raw gate mode (``use_gate_in_kernel=True``) hands off with tape records only (no raw intra twin exists), and
+# "auto" engages there only at ``H * S`` head-tokens of at least HANDOFF_RAW_MIN_HEAD_TOKENS (read at call time).
+# A raw tape backward still runs the raw light prep and the parameter finalize, so the record saves less device
+# time per call than in g mode while its host work stays the same: below the floor the step is host-bound and the
+# hand-off loses.  Measured (ckpt step, CUPTI span, both build orders) off / on without a floor, four bench
+# processes per node: 4 heads x 16384 tokens (65536 head-tokens) 0.938-0.970 on GB300 and R200; 2 heads x 261393
+# tokens (522786) 0.984-0.993 in the host-bound runs.  The value is pending the floor sweep.
+HANDOFF_RAW_MIN_HEAD_TOKENS = 786432
 # Row records (the recompute launches the intra twin, the backward no prep) on these (architecture, SM count, full
 # toolkit version "major.minor.patch") devices, at the HANDOFF_HEADS head counts, with the call's own workspace.  The
 # twin's rows equal the prep's only where one toolkit compiles both to the same instructions, so the key names the
@@ -5720,10 +5753,20 @@ def _handoff_stamp(tensors: Sequence[torch.Tensor]) -> tuple:
     )
 
 
-def _handoff_key(p: Plan, scale: float) -> tuple:
+def _handoff_key(p: Plan, scale: float, lower_bound: float | None = None) -> tuple:
     """The plan key a record must share with its backward: the problem, the architecture and SM count of the plan,
-    the scale and the saved set's version."""
-    return (p.S, p.N, p.H, p.arch, p.sm_count, float(scale), SAVED_VERSION)
+    the scale, the saved set's version, the gate mode and (raw mode) the FP32 lower bound."""
+    return (
+        p.S,
+        p.N,
+        p.H,
+        p.arch,
+        p.sm_count,
+        float(scale),
+        SAVED_VERSION,
+        p.gate,
+        lower_bound,
+    )
 
 
 @functools.cache
@@ -5740,16 +5783,17 @@ def _handoff_toolkit(arch: str) -> str | None:
 
 
 def _handoff_engages(p: Plan, mode: str, index: int) -> bool:
-    """Whether the request's mode engages on plan ``p``: never on a raw-mode plan (:attr:`Plan.gate`: no raw intra
-    twin exists, and the twins and the hand-off's tape path read the activated FP32 gate); ``"on"`` always,
-    ``"auto"`` at a :data:`HANDOFF_HEADS` head count on a :data:`HANDOFF_VERIFIED` (architecture, SM count,
-    toolkit) device; an ``"auto"`` call at those head counts on another device counts ``unverified``
-    (:func:`_handoff_request` makes no ``"auto"`` request at other head counts)."""
-    if p.gate != "g":
-        return False
+    """Whether the request's mode engages on plan ``p`` (either gate mode; a raw-mode plan publishes tape records
+    only, :func:`_handoff_wants_rows`: no raw intra twin exists); ``"on"`` always, ``"auto"`` at a
+    :data:`HANDOFF_HEADS` head count on a :data:`HANDOFF_VERIFIED` (architecture, SM count, toolkit) device and, on
+    a raw-mode plan, at ``H * S`` of at least :data:`HANDOFF_RAW_MIN_HEAD_TOKENS`; an ``"auto"`` call that passes
+    the head count and the floor on another device counts ``unverified`` (:func:`_handoff_request` makes no
+    ``"auto"`` request at other head counts or below the floor)."""
     if mode == "on":
         return True
     if mode != "auto" or p.H not in HANDOFF_HEADS:
+        return False
+    if p.gate == "raw" and p.H * p.S < HANDOFF_RAW_MIN_HEAD_TOKENS:
         return False
     if (p.arch, p.sm_count, _handoff_toolkit(p.arch)) in HANDOFF_VERIFIED:
         return True
@@ -5850,7 +5894,10 @@ def _handoff_wants_rows(p: Plan, index: int, own_ws: bool) -> bool:
     keeps tape records), ``p.H`` is a :data:`HANDOFF_HEADS` head count, the device's (architecture, SM count) has an
     entry in :data:`HANDOFF_ROWS_VERIFIED` and the toolkit of the one build of the twin, the plan's intra record and
     its light prep completes the key (:func:`_handoff_rows_toolkit`; else ``rows_unverified``), and the twin loads
-    (:func:`_handoff_rows_loads`).  A mixed build, an unreadable toolkit or a failed load count ``rows_unready``."""
+    (:func:`_handoff_rows_loads`).  A mixed build, an unreadable toolkit or a failed load count ``rows_unready``.
+    A raw-mode plan asks for a tape record (no raw intra twin: its tape backward runs the raw light prep)."""
+    if p.gate != "g":
+        return False
     if _HANDOFF_ROWS is not None:
         return _HANDOFF_ROWS and p.handoff_twin is not None
     twin = p.handoff_twin
@@ -5925,6 +5972,7 @@ def _handoff_accept(
     scale: float,
     *,
     index: int,
+    lower_bound: float | None = None,
 ) -> _Accepted | None:
     """The backward's verdict on a record its node took, before any workspace is acquired: accepted (a hit) when
     the call reads a version-4 light set whose path (``light`` / ``light_states`` by its states) is plan ``p``'s
@@ -5941,7 +5989,7 @@ def _handoff_accept(
         and path == p.light_path
         and doc_lengths is None
         and option == KdaArena()
-        and rec.key == _handoff_key(p, scale)
+        and rec.key == _handoff_key(p, scale, lower_bound)
         and _handoff_fits(rec, p)
     )
     if not ok:
@@ -6013,10 +6061,19 @@ def _handoff_note(index: int, counter: str) -> None:
         _handoff_devices.setdefault(index, _HandoffDevice()).stats[counter] += 1
 
 
-def _handoff_request(ctx: Any, mode: str, v: torch.Tensor) -> dict[str, Any] | None:
+# the positions of A_log and dt_bias among ChunkKDAFunction.forward's inputs (ctx.needs_input_grad): a raw-mode
+# recompute requests a record when only the gate parameters need a gradient too
+_RAW_PARAM_SLOTS = (14, 15)
+
+
+def _handoff_request(
+    ctx: Any, mode: str, v: torch.Tensor, raw: bool = False
+) -> dict[str, Any] | None:
     """The autograd node's hand-off request to its forward (``None``: no record): mode ``"on"``, or ``"auto"`` with
-    ``v`` at a :data:`HANDOFF_HEADS` head count (checked first: no torch state is read where ``"auto"`` never
-    engages; a malformed ``v`` fails the operand checks after it), an input whose gradient is needed, inside a
+    ``v`` at a :data:`HANDOFF_HEADS` head count and, in the raw gate mode (``raw``), at
+    :data:`HANDOFF_RAW_MIN_HEAD_TOKENS` head-tokens or more (tokens x heads of ``v``; both checked first: no torch
+    state is read where ``"auto"`` never engages; a malformed ``v`` fails the operand checks after them), an input
+    whose gradient is needed (in raw mode ``A_log`` or ``dt_bias`` too), inside a
     backward's graph task (an original forward and the reentrant checkpoint's no-grad first pass see -1) under a
     checkpoint recompute's saved-tensor hooks (the non-reentrant recompute's, or none: the reentrant recompute; an
     inner region's original forward that an outer recompute re-runs has the region's pack hook), no capture /
@@ -6027,8 +6084,16 @@ def _handoff_request(ctx: Any, mode: str, v: torch.Tensor) -> dict[str, Any] | N
     if (
         mode == "off"
         or (mode == "auto" and (v.dim() < 2 or v.shape[-2] not in HANDOFF_HEADS))
+        or (
+            mode == "auto"
+            and raw
+            and math.prod(v.shape[:-1]) < HANDOFF_RAW_MIN_HEAD_TOKENS
+        )
         or device.type != "cuda"
-        or not any(ctx.needs_input_grad[:5])
+        or not (
+            any(ctx.needs_input_grad[:5])
+            or (raw and any(ctx.needs_input_grad[i] for i in _RAW_PARAM_SLOTS))
+        )
     ):
         return None
     # no grad-mode check: torch runs a Function's forward with grad mode off (chunk_kda passes "off" under no_grad)
@@ -6373,8 +6438,8 @@ class ChunkKDAFunction(torch.autograd.Function):
     environment override and passes ``"off"`` under ``no_grad``.  The raw gate mode's arguments follow
     ``deterministic`` (``use_gate_in_kernel``, ``A_log``, ``dt_bias``, ``lower_bound``): the node then saves the
     raw gate (the caller's view) and ``A_log`` / ``dt_bias`` in place of an FP32 gate, records the mode and
-    ``lower_bound``, returns the gradients of the raw gate, ``A_log`` and ``dt_bias`` and engages no checkpoint
-    hand-off."""
+    ``lower_bound``, returns the gradients of the raw gate, ``A_log`` and ``dt_bias``; its checkpoint hand-off
+    publishes tape records stamped with ``A_log`` / ``dt_bias`` and keyed with the gate mode and lower bound."""
 
     @staticmethod
     def forward(
@@ -6413,10 +6478,10 @@ class ChunkKDAFunction(torch.autograd.Function):
         # a forward outside any backward drops the records a failed backward left
         if _handoff_devices:
             _handoff_sweep_idle(v.device)
-        # the checkpoint recompute's request (None outside a backward's graph task: the original forward; None in
-        # raw gate mode, which never engages the hand-off)
+        # the checkpoint recompute's request (None outside a backward's graph task: the original forward); raw gate
+        # mode publishes tape records stamped with A_log / dt_bias too
         raw = use_gate_in_kernel is True
-        request = None if raw else _handoff_request(ctx, mode, v)
+        request = _handoff_request(ctx, mode, v, raw)
         out, saved = _fwd_call(
             q,
             k,
@@ -6437,7 +6502,11 @@ class ChunkKDAFunction(torch.autograd.Function):
             handoff=request,
         )
         if request is not None and "tensors" in request:
-            _handoff_publish(request, saved.Aqk, (q, k, v, g, beta, cu_seqlens))
+            _handoff_publish(
+                request,
+                saved.Aqk,
+                (q, k, v, g, beta, cu_seqlens, *((A_log, dt_bias) if raw else ())),
+            )
         extra, ctx.extra_fields = _saved_extra(saved)
         # raw mode: the gate parameters ride after cu_seqlens (g is the raw gate view)
         params = (A_log, dt_bias) if saved.gate == "raw" else ()
@@ -6501,9 +6570,11 @@ class ChunkKDAFunction(torch.autograd.Function):
             )  # autograd may hand over an expanded or permuted gradient
         workspace = None if ctx.workspace_ref is None else ctx.workspace_ref()
         _require_deterministic_false(ctx.deterministic, "chunk_kda_bwd")
-        # the checkpoint recompute's record of this node (None without one, or when a stamp mismatches; none in raw
-        # gate mode)
-        record = None if raw else _handoff_take((q, k, v, g, beta, cu_seqlens), Aqk)
+        # the checkpoint recompute's record of this node (None without one, or when a stamp mismatches; raw gate
+        # mode stamps A_log / dt_bias too)
+        record = _handoff_take(
+            (q, k, v, g, beta, cu_seqlens, *((A_log, dt_bias) if raw else ())), Aqk
+        )
         grads = _bwd_call(
             q,
             k,
