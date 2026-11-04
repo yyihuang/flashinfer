@@ -226,17 +226,21 @@ __device__ __forceinline__ void e5_gather(float* r, const float* col) {
     for (int k = 0; k < 128; k++) r[k] = __ldcg(col + k * 128);
 }
 __device__ __forceinline__ void e5_put(int tmem_addr, const float* r) {
+    __syncwarp();  // tcgen05.st is .sync.aligned: reconverge after a tid-0 section
     #pragma unroll
     for (int j = 0; j < 8; j++) tmem_st_x16_f32(tmem_addr + j * 16, r + j * 16);
 }
 // TMEM lane row (128 fp32 columns) -> column v of a [128 x 128] fp32 matrix
 __device__ __forceinline__ void e5_store_col(float* col, int tmem_addr) {
-    float t[128];
+    __syncwarp();  // tcgen05.ld is .sync.aligned: reconverge after a tid-0 section
     #pragma unroll
-    for (int j = 0; j < 8; j++) tmem_ld_x16(t + j * 16, tmem_addr + j * 16);
-    asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
-    #pragma unroll
-    for (int k = 0; k < 128; k++) col[k * 128] = t[k];
+    for (int j = 0; j < 8; j++) {
+        float t[16];
+        tmem_ld_x16(t, tmem_addr + j * 16);
+        asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+        #pragma unroll
+        for (int k = 0; k < 16; k++) col[(j * 16 + k) * 128] = t[k];
+    }
 }
 // 8 tf32 MMAs (K = 64 rows of one K-half of the reverse transfer view): D[128 x 128] += A[128 x 64] (TMEM) * B (smem)
 // seg_carry v5's reverse descriptor (MN-major, swizzle 128B base 32B, SBO 512 B) with LBO 8 KiB (K-half box); M = 128.
