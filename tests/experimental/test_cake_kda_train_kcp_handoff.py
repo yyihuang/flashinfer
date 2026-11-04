@@ -30,6 +30,10 @@ at an admitted head count and refuses as ``"unverified"`` with the verified set 
 the facade ``flashinfer.cake_kda_train_kcp`` forwards the mode under ``deterministic=False`` and never engages under
 ``deterministic=True``; a checkpointed forward with the hand-off retains nothing.  A check whose light path does not
 run under its dispatch mode or policy has nothing to compare: the row lists it under ``not_run``.
+The same rows run in the raw gate mode (``use_gate_in_kernel=True``, ``test_checkpoint_handoff_rows_raw``) with the
+same checks, the parameter partial sums of an R1c row (``sm_100a`` / ``sm_103a``) within one FP32 ulp (two after two
+accumulated backwards); the lean arena checks do not apply there (the raw mode refuses ``local_arena="lean"``) and the
+row lists them under ``not_applicable``.
 Single-process rows: the static rule, the admission table, the phase probe, the once-per-call decision (a refusal by
 the call's own arguments records nothing in either pass), the device key, the host values kept across calls (default
 options, pool needs, scratch table bytes), the per-call workspaces' shared identity tile, the saved set's tape members
@@ -68,9 +72,17 @@ from tests.experimental.test_cake_kda_train_kcp_dist import (
     cake_kcp,
     cake_kcp_plan,
 )
-from tests.test_helpers.cake_kda_det_train_reference import make_inputs
+from tests.test_helpers.cake_kda_det_train_reference import (
+    LOWER_BOUND,
+    make_inputs,
+    make_raw_inputs,
+)
 
 TENSORS = ("out", "dq", "dk", "dv", "dg", "dbeta", "dw")
+# the raw gate mode's parameter gradients (this rank's partial sums); on the R1c rows (sm_100a / sm_103a) an unordered
+# FP64 sum rounded once: within one FP32 ulp from run to run instead of bitwise
+RAW_PARAMS = ("dA_log", "ddt_bias")
+R1C_ARCHES = ("sm_100a", "sm_103a")
 # the launches the hand-off's backward drops (the forward's tape set stands in for their outputs)
 SKIPPED = ("fwd_intra", "wy", "kcp_fwdh_tape")
 # the shipped admission rule of "auto" (cake_kcp_plan.kcp_handoff_auto_refusal)
@@ -105,6 +117,23 @@ def _same(a: dict, b: dict) -> bool:
     )
 
 
+def _ulp32(a: torch.Tensor, b: torch.Tensor) -> float:
+    """The largest distance of two FP32 tensors of one shape in representable values (``inf`` for another shape or
+    dtype or a non-finite value)."""
+    if a.shape != b.shape or a.dtype != torch.float32 or b.dtype != torch.float32:
+        return float("inf")
+    if a.numel() == 0:
+        return 0.0
+    if not (bool(torch.isfinite(a).all()) and bool(torch.isfinite(b).all())):
+        return float("inf")
+
+    def ordered(t: torch.Tensor) -> torch.Tensor:
+        i = t.detach().contiguous().view(torch.int32).to(torch.int64)
+        return torch.where(i < 0, -(i & 0x7FFFFFFF), i)
+
+    return float((ordered(a) - ordered(b)).abs().max().item())
+
+
 def _collectives(seq) -> list:
     return [x for x in seq if x.startswith(("a2a:", "ring:"))]
 
@@ -135,9 +164,18 @@ class _ArenaPoison:
 
 
 def _run_rank_handoff(
-    rank: int, W: int, row, rdzv: str | None, result_dir: str | None, local_id: int
+    rank: int,
+    W: int,
+    row,
+    rdzv: str | None,
+    result_dir: str | None,
+    local_id: int,
+    gate: str = "g",
 ) -> dict:
-    """One rank of a hand-off row (see the module docstring)."""
+    """One rank of a hand-off row (see the module docstring).  ``gate="raw"``: the raw gate mode
+    (``use_gate_in_kernel=True`` with ``A_log`` / ``dt_bias`` leaves and the lower bound); its parameter partial sums
+    are compared bitwise, on an R1c row within one FP32 ulp (two after two accumulated backwards), and the lean
+    arena, which the raw mode refuses, is not run."""
     from torch.utils.checkpoint import (
         CheckpointPolicy,
         checkpoint,
@@ -152,18 +190,28 @@ def _run_rank_handoff(
     group = dist.group.WORLD
     part, cu = _partition(lengths, W, layout)
     ctx = cake_kcp_plan.build_context_kcp(part, group, rank, device)
-    glob = make_inputs(lengths, H, device)
+    raw = gate == "raw"
+    if raw:
+        glob = make_raw_inputs(lengths, H, device)
+        params0 = (glob["A_log"], glob["dt_bias"])
+        glob = {n: glob[n] for n in ("q", "k", "v", "g", "beta", "dout")}
+    else:
+        glob = make_inputs(lengths, H, device)
+        params0 = ()
     ops = _local_slices(part, rank, cu, glob)
     q, k, v, g, beta, dout = (ops[n] for n in ("q", "k", "v", "g", "beta", "dout"))
-    ws = cake_kcp.WorkspaceKcp()
-    ws_lean = cake_kcp.WorkspaceKcp(local_arena="lean")
+    ws = cake_kcp.WorkspaceKcp(use_gate_in_kernel=raw)
+    ws_lean = None if raw else cake_kcp.WorkspaceKcp(local_arena="lean")
     T_r = int(q.shape[0])
     index = device.index if device.index is not None else torch.cuda.current_device()
     arch = cake_kcp.cake_jit.device_arch(index)
     sms = int(cake_kcp.cake_jit.sm_count(index))
     toolkit = cake_kcp._handoff_toolkit(arch)
     key = (arch, sms, toolkit)
+    r1c = raw and arch in R1C_ARCHES
     info: dict[str, object] = {
+        "gate": gate,
+        "r1c": r1c,
         "T_r": T_r,
         "n_frag": int(ctx.n_frag),
         "n_in": int(ctx.n_in),
@@ -176,7 +224,41 @@ def _run_rank_handoff(
     not_run: list[str] = []
 
     def leaves():
-        return [x.detach().clone().requires_grad_(True) for x in (q, k, v, g, beta)]
+        return [
+            x.detach().clone().requires_grad_(True)
+            for x in (q, k, v, g, beta, *params0)
+        ]
+
+    def gate_kw(params) -> dict:
+        """The raw gate mode's keywords with the parameter leaves ``params`` (nothing in ``"g"`` mode)."""
+        if not raw:
+            return {}
+        return {
+            "use_gate_in_kernel": True,
+            "A_log": params[0],
+            "dt_bias": params[1],
+            "lower_bound": LOWER_BOUND,
+        }
+
+    def grads_of(lv) -> dict:
+        res = {
+            f"d{n}": lf.grad
+            for n, lf in zip(("q", "k", "v", "g", "beta"), lv[:5], strict=True)
+        }
+        if raw:
+            res["dA_log"], res["ddt_bias"] = lv[5].grad, lv[6].grad
+        return res
+
+    def same(a: dict, b: dict, tol: int = 1) -> bool:
+        """``_same``; on an R1c row the parameter partial sums within ``tol`` FP32 ulps instead."""
+        if not r1c:
+            return _same(a, b)
+        keys = [n for n in a if n not in RAW_PARAMS]
+        return (
+            set(a) == set(b)
+            and _same({n: a[n] for n in keys}, {n: b[n] for n in keys})
+            and all(_ulp32(a[n], b[n]) <= tol for n in RAW_PARAMS)
+        )
 
     def run(
         mode: str,
@@ -209,20 +291,21 @@ def _run_rank_handoff(
         if keep is not None:
             kw["checkpoint_keep"] = keep
 
-        def top(q_, k_, v_, g_, b_, w_):
+        def top(*a):
             y = cake_kcp.chunk_kda_kcp(
-                q_,
-                k_,
-                v_,
-                g_,
-                b_,
+                a[0],
+                a[1],
+                a[2],
+                a[3],
+                a[4],
                 ctx,
                 workspace=workspace,
                 checkpoint_handoff=mode,
                 **kw,
+                **gate_kw(a[5:-1]),
                 deterministic=False,
             )
-            return y * w_
+            return y * a[-1]
 
         cake_kcp.LAST_CALL.pop("fwd", None)
         cake_kcp.LAST_CALL.pop("bwd", None)
@@ -251,12 +334,7 @@ def _run_rank_handoff(
         rec_fwd = cake_kcp.LAST_CALL.get("fwd")
         rec_bwd = dict(cake_kcp.LAST_CALL["bwd"])
         res = {"out": out.detach(), "dw": wl.grad}
-        res.update(
-            {
-                f"d{n}": lf.grad
-                for n, lf in zip(("q", "k", "v", "g", "beta"), lv, strict=True)
-            }
-        )
+        res.update(grads_of(lv))
         return res, {"orig": rec_orig, "fwd": rec_fwd, "bwd": rec_bwd}
 
     def engaged(recs) -> bool:
@@ -292,10 +370,10 @@ def _run_rank_handoff(
     direct, recs_direct = run("off", ckpt=False)
     base, recs_base = run("off")
     flags["off_light"] = light(recs_base) and light(recs_direct)
-    flags["off_equals_direct"] = _same(base, direct)
+    flags["off_equals_direct"] = same(base, direct)
     # the hand-off on: non-reentrant and reentrant
     on_nr, recs_on = run("on")
-    flags["on_nonreentrant_bitwise"] = _same(on_nr, base)
+    flags["on_nonreentrant_bitwise"] = same(on_nr, base)
     flags["on_nonreentrant_engaged"] = engaged(recs_on)
     flags["on_launches"] = skips(recs_on, recs_base)
     want_bytes = cake_kcp.kda_handoff_bytes_kcp(ctx, H=H) if T_r > 0 else None
@@ -308,7 +386,12 @@ def _run_rank_handoff(
     st = recs_on["fwd"]["save_transfer"]
     query = {
         flag: cake_kcp_plan.kda_saved_bytes_kcp(
-            ctx, H=H, with_conv=False, save_transfer=st, checkpoint_handoff=flag
+            ctx,
+            H=H,
+            with_conv=False,
+            save_transfer=st,
+            use_gate_in_kernel=raw,
+            checkpoint_handoff=flag,
         )
         for flag in (False, True)
     }
@@ -323,7 +406,7 @@ def _run_rank_handoff(
     )
     off_r, recs_off_r = run("off", reentrant=True)
     on_r, recs_on_r = run("on", reentrant=True)
-    flags["on_reentrant_bitwise"] = _same(on_r, base) and _same(off_r, base)
+    flags["on_reentrant_bitwise"] = same(on_r, base) and same(off_r, base)
     flags["on_reentrant_engaged"] = (
         recs_on_r["fwd"] is not None
         and recs_on_r["fwd"].get("checkpoint_handoff") == ("save" if T_r > 0 else None)
@@ -336,33 +419,41 @@ def _run_rank_handoff(
     for keep in ("states", "transfer"):
         _, recs_h_off = run("off", handle=cake_kcp.RecomputeHandleKcp(), keep=keep)
         res_h, recs_h = run("on", handle=cake_kcp.RecomputeHandleKcp(), keep=keep)
-        flags[f"handle_{keep}_bitwise"] = _same(res_h, base)
+        flags[f"handle_{keep}_bitwise"] = same(res_h, base)
         flags[f"handle_{keep}_engaged"] = engaged(recs_h)
         flags[f"handle_{keep}_launches"] = skips(recs_h, recs_h_off)
-    # a lean arena (the tail's per-range views of the bound buffers) and a per-call workspace
-    res_lean_off, _ = run("off", workspace=ws_lean)
-    res_lean, recs_lean = run("on", workspace=ws_lean)
-    flags["lean_bitwise"] = _same(res_lean, base) and _same(res_lean_off, base)
-    flags["lean_engaged"] = engaged(recs_lean)
+    # a lean arena (the tail's per-range views of the bound buffers; the raw mode refuses it) and a per-call workspace
+    if ws_lean is not None:
+        res_lean_off, _ = run("off", workspace=ws_lean)
+        res_lean, recs_lean = run("on", workspace=ws_lean)
+        flags["lean_bitwise"] = _same(res_lean, base) and _same(res_lean_off, base)
+        flags["lean_engaged"] = engaged(recs_lean)
+    else:
+        # not applicable (no flag): the raw mode refuses the lean arena
+        # (test_cake_kda_train_kcp_raw_gate.py::test_raw_workspace_refuses_the_lean_arena)
+        info["not_applicable"] = {
+            "lean_bitwise": "the raw gate mode refuses local_arena='lean'",
+            "lean_engaged": "the raw gate mode refuses local_arena='lean'",
+        }
     res_pc, recs_pc = run("on", workspace=None)
-    flags["per_call_bitwise"] = _same(res_pc, base)
+    flags["per_call_bitwise"] = same(res_pc, base)
     flags["per_call_engaged"] = engaged(recs_pc)
     # NaN poison: a NaN-filled tape set and poisoned free blocks (per-call workspace: its arena comes from them), and
     # the caller arena poisoned between the recompute and the backward (both modes)
     res_p, recs_p = run("on", workspace=None, poison_free=True, poison_tape=True)
-    flags["poison_tape_free_bitwise"] = _same(res_p, base)
+    flags["poison_tape_free_bitwise"] = same(res_p, base)
     flags["poison_tape_free_engaged"] = engaged(recs_p)
     arena_fn = lambda: (contextlib.nullcontext(), _ArenaPoison(ws))  # noqa: E731
     res_pa_off, _ = run("off", context_fn=arena_fn)
     res_pa_on, recs_pa = run("on", context_fn=arena_fn, poison_tape=True)
-    flags["poison_arena_off_bitwise"] = _same(res_pa_off, base)
-    flags["poison_arena_on_bitwise"] = _same(res_pa_on, base)
+    flags["poison_arena_off_bitwise"] = same(res_pa_off, base)
+    flags["poison_arena_on_bitwise"] = same(res_pa_on, base)
     flags["poison_arena_engaged"] = engaged(recs_pa)
     # ranks that decide differently ("on" on the even ranks, "off" on the odd ones): the hand-off moves no
     # collective, so nothing hangs and no bit changes
     mixed = "on" if rank % 2 == 0 else "off"
     res_mx, recs_mx = run(mixed)
-    flags["mixed_ranks_bitwise"] = _same(res_mx, base)
+    flags["mixed_ranks_bitwise"] = same(res_mx, base)
     flags["mixed_ranks_engaged"] = engaged(recs_mx) if mixed == "on" else light(recs_mx)
     # the ring exchange (where the partition allows it) and the overlap schedule (test knob; with a2a and the ring),
     # from a poisoned allocator: bitwise "off", whose launches the hand-off's are minus SKIPPED
@@ -378,7 +469,7 @@ def _run_rank_handoff(
         for form, opts in forms.items():
             res_f_off, recs_f_off = run("off", poison_free=True, **opts)
             res_f_on, recs_f_on = run("on", poison_free=True, **opts)
-            flags[f"{form}_bitwise"] = _same(res_f_off, base) and _same(res_f_on, base)
+            flags[f"{form}_bitwise"] = same(res_f_off, base) and same(res_f_on, base)
             flags[f"{form}_engaged"] = engaged(recs_f_on) and light(recs_f_off)
             flags[f"{form}_launches"] = skips(recs_f_on, recs_f_off)
             if "exchange" in opts:
@@ -390,21 +481,21 @@ def _run_rank_handoff(
         cake_kcp_plan.enable_test_knobs(previous_knobs)
     # retain_graph: each backward replays the original forward's decision; exactly twice the gradients
     res_tw, recs_tw = run("on", twice=True)
-    flags["twice_bitwise"] = _same(
-        res_tw, {n: base[n] if n == "out" else base[n] + base[n] for n in base}
+    flags["twice_bitwise"] = same(
+        res_tw, {n: base[n] if n == "out" else base[n] + base[n] for n in base}, tol=2
     )
     flags["twice_engaged"] = engaged(recs_tw)
     # refusals: no checkpoint (no phase), a blocked state (CUDA-graph capture / torch.compile tracing, simulated in both
     # passes), a selective-checkpoint policy (a dispatch mode in both passes), "auto" off the verified set
     res_nc, recs_nc = run("on", ckpt=False)
-    flags["refuse_no_checkpoint"] = _same(res_nc, direct) and light(recs_nc)
+    flags["refuse_no_checkpoint"] = same(res_nc, direct) and light(recs_nc)
     blocked = cake_kcp._handoff_blocked
     cake_kcp._handoff_blocked = lambda: True
     try:
         res_bl, recs_bl = run("on")
     finally:
         cake_kcp._handoff_blocked = blocked
-    flags["refuse_blocked"] = _same(res_bl, base) and light(recs_bl)
+    flags["refuse_blocked"] = same(res_bl, base) and light(recs_bl)
     sac = lambda: create_selective_checkpoint_contexts(  # noqa: E731
         lambda c, op, *a, **kw: CheckpointPolicy.PREFER_RECOMPUTE
     )
@@ -420,7 +511,7 @@ def _run_rank_handoff(
         try:
             res_sac, recs_sac = run("on", context_fn=sac)
             flags["refuse_sac"] = (
-                _same(res_sac, res_sac_off) and _same(res_sac, base) and light(recs_sac)
+                same(res_sac, res_sac_off) and same(res_sac, base) and light(recs_sac)
             )
         except Exception:  # noqa: BLE001 - recorded; the flag fails
             info["sac_error"] = traceback.format_exc()[-1500:]
@@ -439,8 +530,8 @@ def _run_rank_handoff(
         try:
             res_m, recs_m = run("on", **mode_kw)
             flags[f"mode_{side}_only"] = (
-                _same(res_m, res_m_off)
-                and _same(res_m, base)
+                same(res_m, res_m_off)
+                and same(res_m, base)
                 and (light(recs_m) if side == "fwd" else engaged(recs_m))
             )
         except Exception:  # noqa: BLE001 - recorded; the flag fails
@@ -485,11 +576,11 @@ def _run_rank_handoff(
         delta = {n: after[n] - before[n] for n in after if after[n] != before[n]}
         if reason is None:
             flags[f"auto_{case}"] = (
-                _same(res_a, base) and engaged(recs_a) and delta == kept
+                same(res_a, base) and engaged(recs_a) and delta == kept
             )
         else:
             flags[f"auto_{case}"] = (
-                _same(res_a, base)
+                same(res_a, base)
                 and light(recs_a)
                 and delta == {"refused_" + reason: 1}
             )
@@ -501,31 +592,27 @@ def _run_rank_handoff(
         lv = leaves()
         wl = torch.ones_like(dout).requires_grad_(True)
 
-        def top(q_, k_, v_, g_, b_, w_):
+        def top(*a):
             y = kcp_api.chunk_kda_kcp(
-                q_,
-                k_,
-                v_,
-                g_,
-                b_,
+                a[0],
+                a[1],
+                a[2],
+                a[3],
+                a[4],
                 ctx,
                 workspace=None if det else ws,
                 checkpoint_handoff=mode,
                 deterministic=det,
+                **gate_kw(a[5:-1]),
             )
-            return y * w_
+            return y * a[-1]
 
         before = kcp_api.kcp_handoff_stats()
         out = checkpoint(top, *lv, wl, use_reentrant=False)
         out.backward(dout)
         after = kcp_api.kcp_handoff_stats()
         res = {"out": out.detach(), "dw": wl.grad}
-        res.update(
-            {
-                f"d{n}": lf.grad
-                for n, lf in zip(("q", "k", "v", "g", "beta"), lv, strict=True)
-            }
-        )
+        res.update(grads_of(lv))
         return res, {k: after[k] - before[k] for k in after if after[k] != before[k]}
 
     det_res = {}
@@ -534,7 +621,7 @@ def _run_rank_handoff(
         with auto_rule(0, shipped[1]) as reason:
             res_f, delta = run_facade(mode, False)
         want = kept if (mode == "on" or (mode == "auto" and reason is None)) else {}
-        flags[f"facade_nd_{mode}_bitwise"] = _same(res_f, base)
+        flags[f"facade_nd_{mode}_bitwise"] = same(res_f, base)
         flags[f"facade_nd_{mode}_engaged"] = {
             k: n for k, n in delta.items() if k in ("save", "bound")
         } == want
@@ -550,12 +637,17 @@ def _run_rank_handoff(
     for form, wsp in (
         ("per_call", None),
         ("caller_ws", ws),
-        ("fresh_ws", cake_kcp.WorkspaceKcp()),
+        ("fresh_ws", cake_kcp.WorkspaceKcp(use_gate_in_kernel=raw)),
     ):
 
         def fn0(*a, _w=wsp):
             return cake_kcp.chunk_kda_kcp(
-                *a, ctx, workspace=_w, checkpoint_handoff="on", deterministic=False
+                *a[:5],
+                ctx,
+                workspace=_w,
+                checkpoint_handoff="on",
+                deterministic=False,
+                **gate_kw(a[5:]),
             )
 
         for step in ("warm", "measure"):
@@ -586,6 +678,9 @@ def _run_rank_handoff(
             key_: [r for r, f in enumerate(flag_list) if not f[key_]] for key_ in flags
         },
         "not_run": sorted({n for i in info_list for n in i["not_run"]}),
+        "not_applicable": sorted(
+            {n for i in info_list for n in i.get("not_applicable", {})}
+        ),
         "info_by_rank": info_list,
     }
     report["pass"] = all(report["flags"].values()) and all(
@@ -594,24 +689,32 @@ def _run_rank_handoff(
     dist.barrier()
     if rank == 0 and result_dir:
         os.makedirs(result_dir, exist_ok=True)
-        with open(
-            os.path.join(result_dir, "handoff-" + _row_id(row) + ".json"), "w"
-        ) as fh:
+        with open(os.path.join(result_dir, _report_name(row, gate)), "w") as fh:
             json.dump(report, fh, indent=1, default=str)
     return report
 
 
+def _report_name(row, gate: str = "g") -> str:
+    return ("handoff-raw-" if gate == "raw" else "handoff-") + _row_id(row) + ".json"
+
+
 def _spawn_entry_handoff(
-    rank: int, W: int, row, rdzv: str | None, result_dir: str
+    rank: int, W: int, row, rdzv: str | None, result_dir: str, gate: str = "g"
 ) -> None:
     try:
         _bound_rank_threads(W)
-        report = _run_rank_handoff(rank, W, row, rdzv, result_dir, rank)
+        report = _run_rank_handoff(rank, W, row, rdzv, result_dir, rank, gate)
         if not report["pass"]:
             raise AssertionError(f"rank {rank}: {report}")
     finally:
         if dist.is_initialized():
             dist.destroy_process_group()
+
+
+def _spawn_entry_handoff_raw(
+    rank: int, W: int, row, rdzv: str | None, result_dir: str
+) -> None:
+    _spawn_entry_handoff(rank, W, row, rdzv, result_dir, "raw")
 
 
 @pytest.mark.parametrize("row", HANDOFF_ROWS, ids=_row_id)
@@ -641,6 +744,38 @@ def test_checkpoint_handoff_rows(row) -> None:
         result_dir = os.environ.get("KCP_TEST_RESULT_DIR") or tmp
         _start_ranks(_spawn_entry_handoff, W, row, tmp, result_dir)
         with open(os.path.join(result_dir, "handoff-" + _row_id(row) + ".json")) as fh:
+            report = json.load(fh)
+    assert report["pass"], report
+
+
+@pytest.mark.parametrize("row", HANDOFF_ROWS, ids=_row_id)
+def test_checkpoint_handoff_rows_raw(row) -> None:
+    """The hand-off rows of ``_run_rank_handoff`` in the raw gate mode on every rank of the row."""
+    W = row[2]
+    ntasks = int(os.environ.get("SLURM_NTASKS", "1") or 1)
+    if os.environ.get("SLURM_PROCID") is not None and ntasks > 1:
+        if ntasks != W:
+            pytest.skip(f"a {ntasks}-task Slurm step runs the W={ntasks} rows only")
+        if not _programs_exported():
+            pytest.skip(
+                "the KCP programs are not exported in the package's build.json yet"
+            )
+        report = _run_rank_handoff(
+            int(os.environ["SLURM_PROCID"]),
+            W,
+            row,
+            None,
+            os.environ.get("KCP_TEST_RESULT_DIR"),
+            int(os.environ.get("SLURM_LOCALID", "0")),
+            "raw",
+        )
+        assert report["pass"], report
+        return
+    _skip_unless_runnable(W)
+    with tempfile.TemporaryDirectory(prefix="cake_kcp_handoff_") as tmp:
+        result_dir = os.environ.get("KCP_TEST_RESULT_DIR") or tmp
+        _start_ranks(_spawn_entry_handoff_raw, W, row, tmp, result_dir)
+        with open(os.path.join(result_dir, _report_name(row, "raw"))) as fh:
             report = json.load(fh)
     assert report["pass"], report
 

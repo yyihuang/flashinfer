@@ -427,7 +427,8 @@ raises the checkpoint peak by at most that much: the saved set grows by
 the tape set less the carry plane at `P > 1`.  Measured with `"on"` forced on
 the hand-off's first version: +152 MiB per rank at CP8 H4 to +10196 MiB at CP2
 H64 (T = 261392); with `"auto"` on this version, +625.5 MiB at CP8 H16
-to +10196 MiB at CP2 H64.
+to +10196 MiB at CP2 H64.  The raw gate mode keeps the same set under the
+same bound (its measured rise is in the raw-mode list below).
 `kda_saved_bytes_kcp(..., checkpoint_handoff=True)` is the saved set of an
 engaged call (no carry plane; the flag is the decision, a `bool`, not the
 mode); the facade `flashinfer.cake_kda_train_kcp`
@@ -564,9 +565,15 @@ dA_log, ddt_bias = reduce_gate_param_grads_kcp(ctx, dA_log_r, ddt_bias_r, **nd) 
   once.  A backward that stops between the GLM intra launches and the cast
   leaves sums in it; the next backward, or a `graph="replay"` replay, zeroes
   the whole buffer first.
-* The checkpoint hand-off does not engage in raw mode (its tape set is
-  verified on the explicit gate only): a raw call keeps the light set under
-  every `checkpoint_handoff` value and records no decision.
+* The checkpoint hand-off engages in raw mode as on the explicit gate (the
+  same tape set, the same `"auto"` rule and the same once-per-call decision;
+  the backward's tail and parameter finalize are the raw mode's): the outputs
+  and non-parameter gradients are bitwise those of `"off"`, the parameter
+  partial sums follow the rule above.  An engaged call raises the rank's
+  checkpoint peak by at most `kda_handoff_bytes_kcp(ctx, H=...)`, as on the
+  explicit gate (measured on GB300 at T = 261392 with `"auto"`: 0.9855-0.9949
+  of it per rank at CP2 H4, CP4 H16 and CP2 H64, e.g. +10106 / +10178 MiB of
+  10230 MiB at CP2 H64).
 * The backward allocates the raw gate's BF16 gradient, on `sm_107a` the
   partials (two FP32 `[NC_pad, H, 128, 2]` buffers of the rank's chunks, for
   the duration of the call) and the two parameter gradients; a rank without

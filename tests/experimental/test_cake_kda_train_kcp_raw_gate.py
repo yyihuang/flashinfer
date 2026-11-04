@@ -37,8 +37,10 @@ parameter partials of an R1c row within one FP32 ulp, the accumulators zero afte
 GPU rows (one process per rank; ``W = 1`` in the pytest process, ``W > 1`` spawned or one process per Slurm task as in
 ``test_cake_kda_train_kcp_dist.py``): every rank runs the raw-mode KCP forward / backward in every mode and must be
 bitwise repeatable (saved == replay, repeat, autograd == explicit calls, checkpoint == direct, checkpoint with a
-recompute handle == plain checkpoint, checkpoint with ``checkpoint_handoff="on"`` == plain checkpoint with no
-hand-off decision taken, save_transfer, ring == a2a, graph replay == eager, ``workspace=None``, a strided raw view ==
+recompute handle == plain checkpoint, checkpoint with ``checkpoint_handoff="on"`` == plain checkpoint with the
+hand-off engaged (the tape set kept by both forward passes and read by the backward on a rank with tokens), also from a
+NaN-filled tape set, ``"auto"`` refused on these small rows by the call's own arguments with one refusal counted per
+checkpointed call in its original forward and none in its recompute, save_transfer, ring == a2a, graph replay == eager, ``workspace=None``, a strided raw view ==
 the contiguous one) on every output, the gradient of the raw gate and the per-rank parameter partial sums (an R1c
 row's partial sums: within one FP32 ulp and every run within the R1c bound; its accumulators zero after the calls);
 every output, the raw gate's gradient, the per-rank partial sums and the reduced sums are bitwise those of the
@@ -1085,7 +1087,15 @@ def _run_rank(rank: int, W: int, row, rdzv: str | None, result_dir: str | None) 
             recs[tag] = (rec_f, dict(cake_kcp.LAST_CALL["bwd"]))
         return {"out": out, **dict(zip(TOKEN_GRADS + PARAM_GRADS, grads, strict=True))}
 
-    def autograd_pass(ckpt: bool = False, handle=None, workspace=ws, handoff="auto"):
+    # the hand-off counters' changes per tagged autograd pass: (the forward, the backward with its recompute)
+    counted: dict = {}
+
+    def stats_delta(before: dict, after: dict) -> dict:
+        return {n: after[n] - before[n] for n in after if after[n] != before[n]}
+
+    def autograd_pass(
+        ckpt: bool = False, handle=None, workspace=ws, handoff="auto", tag=None
+    ):
         leaves = [
             x.detach().clone().requires_grad_(True)
             for x in (q, k, v, g, beta, A_log, dt_bias)
@@ -1099,12 +1109,19 @@ def _run_rank(rank: int, W: int, row, rdzv: str | None, result_dir: str | None) 
             )  # fmt: skip
 
         extra = (handle,) if handle is not None else ()
+        s0 = cake_kcp.kcp_handoff_stats()
         out = (
             checkpoint(fn, *leaves, *extra, use_reentrant=False)
             if ckpt
             else fn(*leaves, *extra)
         )
+        s1 = cake_kcp.kcp_handoff_stats()
         out.backward(dout)
+        if tag is not None:
+            counted[tag] = (
+                stats_delta(s0, s1),
+                stats_delta(s1, cake_kcp.kcp_handoff_stats()),
+            )
         names = ("dq", "dk", "dv", "dg", "dbeta", "dA_log", "ddt_bias")
         return {
             "out": out.detach(),
@@ -1117,21 +1134,35 @@ def _run_rank(rank: int, W: int, row, rdzv: str | None, result_dir: str | None) 
     pending = bool(getattr(cake_kcp.get_backend(), "_spec3_pending", False))
     res = saved_pass(tag="raw", spec3_probe="record")
     spec3 = (cake_kcp.LAST_CALL.get("bwd") or {}).get("spec3")
-    handoff_stats = cake_kcp.kcp_handoff_stats()
     runs = {
         "saved_eq_replay": saved_pass(boundary_mode="replay"),
         "repeat": saved_pass(),
-        "autograd_eq_saved": autograd_pass(),
-        "ckpt_eq_direct": autograd_pass(ckpt=True),
+        "autograd_eq_saved": autograd_pass(tag="auto_direct"),
+        "ckpt_eq_direct": autograd_pass(ckpt=True, tag="auto_ckpt"),
         "handle_eq_ckpt": autograd_pass(
-            ckpt=True, handle=cake_kcp.RecomputeHandleKcp()
+            ckpt=True, handle=cake_kcp.RecomputeHandleKcp(), tag="auto_handle"
         ),
-        # the checkpoint hand-off never engages in raw mode, even when forced on: the light set, no decision taken
-        "handoff_on_eq_ckpt": autograd_pass(ckpt=True, handoff="on"),
-        "save_transfer_eq": saved_pass(save_transfer=False),
-        "ws_none_eq": autograd_pass(workspace=None),
     }
-    handoff_untouched = cake_kcp.kcp_handoff_stats() == handoff_stats
+    # the checkpoint hand-off forced on in raw mode: on a rank with tokens the original forward keeps the tape set,
+    # the recompute keeps it again and the backward reads it (nothing on a rank without); the results are the plain
+    # checkpoint's; then once more from a NaN-filled tape set (every byte the backward reads is the forward's)
+    want_on = ({"save": 1}, {"save": 1, "bound": 1}) if int(ctx.T_r) > 0 else ({}, {})
+    runs["handoff_on_eq_ckpt"] = autograd_pass(ckpt=True, handoff="on", tag="on")
+    prev_poison = cake_kcp._HANDOFF_POISON
+    cake_kcp._HANDOFF_POISON = True
+    try:
+        runs["handoff_on_poison_eq_ckpt"] = autograd_pass(
+            ckpt=True, handoff="on", tag="on_poison"
+        )
+    finally:
+        cake_kcp._HANDOFF_POISON = prev_poison
+    runs["save_transfer_eq"] = saved_pass(save_transfer=False)
+    runs["ws_none_eq"] = autograd_pass(workspace=None, tag="auto_ws_none")
+    # "auto" on these small rows: the call's own arguments refuse it ("work" below the bound, "heads" off the admitted
+    # head counts), on every rank alike: one refusal counted per checkpointed call, in its original forward; the
+    # recompute counts nothing, nothing is kept or read, and a call outside a checkpoint counts nothing
+    reason = cake_kcp._handoff_static("auto", cake_kcp._options({}), "saved", v, ctx)
+    want_auto = ({"refused_" + str(reason): 1}, {})
     # a strided raw view (a column slice of a wider fused projection, the single-rank rule's example) reads the same
     # elements: the same bits, no copy
     T = int(ctx.T_r)
@@ -1140,7 +1171,14 @@ def _run_rank(rank: int, W: int, row, rdzv: str | None, result_dir: str | None) 
     view = wide[:, 8 : 8 + H * D].view(T, H, D)
     runs["strided_eq"] = saved_pass(raw=view)
     flags = {name: _same_run(res, r, r1c) for name, r in runs.items()}
-    flags["handoff_never_engages"] = handoff_untouched
+    flags["handoff_engages"] = counted["on"] == want_on
+    flags["handoff_poison_engages"] = counted["on_poison"] == want_on
+    flags["handoff_auto_refused"] = (
+        reason in ("work", "heads")
+        and counted["auto_ckpt"] == want_auto
+        and counted["auto_handle"] == want_auto
+        and counted["auto_direct"] == counted["auto_ws_none"] == ({}, {})
+    )
     # the deterministic package's raw KCP route on the same operands and the same context (the context holds no mode
     # and serves both packages): every output, the raw gate's gradient and the partial sums bitwise (an R1c row's
     # partial sums within the R1c bound of that route's per-chunk partials), the same launch sequence, and the
@@ -1402,15 +1440,17 @@ def _run_rank(rank: int, W: int, row, rdzv: str | None, result_dir: str | None) 
     launch_list: list = [None] * W
     det_mism_list: list = [None] * W
     r1c_list: list = [None] * W
+    counted_list: list = [None] * W
     if W > 1:
         dist.all_gather_object(flag_list, flags)
         dist.all_gather_object(spec3_list, spec3)
         dist.all_gather_object(launch_list, launch_cmp)
         dist.all_gather_object(det_mism_list, det_mism)
         dist.all_gather_object(r1c_list, r1c_report)
+        dist.all_gather_object(counted_list, counted)
     else:
         flag_list, spec3_list, launch_list = [flags], [spec3], [launch_cmp]
-        det_mism_list, r1c_list = [det_mism], [r1c_report]
+        det_mism_list, r1c_list, counted_list = [det_mism], [r1c_report], [counted]
     report: dict = {
         "rank": rank,
         "world": W,
@@ -1424,6 +1464,7 @@ def _run_rank(rank: int, W: int, row, rdzv: str | None, result_dir: str | None) 
         "det_mismatch_by_rank": det_mism_list,
         "r1c": r1c,
         "r1c_by_rank": r1c_list,
+        "handoff_counts_by_rank": counted_list,
         "graph_events": events,
         "device": torch.cuda.get_device_name(device),
         "arch": cake_jit.device_arch(device.index),

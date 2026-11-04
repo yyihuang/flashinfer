@@ -117,7 +117,7 @@ gets the same sums from the same partials; as the partials can change from run
 to run, so can those sums, by a few FP32 ulps that grow with the world size
 (each partial by about one ulp, each of the additions rounding either way).  Under torch's
 deterministic algorithms such a call runs the deterministic package, as above.
-The checkpoint hand-off does not engage in the raw mode.
+The checkpoint hand-off engages in the raw mode as on the explicit gate.
 The in-kernel q / k L2 norm (``use_qk_l2norm_in_kernel=True``, #7817) runs on
 the deterministic package only: the compute entries forward it, and
 ``kda_workspace_bytes_kcp`` / ``kda_saved_bytes_kcp`` take it.
@@ -536,7 +536,7 @@ def chunk_kda_kcp(
     call raises the checkpoint peak of this rank by at most :func:`kda_handoff_bytes_kcp` (its saved set is
     ``kda_saved_bytes_kcp(..., checkpoint_handoff=True)``: no carry plane); ``"off"`` opts out.  The deterministic
     package has no hand-off: ``deterministic=True`` ignores the value and never engages.  In raw gate mode
-    (``use_gate_in_kernel=True``, forwarded through ``**options``) the hand-off does not engage either.
+    (``use_gate_in_kernel=True``, forwarded through ``**options``) the hand-off engages as on the explicit gate.
 
     ``recompute_handle`` / ``checkpoint_keep``: the checkpoint recompute without the forward state exchange, as for
     :func:`flashinfer.cake_kda_det_train_kcp.chunk_kda_det_kcp` (a ``RecomputeHandleKcp`` or any object with an

@@ -279,7 +279,7 @@ exchange.  :func:`reduce_gate_param_grads_kcp` still fixes the cross-rank
 order: every rank gets the same bits from the same partials (which then vary
 from run to run, so the sum does too, by a few FP32 ulps that grow with the
 world size: each partial by about one ulp, each addition rounding either way).
-The checkpoint hand-off does not engage in raw mode (:func:`chunk_kda_kcp`).
+The checkpoint hand-off engages in raw mode as on the explicit gate (:func:`chunk_kda_kcp`).
 
 
 P > 1 staging: the K1 ``_offset`` / K2 ``_offset`` / K3 passes of the segmented rank write two
@@ -7099,10 +7099,22 @@ def _handoff_decide(
 
 
 def _fwd_tape(
-    q, k, v, g, beta, ctx, *, scale, save_mode, workspace, opts
+    q,
+    k,
+    v,
+    g,
+    beta,
+    ctx,
+    *,
+    scale,
+    save_mode,
+    workspace,
+    opts,
+    gate_args: dict[str, Any] | None = None,
 ) -> tuple[torch.Tensor, SavedKcp]:
     """The forward of a checkpoint hand-off call without a handle (eager, saved mode): :func:`chunk_kda_fwd_kcp`'s
-    eager path that keeps the tape set (:func:`_fwd_body` ``tape``)."""
+    eager path that keeps the tape set (:func:`_fwd_body` ``tape``).  ``gate_args``: the entry point's gate
+    keywords (the raw gate mode's included)."""
     call, batched = _prepare(
         q,
         k,
@@ -7115,6 +7127,7 @@ def _fwd_tape(
         workspace=workspace,
         options=opts,
         backward=False,
+        **(gate_args or {}),
     )
     out, saved = _fwd_body(call, save=True, save_mode=save_mode, ctx=ctx, tape=True)
     _record("fwd", call)
@@ -7178,6 +7191,7 @@ class ChunkKDAFunctionKcp(torch.autograd.Function):
                 save_mode=save_mode,
                 workspace=workspace,
                 opts=_options(options),
+                gate_args=gate_args,
             )
         elif handle is None:
             out, saved = chunk_kda_fwd_kcp(
@@ -7310,8 +7324,9 @@ def chunk_kda_kcp(
     reproducible from the same partials (on ``sm_100a`` / ``sm_103a`` the partials themselves can differ by about one
     FP32 ulp from run to run: :func:`chunk_kda_bwd_kcp`).  A recompute handle's entry records the gate mode and
     ``lower_bound``: a recompute in another mode never binds it.  The
-    checkpoint hand-off below does not engage in raw gate mode (its tape set is verified on the explicit gate only):
-    the call keeps the light set under every ``checkpoint_handoff`` value, records no decision and counts nothing.
+    checkpoint hand-off below engages in raw gate mode as on the explicit gate (the same tape set; the backward's
+    tail and parameter finalize are the raw mode's): the outputs and the non-parameter gradients are bitwise those of
+    ``"off"`` and the parameter partial sums follow the raw mode's rule above.
 
     ``checkpoint_handoff`` (keyword-only; ``"auto"`` default, ``"on"``, ``"off"``): under ``torch.utils.checkpoint``
     the forward keeps its tape set (``h``, ``v_new``, ``w`` and the internal ``Aqk`` / ``Akk`` rows,
@@ -7355,12 +7370,9 @@ def chunk_kda_kcp(
             f"boundary_mode must be one of {BOUNDARY_MODES}, got {boundary_mode!r}"
         )
     # the checkpoint hand-off, decided in the caller's frame once per checkpointed call (the recompute replays the
-    # original forward's decision); a raw gate call keeps the light set in both passes alike (its own keyword decides
-    # that: no frame record, no recompute cursor)
+    # original forward's decision); a raw gate call decides as an explicit-gate call
     mode = _handoff_mode(checkpoint_handoff)
-    handoff = use_gate_in_kernel is not True and _handoff_decide(
-        mode, opts, boundary_mode, ctx, q, k, v, g, beta
-    )
+    handoff = _handoff_decide(mode, opts, boundary_mode, ctx, q, k, v, g, beta)
     if recompute_handle is None:
         if checkpoint_keep is not None:
             raise ValueError(
