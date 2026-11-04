@@ -7952,6 +7952,59 @@ MODULES: dict[str, dict[str, Any]] = {
         "variant": "cast_r8",
     },
 }
+
+
+def _e5_twin(
+    base: str,
+    library: str,
+    extra: list[tuple[str, str, str]],
+    *,
+    use_pdl: bool,
+    variant: str,
+) -> dict[str, Any]:
+    """Lane E5 prototype (not shipped): a twin record of ``base`` with extra kernel parameters (kind, key, logical
+    name) before the grid arguments; no rule selects it."""
+    import copy
+
+    rec = copy.deepcopy(MODULES[base])
+    grid = [a for a in rec["arg_plan"] if a[0] == "grid"]
+    rec["arg_plan"] = (
+        [a for a in rec["arg_plan"] if a[0] != "grid"]
+        + [[kind, key] for kind, key, _ in extra]
+        + grid
+    )
+    rec["logical"].update({key: logical for _, key, logical in extra})
+    rec["library"] = library
+    rec["kernel_symbol"] = "kernel_" + library
+    rec["launch"]["use_pdl"] = use_pdl
+    rec["select_rule"] = {"kind": "path_in", "paths": []}
+    rec["variant"] = variant
+    return rec
+
+
+# Lane E5 prototype (not shipped): the segmented adjoint recurrence's pass-2 twin that spins on the carry's per-segment
+# release flags (launched with PDL), and the pass-1 twin that runs the reverse carry itself as a chain of hops in its
+# epilogue (seg_carry v5's arithmetic) and releases the same flags.  pass-1 record -> (pass-2 spin twin, fused twin).
+MODULES["dhu_v3_f_wt_e5s"] = _e5_twin(
+    "dhu_v3_f_wt",
+    "cake_kda_train_e5e5e5e5e5e5e5e50001",
+    [("buffer", "flags", "flags"), ("parameter", "epoch", "epoch")],
+    use_pdl=True,
+    variant="v3_f_wt_e5s",
+)
+MODULES["dhu_v3_f_wt_e5c"] = _e5_twin(
+    "dhu_v3_f_wt",
+    "cake_kda_train_e5e5e5e5e5e5e5e50002",
+    [
+        ("buffer", "mh_tma", "seg_m"),
+        ("buffer", "dhseg", "dhseg"),
+        ("buffer", "flags", "flags"),
+        ("parameter", "epoch", "epoch"),
+    ],
+    use_pdl=False,
+    variant="v3_f_wt_e5c",
+)
+E5_TWINS = {"dhu_v3_f_wt": ("dhu_v3_f_wt_e5s", "dhu_v3_f_wt_e5c")}
 # The S1 records: the fused gradient records without the q * dq term of dg and the GLM intra records that add it.
 # On every path the plan's dqkg and glm_intra records are both in this tuple or both outside it
 # (cake_backend._check_pairs); a mixed pair drops the term or counts it twice.

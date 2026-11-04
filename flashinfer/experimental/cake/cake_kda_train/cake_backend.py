@@ -3980,6 +3980,8 @@ def _adjoint_recurrence(
         return
     assert seg_m is not None
     passes = {**values, "dhseg": views.dhseg, "dseg": views.dseg}
+    if _e5_adjoint(ws, values, passes, path=path, seg_m=seg_m, views=views):
+        return
     ws.run(
         "dhu",
         {**passes, "use_dht": 0, "write_tapes": 0, "write_ht": 1},
@@ -4002,6 +4004,88 @@ def _adjoint_recurrence(
         path=path,
         launch=1,
     )
+
+
+# Lane E5 prototype (not shipped): CAKE_KDA_E5 = "ov" (pass 1, the flag-releasing carry seg_carry_ov in reverse, pass 2
+# spinning under PDL) or "fused" (pass 1 running the reverse carry as chained hops, pass 2 spinning under PDL); engaged
+# only where the pass-1 record has E5 twins and the plan's carry is the chain carry.  Counts per mode.
+E5_STATS: dict[str, int] = {"ov": 0, "fused": 0, "refused": 0}
+_E5_FLAG_BASE = 8192  # arrival words of the fused form live at flags[8192 + s * H + h]
+
+
+def _e5_adjoint(
+    ws: KdaWorkspace,
+    values: dict[str, Any],
+    passes: dict[str, Any],
+    *,
+    path: str,
+    seg_m: torch.Tensor,
+    views: types.SimpleNamespace,
+) -> bool:
+    mode = os.environ.get("CAKE_KDA_E5", "")
+    if mode not in ("ov", "fused"):
+        return False
+    p = ws.plan
+    twins = cake_jit.E5_TWINS.get(p.record("dhu", path))
+    nseg_h = p.grid("dhu", path, 0)[0]
+    if (
+        twins is None
+        or p.record("seg_carry", path) != "seg_carry"
+        or 2 * nseg_h > _E5_FLAG_BASE
+        or nseg_h > ws.flags.numel() - _E5_FLAG_BASE
+    ):
+        E5_STATS["refused"] += 1
+        return False
+    epoch = ws.next_epoch()
+    if mode == "ov":
+        ws.run(
+            "dhu",
+            {**passes, "use_dht": 0, "write_tapes": 0, "write_ht": 1},
+            path=path,
+            launch=0,
+        )
+        carry = {
+            **values,
+            "seg_m": seg_m,
+            "carry_b": views.dseg,
+            "carry_out": views.dhseg,
+            "reverse": 1,
+            "flags": ws.flags,
+            "epoch": epoch,
+        }
+        ws.run("seg_carry", carry, path=path, record="seg_carry_ov")
+    else:
+        ws.run(
+            "dhu",
+            {
+                **passes,
+                "use_dht": 0,
+                "write_tapes": 0,
+                "write_ht": 1,
+                "seg_m": seg_m,
+                "flags": ws.flags,
+                "epoch": epoch,
+            },
+            path=path,
+            launch=0,
+            record=twins[1],
+        )
+    ws.run(
+        "dhu",
+        {
+            **passes,
+            "use_dht": 1,
+            "write_tapes": 1,
+            "write_ht": 0,
+            "flags": ws.flags,
+            "epoch": epoch,
+        },
+        path=path,
+        launch=1,
+        record=twins[0],
+    )
+    E5_STATS[mode] += 1
+    return True
 
 
 def _two_level(ws: KdaWorkspace, path: str) -> bool:
