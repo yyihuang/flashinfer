@@ -8004,7 +8004,20 @@ MODULES["dhu_v3_f_wt_e5c"] = _e5_twin(
     use_pdl=False,
     variant="v3_f_wt_e5c",
 )
-E5_TWINS = {"dhu_v3_f_wt": ("dhu_v3_f_wt_e5s", "dhu_v3_f_wt_e5c")}
+MODULES["dhu_v3_f_wt_e5c2"] = _e5_twin(
+    "dhu_v3_f_wt",
+    "cake_kda_train_e5e5e5e5e5e5e5e50003",
+    [
+        ("buffer", "mh_tma", "seg_m"),
+        ("buffer", "dhseg", "dhseg"),
+        ("buffer", "flags", "flags"),
+        ("parameter", "epoch", "epoch"),
+    ],
+    use_pdl=False,
+    variant="v3_f_wt_e5c2",
+)
+# pass-1 record -> (pass-2 spin twin, fused twin, fused twin with the one-hop look-ahead probe)
+E5_TWINS = {"dhu_v3_f_wt": ("dhu_v3_f_wt_e5s", "dhu_v3_f_wt_e5c", "dhu_v3_f_wt_e5c2")}
 # The S1 records: the fused gradient records without the q * dq term of dg and the GLM intra records that add it.
 # On every path the plan's dqkg and glm_intra records are both in this tuple or both outside it
 # (cake_backend._check_pairs); a mixed pair drops the term or counts it twice.

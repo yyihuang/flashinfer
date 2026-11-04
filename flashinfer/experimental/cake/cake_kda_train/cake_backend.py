@@ -4007,9 +4007,10 @@ def _adjoint_recurrence(
 
 
 # Lane E5 prototype (not shipped): CAKE_KDA_E5 = "ov" (pass 1, the flag-releasing carry seg_carry_ov in reverse, pass 2
-# spinning under PDL) or "fused" (pass 1 running the reverse carry as chained hops, pass 2 spinning under PDL); engaged
+# spinning under PDL), "fused" (pass 1 running the reverse carry as chained hops, pass 2 spinning under PDL) or "fused2"
+# (the same with a one-hop look-ahead probe of the next offset); engaged
 # only where the pass-1 record has E5 twins and the plan's carry is the chain carry.  Counts per mode.
-E5_STATS: dict[str, int] = {"ov": 0, "fused": 0, "refused": 0}
+E5_STATS: dict[str, int] = {"ov": 0, "fused": 0, "fused2": 0, "refused": 0}
 _E5_FLAG_BASE = 8192  # arrival words of the fused form live at flags[8192 + s * H + h]
 
 
@@ -4023,7 +4024,7 @@ def _e5_adjoint(
     views: types.SimpleNamespace,
 ) -> bool:
     mode = os.environ.get("CAKE_KDA_E5", "")
-    if mode not in ("ov", "fused"):
+    if mode not in ("ov", "fused", "fused2"):
         return False
     p = ws.plan
     twins = cake_jit.E5_TWINS.get(p.record("dhu", path))
@@ -4068,7 +4069,7 @@ def _e5_adjoint(
             },
             path=path,
             launch=0,
-            record=twins[1],
+            record=twins[2] if mode == "fused2" else twins[1],
         )
     ws.run(
         "dhu",
