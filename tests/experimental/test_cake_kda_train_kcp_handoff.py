@@ -35,7 +35,8 @@ same checks, the parameter partial sums of an R1c row (``sm_100a`` / ``sm_103a``
 accumulated backwards); the lean arena checks do not apply there (the raw mode refuses ``local_arena="lean"``) and the
 row lists them under ``not_applicable``.
 Single-process rows: the static rule, the admission table, the phase probe, the once-per-call decision (a refusal by
-the call's own arguments records nothing in either pass), the device key, the host values kept across calls (default
+the call's own arguments records nothing in either pass; its refusal, kept per argument key, is the uncached rule's and
+is counted once where the decision is made), the device key, the host values kept across calls (default
 options, pool needs, scratch table bytes), the per-call workspaces' shared identity tile, the saved set's tape members
 and the byte queries of the package and the facade.
 """
@@ -45,6 +46,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import gc
+import itertools
 import json
 import os
 import tempfile
@@ -893,7 +895,9 @@ def test_handoff_auto_decides_alike_on_every_rank(monkeypatch) -> None:
                 got = set()
                 for ctx in ctxs:
                     v = types.SimpleNamespace(
-                        device=torch.device("cuda", 0), shape=(ctx.T_r, H, 128)
+                        device=torch.device("cuda", 0),
+                        is_cuda=True,
+                        shape=(ctx.T_r, H, 128),
                     )
                     got.add(cake_kcp._handoff_refusal("auto", opts, "saved", v, ctx))
                 assert got == {_auto_want(key, H, 261392, W)}, (key, W, H, got)
@@ -1027,7 +1031,9 @@ def test_handoff_argument_refusals_record_nothing(monkeypatch) -> None:
     ctx = types.SimpleNamespace(
         partition=types.SimpleNamespace(total=261392), world_size=8
     )
-    v = types.SimpleNamespace(device=torch.device("cuda", 0), shape=(32674, 4, 128))
+    v = types.SimpleNamespace(
+        device=torch.device("cuda", 0), is_cuda=True, shape=(32674, 4, 128)
+    )
     assert cake_kcp._handoff_static("auto", opts, "saved", v, ctx) == "work"
     assert cake_kcp._handoff_static("on", opts, "replay", v, ctx) == "boundary"
     assert cake_kcp._handoff_static("on", opts, "saved", v, ctx) is None
@@ -1112,6 +1118,139 @@ def test_handoff_argument_refusals_record_nothing(monkeypatch) -> None:
     )
     assert cake_kcp._handoff_refusal("auto", opts, "saved", v, ctx) == "backend"
     assert cake_kcp._handoff_refusal("on", opts, "replay", v, ctx) == "boundary"
+
+
+def _refused_delta(before: dict) -> dict:
+    after = cake_kcp.kcp_handoff_stats()
+    return {n: after[n] - before[n] for n in after if after[n] != before[n]}
+
+
+def test_handoff_static_refusals_are_kept_per_argument_key(monkeypatch) -> None:
+    """The decision's argument refusals under ``"auto"`` with ``v`` on CUDA come from ``_HANDOFF_STATIC_MEMO``, kept
+    per argument key: over a grid of modes, boundary modes, options, head counts, batch totals and world sizes every
+    decision counts ``_handoff_static``'s refusal (uncached) once, first call and kept call alike, and every kept entry
+    is that refusal; ``"on"`` and a ``v`` off CUDA keep nothing; a patched admission constant of the plan module is a
+    new key with the new answer (read at call time, never a stale entry); the memo stays within
+    ``_HANDOFF_STATIC_MEMO_MAX`` keys."""
+    backend = cake_kcp.KernelBackend()
+    monkeypatch.setattr(cake_kcp, "get_backend", lambda: backend)
+    # an original forward without a checkpoint frame: a refused call counts, an admitted one finds no frame
+    monkeypatch.setattr(cake_kcp, "_handoff_phase_of", lambda inputs: "original")
+    monkeypatch.setattr(cake_kcp, "_handoff_blocked", lambda: False)
+    monkeypatch.setattr(cake_kcp, "_HANDOFF_STATIC_MEMO", {})
+    memo = cake_kcp._HANDOFF_STATIC_MEMO
+    x = torch.zeros(1)
+
+    def counted(mode, opts, boundary, ctx, v) -> dict:
+        before = cake_kcp.kcp_handoff_stats()
+        assert not cake_kcp._handoff_decide(mode, opts, boundary, ctx, x, x, v, x, x)
+        return _refused_delta(before)
+
+    def stand_in(H: int, total: int, W: int, cuda: bool = True):
+        ctx = types.SimpleNamespace(
+            partition=types.SimpleNamespace(total=total), world_size=W
+        )
+        v = types.SimpleNamespace(is_cuda=cuda, shape=(total // W, H, 128))
+        return ctx, v
+
+    options = [
+        cake_kcp._options({}),
+        cake_kcp._options({"graph": "replay"}),
+        cake_kcp._options({"spec3_probe": "record"}),
+    ]
+    auto_keys = set()
+    grid = itertools.product(
+        ("auto", "on"), ("saved", "replay"), options, (1, 4, 16, 64), (261392, 98304), (1, 2, 4, 8)
+    )  # fmt: skip
+    for mode, boundary, opts, H, total, W in grid:
+        ctx, v = stand_in(H, total, W)
+        want = cake_kcp._handoff_static(mode, opts, boundary, v, ctx)
+        delta = {"refused_" + want: 1} if want is not None else {}
+        assert counted(mode, opts, boundary, ctx, v) == delta  # the first call
+        assert counted(mode, opts, boundary, ctx, v) == delta  # the kept refusal
+        if mode == "auto":
+            auto_keys.add((boundary, opts.graph, opts.spec3_probe, H, total, W))
+    assert len(memo) == len(auto_keys) <= cake_kcp._HANDOFF_STATIC_MEMO_MAX
+    for key, reason in memo.items():
+        boundary, graph, spec3, H, total, W, heads, bound = key
+        assert heads is cake_kcp_plan.KCP_HANDOFF_HEADS
+        assert bound == cake_kcp_plan.KCP_HANDOFF_MIN_HEAD_TOKENS
+        opts = next(o for o in options if (o.graph, o.spec3_probe) == (graph, spec3))
+        ctx, v = stand_in(H, total, W)
+        assert reason == cake_kcp._handoff_static("auto", opts, boundary, v, ctx)
+    # a v off CUDA: the device refusal on every call, nothing kept
+    memo.clear()
+    ctx, v_cpu = stand_in(4, 261392, 2, cuda=False)
+    for _ in range(2):
+        assert counted("auto", options[0], "saved", ctx, v_cpu) == {"refused_device": 1}
+    assert not memo
+    # the plan's admission constants, patched between calls: H4 at CP4 of T = 261392 (261392 head-tokens) is "work"
+    # under the shipped bound, admitted at bound 0 (no frame here: nothing counted) and "work" again after it
+    heads = cake_kcp_plan.KCP_HANDOFF_HEADS
+    bound = cake_kcp_plan.KCP_HANDOFF_MIN_HEAD_TOKENS
+    ctx, v = stand_in(4, 261392, 4)
+    assert counted("auto", options[0], "saved", ctx, v) == {"refused_work": 1}
+    monkeypatch.setattr(cake_kcp_plan, "KCP_HANDOFF_MIN_HEAD_TOKENS", 0)
+    assert counted("auto", options[0], "saved", ctx, v) == {}
+    monkeypatch.setattr(cake_kcp_plan, "KCP_HANDOFF_HEADS", frozenset({16}))
+    assert counted("auto", options[0], "saved", ctx, v) == {"refused_heads": 1}
+    monkeypatch.setattr(cake_kcp_plan, "KCP_HANDOFF_HEADS", heads)
+    monkeypatch.setattr(cake_kcp_plan, "KCP_HANDOFF_MIN_HEAD_TOKENS", bound)
+    assert counted("auto", options[0], "saved", ctx, v) == {"refused_work": 1}
+    assert sorted(map(str, memo.values())) == ["None", "heads", "work"]
+    # bounded: cleared when full, the answers unchanged
+    monkeypatch.setattr(cake_kcp, "_HANDOFF_STATIC_MEMO_MAX", 4)
+    for W in range(1, 21):
+        ctx, v = stand_in(4, 261392, W)
+        want = cake_kcp._handoff_static("auto", options[0], "saved", v, ctx)
+        assert counted("auto", options[0], "saved", ctx, v) == (
+            {"refused_" + want: 1} if want is not None else {}
+        )
+        assert 1 <= len(memo) <= 4
+
+
+def test_handoff_static_refusals_count_where_the_decision_is_made(monkeypatch) -> None:
+    """Where an argument refusal (here ``"auto"``'s work bound, from the memo after its first call) is counted, by
+    the pass the hook read reports: once in an original forward whose frames torch exposes and in a reentrant
+    recompute; never in a non-reentrant recompute, outside a checkpoint pass, under a capture or tracing block or a
+    dispatch mode, or in an original forward whose frames torch does not expose; the backend's refusal before the
+    work bound.  The decision returns ``False`` in every case."""
+    backend = cake_kcp.KernelBackend()
+    monkeypatch.setattr(cake_kcp, "get_backend", lambda: backend)
+    monkeypatch.setattr(cake_kcp, "_handoff_blocked", lambda: False)
+    monkeypatch.setattr(cake_kcp, "_handoff_dispatch_modes", lambda: False)
+    opts = cake_kcp._options({})
+    ctx = types.SimpleNamespace(
+        partition=types.SimpleNamespace(total=261392), world_size=8
+    )
+    v = types.SimpleNamespace(is_cuda=True, shape=(32674, 4, 128))
+    x = torch.zeros(1)
+    phase = ["original"]
+    monkeypatch.setattr(cake_kcp, "_handoff_phase_of", lambda inputs: phase[0])
+
+    def counted() -> dict:
+        before = cake_kcp.kcp_handoff_stats()
+        assert not cake_kcp._handoff_decide("auto", opts, "saved", ctx, x, x, v, x, x)
+        return _refused_delta(before)
+
+    want = {"original": {"refused_work": 1}, "reentrant": {"refused_work": 1}}
+    for p in ("original", "recompute", "reentrant", None):
+        phase[0] = p
+        for _ in range(2):  # the first call fills the memo, the second reads it
+            assert counted() == want.get(p, {}), p
+    for gate in ("_handoff_blocked", "_handoff_dispatch_modes"):
+        monkeypatch.setattr(cake_kcp, gate, lambda: True)
+        for p in ("original", "reentrant"):
+            phase[0] = p
+            assert counted() == {}, (gate, p)
+        monkeypatch.setattr(cake_kcp, gate, lambda: False)
+    monkeypatch.setattr(cake_kcp, "_handoff_frames_readable", lambda: False)
+    phase[0] = "original"
+    assert counted() == {}
+    phase[0] = "reentrant"
+    assert counted() == {"refused_work": 1}
+    monkeypatch.setattr(cake_kcp, "get_backend", lambda: object())
+    assert counted() == {"refused_backend": 1}
 
 
 def test_handoff_device_key_is_kept_per_index(monkeypatch) -> None:

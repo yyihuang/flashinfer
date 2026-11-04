@@ -6791,6 +6791,12 @@ HANDOFF_STATS: dict[str, int] = {
     "refused_work": 0,
     "refused_unverified": 0,
 }
+# HANDOFF_STATS's key of each refusal reason (the count builds no string per call)
+_HANDOFF_REFUSED = {
+    name[len("refused_") :]: name
+    for name in HANDOFF_STATS
+    if name.startswith("refused_")
+}
 # tests only: NaN-fill the tape set before the forward's launches, so a byte the forward does not write and the
 # backward reads shows in the gradients
 _HANDOFF_POISON = False
@@ -6884,12 +6890,19 @@ def _handoff_frame(phase: str) -> tuple[Any, Any] | None:
 
 # torch.compiler.is_compiling (None on a torch without it), looked up once
 _IS_COMPILING = getattr(getattr(torch, "compiler", None), "is_compiling", None)
+# the bindings behind torch.cuda.is_current_stream_capturing (the function only forwards to it) and the length of the
+# Python dispatch-mode stack (None on a torch without it), looked up once: the gates below run on every checkpointed
+# call
+_IS_CAPTURING = getattr(
+    torch._C, "_cuda_isCurrentStreamCapturing", torch.cuda.is_current_stream_capturing
+)
+_DISPATCH_STACK_LEN = getattr(torch._C, "_len_torch_dispatch_stack", None)
 
 
 def _handoff_blocked() -> bool:
     """CUDA-graph capture or ``torch.compile`` tracing (a state that cannot be read blocks too)."""
     try:
-        if torch.cuda.is_current_stream_capturing():
+        if _IS_CAPTURING():
             return True
         return bool(_IS_COMPILING is not None and _IS_COMPILING())
     except Exception:  # noqa: BLE001
@@ -6900,8 +6913,8 @@ def _handoff_dispatch_modes() -> bool:
     """Whether a Python dispatch mode is active (a selective-checkpoint policy, a fake, tracing or debug mode); a
     stack that cannot be read counts as active."""
     try:
-        return int(torch._C._len_torch_dispatch_stack()) > 0
-    except Exception:  # noqa: BLE001
+        return _DISPATCH_STACK_LEN() > 0
+    except Exception:  # noqa: BLE001 - also a missing binding (None)
         return True
 
 
@@ -6923,6 +6936,13 @@ def _handoff_toolkit(arch: str) -> str | None:
 _HANDOFF_KEYS: dict[int, tuple[str, int, str | None]] = {}
 # the refusals _handoff_refusal places before the backend's (the call's option keys)
 _HANDOFF_OPTION_REASONS = ("boundary", "graph", "spec3")
+# _handoff_static under "auto" with v on CUDA, kept per argument key -- (boundary_mode, opts.graph, opts.spec3_probe,
+# H = v.shape[-2], ctx.partition.total, ctx.world_size, cake_kcp_plan.KCP_HANDOFF_HEADS,
+# cake_kcp_plan.KCP_HANDOFF_MIN_HEAD_TOKENS) -> the refusal or None: every input of the rule is in the key, the two plan
+# constants included (read at call time like the rule: a patched constant is a new key, never a stale entry).  Both
+# passes of every checkpointed call read it (_handoff_decide).  Cleared when it reaches _HANDOFF_STATIC_MEMO_MAX keys.
+_HANDOFF_STATIC_MEMO: dict[tuple, str | None] = {}
+_HANDOFF_STATIC_MEMO_MAX = 256
 
 
 def _handoff_key(device: torch.device) -> tuple[str, int, str | None]:
@@ -6946,8 +6966,14 @@ def _handoff_phase(*inputs: Any) -> str | None:
     hooks and graph task only: ``"original"`` under torch.utils.checkpoint's original-forward pack hook (also an inner
     region's forward that an outer recompute re-runs), ``"recompute"`` under its recompute pack hook, ``"reentrant"``
     without hooks inside a backward's graph task; ``None`` under a caller's hooks, without hooks outside a backward,
-    or when the binding is missing or unusable.  It runs in both passes of every checkpointed call, also where the
-    call's arguments refuse the hand-off: one function, the hook read inline."""
+    or when the binding is missing or unusable.  :func:`_handoff_phase_of` of ``inputs``."""
+    return _handoff_phase_of(inputs)
+
+
+def _handoff_phase_of(inputs: tuple) -> str | None:
+    """:func:`_handoff_phase` of the tuple ``inputs``: the decision's read (no argument unpacking per call).  It runs
+    in both passes of every checkpointed call, also where the call's arguments refuse the hand-off: one function,
+    the hook read inline."""
     if not torch.is_grad_enabled():
         return None
     for t in inputs:  # an input that requires grad (a loop: no generator per call)
@@ -6996,11 +7022,11 @@ def _handoff_static(
         return "graph"
     if opts.spec3_probe != "off":
         return "spec3"
-    if v.device.type != "cuda":
+    if not v.is_cuda:  # no torch.device object per call
         return "device"
     if mode == "auto":
         return cake_kcp_plan.kcp_handoff_shape_refusal(
-            int(v.shape[-2]), ctx.partition.total, ctx.world_size
+            v.shape[-2], ctx.partition.total, ctx.world_size
         )
     return None
 
@@ -7053,17 +7079,40 @@ def _handoff_decide(
     mode: str, opts: OptionsKcp, boundary_mode: str, ctx: Any, *inputs: Any
 ) -> bool:
     """Whether this call keeps its tape set, decided once per checkpointed call (see the rule above): no outside a
-    checkpoint pass; no in every pass when the call's arguments refuse it (:func:`_handoff_static`; nothing recorded
-    or replayed, the refusal counted where a decision is made); otherwise in a non-reentrant recompute the original
-    forward's decision (:func:`_handoff_replayed`), in the original forward and the reentrant recompute the dynamic
-    state and :func:`_handoff_refusal` (``inputs`` = ``q, k, v, g, beta``), the original forward recording the result
-    on its frame."""
+    checkpoint pass; no in every pass when the call's arguments refuse it (:func:`_handoff_static`, under ``"auto"``
+    with ``v`` on CUDA kept per argument key in :data:`_HANDOFF_STATIC_MEMO`; nothing recorded or replayed, the
+    refusal counted where a decision is made); otherwise in a non-reentrant recompute the original forward's decision
+    (:func:`_handoff_replayed`), in the original forward and the reentrant recompute the dynamic state and
+    :func:`_handoff_refusal` (``inputs`` = ``q, k, v, g, beta``), the original forward recording the result on its
+    frame."""
     if mode == "off":
         return False
-    phase = _handoff_phase(*inputs)
+    phase = _handoff_phase_of(inputs)
     if phase is None:
         return False
-    reason = _handoff_static(mode, opts, boundary_mode, inputs[2], ctx)
+    v = inputs[2]
+    if mode == "auto" and v.is_cuda:
+        plan = cake_kcp_plan
+        key = (
+            boundary_mode,
+            opts.graph,
+            opts.spec3_probe,
+            v.shape[-2],
+            ctx.partition.total,
+            ctx.world_size,
+            plan.KCP_HANDOFF_HEADS,
+            plan.KCP_HANDOFF_MIN_HEAD_TOKENS,
+        )
+        try:
+            reason = _HANDOFF_STATIC_MEMO[key]
+        except KeyError:
+            if len(_HANDOFF_STATIC_MEMO) >= _HANDOFF_STATIC_MEMO_MAX:
+                _HANDOFF_STATIC_MEMO.clear()
+            reason = _HANDOFF_STATIC_MEMO[key] = _handoff_static(
+                mode, opts, boundary_mode, v, ctx
+            )
+    else:
+        reason = _handoff_static(mode, opts, boundary_mode, v, ctx)
     if reason is not None:
         # the same refusal in both passes: no frame record, no recompute cursor; counted once, in the original forward
         # (whose frames torch exposes) or the reentrant recompute, under _handoff_refusal's order of reasons
@@ -7076,7 +7125,7 @@ def _handoff_decide(
             return False
         if reason not in _HANDOFF_OPTION_REASONS:
             reason = _handoff_backend() or reason
-        HANDOFF_STATS["refused_" + reason] += 1
+        HANDOFF_STATS[_HANDOFF_REFUSED[reason]] += 1
         return False
     if phase == "recompute":
         return _handoff_replayed()
@@ -7089,9 +7138,9 @@ def _handoff_decide(
     if _handoff_blocked() or _handoff_dispatch_modes():
         keep = False
     else:
-        reason = _handoff_refusal(mode, opts, boundary_mode, inputs[2], ctx)
+        reason = _handoff_refusal(mode, opts, boundary_mode, v, ctx)
         if reason is not None:
-            HANDOFF_STATS["refused_" + reason] += 1
+            HANDOFF_STATS[_HANDOFF_REFUSED[reason]] += 1
         keep = reason is None
     if decisions is not None:
         decisions.append(keep)
