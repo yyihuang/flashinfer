@@ -136,9 +136,12 @@ have the deterministic arm's bit pattern.  On ``sm_107a`` the per-rank
 from the deterministic arm's by an FP32 ulp: the step records their largest
 distance in FP32 values over the ranks (``param_max_ulp``) and does not gate on
 it (the test suite holds them to the R1c bound).  The checkpoint hand-off
-never engages in this mode (with ``nd_off`` or ``--ckpt-handoff on`` the
-``ckpt`` comparison expects no engagement), and the workspace bytes are those
-of the raw mode (with the FP64 accumulators of an ``R1c`` rank).
+engages in this mode as on the explicit gate (the ``ckpt`` comparison of
+``nd`` and ``nd_off`` expects the admission rule's decision; on an ``R1c``
+rank the parameter partials and sums are measured in FP32 ulps there, the
+other tensors stay bitwise, and the ``nd`` ``ckpt`` step is compared with a
+``det`` ``ckpt`` step too, every flag kept per rank), and the workspace bytes
+are those of the raw mode (with the FP64 accumulators of an ``R1c`` rank).
 
 ``--build-order det-first`` (the default) runs the agreement step's ``det``
 step before its ``nd`` step, so the deterministic package allocates its
@@ -708,8 +711,14 @@ def _probe_memory(step: Step, device: torch.device) -> dict[str, int]:
     held = torch.cuda.memory_allocated(device) - base
     del state, result
     t = torch.tensor([peak, held], dtype=torch.int64, device=device)
-    dist.all_reduce(t, op=dist.ReduceOp.MAX)
-    return {"peak_bytes": int(t[0].item()), "held_bytes": int(t[1].item())}
+    every = [torch.zeros_like(t) for _ in range(dist.get_world_size())]
+    dist.all_gather(every, t)
+    return {
+        "peak_bytes": max(int(x[0].item()) for x in every),
+        "held_bytes": max(int(x[1].item()) for x in every),
+        "peak_by_rank": [int(x[0].item()) for x in every],
+        "held_by_rank": [int(x[1].item()) for x in every],
+    }
 
 
 def _ulp_distance(a: torch.Tensor | None, b: torch.Tensor | None) -> int:
@@ -842,11 +851,9 @@ def _same_bits(a: torch.Tensor | None, b: torch.Tensor | None) -> bool:
 
 
 def _handoff_expected(problem: dict[str, Any], device: torch.device) -> bool:
-    """Whether the ``nd`` arm's mode engages the hand-off on this rank's ``ckpt`` step: never in the raw gate mode,
-    else ``"on"`` yes, ``"off"`` no, ``"auto"`` where the package's admission rule (``kcp_handoff_auto_refusal`` of
-    this device's key, the head count, the batch's total and the world size) admits it."""
-    if problem["gate"] == "raw":
-        return False
+    """Whether the ``nd`` arm's mode engages the hand-off on this rank's ``ckpt`` step (both gate modes): ``"on"``
+    yes, ``"off"`` no, ``"auto"`` where the package's admission rule (``kcp_handoff_auto_refusal`` of this device's
+    key, the head count, the batch's total and the world size) admits it."""
     mode = problem["ckpt_handoff"]
     if mode != "auto":
         return mode == "on"
@@ -878,14 +885,53 @@ def _handoff_agreement(
     ``engaged_all`` where expected, else no rank engaged, and ``nd_off`` engaged nowhere."""
     results: dict[str, dict[str, torch.Tensor | None]] = {}
     counts: dict[str, dict[str, int]] = {}
-    for arm in ("nd", "nd_off"):
+    is_raw = problem["gate"] == "raw"
+    for arm in ("nd", "nd_off", "det") if is_raw else ("nd", "nd_off"):
         before = _handoff_counts()
         results[arm] = _results(arm, problem, conv, ckpt=True)
         torch.cuda.synchronize(device)
         counts[arm] = _handoff_delta(before)
     on, off = results["nd"], results["nd_off"]
-    raw = RAW_BITWISE if problem["gate"] == "raw" else ()
-    names = [n for n in HANDOFF_BITWISE + raw if n in on]
+    arch = nd_kcp.cake_jit.arch_for_capability(
+        tuple(torch.cuda.get_device_capability(device))
+    )
+    r1c = is_raw and arch in R1C_ARCHES
+    raw = RAW_BITWISE if is_raw else ()
+    # an R1c rank's parameter partials and sums: FP32 ulps (an unordered FP64 sum rounded once), not gated here
+    names = [
+        n for n in HANDOFF_BITWISE + raw if n in on and not (r1c and n in R1C_PARAMS)
+    ]
+    ulp_names = [n for n in R1C_PARAMS if r1c and n in on]
+    det_names = []
+    per_rank: dict[str, Any] = {}
+    if is_raw:
+        # the nd ckpt step (hand-off as the mode says) against a det ckpt step: every non-parameter tensor bitwise
+        det_names = [n for n in names if n in results["det"]]
+        mine = [int(_same_bits(on[n], results["det"][n])) for n in det_names]
+        mine += [int(_same_bits(on[n], off[n])) for n in names]
+        mine += [_ulp_distance(on[n], off[n]) for n in ulp_names]
+        mine += [_ulp_distance(on[n], results["det"][n]) for n in ulp_names]
+        mine += [int(counts["nd"].get("bound", 0) > 0), int(problem["tokens_local"])]
+        t = torch.tensor(mine, dtype=torch.int64, device=device)
+        every = [torch.zeros_like(t) for _ in range(dist.get_world_size())]
+        dist.all_gather(every, t)
+        k1, k2, k3 = (
+            len(det_names),
+            len(det_names) + len(names),
+            len(det_names) + len(names) + len(ulp_names),
+        )
+        for r, x in enumerate(every):
+            v = x.tolist()
+            per_rank[str(r)] = {
+                "nd_eq_det": dict(zip(det_names, map(bool, v[:k1]), strict=True)),
+                "nd_eq_nd_off": dict(zip(names, map(bool, v[k1:k2]), strict=True)),
+                "ulp_nd_vs_nd_off": dict(zip(ulp_names, v[k2:k3], strict=True)),
+                "ulp_nd_vs_det": dict(
+                    zip(ulp_names, v[k3 : k3 + len(ulp_names)], strict=True)
+                ),
+                "engaged": bool(v[-2]),
+                "tokens": v[-1],
+            }
     bound = counts["nd"].get("bound", 0) > 0
     # MIN over ranks: every bit pattern equal, every rank with tokens engaged, every rank expected to engage
     all_ranks = torch.tensor(
@@ -908,10 +954,22 @@ def _handoff_agreement(
     engaged_all, expected = bool(flags[-2]), bool(flags[-1])
     engaged, off_engaged = bool(any_rank[0].item()), bool(any_rank[1].item())
     engagement_ok = (engaged_all if expected else not engaged) and not off_engaged
+    det_ok = all(all(pr["nd_eq_det"].values()) for pr in per_rank.values())
     return {
         "mode": problem["ckpt_handoff"],
         "bitwise": bitwise,
-        "bitwise_ok": all(bitwise.values()),
+        "bitwise_ok": all(bitwise.values()) and det_ok,
+        "nd_eq_det_ok": det_ok if is_raw else None,
+        "r1c": r1c,
+        "param_max_ulp_nd_vs_nd_off": {
+            n: max(pr["ulp_nd_vs_nd_off"][n] for pr in per_rank.values())
+            for n in ulp_names
+        },
+        "param_max_ulp_nd_vs_det": {
+            n: max(pr["ulp_nd_vs_det"][n] for pr in per_rank.values())
+            for n in ulp_names
+        },
+        "per_rank": per_rank,
         "engaged": engaged,
         "engaged_all": engaged_all,
         "expected": expected,
@@ -1099,6 +1157,19 @@ def run(args, rank: int, world: int, device: torch.device) -> dict[str, Any]:
     }
     hosts: list[Any] = [None] * world
     dist.all_gather_object(hosts, socket.gethostname())
+    # per rank: the hand-off's tape bytes, the token count (the memory probe's peaks are per rank too)
+    handoff_by_rank: list[Any] = [None] * world
+    dist.all_gather_object(
+        handoff_by_rank,
+        (
+            int(
+                kda_handoff_bytes_kcp(
+                    problem["ctx"]["nd"], H=args.heads, deterministic=False
+                )
+            ),
+            int(problem["tokens_local"]),
+        ),
+    )
     H, C = args.heads, args.channels
     raw = args.gate == "raw"
     ctx_det, ctx_nd = problem["ctx"]["det"], problem["ctx"]["nd"]
@@ -1119,6 +1190,8 @@ def run(args, rank: int, world: int, device: torch.device) -> dict[str, Any]:
                 ctx_nd, H=H, C=C, checkpoint_handoff=True, deterministic=False
             ),
             "handoff": kda_handoff_bytes_kcp(ctx_nd, H=H, deterministic=False),
+            "handoff_by_rank": [b for b, _ in handoff_by_rank],
+            "tokens_by_rank": [t for _, t in handoff_by_rank],
             "comm": kda_comm_bytes_kcp(ctx_nd, H=H, C=C, deterministic=False),
         },
     }
