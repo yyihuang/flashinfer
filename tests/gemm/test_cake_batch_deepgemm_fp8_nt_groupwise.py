@@ -378,6 +378,52 @@ def test_out_of_band_problems_raise():
         )
 
 
+# The 256-byte L2 promotion of the N=4096, K=7168 bands, scoped to problems of at most two M tiles per group:
+# arch -> (promoted program, the band's program, in-class (groups, m, expected_m), just outside).
+_L2_SCOPE = {
+    "sm_100a": (
+        "cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3",
+        "cake_batch_deepgemm_fp8_a7f7bdd074d89a3b5a42",
+        ((2, 256, 160), (4, 128, 96)),
+        ((1, 512, 400),),
+    ),
+    "sm_103a": (
+        "cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb",
+        "cake_batch_deepgemm_fp8_0db53ce746a8da419343",
+        ((4, 768, 192), (12, 768, 192)),
+        ((2, 1024, 512),),
+    ),
+}
+
+
+def test_l2_promotion_takes_only_problems_of_at_most_two_m_tiles():
+    device = torch.device("cuda")
+    index = device.index if device.index is not None else torch.cuda.current_device()
+    arch = device_arch(index)
+    sm_count = device_sm_count(index)
+    promoted, band, inside, outside = _L2_SCOPE[arch]
+    for groups, m, expected_m in inside + outside:
+        plan = select_route(arch, sm_count, groups, m, 4096, 7168, expected_m)
+        want = promoted if (groups, m, expected_m) in inside else band
+        assert plan is not None and [s.program for s in plan.stages] == [want], (
+            groups,
+            m,
+            expected_m,
+        )
+        a, b, a_scale, b_scale, masked_m, _ = _make_inputs(
+            groups, m, 4096, 7168, seed=926, device=device, masked=[expected_m] * groups
+        )
+        prepared = prepare_batch_deepgemm_fp8_nt_groupwise(
+            a, b, a_scale, b_scale, masked_m, expected_m
+        )
+        assert prepared.programs == (want,)
+        out = prepared.launch()
+        torch.cuda.synchronize()
+        _assert_valid_rows_close(
+            out, _reference(a, b, a_scale, b_scale, masked_m), masked_m
+        )
+
+
 def test_route_chain_covers_inventory_with_registered_programs():
     device = torch.device("cuda")
     index = device.index if device.index is not None else torch.cuda.current_device()

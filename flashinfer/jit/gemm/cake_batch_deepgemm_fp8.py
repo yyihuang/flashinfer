@@ -566,6 +566,18 @@ PROGRAMS: dict[str, dict[str, Any]] = {
         "arg_plan": "plan0",
         "arches": ["sm_100a", "sm_103a"],
     },
+    "cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3": {
+        "kernel": "kernel_cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3",
+        "sources": [
+            "cake_batch_deepgemm_fp8/cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3_kernel.cu",
+            "cake_batch_deepgemm_fp8/cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3_binding.cu",
+        ],
+        "compile_flags": ["--use_fast_math"],
+        "ffi_entry": "run",
+        "tma_abi": "grid_constant",
+        "arg_plan": "plan0",
+        "arches": ["sm_100a"],
+    },
     "cake_batch_deepgemm_fp8_a7617f8e2deb15f1eb4a": {
         "kernel": "kernel_cake_batch_deepgemm_fp8_a7617f8e2deb15f1eb4a",
         "sources": [
@@ -733,6 +745,18 @@ PROGRAMS: dict[str, dict[str, Any]] = {
         "tma_abi": "grid_constant",
         "arg_plan": "plan0",
         "arches": ["sm_100a", "sm_103a"],
+    },
+    "cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb": {
+        "kernel": "kernel_cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb",
+        "sources": [
+            "cake_batch_deepgemm_fp8/cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb_kernel.cu",
+            "cake_batch_deepgemm_fp8/cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb_binding.cu",
+        ],
+        "compile_flags": ["--use_fast_math"],
+        "ffi_entry": "run",
+        "tma_abi": "grid_constant",
+        "arg_plan": "plan0",
+        "arches": ["sm_103a"],
     },
     "cake_batch_deepgemm_fp8_d5da7d7f624fde4d51c8": {
         "kernel": "kernel_cake_batch_deepgemm_fp8_d5da7d7f624fde4d51c8",
@@ -1029,6 +1053,10 @@ MODULES: dict[str, dict[str, str]] = {
         "arch": "sm_103a",
         "program": "cake_batch_deepgemm_fp8_a51ac2146dc44e7c0fd2",
     },
+    "cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3_sm_100a": {
+        "arch": "sm_100a",
+        "program": "cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3",
+    },
     "cake_batch_deepgemm_fp8_a7617f8e2deb15f1eb4a_sm_100a": {
         "arch": "sm_100a",
         "program": "cake_batch_deepgemm_fp8_a7617f8e2deb15f1eb4a",
@@ -1124,6 +1152,10 @@ MODULES: dict[str, dict[str, str]] = {
     "cake_batch_deepgemm_fp8_d22ea585c19c028e29ae_sm_103a": {
         "arch": "sm_103a",
         "program": "cake_batch_deepgemm_fp8_d22ea585c19c028e29ae",
+    },
+    "cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb_sm_103a": {
+        "arch": "sm_103a",
+        "program": "cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb",
     },
     "cake_batch_deepgemm_fp8_d5da7d7f624fde4d51c8_sm_100a": {
         "arch": "sm_100a",
@@ -1313,7 +1345,8 @@ def load_cake_batch_deepgemm_fp8_module(name: str):
 #   point     (B, M, N, K) in points [and expected_m == em]
 #   band      (N, K) == nk, (B, M) not in the family's exclusions for the
 #             architecture, B <= the family's B bound when it has one, and
-#             CTA inside one of the row's inclusive intervals (None = open)
+#             CTA inside one of the row's inclusive intervals (None = open), and
+#             ceil(expected_m / 128) <= the row's M-tile bound when it has one
 #   bcta      (N, K) == nk, B and CTA inside the row's inclusive intervals (None = open)
 #   nk        (N, K) == nk
 #   em_nk     expected_m in em_values and (N, K) in nk_set
@@ -1392,14 +1425,20 @@ def _band(
     nk: tuple[int, int],
     stage: tuple[Any, ...],
     ctas: dict[str, tuple[tuple[int | None, int | None], ...]],
+    *,
+    mt: int | None = None,
 ) -> _Route:
-    """A BLOCK_N band of the masked family; ``ctas`` maps each architecture the row serves to its CTA intervals."""
+    """A BLOCK_N band of the masked family; ``ctas`` maps each architecture the row serves to its CTA intervals,
+    ``mt`` bounds the M tiles per group (``ceil(expected_m / 128)``) when given."""
+    where: dict[str, Any] = {"nk": nk, "ctas": ctas}
+    if mt is not None:
+        where["mt"] = mt
     return _Route(
         tuple(ctas),
         route,
         "seed_masked_bn",
         "band",
-        {"nk": nk, "ctas": ctas},
+        where,
         (stage,),
         None,
     )
@@ -1577,6 +1616,11 @@ _ROUTES: tuple[_Route, ...] = (
           ("cake_batch_deepgemm_fp8_fe5a14cba1d988faaf43", "masked_bn", 96, 128),
           {"sm_100a": ((3, 3),),
            "sm_103a": ((3, 3),)}),
+    # The problems of at most two M tiles per group (ceil(expected_m / 128) <= 2) of the band below: its program
+    # with the 256-byte L2 promotion on the A and B maps.
+    _band("seed_masked_bn__n4096_k7168_bn112_l2", (4096, 7168),
+          ("cake_batch_deepgemm_fp8_a6222dc9f77cc7f656d3", "masked_bn", 112, 128),
+          {"sm_100a": ((4, 4),)}, mt=2),
     _band("seed_masked_bn__n4096_k7168_bn112", (4096, 7168),
           ("cake_batch_deepgemm_fp8_a7f7bdd074d89a3b5a42", "masked_bn", 112, 128),
           {"sm_100a": ((4, 4),)}),
@@ -1608,6 +1652,14 @@ _ROUTES: tuple[_Route, ...] = (
           {"sm_100a": ((15, 15), (23, 23), (30, 31), (38, 38), (45, 46), (52, 54),
                        (60, 62), (67, 70), (75, 77), (83, 85), (91, 93), (99, 101),
                        (107, 109), (116, 116), (124, 124), (132, 132), (140, 140))}),
+    # The problems of at most two M tiles per group (ceil(expected_m / 128) <= 2) of the band below: its program
+    # with the 256-byte L2 promotion on the A and B maps.
+    _band("seed_masked_bn__n4096_k7168_bn224_l2", (4096, 7168),
+          ("cake_batch_deepgemm_fp8_d5517b631a2ffbb3e9eb", "masked_bn", 224, 128),
+          {"sm_103a": ((8, 8), (16, 16), (23, 24), (31, 32), (39, 40), (46, 48),
+                       (54, 56), (61, 64), (69, 72), (77, 80), (85, 88), (93, 96),
+                       (102, 104), (110, 112), (119, 120), (127, 128), (136, 136),
+                       (144, 144))}, mt=2),
     _band("seed_masked_bn__n4096_k7168_bn224", (4096, 7168),
           ("cake_batch_deepgemm_fp8_0db53ce746a8da419343", "masked_bn", 224, 128),
           {"sm_103a": ((8, 8), (16, 16), (23, 24), (31, 32), (39, 40), (46, 48),
@@ -1755,7 +1807,10 @@ def _matches(
         max_b = _BAND_MAX_B.get(nk)
         if max_b is not None and max_b < B:
             return False
-        cta = B * ((expected_m + 127) // 128)
+        mt = (expected_m + 127) // 128
+        if "mt" in where and mt > where["mt"]:
+            return False
+        cta = B * mt
         return any(
             (lo is None or lo <= cta) and (hi is None or cta <= hi)
             for lo, hi in where["ctas"][arch]
