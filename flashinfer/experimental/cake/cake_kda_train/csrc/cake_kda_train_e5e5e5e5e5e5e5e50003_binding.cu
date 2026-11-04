@@ -301,6 +301,16 @@ CUtensorMap EncodeTma_dv2(const TensorView& t) {
   return map;
 }
 
+int64_t CDiv(int64_t a, int64_t b) {
+  if (b == 0 || (a == INT64_MIN && b == -1)) NoInt64(a, "/", b);
+  return a / b;
+}
+
+int64_t CMod(int64_t a, int64_t b) {
+  if (b == 0) NoInt64(a, "%", b);
+  return b == -1 ? 0 : a % b;
+}
+
 CUtensorMap EncodeTma_mh_tma(const TensorView& t) {
   TVM_FFI_CHECK(t.ndim() >= 3, ValueError)
       << KERNEL_NAME << ": descriptor 'mh_tma' takes a source of at least 3 dims, got " << t.ndim();
