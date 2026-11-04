@@ -1287,26 +1287,44 @@ def test_l2n_refusals_on_device() -> None:
         _fwd(dict(inputs, q=bad_q))
 
 
+# 300 documents ahead of the last one: the segmented route's group runs the plain intra program
+_MANY = (37,) * 300
+
+
 @pytest.mark.parametrize("raw_gate", [False, True], ids=["g", "raw"])
-@pytest.mark.parametrize("H", [16, 32])
 @pytest.mark.parametrize(
-    "lengths, batch_tokens",
-    [((100, 126, 50), 226), ((100, 128, 50), 228)],
-    ids=["overhang", "aligned"],
+    "lengths, batch_tokens, H",
+    [
+        ((100, 126, 50), 226, 16),
+        ((100, 126, 50), 226, 32),
+        ((100, 128, 50), 228, 16),
+        ((100, 128, 50), 228, 32),
+        (_MANY + (50,), 37 * 300, 8),
+        (_MANY[:-1] + (64, 50), 37 * 299 + 64, 8),
+    ],
+    ids=[
+        "overhang-H16",
+        "overhang-H32",
+        "aligned-H16",
+        "aligned-H32",
+        "overhang-seg300-H8",
+        "aligned-seg300-H8",
+    ],
 )
 def test_l2n_batched_replay_reads_no_unwritten_row_of_the_next_group(
     lengths, batch_tokens: int, H: int, raw_gate: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The batched arena's replay with use_qk_l2norm_in_kernel=True on the serial route (H 32 on every
-    architecture, H 16 on sm_100a): the plain intra program of group 0 box-reads up to BT - 1 rows past the group
-    end of the per-call qn / kn (``"overhang"``: document 1 ends 62 rows into its last chunk), which group 1's
-    prep writes only later.  With every per-call float tensor and the arena filled with NaN, the replay before and
-    after a forward and a saved-set backward on the workspace gives finite gradients bitwise the per-call whole
-    problem's (``"aligned"``: the group ends on a chunk boundary, the control)."""
+    """The batched arena's replay with use_qk_l2norm_in_kernel=True where a group runs the plain intra program: the
+    serial route (H 32 on every architecture, H 16 on sm_100a) and the segmented route above 256 documents (H 8, a
+    group of 300).  Its 64-row boxes of the per-call qn / kn reach up to BT - 1 rows past the group end
+    (``"overhang"``: the group's last document ends 62 / 37 rows into its last chunk), rows group 1's prep writes
+    only later.  With every per-call float tensor and the arena filled with NaN, the replay before and after a
+    forward and a saved-set backward on the workspace gives finite gradients bitwise the per-call whole problem's
+    (``"aligned"``: the group ends on a chunk boundary, the control)."""
     device = _l2n_device()
     gate = "raw" if raw_gate else "g"
     S, N = sum(lengths), len(lengths)
-    assert cake_backend.doc_batches(lengths, batch_tokens) == ((0, 2), (2, 3))
+    assert cake_backend.doc_batches(lengths, batch_tokens) == ((0, N - 1), (N - 1, N))
     inputs = _l2n_inputs(lengths, H, device, raw_gate=raw_gate)
     ref = [t.clone() for t in _bwd(inputs, None, raw_gate)]
     alloc = cake_backend._alloc

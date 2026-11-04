@@ -197,7 +197,7 @@ __device__ __forceinline__ void tcgen05_commit(int mbar_addr) {
 extern "C" {
 
 __global__ __launch_bounds__(256, LAUNCH_MIN_BLOCKS) void
-kernel_cake_kda_det_train_ea5200a088abb13be8eb(const __grid_constant__ CUtensorMap q, const __grid_constant__ CUtensorMap k, const __grid_constant__ CUtensorMap g_raw, __nv_bfloat16* __restrict__ beta, int* __restrict__ chunk_bos, int* __restrict__ chunk_len, __nv_bfloat16* __restrict__ aqk_ext, __nv_bfloat16* __restrict__ akk_ext, __nv_bfloat16* __restrict__ aqk_int, __nv_bfloat16* __restrict__ akk_int, int num_heads, int num_qk_heads, int group, int write_ext, int write_int, float scale, float* __restrict__ gk_out, __nv_bfloat16* __restrict__ kb_out, __nv_bfloat16* __restrict__ kg_out, __nv_bfloat16* __restrict__ qg_out, __nv_bfloat16* __restrict__ v_new, int write_prep, float* __restrict__ A_log, float* __restrict__ dt_bias, float lower_bound)
+kernel_cake_kda_det_train_15f1e7cab9222dccd78b(const __grid_constant__ CUtensorMap q, const __grid_constant__ CUtensorMap k, const __grid_constant__ CUtensorMap g_raw, __nv_bfloat16* __restrict__ beta, int* __restrict__ chunk_bos, int* __restrict__ chunk_len, __nv_bfloat16* __restrict__ aqk_ext, __nv_bfloat16* __restrict__ akk_ext, __nv_bfloat16* __restrict__ aqk_int, __nv_bfloat16* __restrict__ akk_int, int num_heads, int num_qk_heads, int group, int write_ext, int write_int, float scale, float* __restrict__ gk_out, __nv_bfloat16* __restrict__ kb_out, __nv_bfloat16* __restrict__ kg_out, __nv_bfloat16* __restrict__ qg_out, __nv_bfloat16* __restrict__ v_new, int write_prep, float* __restrict__ A_log, float* __restrict__ dt_bias, float lower_bound)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -1021,8 +1021,9 @@ kernel_cake_kda_det_train_ea5200a088abb13be8eb(const __grid_constant__ CUtensorM
             }
             if (clen <= i * 16 + sl) {
                 #pragma unroll
-                for (int e_7 = 0; e_7 < 8; e_7++) {
-                    g_0_1[e_7] = 0.0f;
+                for (int e_7 = 0; e_7 < 4; e_7++) {
+                    qw_1[e_7] = qw_1[e_7] & 2147516416u;
+                    kw_2[e_7] = kw_2[e_7] & 2147516416u;
                 }
             }
             float unpack_bf16_1[8];
@@ -1676,8 +1677,9 @@ kernel_cake_kda_det_train_ea5200a088abb13be8eb(const __grid_constant__ CUtensorM
             }
             if (clen <= i * 16 + sl) {
                 #pragma unroll
-                for (int e_14 = 0; e_14 < 8; e_14++) {
-                    g_0_3[e_14] = 0.0f;
+                for (int e_14 = 0; e_14 < 4; e_14++) {
+                    qw_3[e_14] = qw_3[e_14] & 2147516416u;
+                    kw_5[e_14] = kw_5[e_14] & 2147516416u;
                 }
             }
             float unpack_bf16_1_1[8];
@@ -2027,8 +2029,9 @@ kernel_cake_kda_det_train_ea5200a088abb13be8eb(const __grid_constant__ CUtensorM
             }
             if (clen <= i * 16 + sl) {
                 #pragma unroll
-                for (int e_20 = 0; e_20 < 8; e_20++) {
-                    g_0_5[e_20] = 0.0f;
+                for (int e_20 = 0; e_20 < 4; e_20++) {
+                    qw_5[e_20] = qw_5[e_20] & 2147516416u;
+                    kw_8[e_20] = kw_8[e_20] & 2147516416u;
                 }
             }
             float unpack_bf16_1_2[8];
@@ -2378,8 +2381,9 @@ kernel_cake_kda_det_train_ea5200a088abb13be8eb(const __grid_constant__ CUtensorM
             }
             if (clen <= i * 16 + sl) {
                 #pragma unroll
-                for (int e_26 = 0; e_26 < 8; e_26++) {
-                    g_0_7[e_26] = 0.0f;
+                for (int e_26 = 0; e_26 < 4; e_26++) {
+                    qw_7[e_26] = qw_7[e_26] & 2147516416u;
+                    kw_11[e_26] = kw_11[e_26] & 2147516416u;
                 }
             }
             float unpack_bf16_1_3[8];

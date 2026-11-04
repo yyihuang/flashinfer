@@ -704,7 +704,7 @@ MODULES: dict[str, dict[str, Any]] = {
         ],
         "ffi_entry": "run",
         "grid_rule": {"kind": "chunks", "x_factor": 1},
-        "kernel_symbol": "kernel_cake_kda_det_train_c9395e21a813579c4bfc",
+        "kernel_symbol": "kernel_cake_kda_det_train_fd884735e2c9a37b0329",
         "l2n": ["off", "fallback", "fused"],
         "launch": {
             "block": (256, 1, 1),
@@ -713,7 +713,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 76160,
             "use_pdl": False,
         },
-        "library": "cake_kda_det_train_c9395e21a813579c4bfc",
+        "library": "cake_kda_det_train_fd884735e2c9a37b0329",
         "logical": {
             "akk_ext": "akk_ext",
             "akk_int": "akk_int",
@@ -884,7 +884,7 @@ MODULES: dict[str, dict[str, Any]] = {
         "ffi_entry": "run",
         "gate": "raw",
         "grid_rule": {"kind": "chunks", "x_factor": 1},
-        "kernel_symbol": "kernel_cake_kda_det_train_ea5200a088abb13be8eb",
+        "kernel_symbol": "kernel_cake_kda_det_train_15f1e7cab9222dccd78b",
         "l2n": ["off", "fallback", "fused"],
         "launch": {
             "block": (256, 1, 1),
@@ -893,7 +893,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 76160,
             "use_pdl": False,
         },
-        "library": "cake_kda_det_train_ea5200a088abb13be8eb",
+        "library": "cake_kda_det_train_15f1e7cab9222dccd78b",
         "logical": {
             "A_log": "A_log",
             "akk_ext": "akk_ext",
