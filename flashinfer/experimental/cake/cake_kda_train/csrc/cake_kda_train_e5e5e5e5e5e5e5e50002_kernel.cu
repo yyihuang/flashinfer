@@ -405,11 +405,12 @@ kernel_cake_kda_train_e5e5e5e5e5e5e5e50002(const __grid_constant__ CUtensorMap k
             mbarrier_init(smem + 104, 32);
             // aqk_full: 1 barriers, init_count=1
             mbarrier_init(smem + 112, 1);
-            // E5 runner barriers: M ring full x3 (smem+256..), MMA done (smem+280)
+            // E5 runner barriers: M ring full x3 (smem+256..), MMA done (smem+280), half-0 MMAs done (smem+288)
             mbarrier_init(smem + 256, 1);
             mbarrier_init(smem + 264, 1);
             mbarrier_init(smem + 272, 1);
             mbarrier_init(smem + 280, 1);
+            mbarrier_init(smem + 288, 1);
             asm volatile("fence.mbarrier_init.release.cluster;" ::: "memory");
         }
     }
@@ -1333,6 +1334,8 @@ kernel_cake_kda_train_e5e5e5e5e5e5e5e50002(const __grid_constant__ CUtensorMap k
                     unsigned int nl = 0;
                     unsigned int i0 = 0;
                     unsigned int ph_done = 0;
+                    unsigned int ph_h0 = 0;
+                    const int e5_h0done = smem + 288;
                     int hop = 0;
                     int pend = 0;
                     int haved = 0;
@@ -1371,6 +1374,7 @@ kernel_cake_kda_train_e5e5e5e5e5e5e5e50002(const __grid_constant__ CUtensorMap k
                             mbarrier_wait(e5_mfull + (i0 % 3) * 8, (i0 / 3) & 1);
                             asm volatile("tcgen05.fence::after_thread_sync;");
                             e5_mma8(taddr + xb, taddr + xa, e5_desc_lo(e5_ring + (int)(i0 % 3) * 32768));
+                            tcgen05_commit(e5_h0done);
                             mbarrier_wait(e5_mfull + ((i0 + 1) % 3) * 8, ((i0 + 1) / 3) & 1);
                             asm volatile("tcgen05.fence::after_thread_sync;");
                             e5_mma8(taddr + xb, taddr + xa + 64, e5_desc_lo(e5_ring + (int)((i0 + 1) % 3) * 32768));
@@ -1380,6 +1384,13 @@ kernel_cake_kda_train_e5e5e5e5e5e5e5e50002(const __grid_constant__ CUtensorMap k
                                 unsigned int sl = nl % 3;
                                 mbarrier_arrive_expect_tx(e5_mfull + sl * 8, 32768);
                                 tma_4d_gmem2smem(e5_ring + sl * 32768, (&mh_tma), 0, 0, 0, sn * num_heads + head, e5_mfull + sl * 8);
+                                nl++;
+                            }
+                            mbarrier_wait(e5_h0done, ph_h0);
+                            if (more) {
+                                unsigned int sl = nl % 3;
+                                mbarrier_arrive_expect_tx(e5_mfull + sl * 8, 32768);
+                                tma_4d_gmem2smem(e5_ring + sl * 32768, (&mh_tma), 0, 64, 0, sn * num_heads + head, e5_mfull + sl * 8);
                                 nl++;
                                 fast = (e5_bits(e5_w + sn * num_heads + head, epoch) & 1u) ? 1 : 0;
                             }
@@ -1392,13 +1403,8 @@ kernel_cake_kda_train_e5e5e5e5e5e5e5e50002(const __grid_constant__ CUtensorMap k
                         if (fast) e5_gather(dreg, ht_out + ((long long)sn * num_heads + head) * 16384 + e5_v);
                         mbarrier_wait(e5_mdone, ph_done);
                         ph_done ^= 1;
+                        ph_h0 ^= 1;
                         asm volatile("tcgen05.fence::after_thread_sync;");
-                        if (tid == 0 && more) {
-                            unsigned int sl = nl % 3;
-                            mbarrier_arrive_expect_tx(e5_mfull + sl * 8, 32768);
-                            tma_4d_gmem2smem(e5_ring + sl * 32768, (&mh_tma), 0, 64, 0, sn * num_heads + head, e5_mfull + sl * 8);
-                            nl++;
-                        }
                         if (!more) {
                             e5_store_col(dhseg + ((long long)sn * num_heads + head) * 16384 + e5_v, (int)(taddr + (unsigned int)e5_lb + xb));
                             asm volatile("barrier.sync 1, 128;" ::: "memory");
