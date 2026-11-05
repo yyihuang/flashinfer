@@ -572,6 +572,26 @@ def test_program_choice_follows_the_host_plan_constants():
                 wide = cols % wide_n == 0 and arch in wide_archs
                 assert tile_n == (wide_n if wide else block_n)
                 assert stage.startswith("main_wide") == wide
+    # The data gradient's evict-first thresholds are per architecture: at an
+    # architecture's ``dgrad_evict_first_min_rows`` rows per group and
+    # ``dgrad_evict_first_min_k`` columns the wide tile takes ``main_wide_ef``; one row
+    # per group or one wide column tile fewer, the rule does not hold.
+    name = cake_jit.record_name("dgrad")
+    for key in ("dgrad_evict_first_min_rows", "dgrad_evict_first_min_k"):
+        assert sorted(c[key]) == sorted(ROUTES[name]["arches"]), key
+    for arch in c["dgrad_evict_first_archs"]:
+        rows = int(c["dgrad_evict_first_min_rows"][arch])
+        k = int(c["dgrad_evict_first_min_k"][arch])
+        assert k % wide_n == 0 and k > wide_n, arch
+        for groups in (1, 4):
+            sum_m = rows * groups
+            assert cb.dgrad_evict_first(k, arch, sum_m, groups, c), arch
+            assert not cb.dgrad_evict_first(k, arch, sum_m - groups, groups, c)
+            assert not cb.dgrad_evict_first(k - wide_n, arch, sum_m, groups, c)
+            stage, tile_n = cb.select_row_stage(
+                name, "dgrad", wide_n, k, arch, c, sum_m=sum_m, num_groups=groups
+            )
+            assert (stage, tile_n) == ("main_wide_ef", wide_n), (arch, groups)
     min_k = int(c["wave_sync_min_k"])
     for out_dtype in ("bfloat16", "float32"):
         for tile_k in (256, 512):
@@ -618,14 +638,21 @@ def test_expert_rows_take_the_measured_wgrad_stage(arch, out_dtype):
             )
 
 
+# The group counts of the benchmark and expert rows whose gate/up data gradient takes
+# the evict-first (``EF_GROUPS``) or the 3 / 3 head / tail (``TS33_GROUPS``) wide tile.
+EF_GROUPS = {"sm_100a": (4, 8, 16, 32), "sm_103a": (), "sm_107a": (4, 8)}
+TS33_GROUPS = {"sm_100a": (), "sm_103a": (4, 8, 16), "sm_107a": ()}
+
+
 @pytest.mark.parametrize("arch", ["sm_100a", "sm_103a", "sm_107a"])
 def test_bench_and_expert_rows_take_the_measured_dgrad_stage(arch):
     """The data gradient over the MoE benchmark rows (``BENCH_WGRAD_ROWS``) and over
     ``EXPERT_ROWS`` routed rows split into each of ``EXPERT_GROUPS``, for both
     projections of ``BENCH_PROJ``: the gate/up projection (``K`` 6144) takes the
-    evict-first wide tile at 4 and 8 groups on sm_100a (this package's own build) and
-    sm_107a, the 3 / 3 head / tail wide tile at 4, 8 and 16 groups on sm_103a, else
-    the plain wide tile; the down projection (``K`` 2048) takes the plain wide tile."""
+    evict-first wide tile at every group count on sm_100a (this package's own build;
+    at least 4096 rows per group) and at 4 and 8 groups on sm_107a, the 3 / 3 head /
+    tail wide tile at 4, 8 and 16 groups on sm_103a, else the plain wide tile; the
+    down projection (``K`` 2048) takes the plain wide tile."""
     c = HOST_PLAN_CONSTANTS
     name = cake_jit.record_name("dgrad")
     rows = [(label, sum(sizes), len(sizes)) for label, sizes in BENCH_WGRAD_ROWS]
@@ -634,8 +661,8 @@ def test_bench_and_expert_rows_take_the_measured_dgrad_stage(arch):
     for proj, (n, k) in BENCH_PROJ.items():
         for label, sum_m, groups in rows:
             gate_up = proj == "gate_up"
-            ef = arch in ("sm_100a", "sm_107a") and gate_up and groups in (4, 8)
-            ts33 = arch == "sm_103a" and gate_up and groups in (4, 8, 16)
+            ef = gate_up and groups in EF_GROUPS[arch]
+            ts33 = gate_up and not ef and groups in TS33_GROUPS[arch]
             assert cb.dgrad_evict_first(k, arch, sum_m, groups, c) == ef, (proj, label)
             stage, tile_n = cb.select_row_stage(
                 name, "dgrad", n, k, arch, c, sum_m=sum_m, num_groups=groups
@@ -646,8 +673,10 @@ def test_bench_and_expert_rows_take_the_measured_dgrad_stage(arch):
             )
             assert stage == expected, (proj, label, stage)
             taken[stage] += 1
-    # The six E4 rows and E8 of the benchmark, and E4 and E8 of the expert rows.
-    assert taken["main_wide_ef"] == {"sm_100a": 9, "sm_103a": 0, "sm_107a": 9}[arch]
+    # Evict-first: on sm_100a the nine gate/up rows of the benchmark and the four of
+    # the expert rows, on sm_107a the six E4 rows and E8 of the benchmark and E4 and
+    # E8 of the expert rows.  3 / 3 head / tail on sm_103a: those and E16 of both.
+    assert taken["main_wide_ef"] == {"sm_100a": 13, "sm_103a": 0, "sm_107a": 9}[arch]
     assert taken["main_wide_ts33"] == {"sm_100a": 0, "sm_103a": 11, "sm_107a": 0}[arch]
 
 
@@ -886,9 +915,9 @@ def test_dgrad_evict_first_gives_the_wide_tile_bits(monkeypatch, record_property
     device = _require_program("dgrad")
     c = HOST_PLAN_CONSTANTS
     arch = _arch(device)
-    n, k = 64, int(c["dgrad_evict_first_min_k"])
+    n, k = 64, int(c["dgrad_evict_first_min_k"][arch])
     sizes = EVICT_FIRST_E2
-    assert sum(sizes) // len(sizes) >= int(c["dgrad_evict_first_min_rows"])
+    assert sum(sizes) // len(sizes) >= int(c["dgrad_evict_first_min_rows"][arch])
     _x, w, g, offs = _inputs(sizes, n, k, device)
     ref = _reference("dgrad", g, w, sizes)
     launch = prepare_dgrad(g, w, offs)
@@ -921,7 +950,8 @@ def test_dgrad_evict_first_gives_the_wide_tile_bits(monkeypatch, record_property
     torch.cuda.synchronize()
     if not ef:
         pytest.skip(f"no evict-first data-gradient tile on {arch}")
-    monkeypatch.setitem(HOST_PLAN_CONSTANTS, "dgrad_evict_first_min_rows", 1 << 30)
+    min_rows = {**c["dgrad_evict_first_min_rows"], arch: 1 << 30}
+    monkeypatch.setitem(HOST_PLAN_CONSTANTS, "dgrad_evict_first_min_rows", min_rows)
     plain = prepare_dgrad(g, w, offs)
     assert plain.stages[0] == "main_wide"
     assert plain.plan["tile_n"] == launch.plan["tile_n"]

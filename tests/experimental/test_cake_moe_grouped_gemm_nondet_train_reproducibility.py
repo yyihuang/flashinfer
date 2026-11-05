@@ -125,14 +125,19 @@ INT_VIEW = {torch.bfloat16: torch.int16, torch.float32: torch.int32}
 # ``dgrad_evict_first_archs`` adds (sm_100a): the deterministic wide
 # domain-scheduled kernel with evict-first G loads and dX stores.
 OWN_STAGES = {("cake_moe_grouped_gemm_dgrad", "main_wide_ef"): "main_wide"}
-# Data-gradient cases of the evict-first rule (at least ``dgrad_evict_first_min_rows``
-# rows per group on average, ``K >= dgrad_evict_first_min_k``): (label, sizes, N, K),
-# over group sizes off every tile multiple, with a one-row group (the second and
-# third) and an empty group (the third).
+# Data-gradient cases of the evict-first rule (at least the architecture's
+# ``dgrad_evict_first_min_rows`` rows per group on average, ``K`` at least its
+# ``dgrad_evict_first_min_k``): (label, sizes, N, K), over group sizes off every tile
+# multiple, with one-row and empty groups.  The first three average at least 16384
+# rows per group; the ``band`` cases average 4096 to 16383, over sm_100a's thresholds
+# only.
 EF_CASES = (
     ("e2_long", (16390, 16500), 64, 4096),
     ("one_row_off_tile", (1, 16383, 16385, 32767), 1088, 4608),
     ("empty_one_row", (0, 49151, 1, 16384), 4096, 6144),
+    ("band_floor_off_tile", (4095, 4097, 4096, 4096), 64, 4096),
+    ("band_empty_one_row", (0, 16383, 1, 8191), 4096, 6144),
+    ("band_one_row_off_tile", (1, 12287, 9000, 11111), 1088, 4608),
 )
 
 
@@ -642,9 +647,13 @@ def test_dgrad_evict_first_gives_the_deterministic_bits(
     c = HOST_PLAN_CONSTANTS
     arch = cb.arch_for(device)
     sum_m, groups = sum(sizes), len(sizes)
-    # Every case is over the rule's thresholds: the rule holds on its architectures.
-    assert sum_m // groups >= int(c["dgrad_evict_first_min_rows"]), label
-    assert k >= int(c["dgrad_evict_first_min_k"]), label
+    # Every case is over the thresholds of some architecture; the rule holds on the
+    # architectures of ``dgrad_evict_first_archs`` whose thresholds it reaches.
+    over = {
+        a: sum_m // groups >= int(rows) and k >= int(c["dgrad_evict_first_min_k"][a])
+        for a, rows in c["dgrad_evict_first_min_rows"].items()
+    }
+    assert any(over.values()), label
     assert k % int(c["wide_block_n"]) == 0, label
     assert any(size % 128 for size in sizes), label
     a, b, offs = _inputs(case, device)
@@ -669,7 +678,7 @@ def test_dgrad_evict_first_gives_the_deterministic_bits(
         and cb.dgrad_wide_ts33(k, arch, sum_m, groups, c)
         and cake_jit.stage_served(name, "main_wide_ts33", arch)
     )
-    assert ef == (arch in c["dgrad_evict_first_archs"]), arch
+    assert ef == (arch in c["dgrad_evict_first_archs"] and over[arch]), arch
     assert launch.stages[0] == (
         "main_wide_ef"
         if ef
@@ -696,7 +705,8 @@ def test_dgrad_evict_first_gives_the_deterministic_bits(
         if t == s + 1:
             assert int(_bits(out[s:t]).count_nonzero()) > 0, label
     if ef:
-        monkeypatch.setitem(c, "dgrad_evict_first_min_rows", 1 << 30)
+        min_rows = {**c["dgrad_evict_first_min_rows"], arch: 1 << 30}
+        monkeypatch.setitem(c, "dgrad_evict_first_min_rows", min_rows)
         plain_out = _out(case, device)
         plain = _prepare(cb, case, a, b, offs, plain_out)
         assert plain.stages[0] == "main_wide", plain.stages

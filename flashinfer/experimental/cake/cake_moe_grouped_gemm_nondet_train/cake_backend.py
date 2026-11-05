@@ -795,14 +795,16 @@ def dgrad_evict_first(
 
     ``k`` is the dgrad ``K``, the columns of ``dX`` (``w.shape[2]``); the reduction runs
     over ``N`` (``w.shape[1]``).  The twin keeps each group's weights resident in L2 when a
-    group spans many 256-row blocks: the groups average at least
+    group spans many 256-row blocks, on the architectures of
+    ``dgrad_evict_first_archs``: the groups average at least the architecture's
     ``dgrad_evict_first_min_rows`` rows (``sum_m // num_groups``) and every 256-row block
-    has at least ``dgrad_evict_first_min_k / wide_block_n`` column tiles."""
+    has at least the architecture's ``dgrad_evict_first_min_k / wide_block_n`` column
+    tiles."""
     c = constants or host_plan_constants()
     return (
         arch in c["dgrad_evict_first_archs"]
-        and sum_m // max(num_groups, 1) >= int(c["dgrad_evict_first_min_rows"])
-        and k >= int(c["dgrad_evict_first_min_k"])
+        and sum_m // max(num_groups, 1) >= int(c["dgrad_evict_first_min_rows"][arch])
+        and k >= int(c["dgrad_evict_first_min_k"][arch])
     )
 
 
