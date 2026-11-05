@@ -1689,6 +1689,40 @@ def _wavefront_order_tensor(
     return table.pin_memory().to(torch.device("cuda", device_index), non_blocking=True)
 
 
+@lru_cache(maxsize=256)
+def _wavefront_tile_table(
+    seq_lens: tuple[int, ...],
+    order: tuple[int, ...] | None,
+    segment_len: int,
+    device_index: int,
+) -> torch.Tensor:
+    """The packed form of :func:`_wavefront_order_tensor`: one ``(chunk, first token, valid tokens, 0)`` row per tile in
+    the walk's order (the host table's chunk layout, :func:`build_chunk_meta`), so the tail reads its tile with one
+    16-byte load; built once per table."""
+    starts: list[int] = []
+    lens: list[int] = []
+    offsets = [0]
+    for n in seq_lens:
+        offsets.append(offsets[-1] + n)
+    for seq in order if order is not None else range(len(seq_lens)):
+        for chunk_start in range(0, seq_lens[seq], CHUNK):
+            starts.append(offsets[seq] + chunk_start)
+            lens.append(min(CHUNK, seq_lens[seq] - chunk_start))
+    walk = _wavefront_walk(seq_lens, order, segment_len)
+    table = torch.tensor(
+        [[c, starts[c], lens[c], 0] for c in walk], dtype=torch.int32
+    ).reshape(len(walk), 4)
+    return table.pin_memory().to(torch.device("cuda", device_index), non_blocking=True)
+
+
+@cache
+def _packed_tail(device_index: int) -> bool:
+    """Whether the device's ``tail_g2_bf16_wavefront`` record reads the packed tile table (:func:`_wavefront_tile_table`)."""
+    arch = cake_backend.device_arch(device_index)
+    name = cake_backend.stage_record("tail_g2_bf16_wavefront", arch)
+    return cake_backend.record(name).get("tile_table") == "packed"
+
+
 def _wavefront_events(
     device_index: int, main: torch.cuda.Stream
 ) -> tuple[torch.cuda.Event, torch.cuda.Event]:
@@ -2213,9 +2247,12 @@ def gdn_chunk_det_backward(
                                     device)  # fmt: skip
             flags.zero_()
             flags = flags.view(torch.uint32)  # the pair's u32 counts
-            order = _wavefront_order_tensor(
-                meta.seq_lens, meta.order, int(segs.segment_len), index
+            tiles = (
+                _wavefront_tile_table
+                if _packed_tail(index)
+                else _wavefront_order_tensor
             )
+            order = tiles(meta.seq_lens, meta.order, int(segs.segment_len), index)
             main = torch.cuda.current_stream(index)
             side = _side_stream(index, main)
             fork, join = _wavefront_events(index, main)

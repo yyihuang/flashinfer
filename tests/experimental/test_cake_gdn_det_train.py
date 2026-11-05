@@ -386,7 +386,11 @@ def test_registry_records_are_well_formed() -> None:
     # sm_107a wy_tc2, which is the sm_100a / sm_103a wy_tc2 program, and the sm_100a / sm_103a fwd_ho_vh2, which is
     # the fwd_ho program
     wavefront = cake_jit.MODULES["dhu_tc2_wavefront"]
-    assert wavefront["arches"] == ["sm_100a", "sm_103a"]
+    assert wavefront["arches"] == ["sm_103a"]
+    # the sm_100a scan of a single-round pair: the elected release once per two chunks (a program of its own)
+    elected = cake_jit.MODULES["dhu_tc2_wavefront_e2"]
+    assert elected["stage"] == "dhu_tc2_wavefront" and elected["arches"] == ["sm_100a"]
+    assert elected["library"] not in {wavefront["library"]}
     shared = cake_jit.MODULES["dhu_tc2_wavefront_split_sm_107a"]
     assert shared["arches"] == ["sm_107a"]
     assert shared["library"] == wavefront["library"]
@@ -396,6 +400,16 @@ def test_registry_records_are_well_formed() -> None:
     eight = cake_jit.MODULES["dhu_tc2_wavefront_sm_107a"]
     assert eight["stage"] == "dhu_tc2_wavefront" and eight["arches"] == ["sm_107a"]
     assert len({wavefront["library"], split["library"], eight["library"]}) == 3
+    # the pair's tail: the packed tile records on sm_100a (a program of its own, no exit count), the chunk index
+    # table on sm_103a / sm_107a; the chain builds the table the record names
+    tail = cake_jit.MODULES["tail_g2_bf16_wavefront"]
+    packed = cake_jit.MODULES["tail_g2_bf16_wavefront_pk"]
+    assert tail["arches"] == ["sm_103a", "sm_107a"] and "tile_table" not in tail
+    assert packed["stage"] == "tail_g2_bf16_wavefront"
+    assert packed["arches"] == ["sm_100a"]
+    assert packed["tile_table"] == "packed"
+    assert packed["wait_entry"] == tail["wait_entry"] == "wait_geq"
+    assert packed["library"] != tail["library"]
     wy, wy2, wy2_107 = (
         cake_jit.MODULES[name] for name in ("wy_tc", "wy_tc2", "wy_tc2_sm_107a")
     )
