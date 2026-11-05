@@ -1133,6 +1133,17 @@ NARROW = {"l6_rule": None, "pair_rule": None, "wide_rule": [1e18, 1e18]}
 # sm_100a a top_k <= 512 row runs the same programs with twice the candidate buffers (the same bits) in this build; the
 # sm_103a record carries this floor already (there the arm is a second A/A twin)
 FLOOR16K = {"cand_cap_floor": 16384, "cand_cap_floor_rule": None}
+# FP8 dispatch measurements: the FP8 record without the wide-first rule (a wide-planned call then plans pair_l6 / l6, which
+# the FP8 kind fallback runs as FP8 l6); every row on the single-CTA l6 program (no pair, no wide-first, a wide rule no
+# call meets); and the BF16 record with the sampled first threshold on every unit size (wide f1 where it plans wide f0)
+NO_WIDE_FIRST = {"wide_first_rule": None}
+L6_ALL = {
+    "l6_rule": [1e9, 0],
+    "pair_rule": None,
+    "wide_first_rule": None,
+    "wide_rule": [1e18, 1e18],
+}
+SAMPLE_FIT_ALL = {"sample_fit_max_mean_tiles": 1e9}
 
 
 def _cake(name, backend=None, knobs=None, policy=None):
@@ -1192,6 +1203,11 @@ ARMS = {
     "cake_fp8": _cake("cake_fp8"),
     "cake_fp8_aa": _cake("cake_fp8_aa"),
     "cake_fp8_nosample": _cake("cake_fp8_nosample", knobs=NOSAMPLE),
+    "cake_fp8_wf0": _cake("cake_fp8_wf0", policy=NO_WIDE_FIRST),
+    "cake_fp8_l6": _cake("cake_fp8_l6", policy=L6_ALL),
+    "cake_fp8_narrow": _cake("cake_fp8_narrow", policy=NARROW),
+    "cake_l6_all": _cake("cake_l6_all", policy=L6_ALL),
+    "cake_sfit_all": _cake("cake_sfit_all", policy=SAMPLE_FIT_ALL),
     DeepGemmArm.name: DeepGemmArm,
     DeepGemmRaggedArm.name: DeepGemmRaggedArm,
 }
@@ -1201,6 +1217,9 @@ FP8_ARMS = (
     "cake_fp8",
     "cake_fp8_aa",
     "cake_fp8_nosample",
+    "cake_fp8_wf0",
+    "cake_fp8_l6",
+    "cake_fp8_narrow",
     DeepGemmArm.name,
     DeepGemmRaggedArm.name,
 )
