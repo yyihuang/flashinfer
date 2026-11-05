@@ -998,6 +998,12 @@ HOST_PLAN_CONSTANTS: dict[str, Any] = {
         "launch_us": 5.0,
         "cycles_per_step": {256: 512, 512: 1024},
     },
+    # The architectures on which a bfloat16 weight gradient that adds into its
+    # output takes the bfloat16 route's accumulate stages (``plan["accumulate"]
+    # == "fused"``); elsewhere it takes the composed route
+    # (``cake_backend.wgrad_acc_bound``).  The FP32 route's are bound wherever it
+    # serves them.
+    "wgrad_acc_bf16_archs": ["sm_100a", "sm_103a", "sm_107a"],
     # The architectures whose 512-wide k tile routes bind the unordered-tail
     # builds (``cake_backend.wgrad_unordered_tail``).
     "unordered_tail_archs": ["sm_100a", "sm_103a", "sm_107a"],

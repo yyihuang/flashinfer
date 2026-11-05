@@ -374,12 +374,32 @@ def _require_flag(value: object, keyword: str, entry: str) -> None:
         raise ValueError(f"{entry}: {keyword} must be a bool, got {value!r}")
 
 
+# The weight-gradient routes of a bfloat16 output (``wgrad_acc_bound``).
+_BF16_WGRAD_ROUTES = frozenset(
+    record_name("wgrad", out_dtype="bfloat16", tile_k=tile_k) for tile_k in (256, 512)
+)
+
+
+def wgrad_acc_bound(
+    name: str, arch: str, constants: Optional[dict[str, Any]] = None
+) -> bool:
+    """Whether the accumulate stages of the weight-gradient route ``name`` are bound on ``arch``: those
+    of a bfloat16 output on the architectures of ``wgrad_acc_bf16_archs``, those of an FP32 output on
+    every architecture.  An unbound stage counts as not served (``plan["accumulate_reason"] ==
+    "stage"``)."""
+    c = constants or host_plan_constants()
+    if name in _BF16_WGRAD_ROUTES:
+        return arch in c["wgrad_acc_bf16_archs"]
+    return True
+
+
 def _acc_stages(out_dtype: str, arch: str) -> tuple[str, tuple[str, ...]]:
     """``(route, stages)``: the 512-wide k tile weight-gradient route of ``out_dtype`` (``"bfloat16"`` /
-    ``"float32"``) and the accumulate stages (``<twin>`` + ``ACC_SUFFIX``) it serves on ``arch``."""
+    ``"float32"``) and the accumulate stages (``<twin>`` + ``ACC_SUFFIX``) it serves and binds
+    (:func:`wgrad_acc_bound`) on ``arch``."""
     name = record_name("wgrad", out_dtype=out_dtype, tile_k=512)
     route = ROUTES.get(name)
-    if route is None or arch not in route["arches"]:
+    if route is None or arch not in route["arches"] or not wgrad_acc_bound(name, arch):
         return name, ()
     return name, tuple(
         item["name"]
@@ -1020,15 +1040,18 @@ def wgrad_accumulate_mode(
     ``("fused", None)`` when every condition holds; else ``("composed", reason)`` with the first that fails:
     ``"tile_k"`` (not the 512-wide k tile), ``"tail"`` (the tile's split tail is not the unordered one added
     in place, :func:`wgrad_unordered_tail`: an ordered tail-reduce stage would overwrite the split tiles of
-    C), ``"stage"`` (the route serves no ``stage + ACC_SUFFIX`` on ``arch``), ``"min_cuda"`` (that build's
-    library cannot load, :func:`acc_library_loadable`) or ``"alignment"`` (``out`` is not ``ACC_ALIGN``-byte
-    aligned, ``aligned``)."""
+    C), ``"stage"`` (the route serves no ``stage + ACC_SUFFIX`` on ``arch``, or does not bind it there:
+    :func:`wgrad_acc_bound`), ``"min_cuda"`` (that build's library cannot load,
+    :func:`acc_library_loadable`) or ``"alignment"`` (``out`` is not ``ACC_ALIGN``-byte aligned,
+    ``aligned``)."""
     if tile_k != 512:
         return "composed", "tile_k"
     if not wgrad_unordered_tail(tile_k, arch, constants):
         return "composed", "tail"
     acc_stage = stage + ACC_SUFFIX
-    if not stage_served(name, acc_stage, arch):
+    if not stage_served(name, acc_stage, arch) or not wgrad_acc_bound(
+        name, arch, constants
+    ):
         return "composed", "stage"
     if not acc_library_loadable(name, acc_stage, arch):
         return "composed", "min_cuda"

@@ -446,6 +446,40 @@ def test_ordered_tail_never_fuses(arch):
             assert cb.wgrad_accumulate_mode(route, twin, 512, arch) == ("fused", None)
 
 
+@pytest.mark.parametrize("arch", ["sm_100a", "sm_103a", "sm_107a"])
+def test_bf16_accumulate_binds_on_the_listed_architectures(arch, monkeypatch):
+    """``wgrad_acc_bf16_archs`` lists the architectures on which a bfloat16 ``out`` takes
+    the bfloat16 route's accumulate stages.  Without ``arch`` those stages count as not
+    served there (``acc_stage_served``; the call composes with ``"stage"``), while the
+    FP32 route's stages and the other architectures' bfloat16 stages stay fused."""
+    bf16 = cake_jit.record_name("wgrad", out_dtype="bfloat16", tile_k=512)
+    f32 = cake_jit.record_name("wgrad", out_dtype="float32", tile_k=512)
+    listed = list(HOST_PLAN_CONSTANTS["wgrad_acc_bf16_archs"])
+    assert arch in listed
+    monkeypatch.setattr(cb, "acc_library_loadable", lambda *args: True)
+
+    def modes():
+        return {
+            (route, twin): cb.wgrad_accumulate_mode(route, twin, 512, arch)
+            for route in (bf16, f32)
+            for twin in TWIN_FORMS
+            if cake_jit.stage_served(route, twin + ACC, arch)
+        }
+
+    bound = modes()
+    assert {route for route, _twin in bound} == {bf16, f32}, bound
+    assert set(bound.values()) == {("fused", None)}, bound
+    assert cb.acc_stage_served("bfloat16", arch)
+    others = [a for a in listed if a != arch]
+    monkeypatch.setitem(HOST_PLAN_CONSTANTS, "wgrad_acc_bf16_archs", others)
+    for (route, twin), mode in modes().items():
+        want = ("composed", "stage") if route == bf16 else ("fused", None)
+        assert mode == want, (route, twin)
+    assert not cb.acc_stage_served("bfloat16", arch)
+    assert cb.acc_stage_served("float32", arch)
+    assert all(cb.acc_stage_served("bfloat16", other) for other in others)
+
+
 def test_misaligned_out_composes_with_one_warning(monkeypatch):
     """An ``out`` whose base, row pitch or expert pitch is not 32-byte aligned takes the
     composed route (``"alignment"``) with the overwrite plan, and the first such
