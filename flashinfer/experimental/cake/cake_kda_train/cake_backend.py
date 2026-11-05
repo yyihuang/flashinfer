@@ -6529,18 +6529,22 @@ HANDOFF_VERIFIED = frozenset(
 HANDOFF_HEADS = frozenset({2, 4, 8, 12, 16, 32, 64})
 # ... on a problem of S tokens in N documents (zero-length ones count) at H heads with H * S >= HANDOFF_MIN_HEAD_TOKENS
 # and S >= HANDOFF_MIN_DOC_TOKENS * N (:func:`_handoff_large`).  A record adds a fixed host cost to each checkpointed
-# call (170-195 us per step on a B300 with an x86 host at 12 heads) and saves kernel time that grows with the
-# token-heads and the document length, mostly the backward's recurrence recompute, which walks each document's chunks
-# in order (115 us per step there at one 8192-token document, 48 us at four 2048-token ones).  Below the bounds the
-# step is host-bound and the saving does not cover the host cost.  Checkpointed step det / ND on B200 (sm_100a) /
-# B300 (sm_103a), 148 SMs, x86 hosts, toolkit 13.4, 12 heads, equal documents, both build orders: admitted S = 32768
-# in one document 1.140 / 1.134, in four 1.042 / 1.042, S = 16384 in one 1.088 / 1.059; refused S = 16384 in four
-# 0.975 / 0.967, S = 8192 in one 0.978 / 0.965, in four 0.939 / 0.921 (that B300 row with the hand-off off: 0.985 det
-# first, 0.981 ND first).  Each bound is the smallest value of its quantity on an admitted row.  The other head counts
-# and the other devices of HANDOFF_VERIFIED (GB200 and GB300 with a Grace host, R200) take both bounds, without
-# measured rows of their own yet.
-HANDOFF_MIN_HEAD_TOKENS = 196608
-HANDOFF_MIN_DOC_TOKENS = 8192
+# call and saves kernel time that grows with the token-heads and the document length, mostly the backward's
+# recurrence recompute, which walks each document's chunks in order (115 us per step on a B300 with an x86 host at 12
+# heads at one 8192-token document, 48 us at four 2048-token ones).  Below the bounds the step is host-bound and the
+# saving does not cover the host cost.  Before the record's host path was trimmed (170-195 us per step on that B300),
+# checkpointed step det / ND on B200 (sm_100a) / B300 (sm_103a), 148 SMs, x86 hosts, toolkit 13.4, 12 heads, equal
+# documents, both build orders, with the hand-off: S = 32768 in one document 1.140 / 1.134, in four 1.042 / 1.042,
+# S = 16384 in one 1.088 / 1.059; S = 16384 in four 0.975 / 0.967, S = 8192 in one 0.978 / 0.965, in four 0.939 /
+# 0.921 (that B300 row with the hand-off off: 0.985 det first, 0.981 ND first).  With it trimmed, on B200 (sm_100a,
+# x86 host), checkpointed step without the hand-off over with it, median of per-round ratios, det first / ND first:
+# S = 8192 in one document 1.018 / 1.018, S = 16384 in four 1.009 / 1.010 and 8192 / 4096 / 3072 / 1024 tokens at
+# 64 heads 1.040 / 1.034 (admitted); S = 8192 in four 0.975 / 0.980 with the hand-off forced on (ratio of the
+# medians; refused).  Each bound is the smallest value of its quantity on an admitted row.  The other head counts
+# and the other devices of HANDOFF_VERIFIED (B300, GB200 and GB300 with a Grace host, R200) take both bounds, without
+# measured rows of their own at these bounds yet.
+HANDOFF_MIN_HEAD_TOKENS = 98304
+HANDOFF_MIN_DOC_TOKENS = 4096
 # Row records (the recompute launches the intra twin, the backward no prep) on these (architecture, SM count, full
 # toolkit version "major.minor.patch") devices, at the HANDOFF_HEADS head counts, with the call's own workspace.  The
 # twin's rows equal the prep's only where one toolkit compiles both to the same instructions, so the key names the

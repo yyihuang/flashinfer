@@ -1653,9 +1653,8 @@ def test_the_auto_size_bounds(monkeypatch) -> None:
     when ``H * S >= HANDOFF_MIN_HEAD_TOKENS`` and ``S >= HANDOFF_MIN_DOC_TOKENS * N`` (zero-length documents count).
     At every ``HANDOFF_HEADS`` head count the smallest admitted one-document problem passes and one token fewer does
     not; at the mean-length bound ``N`` documents pass and ``N + 1`` do not.  The shipped bounds admit the measured
-    12-head rows where the hand-off made the checkpointed step faster than the deterministic package (32768 tokens
-    in one or four documents, 16384 in one) and refuse those where it made it slower (16384 tokens in four
-    documents, 8192 in one or four).  On the plan, ``"auto"`` engages at the bounds on a verified device; a refusal
+    12-head rows where the hand-off made the checkpointed step faster (32768 tokens in one or four documents, 16384
+    in one or four, 8192 in one) and refuse the one where it made it slower (8192 tokens in four documents).  On the plan, ``"auto"`` engages at the bounds on a verified device; a refusal
     by size counts nothing, on a verified device or another one; ``"on"`` ignores the bounds."""
     min_head_tokens = cake_backend.HANDOFF_MIN_HEAD_TOKENS
     min_doc = cake_backend.HANDOFF_MIN_DOC_TOKENS
@@ -1665,8 +1664,8 @@ def test_the_auto_size_bounds(monkeypatch) -> None:
         (32768, 1): True,
         (32768, 4): True,
         (16384, 1): True,
-        (16384, 4): False,
-        (8192, 1): False,
+        (16384, 4): True,
+        (8192, 1): True,
         (8192, 4): False,
     }
     for (S, N), admitted in measured.items():

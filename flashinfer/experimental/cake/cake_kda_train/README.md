@@ -256,7 +256,7 @@ saved set do not change.
 
 | `checkpoint_handoff` | engages |
 | --- | --- |
-| `"auto"` (default) | at the head counts of `cake_backend.HANDOFF_HEADS` (2, 4, 8, 12, 16, 32, 64) on the devices of `cake_backend.HANDOFF_VERIFIED` (architecture, SM count, Cake build toolkit): `sm_100a` and `sm_103a` with 148 or 152 SMs, `sm_107a` with 212 SMs, toolkit 13.4; on a problem of `S` tokens in `N` documents at `H` heads with `H * S >= cake_backend.HANDOFF_MIN_HEAD_TOKENS` (196608) and `S >= cake_backend.HANDOFF_MIN_DOC_TOKENS * N` (8192 tokens per document on average) |
+| `"auto"` (default) | at the head counts of `cake_backend.HANDOFF_HEADS` (2, 4, 8, 12, 16, 32, 64) on the devices of `cake_backend.HANDOFF_VERIFIED` (architecture, SM count, Cake build toolkit): `sm_100a` and `sm_103a` with 148 or 152 SMs, `sm_107a` with 212 SMs, toolkit 13.4; on a problem of `S` tokens in `N` documents at `H` heads with `H * S >= cake_backend.HANDOFF_MIN_HEAD_TOKENS` (98304) and `S >= cake_backend.HANDOFF_MIN_DOC_TOKENS * N` (4096 tokens per document on average) |
 | `"on"` | every call it supports (tests and benchmarks) |
 | `"off"` | never |
 
@@ -269,13 +269,16 @@ saved set do not change.
   call, and saves kernel time that grows with the token-heads and the
   document length (mostly the recurrence recompute, which walks each
   document's chunks in order).  On a smaller problem the step is host-bound,
-  and the hand-off makes it slower.  Measured at 12 heads on B200 and B300
-  (x86 hosts), checkpointed step det / ND: `S = 32768` in one or four
-  documents and `S = 16384` in one document 1.04-1.14 (admitted);
-  `S = 16384` in four documents and `S = 8192` in one or four documents
-  0.92-0.98 with the hand-off on (refused now; about 0.98 at `S = 8192` in
-  four documents with it off).  The other head counts and devices take the
-  same bounds until rows of their own are measured.
+  and the hand-off makes it slower.  Measured on B200 (x86 host),
+  checkpointed step without the hand-off over with it: at 12 heads
+  `S = 8192` in one document 1.018 and `S = 16384` in four documents
+  1.009-1.010, at 64 heads 8192 / 4096 / 3072 / 1024-token documents
+  1.034-1.040 (admitted); `S = 8192` in four documents at 12 heads
+  0.975-0.980 (refused).  Larger problems gain more: det / ND 1.04-1.14 at
+  `S = 32768` in one or four documents and `S = 16384` in one document
+  (12 heads, B200 and B300, measured before the hand-off's host path was
+  trimmed).  The other head counts and devices take the same bounds until
+  rows of their own are measured.
 - `N` counts every document of `cu_seqlens`, zero-length ones too (the
   check reads its shape only, with no device sync): a pack padded to a fixed
   document count with empty documents can fall under the mean-length bound
