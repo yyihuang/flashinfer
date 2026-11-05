@@ -382,10 +382,11 @@ kernel; the 512-wide k tile's routes bind the unordered-tail builds.
 | `wgrad` k512 unordered tail: `main_wave`, `main_wave_halves` (wp8) | yes | yes | - |
 | `wgrad` k512 unordered tail: `main_halves_k256t` | - | - | yes (slack tail) |
 | `wgrad` output dtypes | bf16, fp32 | bf16, fp32 | bf16, fp32 |
-| `wgrad` accumulate, fused (`_acc` builds, fp32 `out` only) | `main_halves`, `main_wave_halves` | `main_halves`, `main_wave_halves` | `main_halves`, `main_halves_k256t` |
-| `wgrad` accumulate, composed | bf16 `out`; k256 tile; `main` / `main_wave`; misaligned `out`; `_acc` library not loadable | bf16 `out`; k256 tile; `main` / `main_wave`; misaligned `out`; `_acc` library not loadable | bf16 `out`; k256 tile; `main`; misaligned `out`; `_acc` library not loadable |
+| `wgrad` accumulate, fused (`_acc` builds, fp32 and bf16 `out`) | `main_halves`, `main_wave_halves` | `main_halves`, `main_wave_halves` | `main_halves`, `main_halves_k256t` |
+| `wgrad` accumulate, composed | k256 tile; `main` / `main_wave`; misaligned `out`; `_acc` library not loadable; bf16 `out` off `wgrad_acc_bf16_archs` | k256 tile; `main` / `main_wave`; misaligned `out`; `_acc` library not loadable; bf16 `out` off `wgrad_acc_bf16_archs` | k256 tile; `main`; misaligned `out`; `_acc` library not loadable; bf16 `out` off `wgrad_acc_bf16_archs` |
 | CUDA toolkit floor (`min_cuda`) | 12.8 | 12.9 | 13.4 |
 | CUDA toolkit floor of the fp32 `_acc` builds | 13.4 | 13.4 | 13.4 |
+| CUDA toolkit floor of the bf16 `_acc` builds | 12.8 | 12.9 | 13.4 |
 
 The slack tail placement runs a launch's split tail whole on the clusters the
 full waves leave least loaded when every tail tile fits there; the kernel

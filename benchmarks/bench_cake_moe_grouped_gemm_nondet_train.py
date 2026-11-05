@@ -70,7 +70,9 @@ add), ``mgX`` (``fuse_wgrad_accumulation=True`` / ``accumulate=True`` into the
 fp32 ``main_grad``, with Megatron's ``grad_added_to_main_grad`` placeholder),
 ``mgXn`` (``mgX`` without the attribute: no placeholder), ``mgX_zero``
 (``mgX`` with ``zero_out_wgrad``), ``accX`` (the same into a bf16
-``main_grad``: the composed route, a bf16 ``dW`` and the same-dtype add),
+``main_grad``: the bf16 accumulate builds where ``wgrad_acc_bf16_archs`` lists
+the architecture, else the composed route, a bf16 ``dW`` and the same-dtype
+add),
 ``det_acc`` (the deterministic package: its fp32 ``dW`` into a temporary, then
 ``main_grad.add_``, the deterministic weight gradient composed with the add; in
 the step and the backward, through a Function running the deterministic

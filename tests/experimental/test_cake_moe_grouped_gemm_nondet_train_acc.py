@@ -27,8 +27,10 @@ ordered tail, a stage without an accumulate build, a build that cannot load by t
 loader's static rule, the alignment), the checks of ``out``, the alerts (only before an
 order-varying launch, whatever the route), the signatures, the facade's handoff (no
 deterministic route) and the autograd flag's refusals.  On a GPU: the fused route
-against its bitwise oracles and the fp64 reference, on forced forms and on the benchmark
-rows as planned, the composed route against ``out.add_``, empty groups, padding,
+against the fp64 reference (an fp32 ``out`` also against its bitwise oracles; a bf16
+``out`` against the operand-scaled budget, its bits against ``out0.add_(dW16)`` recorded
+as data), on forced forms and on the benchmark rows as planned, the composed route
+against ``out.add_``, empty groups, padding,
 ``sum_m == 0``, short groups, concurrent streams, graph replay, allocations, the version
 counter, the autograd flag and the alert of an order-varying accumulate under torch's
 deterministic mode.  A fused case the shipped set promises fails unless the
@@ -69,16 +71,28 @@ DTYPE_NAMES = base.DTYPE_NAMES
 ACC = cb.ACC_SUFFIX
 # The stages with an accumulate build: the planner-reachable 512-wide k tile forms.
 TWIN_FORMS = ("main_halves", "main_wave_halves", "main_halves_k256t")
-# The accumulate builds this release ships, route -> architecture -> stages: fp32 ``out``
-# only (a bf16 ``out`` composes: the bf16 overwrite and a same-dtype ``add_``).  The
-# registry serves exactly these (``test_acc_bindings_are_the_shipped_set``), and the README
-# and rst feature matrices state the same (``test_docs_list_the_shipped_acc_builds``).
+# The accumulate builds this release ships, route -> architecture -> stages: the same
+# forms for an fp32 and a bf16 ``out``.  The registry serves exactly these
+# (``test_acc_bindings_are_the_shipped_set``), and the README and rst feature matrices
+# state the same (``test_docs_list_the_shipped_acc_builds``).
 SHIPPED_ACC_STAGES = {
-    "cake_moe_grouped_gemm_wgrad_f32_k512": {
+    route: {
         "sm_100a": ("main_halves_acc", "main_wave_halves_acc"),
         "sm_103a": ("main_halves_acc", "main_wave_halves_acc"),
         "sm_107a": ("main_halves_acc", "main_halves_k256t_acc"),
-    },
+    }
+    for route in (
+        "cake_moe_grouped_gemm_wgrad_bf16_k512",
+        "cake_moe_grouped_gemm_wgrad_f32_k512",
+    )
+}
+# The CUDA toolkit floor (``build.json`` ``min_cuda``) of the accumulate builds per
+# output dtype and architecture: the fp32 builds' vector ``.noftz.f32`` reduction needs
+# PTX ISA 9.4 (CUDA 13.4); the bf16 builds' ``.noftz.bf16x2`` reduction needs no more
+# than their twins, the architecture's floor.
+ACC_MIN_CUDA = {
+    "float32": {"sm_100a": (13, 4), "sm_103a": (13, 4), "sm_107a": (13, 4)},
+    "bfloat16": {"sm_100a": (12, 8), "sm_103a": (12, 9), "sm_107a": (13, 4)},
 }
 # The output dtypes with accumulate builds (the fused cases run these).
 FUSED_DTYPES = tuple(
@@ -238,17 +252,17 @@ def _assert_twin_launch(ovw, acc, arch):
 
 def test_acc_bindings_are_the_shipped_set():
     """The registry serves exactly the accumulate builds of ``SHIPPED_ACC_STAGES``: the
-    fp32 512-wide k tile route serves ``main_halves_acc`` on sm_100a / sm_103a / sm_107a,
-    ``main_wave_halves_acc`` on sm_100a / sm_103a and ``main_halves_k256t_acc`` on sm_107a;
-    the bf16 routes serve none (a bf16 ``out`` composes).  A render that lost or added an
-    accumulate stage fails here."""
+    fp32 and the bf16 512-wide k tile routes each serve ``main_halves_acc`` on sm_100a /
+    sm_103a / sm_107a, ``main_wave_halves_acc`` on sm_100a / sm_103a and
+    ``main_halves_k256t_acc`` on sm_107a.  A render that lost or added an accumulate stage
+    fails here."""
     assert sorted(_acc_bindings()) == sorted(_shipped_bindings())
     for arch in cake_jit.ARCHES:
         for name in DTYPE_NAMES.values():
             route = cake_jit.record_name("wgrad", out_dtype=name, tile_k=512)
             want = bool(SHIPPED_ACC_STAGES.get(route, {}).get(arch))
             assert cb.acc_stage_served(name, arch) == want, (arch, name)
-    assert list(FUSED_DTYPES) == [torch.float32]
+    assert list(FUSED_DTYPES) == [torch.bfloat16, torch.float32]
 
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -265,9 +279,14 @@ def _doc_matrix_row(path, label):
 
 def test_docs_list_the_shipped_acc_builds():
     """The README feature-matrix row ``wgrad accumulate, fused`` names, per architecture,
-    the twin forms of ``SHIPPED_ACC_STAGES`` for an fp32 ``out`` only (no bf16), and the
-    rst feature row says fp32 and lists the same forms by their short names."""
-    (route,) = SHIPPED_ACC_STAGES
+    the twin forms of ``SHIPPED_ACC_STAGES`` (the same for an fp32 and a bf16 ``out``), and
+    the rst feature row says fp32 and bf16 and lists the same forms by their short names."""
+    routes = list(SHIPPED_ACC_STAGES)
+    assert len(routes) == 2
+    route = routes[0]
+    assert all(
+        SHIPPED_ACC_STAGES[other] == SHIPPED_ACC_STAGES[route] for other in routes
+    )
     readme = os.path.join(
         _REPO,
         "flashinfer",
@@ -279,7 +298,7 @@ def test_docs_list_the_shipped_acc_builds():
     row = _doc_matrix_row(readme, "`wgrad` accumulate, fused")
     cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
     label, per_arch = cells[0], cells[1:]
-    assert "fp32" in label and "bf16" not in label, label
+    assert "fp32" in label and "bf16" in label, label
     assert len(per_arch) == len(cake_jit.ARCHES), row
     for arch, cell in zip(cake_jit.ARCHES, per_arch, strict=True):
         forms = {
@@ -289,7 +308,7 @@ def test_docs_list_the_shipped_acc_builds():
     rst = os.path.join(_REPO, "docs", "api", "cake_moe_grouped_gemm_nondet_train.rst")
     line = _doc_matrix_row(rst, "``wgrad`` accumulate, fused")
     label, rest = line.split("``out``", 1)
-    assert "fp32" in label and "bf16" not in line, line
+    assert "fp32" in label and "bf16" in label, line
     short = {
         "main_halves_acc": "planned",
         "main_wave_halves_acc": "wave",
@@ -361,11 +380,10 @@ def test_accumulate_plans_equal_the_overwrite_plans(arch, sm_count, monkeypatch)
     """Over every owner row (gate/up and down, E in {1, 4, 8, 16, 32}) and both output
     dtypes, at every SM count: the accumulate preparation selects the overwrite's route,
     tile, stage and plan (every plan key but ``accumulate`` / ``accumulate_reason``
-    equal), binds ``<stage>_acc`` exactly where the shipped set has that build (an fp32
-    ``out``: owner rows take a halves stage, so every fp32 owner row is fused, with no
-    tail-reduce stage), and else composes (a bf16 ``out``: ``"stage"``; the twin's stages
-    into a scratch of out's dtype).  The overwrite plans of the two output dtypes are
-    equal."""
+    equal), binds ``<stage>_acc`` exactly where the shipped set has that build (owner
+    rows take a halves stage, so every owner row of either dtype is fused, with no
+    tail-reduce stage), and else composes (``"stage"``; the twin's stages into a scratch
+    of out's dtype).  The overwrite plans of the two output dtypes are equal."""
     _fake_device(monkeypatch, arch, sm_count, checks=False)
     for label, sizes in OWNER_ROWS:
         for proj, (n, k) in base.BENCH_PROJ.items():
@@ -426,14 +444,17 @@ def test_ordered_tail_never_fuses(arch):
     from ``unordered_tail_archs``) would sum its split tail with an overwriting tail-reduce
     stage, so its accumulate call composes (``"tail"``) although the stage's accumulate
     build is served and loadable; with the unordered tail the same stage is fused."""
-    (route,) = SHIPPED_ACC_STAGES
     ordered = dict(
         HOST_PLAN_CONSTANTS,
         unordered_tail_archs=[
             a for a in HOST_PLAN_CONSTANTS["unordered_tail_archs"] if a != arch
         ],
     )
-    for stage in SHIPPED_ACC_STAGES[route][arch]:
+    for route, stage in (
+        (route, stage)
+        for route, arches in SHIPPED_ACC_STAGES.items()
+        for stage in arches[arch]
+    ):
         twin = stage[: -len(ACC)]
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(cb, "acc_library_loadable", lambda *args: True)
@@ -527,7 +548,7 @@ def test_unloadable_acc_build_composes_with_one_warning(monkeypatch):
     arch = "sm_103a"
     _fake_device(monkeypatch, arch, 152, loadable=False)
     _force_k512(monkeypatch, arch)
-    (route,) = SHIPPED_ACC_STAGES
+    route = cake_jit.record_name("wgrad", out_dtype="float32", tile_k=512)
     acc_programs = {
         cake_jit.stage_binding(route, stage, arch)["program"]
         for stage in SHIPPED_ACC_STAGES[route][arch]
@@ -587,23 +608,24 @@ def test_acc_library_loadable_is_the_loader_rule(name, stage, arch, monkeypatch)
     """``acc_library_loadable`` is the loader's own rule, decided without building,
     loading or probing anything: a prebuilt library under ``aot/`` loads whatever the
     toolkit; otherwise the JIT toolkit must reach the ``build.json`` entry's ``min_cuda``
-    (13.4 for the fp32 accumulate builds); without FlashInfer's JIT nothing builds."""
+    (``ACC_MIN_CUDA``); without FlashInfer's JIT nothing builds."""
     binding = cake_jit.stage_binding(name, stage, arch)
     library = cake_jit.library_name(
         binding["program"], arch, binding["specializations"]
     )
     floor = _cuda_version(cake_jit.cake_build.libraries_by_name()[library]["min_cuda"])
-    assert floor == (13, 4), (library, floor)
+    assert floor == ACC_MIN_CUDA[_route_dtype(name)][arch], (library, floor)
+    below, above = (floor[0], floor[1] - 1), (floor[0], floor[1] + 1)
     toolkit_of_process = cb._jit_cuda_version
     for loader in ("load_library", "jit_spec"):
         monkeypatch.setattr(cake_jit.cake_build, loader, _never_loads)
     for prebuilt, toolkit, want in (
         (True, None, True),
-        (True, (12, 9), True),
+        (True, below, True),
         (False, None, False),
-        (False, (13, 3), False),
-        (False, (13, 4), True),
-        (False, (13, 5), True),
+        (False, below, False),
+        (False, floor, True),
+        (False, above, True),
     ):
         monkeypatch.setattr(
             cb,
@@ -936,6 +958,12 @@ def _load_vendored_build(tmp_path):
     return module
 
 
+def _route_dtype(name):
+    """The output dtype name of the weight-gradient route ``name``."""
+    f32 = name.startswith("cake_moe_grouped_gemm_wgrad_f32")
+    return "float32" if f32 else "bfloat16"
+
+
 def _cuda_version(text):
     major, minor = text.split(".")[:2]
     return int(major), int(minor)
@@ -943,9 +971,11 @@ def _cuda_version(text):
 
 def test_build_manifest_lists_the_acc_libraries(tmp_path):
     """``build.json`` has an entry for every shipped accumulate build (program,
-    architecture, specializations), whose ``min_cuda`` is at least its twin's; the fp32
-    builds (``WGRAD_OUT`` 32: the PTX ISA 9.4 ``.noftz.f32`` reduction) need CUDA 13.4.
-    A vendored copy of the loader and the manifest lists them too."""
+    architecture, specializations), whose ``min_cuda`` is at least its twin's and is the
+    dtype's floor of ``ACC_MIN_CUDA``: the fp32 builds (``WGRAD_OUT`` 32: the PTX ISA 9.4
+    ``.noftz.f32`` reduction) need CUDA 13.4, the bf16 builds (the same programs without
+    a specialization) their architecture's floor.  A vendored copy of the loader and the
+    manifest lists them too."""
     libraries = cake_jit.cake_build.libraries_by_name()
     vendored = _load_vendored_build(tmp_path).libraries_by_name()
     found = set()
@@ -963,10 +993,12 @@ def test_build_manifest_lists_the_acc_libraries(tmp_path):
         assert entry["arch"] == arch
         floor = _cuda_version(entry["min_cuda"])
         assert floor >= _cuda_version(libraries[twin_library]["min_cuda"]), library
-        assert binding["specializations"].get("WGRAD_OUT") == 32, (name, stage)
-        assert floor == (13, 4), (library, entry["min_cuda"])
+        dtype = _route_dtype(name)
+        want = {"WGRAD_OUT": 32} if dtype == "float32" else {}
+        assert binding["specializations"] == want, (name, stage)
+        assert floor == ACC_MIN_CUDA[dtype][arch], (library, entry["min_cuda"])
         found.add(library)
-    assert len(found) == len(_shipped_bindings()) == 6
+    assert len(found) == len(_shipped_bindings()) == 12
 
 
 def test_fuse_flag_refusals_on_the_host():
@@ -1156,6 +1188,15 @@ def _assert_bitwise(out, want, what=""):
     )
 
 
+def _same_bits(out, want):
+    """Whether ``out`` and ``want`` have the same bits, NaNs aside (both NaN, any payload):
+    the bit comparisons a bf16 accumulate records as data."""
+    nan = torch.isnan(out)
+    if not torch.equal(nan, torch.isnan(want)):
+        return False
+    return not bool(((_bits(out) != _bits(want)) & ~nan).any())
+
+
 def _rms(t):
     return float(t.double().pow(2).mean().sqrt().clamp_min(1e-30))
 
@@ -1286,9 +1327,12 @@ def _overwrites(g, x, offs, out_dtype):
     return dw32, dw
 
 
-def _fused_oracle(out0, dw32):
-    """The whole-tile bits of the fused (fp32) accumulate (README numerical contract)."""
-    return out0.clone().add_(dw32)
+def _fused_oracle(out0, dw):
+    """``out0.add_(dW)``: for an fp32 ``out`` (``dw`` the fp32 overwrite) the whole-tile
+    bits of the fused accumulate (README numerical contract); for a bf16 ``out`` (``dw``
+    the bf16 overwrite) AccumulateGrad's bits, which the bf16 fused accumulate is compared
+    with as data only (its contract is the operand-scaled budget)."""
+    return out0.clone().add_(dw)
 
 
 def _expected(out0, g, x, sizes, times=1):
@@ -1327,17 +1371,20 @@ def _assert_within_budget(out, expected, mask=None):
 
 
 def _assert_no_lost_update(out, out0, dw32, sizes):
-    """fp32: every 128 x 128 block of a group with rows added its tile (``out - out0`` is
-    ``dW`` within 2^-6 of the block's largest ``|dW|``), so no tile update was lost or
-    applied twice."""
+    """Every 128 x 128 block of a group with rows added its tile (``out - out0`` is ``dW``
+    within 2^-6 of the block's largest ``|dW|``, and for a bf16 ``out`` within 2^-7 of
+    ``|out0| + |dW|`` more per element: the roundings of ``dW`` and of the sum), so no
+    tile update was lost or applied twice."""
     e, n, k = out.shape
     delta = (out.double() - out0.double()).reshape(e, n // 128, 128, k // 128, 128)
     want = dw32.double().reshape(delta.shape)
+    start = out0.double().reshape(delta.shape).abs()
     scale = want.abs().amax(dim=(2, 4), keepdim=True)
-    finite = torch.isfinite(delta) & (out0.double().reshape(delta.shape).abs() < 1e30)
-    bad = (
-        (((delta - want).abs() > scale * 2.0**-6 + 1e-6) & finite).any(dim=4).any(dim=2)
-    )
+    tol = scale * 2.0**-6 + 1e-6
+    if out.dtype == torch.bfloat16:
+        tol = tol + (start + want.abs()) * 2.0**-7
+    finite = torch.isfinite(delta) & (start < 1e30)
+    bad = (((delta - want).abs() > tol) & finite).any(dim=4).any(dim=2)
     for group, rows in enumerate(sizes):
         if not rows:
             bad[group] = False
@@ -1372,14 +1419,18 @@ def _inputs_with_zero_columns(sizes, n, k, device, seed):
 @pytest.mark.parametrize("kind", ["zeros", "randn", "absorb", "specials"])
 @pytest.mark.parametrize("out_dtype", FUSED_DTYPES)
 @pytest.mark.parametrize("form", TWIN_FORMS)
-def test_fused_accumulate_matches_its_oracles(form, out_dtype, kind, monkeypatch):
+def test_fused_accumulate_matches_its_oracles(
+    form, out_dtype, kind, monkeypatch, record_property
+):
     """The fused route of every accumulate build the device's architecture ships, on an
-    unsplit tail into a row- and expert-padded ``out``: bitwise ``out0.add_(dW32)`` with
-    the overwrite of the same plan (README numerical contract; NaN payloads aside), within
-    the budget of the fp64 ``out0 + dW`` on the ordinary elements, no lost tile update,
-    subnormal ``out0`` kept where ``dW`` is zero, empty groups and the padding bitwise
-    untouched, the same bits on a second run, and four accumulates within the budget of
-    ``out0 + 4 dW``."""
+    unsplit tail into a row- and expert-padded ``out``: within the budget of the fp64
+    ``out0 + dW`` on the ordinary elements, no lost tile update, subnormal ``out0`` kept
+    where ``dW`` is zero, empty groups and the padding bitwise untouched, and four
+    accumulates within the budget of ``out0 + 4 dW``.  An fp32 ``out`` is also bitwise
+    ``out0.add_(dW32)`` with the overwrite of the same plan (README numerical contract;
+    NaN payloads aside) and has the same bits on a second run; for a bf16 ``out`` both
+    comparisons (with ``out0.add_(dW16)``) are recorded as data (``FUSED`` lines,
+    ``record_property``)."""
     device = base._require_program("wgrad", out_dtype)
     base._fresh_stream_workspaces(monkeypatch)
     _require_fused(device, form, out_dtype, monkeypatch)
@@ -1387,7 +1438,7 @@ def test_fused_accumulate_matches_its_oracles(form, out_dtype, kind, monkeypatch
     assert shape is not None, f"no candidate shape leaves the {form} tail unsplit"
     n, k = shape
     x, _w, g, offs = _inputs_with_zero_columns(ACC_SIZES, n, k, device, seed=31)
-    dw32 = _overwrites(g, x, offs, out_dtype)[0]
+    dw32, dw = _overwrites(g, x, offs, out_dtype)
     gen = torch.Generator(device=device).manual_seed(32)
     out0 = _out0(kind, dw32, ACC_SIZES, out_dtype, gen)
     if kind == "specials":
@@ -1403,9 +1454,12 @@ def test_fused_accumulate_matches_its_oracles(form, out_dtype, kind, monkeypatch
     assert launch.plan["tail_splits"] == 1
     launch.launch()
     torch.cuda.synchronize()
-    oracle = _fused_oracle(out0, dw32)
+    oracle = _fused_oracle(out0, dw)
     rows = torch.tensor([r > 0 for r in ACC_SIZES], device=device)
-    _assert_bitwise(out[rows], oracle[rows], f"{form} {out_dtype} {kind}")
+    fp32 = out_dtype == torch.float32
+    if fp32:
+        _assert_bitwise(out[rows], oracle[rows], f"{form} {out_dtype} {kind}")
+    bits = {"equal_to_add": _same_bits(out[rows], oracle[rows])}
     for group, count in enumerate(ACC_SIZES):
         if not count:
             assert torch.equal(_bits(out[group]), _bits(out0[group])), group
@@ -1423,16 +1477,19 @@ def test_fused_accumulate_matches_its_oracles(form, out_dtype, kind, monkeypatch
     out.copy_(out0)
     launch.launch()
     torch.cuda.synchronize()
-    assert torch.equal(_bits(out), _bits(first)), (
-        "an unsplit fused accumulate changed run to run"
-    )
+    bits["run_to_run_equal"] = torch.equal(_bits(out), _bits(first))
+    if fp32:
+        assert bits["run_to_run_equal"], (
+            "an unsplit fused accumulate changed run to run"
+        )
+    record_property("bits", bits)
     if kind == "randn":
         out.copy_(out0)
         for _ in range(4):
             launch.launch()
         torch.cuda.synchronize()
         _assert_within_budget(out, _expected(out0, g, x, ACC_SIZES, times=4), mask)
-    print(f"FUSED form={form} dtype={out_dtype} kind={kind} n={n} k={k}")
+    print(f"FUSED form={form} dtype={out_dtype} kind={kind} n={n} k={k} bits={bits}")
 
 
 @pytest.mark.parametrize("out_dtype", FUSED_DTYPES)
@@ -1471,7 +1528,8 @@ def test_fused_split_tail_matches_the_reference(form, out_dtype, monkeypatch):
 
 # (case, out dtype) of the composed route: the 256-wide k tile, the forced ``main`` /
 # ``main_wave`` forms and a misaligned ``out`` for both dtypes; a half-release form for a
-# dtype without accumulate builds; a shipped build whose library cannot load.
+# dtype without accumulate builds; a shipped build whose library cannot load; a bf16
+# ``out`` on an architecture ``wgrad_acc_bf16_archs`` does not list.
 COMPOSED_CASES = (
     [
         (case, dtype)
@@ -1480,6 +1538,7 @@ COMPOSED_CASES = (
     ]
     + [("halves", dtype) for dtype in DTYPE_NAMES if dtype not in FUSED_DTYPES]
     + [("unloadable", dtype) for dtype in FUSED_DTYPES]
+    + [("unbound", torch.bfloat16)]
 )
 
 
@@ -1495,7 +1554,8 @@ def test_composed_accumulate_is_the_overwrite_plus_add(case, out_dtype, monkeypa
     fp64 ``out0 + dW``; empty groups keep their values (``out.add_`` semantics).  The
     reason is the first condition of the fused route that fails: ``"tile_k"``,
     ``"stage"`` (the forced forms; every half-release form of a dtype without accumulate
-    builds, misaligned or not), ``"min_cuda"`` or ``"alignment"``."""
+    builds, misaligned or not; a bf16 ``out`` where ``wgrad_acc_bf16_archs`` does not
+    list the architecture), ``"min_cuda"`` or ``"alignment"``."""
     device = base._require_program("wgrad", out_dtype)
     base._fresh_stream_workspaces(monkeypatch)
     monkeypatch.setattr(cb, "_WARNED", set())
@@ -1517,6 +1577,11 @@ def test_composed_accumulate_is_the_overwrite_plus_add(case, out_dtype, monkeypa
             assert promised, (arch, out_dtype)
             monkeypatch.setattr(cb, "acc_library_loadable", lambda *args: False)
             reason = "min_cuda"
+        elif case == "unbound":
+            assert promised, (arch, out_dtype)
+            listed = HOST_PLAN_CONSTANTS["wgrad_acc_bf16_archs"]
+            others = [a for a in listed if a != arch]
+            monkeypatch.setitem(HOST_PLAN_CONSTANTS, "wgrad_acc_bf16_archs", others)
         elif case == "misaligned" and promised:
             reason = "alignment"
     x, _w, g, offs = base._inputs(sizes, n, k, device, seed=35)
@@ -1626,35 +1691,59 @@ def test_fused_accumulate_on_the_benchmark_rows(label, sizes, proj, monkeypatch)
 @pytest.mark.parametrize(
     "label,sizes,proj", BENCH_ROWS, ids=[f"{lab}-{p}" for lab, _s, p in BENCH_ROWS]
 )
-def test_composed_bf16_accumulate_on_the_benchmark_rows(
-    label, sizes, proj, monkeypatch
+def test_fused_bf16_accumulate_on_the_benchmark_rows(
+    label, sizes, proj, monkeypatch, record_property
 ):
-    """The same rows into a bf16 ``out``: the call composes (``"stage"``: no bf16
-    accumulate build ships) with the overwrite's plan, and the result is within the
-    operand-scaled bf16 budget of the fp64 ``out0 + dW``; an empty group keeps its
-    values."""
+    """The same rows into a bf16 ``out``, as the planner plans them: the call is fused
+    (a shipped half-release accumulate build of the bf16 route), within the
+    operand-scaled bf16 budget of the fp64 ``out0 + dW``, no tile update lost, an empty
+    group bitwise untouched, and the split tail's workspaces at rest.  The tiles that
+    differ from ``out0.add_(dW16)`` (AccumulateGrad's bits, the overwrite of the same
+    plan), outside the split tail and in all, are recorded as data (``BENCHROW`` lines,
+    ``record_property``)."""
     out_dtype = torch.bfloat16
     device = base._require_program("wgrad", out_dtype)
     base._fresh_stream_workspaces(monkeypatch)
+    arch = base._arch(device)
     n, k = base.BENCH_PROJ[proj]
     x, _w, g, offs = base._inputs(sizes, n, k, device, seed=63)
+    dw32, dw16 = _overwrites(g, x, offs, out_dtype)
     gen = torch.Generator(device=device).manual_seed(64)
-    scale = _rms(base._reference("wgrad", g[:4096], x[:4096], [4096]))
-    out0 = (torch.randn(len(sizes), n, k, generator=gen, device=device) * scale).to(
-        out_dtype
-    )
+    out0 = _out0("randn", dw32, sizes, out_dtype, gen)
     out = out0.clone()
     launch = prepare_wgrad(g, x, offs, out=out, accumulate=True)
-    assert (launch.plan["accumulate"], launch.plan["accumulate_reason"]) == (
-        "composed",
-        "stage",
-    ), launch.plan
+    plan = launch.plan
+    twin = launch.stages[0].removesuffix(ACC)
+    assert twin in TWIN_FORMS and _promised(arch, twin, out_dtype), (
+        label,
+        launch.stages,
+    )
+    route = cake_jit.record_name("wgrad", out_dtype="bfloat16", tile_k=512)
+    if not cb.acc_library_loadable(route, twin + ACC, arch):
+        assert plan["accumulate_reason"] == "min_cuda", plan
+        pytest.skip(f"the {twin}{ACC} library cannot load here: the call composes")
+    assert plan["accumulate"] == "fused" and launch.stages == (twin + ACC,), plan
     launch.launch()
     torch.cuda.synchronize()
     for group, rows in enumerate(sizes):
         if not rows:
-            assert torch.equal(out[group], out0[group]), group
-    _assert_within_budget(out, _expected(out0, g, x, sizes), _special_mask(out0, sizes))
+            assert torch.equal(_bits(out[group]), _bits(out0[group])), group
+    tiles = _differing_tiles(out, _fused_oracle(out0, dw16), plan["tail_tile_k"], sizes)
+    del dw16
+    _assert_no_lost_update(out, out0, dw32, sizes)
+    del dw32
+    mask = _special_mask(out0, sizes)
+    _assert_within_budget(out, _expected(out0, g, x, sizes), mask)
+    if plan["tail_splits"] > 1:
+        base._assert_tail_at_rest(device)
+    allowed = plan["num_tail"] if plan["tail_splits"] > 1 else 0
+    record_property("differing_tiles", len(tiles))
+    beyond = max(len(tiles) - allowed, 0)
+    record_property("differing_tiles_beyond_the_split_tail", beyond)
+    print(
+        f"BENCHROW {label} {proj} {arch} bf16 stage={launch.stages[0]} "
+        f"splits={plan['tail_splits']} num_tail={plan['num_tail']} differing_tiles={len(tiles)}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1842,12 +1931,12 @@ def test_accumulate_on_two_concurrent_streams(form, out_dtype, monkeypatch):
         base._assert_tail_at_rest(device, stream)
 
 
+@pytest.mark.parametrize("out_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("route", ["fused", "composed"])
-def test_graph_replay_accumulates_at_every_replay(route, monkeypatch):
+def test_graph_replay_accumulates_at_every_replay(route, out_dtype, monkeypatch):
     """A captured accumulate launch adds at every replay: two replays without a reset give
     ``out0 + 2 dW``, also after new group boundaries are written into ``offs`` (the same
     ``sum_m``); the composed route's add is captured with its kernel."""
-    out_dtype = torch.float32
     device = base._require_program("wgrad", out_dtype)
     base._fresh_stream_workspaces(monkeypatch)
     if route == "fused":
@@ -1863,7 +1952,7 @@ def test_graph_replay_accumulates_at_every_replay(route, monkeypatch):
     assert sum(second) == sum(sizes) and len(second) == len(sizes)
     x, _w, g, offs = base._inputs(sizes, n, k, device, seed=43)
     gen = torch.Generator(device=device).manual_seed(44)
-    out0 = torch.randn(len(sizes), n, k, generator=gen, device=device)
+    out0 = torch.randn(len(sizes), n, k, generator=gen, device=device).to(out_dtype)
     out = out0.clone()
     launch = prepare_wgrad(g, x, offs, out=out, accumulate=True)
     assert launch.plan["accumulate"] == route
@@ -1885,13 +1974,13 @@ def test_graph_replay_accumulates_at_every_replay(route, monkeypatch):
         _assert_within_budget(out, _expected(out0, g, x, layout, times=2))
 
 
+@pytest.mark.parametrize("out_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("route", ["fused", "composed"])
 def test_prepared_accumulate_allocates_nothing_after_the_first_launch(
-    route, monkeypatch
+    route, out_dtype, monkeypatch
 ):
     """The composed scratch is allocated by the preparation; after the first launch on a
     stream neither route allocates device memory."""
-    out_dtype = torch.float32
     device = base._require_program("wgrad", out_dtype)
     base._fresh_stream_workspaces(monkeypatch)
     if route == "fused":
@@ -1904,7 +1993,7 @@ def test_prepared_accumulate_allocates_nothing_after_the_first_launch(
     else:
         sizes, (n, k) = base.K256_WAVE_SIZES, base.K256_WAVE_SHAPE
     x, _w, g, offs = base._inputs(sizes, n, k, device, seed=45)
-    out = torch.zeros(len(sizes), n, k, device=device)
+    out = torch.zeros(len(sizes), n, k, device=device, dtype=out_dtype)
     torch.cuda.synchronize()
     before = torch.cuda.memory_allocated(device)
     launch = prepare_wgrad(g, x, offs, out=out, accumulate=True)
@@ -1913,7 +2002,8 @@ def test_prepared_accumulate_allocates_nothing_after_the_first_launch(
     if route == "composed":
         assert launch.add_from is not None
         assert (
-            torch.cuda.memory_allocated(device) - before >= launch.add_from.numel() * 4
+            torch.cuda.memory_allocated(device) - before
+            >= launch.add_from.numel() * out.element_size()
         )
     launch.launch()
     torch.cuda.synchronize()
@@ -1924,12 +2014,12 @@ def test_prepared_accumulate_allocates_nothing_after_the_first_launch(
     assert torch.cuda.memory_stats(device)["allocation.all.allocated"] == stats
 
 
+@pytest.mark.parametrize("out_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("route", ["fused", "composed"])
-def test_accumulate_bumps_the_version_counter(route, monkeypatch):
+def test_accumulate_bumps_the_version_counter(route, out_dtype, monkeypatch):
     """Every accumulate launch bumps ``out._version`` once (the fused route through
     ``torch.autograd.graph.increment_version``, the composed one through ``out.add_``);
     an inference tensor is accumulated into without an error."""
-    out_dtype = torch.float32
     device = base._require_program("wgrad", out_dtype)
     if route == "fused":
         _require_fused(device, "main_halves", out_dtype, monkeypatch)
@@ -1937,7 +2027,7 @@ def test_accumulate_bumps_the_version_counter(route, monkeypatch):
     else:
         sizes, (n, k) = base.K256_WAVE_SIZES, base.K256_WAVE_SHAPE
     x, _w, g, offs = base._inputs(sizes, n, k, device, seed=46)
-    out = torch.zeros(len(sizes), n, k, device=device)
+    out = torch.zeros(len(sizes), n, k, device=device, dtype=out_dtype)
     launch = prepare_wgrad(g, x, offs, out=out, accumulate=True)
     assert launch.plan["accumulate"] == route
     version = out._version
@@ -1945,7 +2035,7 @@ def test_accumulate_bumps_the_version_counter(route, monkeypatch):
     launch.launch()
     assert out._version == version + 2
     with torch.inference_mode():
-        frozen = torch.zeros(len(sizes), n, k, device=device)
+        frozen = torch.zeros(len(sizes), n, k, device=device, dtype=out_dtype)
     assert frozen.is_inference()
     inference = prepare_wgrad(g, x, offs, out=frozen, accumulate=True)
     inference.launch()
@@ -1960,8 +2050,8 @@ def test_accumulate_bumps_the_version_counter(route, monkeypatch):
 
 def _autograd_case(out_dtype, monkeypatch, form="main_halves"):
     """``(device, sizes, x0, w0, g1, g2, offs)`` of an unsplit 512-wide k tile shape in
-    ``form``: its backward adds into an fp32 ``main_grad`` with the shipped accumulate
-    build (fused) and into a bf16 one by composing (no bf16 accumulate build ships)."""
+    ``form``: its backward adds into an fp32 or a bf16 ``main_grad`` with the shipped
+    accumulate build of the dtype (fused)."""
     base._require_program("fwd")
     base._require_program("dgrad")
     device = base._require_program("wgrad", out_dtype)
@@ -2030,12 +2120,15 @@ def _run_micro_steps(fn, x0, w0, mg0, grads, ckpt, early_stop, attribute=None):
 )
 @pytest.mark.parametrize("ckpt", [None, "non_reentrant", "nested"])
 @pytest.mark.parametrize("out_dtype", [torch.float32, torch.bfloat16])
-def test_autograd_accumulates_into_main_grad(out_dtype, ckpt, early_stop, monkeypatch):
+def test_autograd_accumulates_into_main_grad(
+    out_dtype, ckpt, early_stop, monkeypatch, record_property
+):
     """Two micro-steps with ``fuse_wgrad_accumulation=True`` (plain, non-reentrant and
-    nested checkpoints, early stop on and off) leave ``main_grad == mg0 + dW1 + dW2``:
-    bitwise the composed adds on this unsplit shape (the fused fp32 route; a bf16
-    ``main_grad`` composes, AccumulateGrad's bits), within the budget of the fp64 sum;
-    ``x.grad`` is bitwise the default mode's and ``w.grad`` stays None (no
+    nested checkpoints, early stop on and off) leave ``main_grad == mg0 + dW1 + dW2``
+    within the budget of the fp64 sum: for an fp32 ``main_grad`` bitwise the composed
+    adds on this unsplit shape; for a bf16 one the comparison with the composed adds
+    (AccumulateGrad's bits) is recorded as data (``record_property``).  ``x.grad`` is
+    bitwise the default mode's and ``w.grad`` stays None (no
     ``grad_added_to_main_grad``)."""
     device, sizes, x0, w0, g1, g2, offs = _autograd_case(out_dtype, monkeypatch)
     gen = torch.Generator(device=device).manual_seed(53)
@@ -2045,7 +2138,9 @@ def test_autograd_accumulates_into_main_grad(out_dtype, ckpt, early_stop, monkey
     )
     assert w.grad is None
     want = _composed_main_grad(mg0, (g1, g2), x0, offs)
-    _assert_bitwise(w.main_grad, want, "main_grad")
+    if out_dtype == torch.float32:
+        _assert_bitwise(w.main_grad, want, "main_grad")
+    record_property("equal_to_composed", _same_bits(w.main_grad, want))
     dws = [base._reference("wgrad", g, x0, sizes).double() for g in (g1, g2)]
     start = mg0.double()
     expected = (

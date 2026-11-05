@@ -280,7 +280,8 @@ feature                                         sm_100a         sm_103a         
 ``wgrad`` 512 half-release builds               planned, slack  planned, slack  planned, slack
 ``wgrad`` 512 k256-tail twin                    --              --              slack tail
 ``wgrad`` output dtypes                         bf16, fp32      bf16, fp32      bf16, fp32
-``wgrad`` accumulate, fused, fp32 ``out``       planned, wave   planned, wave   planned, k256t
+``wgrad`` accumulate, fused, fp32, bf16 ``out`` planned, wave   planned, wave   planned, k256t
 CUDA toolkit floor                              12.8            12.9            13.4
 CUDA toolkit floor, fp32 accumulate builds      13.4            13.4            13.4
+CUDA toolkit floor, bf16 accumulate builds      12.8            12.9            13.4
 =============================================== =============== =============== ===============
