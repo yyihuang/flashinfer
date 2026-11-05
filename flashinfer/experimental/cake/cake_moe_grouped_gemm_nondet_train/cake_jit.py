@@ -953,7 +953,7 @@ HOST_PLAN_CONSTANTS: dict[str, Any] = {
     "wide_block_n": 512,
     "wide_fwd_archs": ["sm_100a", "sm_103a", "sm_107a"],
     "wide_dgrad_archs": ["sm_100a", "sm_103a", "sm_107a"],
-    "dgrad_evict_first_archs": ["sm_100a", "sm_107a"],
+    "dgrad_evict_first_archs": ["sm_100a", "sm_103a", "sm_107a"],
     "dgrad_evict_first_min_rows": {"sm_100a": 4096, "sm_103a": 16384, "sm_107a": 16384},
     "dgrad_evict_first_min_k": {"sm_100a": 4096, "sm_103a": 4096, "sm_107a": 4096},
     "fwd_lwh_ef_archs": ["sm_107a"],
