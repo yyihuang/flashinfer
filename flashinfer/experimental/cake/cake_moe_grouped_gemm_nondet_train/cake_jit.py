@@ -943,6 +943,8 @@ HOST_PLAN_CONSTANTS: dict[str, Any] = {
     "dgrad_evict_first_min_k": {"sm_100a": 4096, "sm_103a": 4096, "sm_107a": 4096},
     "fwd_lwh_ef_archs": ["sm_107a"],
     "fwd_lwh_ef_max_k": 2048,
+    "fwd_evict_first_archs": ["sm_100a", "sm_103a"],
+    "fwd_evict_first_min_k": {"sm_100a": 6144, "sm_103a": 6144},
     "dgrad_wide_ts33_archs": ["sm_103a"],
     "dgrad_wide_ts33_min_rows": {"sm_103a": 8192},
     "dgrad_wide_ts33_min_k": 4096,

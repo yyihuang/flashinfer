@@ -23,11 +23,12 @@ deterministic package's determinism suite (seeded fixed inputs per case):
   deterministic package's bits for ``fwd`` and ``dgrad``;
 * ``fwd`` and ``dgrad`` of the non-deterministic package give the deterministic
   package's bits where they launch copies of its programs; where they launch a
-  build of this package's own (``OWN_STAGES``: the data gradient's L2 evict-first
-  builds on sm_100a and sm_103a, where the deterministic package launches its wide
-  tile or its 3 / 3 head / tail wide tile), the output is within the budget of the
-  deterministic package's, and whether it has its bits is recorded (``REPRO``
-  lines): this package's programs carry no bit contract;
+  build of this package's own (``OWN_STAGES``: the L2 evict-first builds of the
+  data gradient and of the forward pass on sm_100a and sm_103a, where the
+  deterministic package launches its wide tile or its 3 / 3 head / tail wide
+  tile), the output is within the budget of the deterministic package's, and
+  whether it has its bits is recorded (``REPRO`` lines): this package's programs
+  carry no bit contract;
 * the non-deterministic weight gradient, launched ``REPEATS`` times into an
   output filled with zero bytes and ``REPEATS`` times into one filled with
   ``FILL_BYTE``, stays within the deterministic package's budget of the
@@ -125,13 +126,17 @@ INT_VIEW = {torch.bfloat16: torch.int16, torch.float32: torch.int32}
 # gradient's L2 evict-first twins on the architectures this package's
 # ``dgrad_evict_first_archs`` adds: on sm_100a the deterministic wide
 # domain-scheduled kernel, on sm_103a its 3 / 3 head / tail A-collector form, each
-# with evict-first G loads and dX stores.
+# with evict-first G loads and dX stores.  The forward pass's on the architectures
+# of ``fwd_evict_first_archs``: the deterministic wide domain-scheduled kernel with
+# evict-first X loads and Y stores.
 OWN_STAGES = {
     ("cake_moe_grouped_gemm_dgrad", "main_wide_ef", "sm_100a"): "main_wide",
     ("cake_moe_grouped_gemm_dgrad", "main_wide_ef", "sm_103a"): "main_wide_ts33",
+    ("cake_moe_grouped_gemm_fwd", "main_wide_ef", "sm_100a"): "main_wide",
+    ("cake_moe_grouped_gemm_fwd", "main_wide_ef", "sm_103a"): "main_wide",
 }
 # The host constant listing the architectures of each operation's own stage.
-OWN_STAGE_ARCHS = {"dgrad": "dgrad_evict_first_archs"}
+OWN_STAGE_ARCHS = {"dgrad": "dgrad_evict_first_archs", "fwd": "fwd_evict_first_archs"}
 # Data-gradient cases of the evict-first rule (at least the architecture's
 # ``dgrad_evict_first_min_rows`` rows per group on average, ``K`` at least its
 # ``dgrad_evict_first_min_k``): (label, sizes, N, K), over group sizes off every tile
@@ -145,6 +150,16 @@ EF_CASES = (
     ("band_floor_off_tile", (4095, 4097, 4096, 4096), 64, 4096),
     ("band_empty_one_row", (0, 16383, 1, 8191), 4096, 6144),
     ("band_one_row_off_tile", (1, 12287, 9000, 11111), 1088, 4608),
+)
+# Forward cases of the evict-first rule (``K`` at least every architecture's
+# ``fwd_evict_first_min_k``): (label, sizes, N, K), over group sizes off every tile
+# multiple, with one-row and empty groups, and the flashinfer-ai/flashinfer#6570
+# shape of 256 groups of 32 rows.
+FWD_EF_CASES = (
+    ("e2_k6144", (4000, 5000), 1024, 6144),
+    ("one_row_off_tile_k7168", (1, 4095, 4097, 1000), 512, 7168),
+    ("empty_one_row_k6144", (0, 3000, 1, 2048), 1536, 6144),
+    ("e256_m32_k6144", (32,) * 256, 1024, 6144),
 )
 
 
@@ -421,8 +436,9 @@ def test_routes_mirror_the_deterministic_package():
     which the deterministic package does not have) are left out of the mirror; their
     twins are mirrored, and ``test_cake_moe_grouped_gemm_nondet_train_acc.py`` checks them against
     their twins.  So is a stage of ``OWN_STAGES`` on an architecture where the
-    deterministic route does not serve it (the data gradient's ``main_wide_ef`` on
-    sm_100a and sm_103a, this package's own evict-first builds): it is held to the
+    deterministic route does not serve it (``main_wide_ef`` of the data gradient and
+    of the forward pass on sm_100a and sm_103a, this package's own evict-first
+    builds): it is held to the
     deterministic stage of the same kernel (``OWN_STAGES``), with that stage's launch
     shape, FFI entry and argument plan, under a program name of its own, and only on
     the architectures of its operation's ``OWN_STAGE_ARCHS`` constant.  (A CPU check;
@@ -744,6 +760,89 @@ def test_dgrad_evict_first_gives_the_deterministic_bits(
     record_property("repro", json.dumps(record, sort_keys=True))
     if not ef:
         pytest.skip(f"no evict-first data-gradient tile on {arch} for {label}")
+
+
+@pytest.mark.parametrize(
+    "label,sizes,n,k", FWD_EF_CASES, ids=[c[0] for c in FWD_EF_CASES]
+)
+def test_fwd_evict_first_gives_the_deterministic_bits(
+    label, sizes, n, k, monkeypatch, record_property
+):
+    """Where this package's ``fwd_evict_first`` holds, the forward pass launches its
+    own L2 evict-first build of the wide tile (``main_wide_ef``, where the
+    deterministic package launches ``main_wide``).  The cache policy changes no
+    arithmetic: over one-row and empty groups, group sizes off every tile multiple
+    and many short groups, Y is within the budget of the deterministic package's
+    forward pass whatever bytes the output held, and so are this package's wide tile
+    without the rule (``main_wide``) and its 256-column tile (``main``).  Whether
+    they have the same bits is recorded (``REPRO`` lines, ``record_property``), not
+    asserted: this package's programs carry no bit contract.  Elsewhere the forward
+    pass launches the deterministic package's stages."""
+    device = _device()
+    case = Case(f"fwd_ef_{label}", "fwd", n, k, tuple(sizes), torch.bfloat16)
+    _require_programs(case, device)
+    c = HOST_PLAN_CONSTANTS
+    arch = cb.arch_for(device)
+    # Every case is over the rule's thresholds on every architecture it lists.
+    assert all(k >= int(v) for v in c["fwd_evict_first_min_k"].values()), label
+    assert n % int(c["wide_block_n"]) == 0, label
+    a, b, offs = _inputs(case, device)
+    det_out = _out(case, device)
+    det = _prepare(det_cb, case, a, b, offs, det_out)
+    det_out.view(torch.uint8).fill_(0)
+    det.launch()
+    out = _out(case, device)
+    launch = _prepare(cb, case, a, b, offs, out)
+    name = launch.record_name
+    ef = cb.fwd_evict_first(k, arch, c) and cake_jit.stage_served(
+        name, "main_wide_ef", arch
+    )
+    assert ef == (arch in c["fwd_evict_first_archs"]), arch
+    if ef:
+        assert launch.stages[0] == "main_wide_ef", launch.stages
+        assert det.stages[0] == OWN_STAGES[(name, "main_wide_ef", arch)], det.stages
+    else:
+        assert list(launch.stages) == list(det.stages), (launch.stages, det.stages)
+    record = dict(
+        case=case.label, arch=arch, stages=list(launch.stages), det=list(det.stages)
+    )
+    for fill in (0, FILL_BYTE):
+        out.view(torch.uint8).fill_(fill)
+        launch.launch()
+        torch.cuda.synchronize(device)
+        assert _budget(out, det_out, case.out_dtype) <= 1.0, f"fill 0x{fill:02x}"
+        same = torch.equal(_bits(out), _bits(det_out))
+        record[f"equal_to_det_fill_{fill:02x}"] = same
+    ends = [sum(sizes[: i + 1]) for i in range(len(sizes))]
+    for s, t in zip([0] + ends[:-1], ends, strict=True):
+        if t == s + 1:
+            assert int(_bits(out[s:t]).count_nonzero()) > 0, label
+    if ef:
+        archs = [x for x in c["fwd_evict_first_archs"] if x != arch]
+        monkeypatch.setitem(c, "fwd_evict_first_archs", archs)
+        plain_out = _out(case, device)
+        plain = _prepare(cb, case, a, b, offs, plain_out)
+        assert plain.stages[0] == "main_wide", plain.stages
+        assert plain.plan["tile_n"] == launch.plan["tile_n"]
+        plain_out.view(torch.uint8).fill_(FILL_BYTE)
+        plain.launch()
+        torch.cuda.synchronize(device)
+        assert _budget(plain_out, det_out, case.out_dtype) <= 1.0, "main_wide"
+        record["equal_to_main_wide"] = torch.equal(_bits(plain_out), _bits(out))
+        del plain_out
+        monkeypatch.setitem(c, "wide_fwd_archs", [])
+        narrow_out = _out(case, device)
+        narrow = _prepare(cb, case, a, b, offs, narrow_out)
+        assert narrow.stages[0] == "main", narrow.stages
+        narrow_out.view(torch.uint8).fill_(FILL_BYTE)
+        narrow.launch()
+        torch.cuda.synchronize(device)
+        assert _budget(narrow_out, det_out, case.out_dtype) <= 1.0, "main"
+        record["equal_to_main"] = torch.equal(_bits(narrow_out), _bits(out))
+    print("REPRO " + json.dumps(record, sort_keys=True))
+    record_property("repro", json.dumps(record, sort_keys=True))
+    if not ef:
+        pytest.skip(f"no evict-first forward tile on {arch} for {label}")
 
 
 @pytest.mark.parametrize("label", K512_LABELS)
