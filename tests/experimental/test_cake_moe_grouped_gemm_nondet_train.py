@@ -116,8 +116,8 @@ K256_WAVE_SHAPE = (4096, 4096)  # (N, K)
 ROW_PAD = 256  # extra columns of the wider tensors row-padded operands are cut from
 # Two ragged groups of at least ``dgrad_evict_first_min_rows`` rows on average: with
 # ``K >= dgrad_evict_first_min_k`` the data gradient takes the evict-first twin of its
-# wide tile on the architectures of ``dgrad_evict_first_archs`` (sm_100a: this
-# package's own build; sm_107a: the deterministic package's).
+# wide tile on the architectures of ``dgrad_evict_first_archs`` (sm_100a and
+# sm_103a: this package's own builds; sm_107a: the deterministic package's).
 EVICT_FIRST_E2 = [16390, 16500]
 # The MoE expert rows of the deterministic package's measured thresholds.
 EXPERT_ROWS = 131072
@@ -549,8 +549,9 @@ def test_program_choice_follows_the_host_plan_constants():
     ``fwd`` / ``dgrad``, its evict-first and 3 / 3 head / tail twins, the wave builds,
     the half-release builds and the k256-tail twin; each listed architecture's routes
     serve the stage the constant selects (the 512-wide k tile's as unordered-tail
-    builds, without a tail reduce; the data gradient's evict-first twin on sm_100a,
-    which ``dgrad_evict_first_archs`` lists here, as this package's own build)."""
+    builds, without a tail reduce; the data gradient's evict-first twin on sm_100a
+    and sm_103a, which ``dgrad_evict_first_archs`` lists here, as this package's own
+    builds)."""
     c = HOST_PLAN_CONSTANTS
     block_n, wide_n = int(c["block_n"]), int(c["wide_block_n"])
     for op in ("fwd", "dgrad"):
@@ -640,8 +641,8 @@ def test_expert_rows_take_the_measured_wgrad_stage(arch, out_dtype):
 
 # The group counts of the benchmark and expert rows whose gate/up data gradient takes
 # the evict-first (``EF_GROUPS``) or the 3 / 3 head / tail (``TS33_GROUPS``) wide tile.
-EF_GROUPS = {"sm_100a": (4, 8, 16, 32), "sm_103a": (), "sm_107a": (4, 8)}
-TS33_GROUPS = {"sm_100a": (), "sm_103a": (4, 8, 16), "sm_107a": ()}
+EF_GROUPS = {"sm_100a": (4, 8, 16, 32), "sm_103a": (4, 8), "sm_107a": (4, 8)}
+TS33_GROUPS = {"sm_100a": (), "sm_103a": (16,), "sm_107a": ()}
 
 
 @pytest.mark.parametrize("arch", ["sm_100a", "sm_103a", "sm_107a"])
@@ -650,9 +651,10 @@ def test_bench_and_expert_rows_take_the_measured_dgrad_stage(arch):
     ``EXPERT_ROWS`` routed rows split into each of ``EXPERT_GROUPS``, for both
     projections of ``BENCH_PROJ``: the gate/up projection (``K`` 6144) takes the
     evict-first wide tile at every group count on sm_100a (this package's own build;
-    at least 4096 rows per group) and at 4 and 8 groups on sm_107a, the 3 / 3 head /
-    tail wide tile at 4, 8 and 16 groups on sm_103a, else the plain wide tile; the
-    down projection (``K`` 2048) takes the plain wide tile."""
+    at least 4096 rows per group), at 4 and 8 groups on sm_103a (this package's own
+    build of the 3 / 3 head / tail tile) and sm_107a, the 3 / 3 head / tail wide tile
+    at 16 groups on sm_103a, else the plain wide tile; the down projection (``K``
+    2048) takes the plain wide tile."""
     c = HOST_PLAN_CONSTANTS
     name = cake_jit.record_name("dgrad")
     rows = [(label, sum(sizes), len(sizes)) for label, sizes in BENCH_WGRAD_ROWS]
@@ -674,10 +676,10 @@ def test_bench_and_expert_rows_take_the_measured_dgrad_stage(arch):
             assert stage == expected, (proj, label, stage)
             taken[stage] += 1
     # Evict-first: on sm_100a the nine gate/up rows of the benchmark and the four of
-    # the expert rows, on sm_107a the six E4 rows and E8 of the benchmark and E4 and
-    # E8 of the expert rows.  3 / 3 head / tail on sm_103a: those and E16 of both.
-    assert taken["main_wide_ef"] == {"sm_100a": 13, "sm_103a": 0, "sm_107a": 9}[arch]
-    assert taken["main_wide_ts33"] == {"sm_100a": 0, "sm_103a": 11, "sm_107a": 0}[arch]
+    # the expert rows, on sm_103a and sm_107a the six E4 rows and E8 of the benchmark
+    # and E4 and E8 of the expert rows.  3 / 3 head / tail on sm_103a: E16 of both.
+    assert taken["main_wide_ef"] == {"sm_100a": 13, "sm_103a": 9, "sm_107a": 9}[arch]
+    assert taken["main_wide_ts33"] == {"sm_100a": 0, "sm_103a": 2, "sm_107a": 0}[arch]
 
 
 def test_workspace_arguments_of_the_argument_plans():
@@ -906,10 +908,11 @@ def test_group_counts_match_reference(groups, op):
 
 def test_dgrad_evict_first_gives_the_wide_tile_bits(monkeypatch, record_property):
     """Where ``dgrad_evict_first`` holds, the data gradient launches the evict-first
-    twin of its wide tile (``main_wide_ef``: on sm_100a this package's own build, on
-    sm_107a the deterministic package's).  The cache policy changes no arithmetic: the
-    output, the wide tile's and the 256-column tile's are each within the budget of
-    the fp64 reference.  Whether the three have the same bits is recorded
+    twin of its wide tile (``main_wide_ef``: on sm_100a and sm_103a this package's own
+    builds, on sm_107a the deterministic package's).  The cache policy changes no
+    arithmetic: the output, the wide tile's without the rule (``main_wide``, or
+    ``main_wide_ts33`` where ``dgrad_wide_ts33`` holds) and the 256-column tile's are
+    each within the budget of the fp64 reference.  Whether the three have the same bits is recorded
     (``record_property``), not asserted: this package's programs carry no bit
     contract."""
     device = _require_program("dgrad")
@@ -953,12 +956,15 @@ def test_dgrad_evict_first_gives_the_wide_tile_bits(monkeypatch, record_property
     min_rows = {**c["dgrad_evict_first_min_rows"], arch: 1 << 30}
     monkeypatch.setitem(HOST_PLAN_CONSTANTS, "dgrad_evict_first_min_rows", min_rows)
     plain = prepare_dgrad(g, w, offs)
-    assert plain.stages[0] == "main_wide"
+    served = cake_jit.stage_served(name, "main_wide_ts33", arch)
+    plain_ts33 = served and cb.dgrad_wide_ts33(k, arch, sum(sizes), len(sizes), c)
+    plain_stage = "main_wide_ts33" if plain_ts33 else "main_wide"
+    assert plain.stages[0] == plain_stage
     assert plain.plan["tile_n"] == launch.plan["tile_n"]
     torch.cuda.synchronize()
     plain_out = plain.launch()
     _assert_bf16_close(plain_out, ref)
-    record_property("equal_to_main_wide", torch.equal(plain_out, launch.out))
+    record_property(f"equal_to_{plain_stage}", torch.equal(plain_out, launch.out))
     monkeypatch.setitem(HOST_PLAN_CONSTANTS, "wide_dgrad_archs", [])
     narrow = prepare_dgrad(g, w, offs)
     assert narrow.stages[0] == "main"
