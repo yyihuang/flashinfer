@@ -27,9 +27,10 @@ limitations under the License.
 # The module is the mode: no entry point takes a ``deterministic`` argument, and
 # nothing here routes to the deterministic package.  The forward pass, the
 # activation gradient and the 256-wide k tile's weight gradient run copies of the
-# deterministic programs, but for the sm_100a activation gradient's L2
-# evict-first twin, this package's own build of the deterministic wide tile (all
-# of them the same bits); the 512-wide k tile's weight gradient adds its split
+# deterministic programs (the same bits), but for the L2 evict-first twins of the
+# sm_100a / sm_103a forward pass and activation gradient, this package's own
+# builds of the deterministic wide tiles (the same arithmetic, held to the
+# accuracy budget, no bit contract); the 512-wide k tile's weight gradient adds its split
 # tail in place with unordered fp32 reductions, so its ``dW`` is not bitwise
 # reproducible run to run (``cake_backend``, numerical mode).  Under
 # ``torch.use_deterministic_algorithms(True)`` a launch of such a split tail
@@ -116,8 +117,10 @@ def cake_moe_grouped_gemm_nondet_train_forward(
 
     Notes
     -----
-    The forward programs are copies of the deterministic package's and give its
-    bits; they never alert under torch's deterministic mode.
+    The forward programs are copies of the deterministic package's, which give its
+    bits, but for the sm_100a / sm_103a evict-first twin of the wide tile at long
+    reductions, this package's own build (the same arithmetic, no bit contract);
+    they never alert under torch's deterministic mode.
     Prepares and launches in one call.  For repeated launches over the same
     tensors (or CUDA Graph capture) use ``cake_moe_grouped_gemm_nondet_train_prepare_forward`` once and
     call ``launch()`` on the returned object.
@@ -141,9 +144,9 @@ def cake_moe_grouped_gemm_nondet_train_dgrad(
     read in place (no transpose copy), ``offs`` is ``[E]`` int32 device end
     offsets (or ``m_indptr`` ``[E + 1]``) and ``out`` is ``[sum_m, K]`` bfloat16.  ``K % 256 == 0`` and
     ``N % 64 == 0`` are required.  The programs are copies of the deterministic
-    package's, but for the sm_100a evict-first twin, this package's own build of
-    the deterministic wide tile, and all give its bits (no alert under torch's
-    deterministic mode).  See
+    package's, which give its bits, but for the sm_100a and sm_103a evict-first
+    twins, this package's own builds of the deterministic wide tiles (the same
+    arithmetic, no bit contract); none alerts under torch's deterministic mode.  See
     ``cake_moe_grouped_gemm_nondet_train_forward`` for the prepared form.
     """
     from .cake_backend import cake_moe_grouped_gemm_nondet_train_prepare_dgrad
@@ -183,7 +186,9 @@ def cake_moe_grouped_gemm_nondet_train_wgrad(
     (Megatron's gradient-accumulation fusion; ``out`` required, bf16 or fp32,
     ``out_dtype`` None or its dtype), and returns ``out``: fused into the
     512-wide k tile's epilogue where the route serves that stage's accumulate
-    build, else the overwrite into a scratch followed by ``out.add_``
+    build (for either dtype; a bf16 ``out`` on the architectures of
+    ``wgrad_acc_bf16_archs``), else the overwrite into a scratch followed by
+    ``out.add_``
     (``cake_moe_grouped_gemm_nondet_train_prepare_wgrad`` and the package README give the routes and
     the numerical contract).
     """

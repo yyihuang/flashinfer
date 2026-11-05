@@ -17,10 +17,10 @@ Backend suite of the non-deterministic ragged BF16 MoE grouped GEMM package
 (``flashinfer.experimental.cake.cake_moe_grouped_gemm_nondet_train``).
 
 The forward pass, the data gradient and the 256-wide k tile's weight gradient
-run copies of the deterministic package's programs (but for the data gradient's
-sm_100a L2 evict-first wide tile, this package's own build of the deterministic
-kernel); the 512-wide k tile's weight gradient adds its split tail in place with
-unordered fp32 reductions.
+run copies of the deterministic package's programs (but for the sm_100a /
+sm_103a L2 evict-first wide tiles of the forward pass and the data gradient,
+this package's own builds of the deterministic kernels); the 512-wide k tile's
+weight gradient adds its split tail in place with unordered fp32 reductions.
 Every output is checked against a per-group fp64 reference under the
 deterministic package's budgets (bf16: atol = rtol = 1e-2; fp32 weight
 gradient: rel-L2 1e-4), as the worst case over repeated launches, and the

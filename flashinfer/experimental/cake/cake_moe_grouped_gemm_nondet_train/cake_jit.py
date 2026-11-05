@@ -56,11 +56,14 @@ from . import cake_build
 # the same stages: ``main``,
 # ``main_wide``, ``main_wide_ef`` and ``main_wide_ts33`` of ``fwd`` / ``dgrad``,
 # and ``main``, ``main_wave`` and the ordered fp32 ``tail_reduce`` of the
-# 256-wide k tile.  The data-gradient route's sm_100a ``main_wide_ef`` program
-# is this package's own build, not a copy: the deterministic package's sm_100a
-# wide domain-scheduled data-gradient kernel with the L2 evict-first G loads and
-# dX stores (the deterministic package has no sm_100a ``main_wide_ef`` stage),
-# which gives the bits of that package's sm_100a ``main_wide`` program.  The
+# 256-wide k tile.  Three ``main_wide_ef`` programs are this package's own
+# builds, not copies (the deterministic package has no such stage on those
+# architectures): the data gradient's on sm_100a (the deterministic sm_100a wide
+# domain-scheduled data-gradient kernel with L2 evict-first G loads and dX
+# stores) and on sm_103a (its sm_103a 3 / 3 head / tail A-collector wide kernel
+# with the same policies), and the forward pass's on sm_100a and sm_103a (its
+# wide domain-scheduled forward kernel with L2 evict-first X loads and Y
+# stores).  The cache policies change no arithmetic.  The
 # 512-wide k tile's weight-gradient routes bind the
 # builds of the deterministic package's k512 forms -- ``main``, ``main_wave``,
 # ``main_halves`` (with the planned tile walk and the slack tail placement),
@@ -76,13 +79,20 @@ from . import cake_build
 # With the slack tail placement the kernel plans each launch's tail on the
 # device: when every tail tile fits in the room the full waves leave on the
 # least-loaded clusters, each runs whole on one of them (no sum or ticket is
-# touched), else the tail splits as above.
+# touched), else the tail splits as above.  The half-release forms also have
+# accumulate stages (``<form>_acc``) that add the tile into the output: one
+# device unit per program, built for a bf16 output (the bf16 route's stages) or
+# with ``WGRAD_OUT`` 32 for an fp32 one (the fp32 route's).
 #
 # The host chooses among the stages a route serves by ``HOST_PLAN_CONSTANTS``,
 # with the deterministic package's rules and constants (``cake_backend``,
-# program choice), but for ``dgrad_evict_first_archs``, which also lists
-# sm_100a, where the data gradient's ``main_wide_ef`` stage is this package's
-# own build; ``unordered_tail_archs`` lists the architectures whose
+# program choice), but for the rules of this package's own ``main_wide_ef``
+# builds (``dgrad_evict_first_archs`` also lists sm_100a and sm_103a,
+# ``dgrad_evict_first_min_rows`` / ``dgrad_evict_first_min_k`` are per
+# architecture, and ``fwd_evict_first_archs`` / ``fwd_evict_first_min_k`` are
+# this package's), and ``wgrad_acc_bf16_archs`` lists the architectures whose
+# bf16 accumulating weight gradient takes the bf16 route's accumulate stages;
+# ``unordered_tail_archs`` lists the architectures whose
 # 512-wide k tile routes bind the unordered-tail builds -- every architecture of
 # those routes, since the registry holds no ordered k512 build (leaving one out
 # needs the deterministic k512 builds and a ``tail_reduce`` stage on those routes,

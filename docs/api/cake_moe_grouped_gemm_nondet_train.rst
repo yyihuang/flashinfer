@@ -53,10 +53,12 @@ Numerical contract
 ------------------
 
 Only the run-to-run bitwise reproducibility of the weight gradient ``dW`` is relaxed.  The
-forward ``Y`` and the data gradient ``dX`` are bitwise the deterministic module's (copies
-of the same programs; on sm_100a the data gradient's L2 evict-first twin is the package's
-own build of the deterministic wide program, whose cache policy changes no arithmetic), and
-so is ``dW`` wherever the 256-wide k tile runs.  With the
+forward ``Y`` and the data gradient ``dX`` are bitwise the deterministic module's where
+the package runs copies of its programs; on sm_100a and sm_103a the L2 evict-first twins of
+the forward and data-gradient wide tiles are the package's own builds of the deterministic
+wide programs, whose cache policy changes no arithmetic, held to the accuracy budget
+without a bit contract.  ``dW`` is bitwise the deterministic module's wherever the
+256-wide k tile runs.  With the
 512-wide k tile, the tiles of the last partial wave are split into k-step units over the
 clusters; each unit adds its fp32 accumulator into the tile's fp32 sum with unordered
 reductions, and the last unit to arrive rounds the sum once and stores it, in the same
@@ -83,10 +85,12 @@ Weight-gradient accumulation
 caller's bf16 or fp32 ``out`` (``out[e] += G[e].T @ X[e]``, Megatron's gradient-accumulation
 fusion) and ``cake_moe_grouped_gemm_nondet(..., fuse_wgrad_accumulation=True)`` adds it into
 ``w.main_grad`` in its backward.  Both default to off; with the defaults nothing changes.
-The fused accumulate builds of this release add into an fp32 ``out`` only; a bf16 ``out``
-always takes the composed route (the bf16 overwrite, then the same-dtype ``out.add_``:
-autograd's AccumulateGrad bits and cost).  The host plans the launch exactly as the
-overwrite of ``out``'s dtype and records the route in ``plan["accumulate"]``:
+The fused accumulate builds of this release add into an fp32 or a bf16 ``out``; a bf16
+``out`` takes them on the architectures of ``HOST_PLAN_CONSTANTS["wgrad_acc_bf16_archs"]``
+(every architecture of this release), elsewhere the composed route (the bf16 overwrite,
+then the same-dtype ``out.add_``: autograd's AccumulateGrad).  The host plans the launch
+exactly as the overwrite of ``out``'s dtype and records the route in
+``plan["accumulate"]``:
 
 ============== ======================================================================== =========================================================
 route          when                                                                     what runs
@@ -95,18 +99,21 @@ route          when                                                             
                accumulate build on the architecture whose library can load, ``out``
                32-byte aligned
 ``"composed"`` otherwise (``plan["accumulate_reason"]``, the first that fails:          the overwrite into a scratch of ``out``'s dtype, then
-               ``"tile_k"``, ``"tail"``, ``"stage"`` -- every bf16 ``out`` --,          ``out.add_``
+               ``"tile_k"``, ``"tail"``, ``"stage"`` -- no build bound --,              ``out.add_``
                ``"min_cuda"``, ``"alignment"``; the last two warn once per process)
 ============== ======================================================================== =========================================================
 
 An accumulate build is bound by a static rule (nothing is compiled, loaded or test-built to
 decide it): its prebuilt library exists, or the version of FlashInfer's JIT toolkit reaches
-its ``build.json`` ``min_cuda``.  The fp32 accumulate builds need CUDA 13.4; below it the
-call composes instead of failing.  ``out`` must not overlap itself, ``g``, ``x`` or ``offs``
+its ``build.json`` ``min_cuda``.  The fp32 accumulate builds need CUDA 13.4, the bf16 ones
+their architecture's floor (12.8, 12.9, 13.4); below it the call composes instead of
+failing.  ``out`` must not overlap itself, ``g``, ``x`` or ``offs``
 (``ValueError`` on both routes, before anything runs).  Every launch and every CUDA graph
-replay adds again.  Numerical contract: the fused route adds the tile's fp32 sum into the
+replay adds again.  Numerical contract: the fused route adds the tile's fp32 sum into an
 fp32 ``out`` with one round-to-nearest add that keeps subnormals (bitwise
-``out0.add_(dW32)`` on every whole tile); a split tail tile adds its unordered sum ``S``
+``out0.add_(dW32)`` on every whole tile), and into a bf16 ``out`` rounded once to bf16
+with a bf16 add (within the operand-scaled bf16 budget ``1e-2 + 1e-2 (|out0| + n |dW|)``,
+no bit contract); a split tail tile adds its unordered sum ``S``
 once (``S`` is the overwrite's partial sum, whose unit reductions flush subnormals; the
 nondeterminism scope is unchanged); the composed route is ``out.add_`` of the overwrite in
 ``out``'s dtype; an empty group is not touched by the fused route, while the composed
@@ -271,8 +278,8 @@ Features by architecture
 feature                                         sm_100a         sm_103a         sm_107a
 =============================================== =============== =============== ===============
 ``fwd`` / ``dgrad`` 256- and 512-column tiles   domain schedule domain schedule static schedule
-``fwd`` evict-first / 3-3 head-tail twin        -- / --         -- / yes        yes / --
-``dgrad`` evict-first / 3-3 head-tail twin      yes / --        -- / yes        yes / --
+``fwd`` evict-first / 3-3 head-tail twin        yes / --        yes / yes       yes / --
+``dgrad`` evict-first / 3-3 head-tail twin      yes / --        yes / yes       yes / --
 ``dgrad`` probed queue split                    yes             yes             --
 ``wgrad`` 256-wide k tile, ordered tail reduce  yes             yes             yes
 ``wgrad`` 512-wide k tile, unordered split tail yes             yes             yes

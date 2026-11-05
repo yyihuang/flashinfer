@@ -18,14 +18,15 @@ limitations under the License.
 # the forward projection ``Y = X @ W[e].T`` with the activation gradient
 # ``dX = G @ W[e]`` and the weight gradient ``dW[e] = G[e].T @ X[e]`` in
 # ``backward``.  The forward and the activation gradient run this package's
-# copies of the deterministic programs, but for the sm_100a activation
-# gradient's L2 evict-first twin, this package's own build of the
-# deterministic wide tile (the deterministic bits; a
-# non-reentrant activation-checkpoint replay of the forward gives the same
-# ``Y``); the weight gradient may add its split tail with unordered fp32
-# reductions (``cake_backend``, numerical mode).  ``CakeMoEGroupedGemmNondetFunction`` calls the
-# three generated programs as plain functions; no torch custom op is
-# registered.  ``cake_moe_grouped_gemm_nondet`` launches the forward after
+# copies of the deterministic programs, but for the sm_100a / sm_103a L2
+# evict-first twins, this package's own builds of the deterministic wide tiles
+# (the same arithmetic, held to the accuracy budget; a non-reentrant
+# activation-checkpoint replay of the forward runs the same program over the
+# same inputs and gives the same ``Y``); the weight gradient may add its split
+# tail with unordered fp32 reductions (``cake_backend``, numerical mode).
+# ``CakeMoEGroupedGemmNondetFunction`` calls the three generated programs as
+# plain functions; no torch custom op is registered.
+# ``cake_moe_grouped_gemm_nondet`` launches the forward after
 # ``CakeMoEGroupedGemmNondetFunction.apply`` returns, so autograd saves ``x``, ``w`` and ``offs``
 # before the GEMM runs, as it does for a built-in op: a non-reentrant
 # checkpoint with early stop on (the torch default) then skips the recomputed
