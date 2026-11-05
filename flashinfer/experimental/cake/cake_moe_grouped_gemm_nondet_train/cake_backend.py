@@ -873,6 +873,26 @@ def fwd_lwh_ef(
     return arch in c["fwd_lwh_ef_archs"] and k <= int(c["fwd_lwh_ef_max_k"])
 
 
+def fwd_evict_first(
+    k: int,
+    arch: str,
+    constants: Optional[dict[str, Any]] = None,
+) -> bool:
+    """Whether the forward pass's wide tile takes this package's L2 evict-first build.
+
+    ``k`` is the forward ``K``, the reduction dimension: the columns of ``x``
+    (``x.shape[1]``, equal to ``w.shape[2]``).  The build is the domain-scheduled wide
+    tile with evict-first X loads and Y stores, so that each group's weights, which
+    every row block of the group reads, stay in L2.  It serves the long reductions of
+    the gate/up projection: on the architectures of ``fwd_evict_first_archs``,
+    ``K`` at least the architecture's ``fwd_evict_first_min_k``.  The eviction
+    priority changes no arithmetic."""
+    c = constants or host_plan_constants()
+    return arch in c["fwd_evict_first_archs"] and k >= int(
+        c["fwd_evict_first_min_k"][arch]
+    )
+
+
 def wgrad_k256_tail(
     k: int,
     arch: str,
@@ -914,16 +934,17 @@ def select_row_stage(
     """``(stage, tile_n)`` of route ``name`` for ``fwd`` / ``dgrad``: ``main_wide`` with the wide
     tile (``fwd_dgrad_tile_n``) where the route serves it on ``arch``, else ``main`` with
     ``block_n``; a data gradient takes ``main_wide_ef`` in place of ``main_wide`` where
-    ``dgrad_evict_first`` holds, and a forward pass where ``fwd_lwh_ef`` holds, when the
-    route serves that stage on ``arch``; else ``main_wide_ts33`` where
-    ``dgrad_wide_ts33`` (a data gradient) or ``fwd_wide_ts33`` (a forward pass) holds
-    and the route serves it on ``arch``."""
+    ``dgrad_evict_first`` holds, and a forward pass where ``fwd_lwh_ef`` or
+    ``fwd_evict_first`` holds, when the route serves that stage on ``arch``; else
+    ``main_wide_ts33`` where ``dgrad_wide_ts33`` (a data gradient) or
+    ``fwd_wide_ts33`` (a forward pass) holds and the route serves it on ``arch``."""
     c = constants or host_plan_constants()
     tile_n = fwd_dgrad_tile_n(op, n, k, arch, c)
     if tile_n != int(c["block_n"]) and stage_served(name, "main_wide", arch):
         if (
             (op == "dgrad" and dgrad_evict_first(k, arch, sum_m, num_groups, c))
             or (op == "fwd" and fwd_lwh_ef(k, arch, c))
+            or (op == "fwd" and fwd_evict_first(k, arch, c))
         ) and stage_served(name, "main_wide_ef", arch):
             return "main_wide_ef", tile_n
         if (

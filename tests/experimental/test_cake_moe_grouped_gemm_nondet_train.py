@@ -163,6 +163,11 @@ def _arch(device):
     return SUPPORTED_COMPUTE_CAPABILITIES[torch.cuda.get_device_capability(device)]
 
 
+def _fwd_evict_first_k():
+    """The forward ``K`` at which ``fwd_evict_first`` holds on all its architectures."""
+    return max(int(k) for k in HOST_PLAN_CONSTANTS["fwd_evict_first_min_k"].values())
+
+
 def _offs(sizes, device):
     return torch.tensor(sizes, dtype=torch.int32, device=device).cumsum(
         0, dtype=torch.int32
@@ -550,7 +555,8 @@ def test_program_choice_follows_the_host_plan_constants():
     the half-release builds and the k256-tail twin; each listed architecture's routes
     serve the stage the constant selects (the 512-wide k tile's as unordered-tail
     builds, without a tail reduce; the data gradient's evict-first twin on sm_100a
-    and sm_103a, which ``dgrad_evict_first_archs`` lists here, as this package's own
+    and sm_103a, which ``dgrad_evict_first_archs`` lists here, and the forward pass's
+    on the architectures of ``fwd_evict_first_archs``, as this package's own
     builds)."""
     c = HOST_PLAN_CONSTANTS
     block_n, wide_n = int(c["block_n"]), int(c["wide_block_n"])
@@ -560,8 +566,12 @@ def test_program_choice_follows_the_host_plan_constants():
         for arch in ROUTES[name]["arches"]:
             if arch in wide_archs:
                 assert cake_jit.stage_served(name, "main_wide", arch), (name, arch)
-            ef_key = "dgrad_evict_first_archs" if op == "dgrad" else "fwd_lwh_ef_archs"
-            if arch in c[ef_key]:
+            ef_keys = (
+                ("dgrad_evict_first_archs",)
+                if op == "dgrad"
+                else ("fwd_lwh_ef_archs", "fwd_evict_first_archs")
+            )
+            if any(arch in c[key] for key in ef_keys):
                 assert cake_jit.stage_served(name, "main_wide_ef", arch), (name, arch)
             if arch in c[f"{op}_wide_ts33_archs"]:
                 assert cake_jit.stage_served(name, "main_wide_ts33", arch)
@@ -593,6 +603,24 @@ def test_program_choice_follows_the_host_plan_constants():
                 name, "dgrad", wide_n, k, arch, c, sum_m=sum_m, num_groups=groups
             )
             assert (stage, tile_n) == ("main_wide_ef", wide_n), (arch, groups)
+    # The forward pass's evict-first threshold is per architecture and above the
+    # reductions of the half-release and 3 / 3 head / tail twins: at ``K`` of
+    # ``fwd_evict_first_min_k`` the wide tile takes ``main_wide_ef``, one k step
+    # fewer it does not.
+    name = cake_jit.record_name("fwd")
+    assert sorted(c["fwd_evict_first_min_k"]) == sorted(c["fwd_evict_first_archs"])
+    for arch in c["fwd_evict_first_archs"]:
+        k = int(c["fwd_evict_first_min_k"][arch])
+        assert k > int(c["fwd_lwh_ef_max_k"]) and k > int(c["fwd_wide_ts33_max_k"])
+        assert cb.fwd_evict_first(k, arch, c), arch
+        assert not cb.fwd_evict_first(k - int(c["block_k"]), arch, c), arch
+        for groups in (1, 4, 32):
+            stage, tile_n = cb.select_row_stage(
+                name, "fwd", wide_n, k, arch, c, sum_m=4096, num_groups=groups
+            )
+            assert (stage, tile_n) == ("main_wide_ef", wide_n), (arch, groups)
+    for arch in set(ROUTES[name]["arches"]) - set(c["fwd_evict_first_archs"]):
+        assert not cb.fwd_evict_first(1 << 20, arch, c), arch
     min_k = int(c["wave_sync_min_k"])
     for out_dtype in ("bfloat16", "float32"):
         for tile_k in (256, 512):
@@ -679,6 +707,48 @@ def test_bench_and_expert_rows_take_the_measured_dgrad_stage(arch):
     # the expert rows, on sm_103a and sm_107a the six E4 rows and E8 of the benchmark
     # and E4 and E8 of the expert rows.  3 / 3 head / tail on sm_103a: E16 of both.
     assert taken["main_wide_ef"] == {"sm_100a": 13, "sm_103a": 9, "sm_107a": 9}[arch]
+    assert taken["main_wide_ts33"] == {"sm_100a": 0, "sm_103a": 2, "sm_107a": 0}[arch]
+
+
+# The forward stage of the benchmark and expert rows per architecture and projection
+# (the down projection on sm_103a: the 3 / 3 head / tail tile at 32 groups).
+FWD_STAGES = {
+    "sm_100a": {"gate_up": "main_wide_ef", "down": "main_wide"},
+    "sm_103a": {"gate_up": "main_wide_ef", "down": "main_wide"},
+    "sm_107a": {"gate_up": "main_wide", "down": "main_wide_ef"},
+}
+
+
+@pytest.mark.parametrize("arch", ["sm_100a", "sm_103a", "sm_107a"])
+def test_bench_and_expert_rows_take_the_measured_fwd_stage(arch):
+    """The forward pass over the MoE benchmark rows (``BENCH_WGRAD_ROWS``) and over
+    ``EXPERT_ROWS`` routed rows split into each of ``EXPERT_GROUPS``, for both
+    projections of ``BENCH_PROJ``: the gate/up projection (``K`` 6144) takes this
+    package's evict-first wide tile on sm_100a and sm_103a (``fwd_evict_first``) and
+    the plain wide tile on sm_107a; the down projection (``K`` 2048) takes the plain
+    wide tile on sm_100a, on sm_103a too but at 32 groups (at most
+    ``fwd_wide_ts33_max_rows`` rows per group: the 3 / 3 head / tail wide tile), and
+    the half-release evict-first wide tile on sm_107a (``fwd_lwh_ef``)."""
+    c = HOST_PLAN_CONSTANTS
+    name = cake_jit.record_name("fwd")
+    rows = [(label, sum(sizes), len(sizes)) for label, sizes in BENCH_WGRAD_ROWS]
+    rows += [(f"expert_e{groups}", EXPERT_ROWS, groups) for groups in EXPERT_GROUPS]
+    taken = collections.Counter()
+    for proj, (n, k) in BENCH_PROJ.items():
+        assert cb.fwd_evict_first(k, arch, c) == (
+            FWD_STAGES[arch][proj] == "main_wide_ef" and arch != "sm_107a"
+        ), proj
+        for label, sum_m, groups in rows:
+            stage, tile_n = cb.select_row_stage(
+                name, "fwd", n, k, arch, c, sum_m=sum_m, num_groups=groups
+            )
+            assert tile_n == int(c["wide_block_n"]), (proj, label)
+            ts33 = arch == "sm_103a" and proj == "down" and groups == 32
+            expected = "main_wide_ts33" if ts33 else FWD_STAGES[arch][proj]
+            assert stage == expected, (proj, label, stage)
+            taken[stage] += 1
+    # 13 rows per projection: nine of the benchmark and four expert rows.
+    assert taken["main_wide_ef"] == 13, taken
     assert taken["main_wide_ts33"] == {"sm_100a": 0, "sm_103a": 2, "sm_107a": 0}[arch]
 
 
@@ -1209,13 +1279,15 @@ def test_short_groups_on_two_concurrent_streams(form, out_dtype, monkeypatch):
         _assert_tail_at_rest(device, stream)
 
 
-@pytest.mark.parametrize("op", ["fwd", "dgrad", "wgrad"])
+@pytest.mark.parametrize("op", ["fwd", "fwd_ef", "dgrad", "wgrad"])
 def test_cuda_graph_replay_with_changed_offsets(op, monkeypatch):
     """A captured launch takes zeroed workspaces of its own, set in the graph, and never
     the buffers kept for a stream: the kept buffers (the split tail's filled with a
     sentinel) keep their bytes through the capture and every replay.  Every replay
     computes every tile, also after new group boundaries (same ``sum_m``) are written
-    into ``offs`` between replays.  The weight gradient is a 512-wide k tile shape whose
+    into ``offs`` between replays.  ``fwd_ef`` is the forward pass at ``K`` of
+    ``fwd_evict_first_min_k`` (this package's evict-first wide tile where
+    ``fwd_evict_first`` holds).  The weight gradient is a 512-wide k tile shape whose
     plan splits its unordered tail."""
     _fresh_stream_workspaces(monkeypatch)
     first = list(K512_E3)
@@ -1223,17 +1295,23 @@ def test_cuda_graph_replay_with_changed_offsets(op, monkeypatch):
     if op in ("fwd", "dgrad"):
         device = _require_program(op)
         n, k = 1024, 512
+    elif op == "fwd_ef":
+        device = _require_program("fwd")
+        n, k = 1024, _fwd_evict_first_k()
     else:
         device = _require_program("wgrad", torch.bfloat16)
         shape = _split_tail_shape(device, first, _form_ks("main_halves"))
         assert shape is not None, "no candidate shape splits the tail"
         n, k = shape
     x, w, g, offs = _inputs(first, n, k, device, seed=8)
-    if op == "fwd":
+    if op in ("fwd", "fwd_ef"):
         launch, refs = (
             prepare_fwd(x, w, offs),
             [_reference("fwd", x, w, s) for s in (first, second)],
         )
+        if op == "fwd_ef":
+            ef = cb.fwd_evict_first(k, _arch(device), HOST_PLAN_CONSTANTS)
+            assert launch.stages[0] == ("main_wide_ef" if ef else "main_wide")
     elif op == "dgrad":
         launch, refs = (
             prepare_dgrad(g, w, offs),
@@ -1291,6 +1369,51 @@ def test_cuda_graph_replay_with_changed_offsets(op, monkeypatch):
                 _assert_empty_groups_zero(launch.out, sizes)
     for key, buffer in kept.items():
         assert torch.equal(buffer.view(torch.int32), snapshot[key]), key
+
+
+def test_fwd_evict_first_on_two_concurrent_streams():
+    """Two prepared forward passes at ``K`` of ``fwd_evict_first_min_k`` (this
+    package's evict-first wide tile where ``fwd_evict_first`` holds), over ragged
+    groups with an empty and a one-row group, launched interleaved on two streams in
+    flight together while a long-running kernel stays resident on a third stream and
+    copies and GEMMs run on a fourth: every result is within the budget of its
+    reference."""
+    device = _require_program("fwd")
+    n, k = 1024, _fwd_evict_first_k()
+    groups = ([4097, 0, 1, 8000], [3000, 5000, 1, 0, 2047])
+    launches, refs = [], []
+    for seed, sizes in enumerate(groups):
+        x, w, _g, offs = _inputs(sizes, n, k, device, seed=20 + seed)
+        launches.append(prepare_fwd(x, w, offs))
+        refs.append(_reference("fwd", x, w, sizes))
+    ef = cb.fwd_evict_first(k, _arch(device), HOST_PLAN_CONSTANTS)
+    for launch in launches:
+        assert launch.stages[0] == ("main_wide_ef" if ef else "main_wide")
+    streams = [torch.cuda.Stream(device) for _ in range(4)]
+    main = torch.cuda.current_stream(device)
+    for stream in streams:
+        stream.wait_stream(main)
+    src = torch.randn(1 << 24, device=device)
+    dst = torch.empty_like(src)
+    a = torch.randn(4096, 4096, device=device, dtype=torch.bfloat16)
+    c = torch.empty_like(a)
+    with torch.cuda.stream(streams[2]):
+        torch.cuda._sleep(RESIDENT_SLEEP_CYCLES)
+    outs = [[], []]
+    for _ in range(8):
+        for index in range(2):
+            with torch.cuda.stream(streams[index]):
+                launches[index].out.fill_(float("nan"))
+                outs[index].append(launches[index].launch().clone())
+        with torch.cuda.stream(streams[3]):
+            dst.copy_(src)
+            torch.mm(a, a, out=c)
+    for stream in streams:
+        main.wait_stream(stream)
+    torch.cuda.synchronize()
+    for index in range(2):
+        for out in outs[index]:
+            _assert_bf16_close(out, refs[index])
 
 
 def test_gradient_accumulation(monkeypatch):
