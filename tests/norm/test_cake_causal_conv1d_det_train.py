@@ -167,8 +167,7 @@ CASES = (
 # the route-specific code, which is the tap / bias load form and the store
 # form): the two new multi-sub-tile geometries, a whole-row tile, the
 # S = 5 row below one stage and a narrow single-tile row (C = 640: three
-# 32-vector tiles on every backward route but ``bwd_dt`` and on the ``fwd`` /
-# ``fwd_bias`` routes, one 80-vector tile on the others).
+# 32-vector tiles on every route).
 ROUTE_CASES = (
     (1000, 512, "perf"),
     (4097, 1280, (1000, 0, 3, 3094)),
@@ -222,8 +221,8 @@ CHANNEL_SPLIT_TABLE = {
 }
 # The narrow single-tile rows at 128 threads x 8 channels, per role: C ->
 # (ct_vec, n_sub, n_ch_tiles) on the routes of ``NARROW_TILE_ROUTES`` (32-vector
-# tiles, the last partial); every other route and a call without a route keep
-# the one-tile plan of ``CHANNEL_SPLIT_TABLE`` (C / 8 vectors).
+# tiles, the last partial); a call without a route keeps the one-tile plan of
+# ``CHANNEL_SPLIT_TABLE`` (C / 8 vectors).
 NARROW_SPLIT_TABLE = {
     "bwd": {
         224: (32, 4, 1),
@@ -787,8 +786,8 @@ def test_channel_split_narrow_tiles_per_route() -> None:
 
     geometry = {"threads": 128, "vec": 8}
     assert loader.NARROW_TILE_ROUTES == {
-        "fwd": ("fwd", "fwd_bias"),
-        "bwd": ("bwd", "bwd_bias", "bwd_fp32g", "bwd_bias_fp32g"),
+        "fwd": ("fwd", "fwd_dt", "fwd_bias"),
+        "bwd": ("bwd", "bwd_dt", "bwd_bias", "bwd_fp32g", "bwd_bias_fp32g"),
     }
     for kind in loader.KINDS:
         role = loader.route_role(kind)
@@ -838,8 +837,8 @@ def test_channel_split_narrow_tiles_per_route() -> None:
 
 # The whole-rank trim of the backward main grid (``cake_jit.main_grid``) at 128
 # threads x 8 channels: ``(arch, co-resident grid, S, C) -> grid`` on the
-# routes the arch's rule trims (sm_103a: ``bwd`` at 304 CTAs; sm_100a: ``bwd``
-# / ``bwd_dt`` / ``bwd_fp32g`` at 296; sm_107a: none); every other route keeps
+# routes the arch's rule trims (``bwd`` / ``bwd_dt`` / ``bwd_fp32g``: sm_103a at
+# 304 CTAs, sm_100a at 296; sm_107a: none); every other route keeps
 # the co-resident grid.  The rows are the kernel module's rules-test rows.
 MAIN_GRID_TABLE = (
     # sm_103a, 304 CTAs: C % 32, 1 < tiles <= {32: 27, 64: 9}, S >= 98304 and
@@ -906,7 +905,7 @@ MAIN_GRID_TABLE = (
 )
 MAIN_GRID_TRIMMED_ROUTES = {
     "sm_100a": ("bwd", "bwd_dt", "bwd_fp32g"),
-    "sm_103a": ("bwd",),
+    "sm_103a": ("bwd", "bwd_dt", "bwd_fp32g"),
     "sm_107a": (),
 }
 
@@ -918,7 +917,7 @@ def test_main_grid_literal_table() -> None:
 
     geometry = {"threads": 128, "vec": 8}
     assert loader.TILE_ALIGNED_GRID == {"sm_100a": 0, "sm_103a": 304, "sm_107a": 0}
-    assert loader.TILE_ALIGNED_ROUTES == ("bwd",)
+    assert loader.TILE_ALIGNED_ROUTES == ("bwd", "bwd_dt", "bwd_fp32g")
     assert loader.TILE_ALIGNED_MIN_S == 98304
     assert loader.TILE_ALIGNED_MIN_LAST == {32: 15, 64: 49}
     assert loader.TILE_ALIGNED_MAX_TILES == {32: 27, 64: 9}
@@ -963,8 +962,8 @@ def test_main_grid_literal_table() -> None:
 # where the ``vec=8, min_blocks=2`` program (four-token copy stages) runs.
 # The SM-wide row-group program (one 384-thread CTA per SM, 256 threads on
 # sm_107a) takes the row-group program's rows on its channel bands from its
-# token floor: sm_100a 264 <= C < 280 and 344 <= C < 440 from S = 65536,
-# sm_103a 264 <= C < 472 and 480 <= C < 512 from S = 24576, sm_107a
+# token floor: sm_100a 264 <= C < 288 and 344 <= C < 440 from S = 65536,
+# sm_103a 264 <= C < 512 from S = 24576, sm_107a
 # 264 <= C < 296 and 344 <= C < 416 from S = 32768.  The rows are
 # the kernel module's rules-test rows on both sides of the token and channel
 # boundaries; C = 512 is the first channel-selected program of every arch.
@@ -983,8 +982,8 @@ BWD_SM_CTA = {
 }
 # arch -> (channel bands [lo, hi), token floor) of the SM-wide row-group program.
 BWD_SM_CTA_RULE = {
-    "sm_100a": (((264, 280), (344, 440)), 65536),
-    "sm_103a": (((264, 472), (480, 512)), 24576),
+    "sm_100a": (((264, 288), (344, 440)), 65536),
+    "sm_103a": (((264, 512),), 24576),
     "sm_107a": (((264, 296), (344, 416)), 32768),
 }
 BWD_AT_512 = {
@@ -1047,12 +1046,13 @@ def test_backward_selection_literal_table() -> None:
     }
     assert loader.MODULES[BWD_R200_ST4]["arches"] == ["sm_107a"]
     assert loader.select_rule(loader.MODULES[BWD_ROW_GROUP]) == {
-        "channels": {"sm_100a": [264, 280, 440], "sm_103a": [264, 472]},
+        "channels": {"sm_100a": [264, 288, 440], "sm_103a": 264},
         "kind": "channels_at_least",
     }
     for arch, (bands, floor) in BWD_SM_CTA_RULE.items():
+        lows = [lo for lo, _ in bands]
         assert loader.select_rule(loader.MODULES[BWD_SM_CTA[arch]]) == {
-            "channels": {arch: [lo for lo, _ in bands]},
+            "channels": {arch: lows if len(lows) > 1 else lows[0]},
             "kind": "channels_tokens_at_least",
             "tokens": {arch: floor},
         }

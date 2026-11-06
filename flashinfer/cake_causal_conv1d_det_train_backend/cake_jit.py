@@ -1880,7 +1880,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 1024,
+                "sm_107a": 512,
             },
             "kind": "channels_at_least",
         },
@@ -1972,7 +1972,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 1024,
+                "sm_107a": 512,
             },
             "kind": "channels_at_least",
         },
@@ -2063,7 +2063,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 1024,
+                "sm_107a": 512,
             },
             "kind": "channels_at_least",
         },
@@ -2156,7 +2156,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 1024,
+                "sm_107a": 512,
             },
             "kind": "channels_at_least",
         },
@@ -2242,8 +2242,8 @@ MODULES: dict[str, dict[str, Any]] = {
         "role": "bwd",
         "select_rule": {
             "channels": {
-                "sm_100a": [264, 280, 440],
-                "sm_103a": [264, 472],
+                "sm_100a": [264, 288, 440],
+                "sm_103a": 264,
             },
             "kind": "channels_at_least",
         },
@@ -2501,10 +2501,7 @@ MODULES: dict[str, dict[str, Any]] = {
         "role": "bwd",
         "select_rule": {
             "channels": {
-                "sm_103a": [
-                    264,
-                    480,
-                ],
+                "sm_103a": 264,
             },
             "kind": "channels_tokens_at_least",
             "tokens": {
@@ -3517,12 +3514,12 @@ SPLIT_ROLES = ("fwd", "bwd")
 # token sub-tiles, the last tile partial) instead of one tile of ``cv = C /
 # vec`` vectors, per role, at 128 threads (:func:`_narrow_tile`): the backward
 # at 64 < cv < 128 (C = 520 to 1016, three or four tiles) and cv = 28 (C =
-# 224), the forward at 72 <= cv <= 96 (C = 576 to 768).  One tile of cv
-# vectors leaves 128 - cv lanes of every CTA idle over the whole token axis;
-# the programs are unchanged.  The ``_dt`` backward route keeps one tile.
+# 224), the forward at 72 <= cv <= 96 (C = 576 to 768), on every route.  One
+# tile of cv vectors leaves 128 - cv lanes of every CTA idle over the whole
+# token axis; the programs are unchanged.
 NARROW_TILE_ROUTES: dict[str, tuple[str, ...]] = {
-    "fwd": ("fwd", "fwd_bias"),
-    "bwd": ("bwd", "bwd_bias", "bwd_fp32g", "bwd_bias_fp32g"),
+    "fwd": ("fwd", "fwd_dt", "fwd_bias"),
+    "bwd": ("bwd", "bwd_dt", "bwd_bias", "bwd_fp32g", "bwd_bias_fp32g"),
 }
 NARROW_TILE_THREADS = 128
 
@@ -3569,11 +3566,11 @@ def channel_split(
     ``route`` is the launch's route (one of :data:`KINDS` of the role; the
     host passes its record's).  On a route of :data:`NARROW_TILE_ROUTES` the
     single-tile rows of the role's narrow set run 32-vector tiles, ``(32,
-    threads // 32, ceil(cv / 32))``: the backward's C = 224 and 520 to 768,
+    threads // 32, ceil(cv / 32))``: the backward's C = 224 and 520 to 1016,
     the forward's C = 576 to 768, so C = 640 runs (32, 4, 3) instead of (80,
     1, 1).  ``y`` and ``dx`` keep their bits; ``dweight`` and ``dbias`` sum in
-    the narrow plan's fixed order (bitwise reproducible).  Without a route,
-    and on every other route, the single tile stays.
+    the narrow plan's fixed order (bitwise reproducible).  Without a route the
+    single tile stays.
     """
 
     return _channel_split(
@@ -3739,7 +3736,7 @@ def plan(
 # reproducible for the trimmed grid.  The rule is kept in sync with its copy in
 # the backward kernel generator.
 TILE_ALIGNED_GRID: dict[str, int] = {"sm_100a": 0, "sm_103a": 304, "sm_107a": 0}
-TILE_ALIGNED_ROUTES: tuple[str, ...] = ("bwd",)
+TILE_ALIGNED_ROUTES: tuple[str, ...] = ("bwd", "bwd_dt", "bwd_fp32g")
 TILE_ALIGNED_MIN_S = 98304
 TILE_ALIGNED_MIN_LAST: dict[int, int] = {32: 15, 64: 49}
 TILE_ALIGNED_MAX_TILES: dict[int, int] = {32: 27, 64: 9}
