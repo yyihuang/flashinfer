@@ -1,5 +1,23 @@
 # Cake deterministic GDN chunked training backend (SM100 / SM103 / SM107)
 
+## Mode and dispatch rules
+
+- This package is the deterministic route only.  Every public name carries
+  `det`: `chunk_gated_delta_rule_det`, `ChunkGatedDeltaRuleDetFunction`,
+  `gdn_chunk_det_forward` and `gdn_chunk_det_backward`.  The package exports
+  no other name; the planner and table helpers stay in `cake_chain`.
+- The entries take no `deterministic` keyword.  Passing one, with any value,
+  raises `TypeError`.
+- `torch.use_deterministic_algorithms(True)` changes nothing: every launch is
+  fixed-order, so no alert is raised and the outputs and gradients are the
+  same bits as without it.
+- The non-deterministic route is a separate package:
+  `flashinfer.experimental.cake.cake_gdn_train.chunk_gated_delta_rule` with
+  `deterministic=False`.  Its results match this package within this
+  package's accuracy budgets, not bitwise.  Nothing here routes to it.
+- `gdn_chunk_det_backward` refuses a tape of the non-deterministic package
+  (it records `deterministic=False`) with `ValueError`.
+
 Experimental backend for the forward and backward of packed GDN (scalar-gated
 DeltaNet) layers in training: head dimension 128, chunk 64, grouped Q/K heads
 (`HV` a multiple of `H`), no context parallelism.  Every launch is a plain
@@ -39,7 +57,7 @@ o, final_state = chunk_gated_delta_rule_det(
 ```
 
 The former names `chunk_gated_delta_rule`, `ChunkGatedDeltaRuleFunction`,
-`gdn_chunk_forward` and `gdn_chunk_backward` stay importable as aliases of
+`gdn_chunk_forward` and `gdn_chunk_backward` were removed, with no alias: use
 the `_det` names.
 
 Without `cu_seqlens` the `B` sequences have length `T` each.  `g` is

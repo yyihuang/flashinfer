@@ -16,7 +16,8 @@ limitations under the License.
 Backend suite of the Cake deterministic GDN chunked-training package
 (``flashinfer.experimental.cake_gdn_det_train``).
 
-Without a device: the registry (one record per stage and architecture, the argument plans of the call sites, the
+Without a device: the package's names (the det names only, the former names removed) and its mode contract (no
+``deterministic`` keyword; the low-level backward refuses a non-deterministic tape), the registry (one record per stage and architecture, the argument plans of the call sites, the
 scan constants, the ``dhu_tc2`` selection constants and the ``prep_tma`` window), the build manifest (every record's
 library, the recorded source digests), the launch entries (one resolution per stage and device, then the cached FFI
 entry; the first launch's errors), the plan pins, the finalize rule, the ``dhu_tc2`` selection rule, the split pass-2 rule on the campaign rows and
@@ -26,7 +27,7 @@ packed layouts (host and device table routes, FP32 and BF16 ``beta``, every regi
 and segment-parallel scans, both adjoint scans, both preps, the fused tails of a value-head group of two and of three
 and the unfused tail with both finalize stages, the recompute and uncached forms, the un-normalized ``q`` / ``k`` form), the
 initial / final state with its gradients (also through empty sequences), the pre-scan capacity, the bitwise
-contracts: two runs, the two table routes on one plan, a split plan's pass 2 on ``dhu_tc2`` after the fused pre-scan
+contracts: two runs, PyTorch's deterministic mode against the default, the two table routes on one plan, a split plan's pass 2 on ``dhu_tc2`` after the fused pre-scan
 against ``dv_local`` and the register one, the fused tail of a value-head group of three against the unfused one with
 either finalize, the longest-first dispatch order against the caller's (and its
 tables without a device), two streams against one (the adjoint scan of serial plans beside the fused tail of a
@@ -341,18 +342,97 @@ FUSED_TAIL_STAGES = {
 }
 
 
-def test_former_names_are_aliases_of_the_det_names() -> None:
-    pairs = (
-        ("chunk_gated_delta_rule", "chunk_gated_delta_rule_det"),
-        ("ChunkGatedDeltaRuleFunction", "ChunkGatedDeltaRuleDetFunction"),
-        ("gdn_chunk_forward", "gdn_chunk_det_forward"),
-        ("gdn_chunk_backward", "gdn_chunk_det_backward"),
+# The package exports the names that carry det only; the former no-det names are removed (no alias), and the
+# planner and table helpers stay public in ``cake_chain`` only.
+DET_NAMES = (
+    "ChunkGatedDeltaRuleDetFunction",
+    "chunk_gated_delta_rule_det",
+    "gdn_chunk_det_backward",
+    "gdn_chunk_det_forward",
+)
+REMOVED_NAMES = (
+    "ChunkGatedDeltaRuleFunction",
+    "chunk_gated_delta_rule",
+    "gdn_chunk_backward",
+    "gdn_chunk_forward",
+)
+CHAIN_ONLY_NAMES = (
+    "CHUNK",
+    "FINALIZE_STAGES",
+    "FULL",
+    "HEAD_DIM",
+    "PRESCAN_CONFIGS",
+    "REG_SCAN_CONFIGS",
+    "ChainOptions",
+    "ChunkMeta",
+    "ScanPlan",
+    "SegmentTable",
+    "StageSet",
+    "StreamGroups",
+    "build_chunk_meta",
+    "build_chunk_meta_from_cu_seqlens",
+    "choose_scan_plan",
+    "dhu_tc_pricing",
+    "finalize_stage",
+    "lpt_sequence_order",
+    "lpt_walk",
+    "make_options",
+    "scan_plans",
+    "sdt_pricing",
+    "sequence_groups",
+    "stage_set",
+    "two_stream_split",
+    "use_prep_tma",
+)
+
+
+def test_former_names_are_removed() -> None:
+    for module in (cake_gdn_det_train, cake_chain):
+        for name in REMOVED_NAMES:
+            assert not hasattr(module, name), (module.__name__, name)
+            assert name not in module.__all__, (module.__name__, name)
+        for name in DET_NAMES:
+            assert name in module.__all__, (module.__name__, name)
+            assert getattr(module, name) is getattr(cake_chain, name)
+    for name in DET_NAMES:
+        assert getattr(cake_chain, name).__name__ == name
+
+
+def test_the_package_exports_the_det_names_only() -> None:
+    assert sorted(cake_gdn_det_train.__all__) == sorted(DET_NAMES)
+    assert all("det" in name.lower() for name in cake_gdn_det_train.__all__)
+    for name in CHAIN_ONLY_NAMES:
+        assert name in cake_chain.__all__ and hasattr(cake_chain, name), name
+        assert not hasattr(cake_gdn_det_train, name), name
+
+
+@pytest.mark.parametrize("value", [True, False, None])
+def test_the_det_entries_take_no_deterministic_keyword(value) -> None:
+    # the det entries have no mode: the keyword, of any value, fails the call's argument binding (no launch)
+    calls = (
+        (chunk_gated_delta_rule_det, (None,) * 5, {}),
+        (cake_chain.gdn_chunk_det_forward, (None,) * 5, {"meta": None, "arch": None}),
+        (cake_chain.gdn_chunk_det_backward, (None,) * 2, {}),
     )
-    for former, det in pairs:
-        for module in (cake_gdn_det_train, cake_chain):
-            assert getattr(module, former) is getattr(module, det)
-            assert former in module.__all__ and det in module.__all__
-        assert getattr(cake_chain, det).__name__ == det
+    for entry, args, kwargs in calls:
+        with pytest.raises(TypeError, match="deterministic"):
+            entry(*args, **kwargs, deterministic=value)
+    with pytest.raises(TypeError):
+        cake_chain.ChunkGatedDeltaRuleDetFunction.apply(
+            *(None,) * 12, deterministic=value
+        )
+
+
+@pytest.mark.parametrize("mode", [False, None])
+def test_det_backward_refuses_a_non_deterministic_tape(mode) -> None:
+    # the tape of flashinfer.experimental.cake.cake_gdn_train.gdn_chunk_forward records deterministic=False; the
+    # check runs before the tape is read
+    with pytest.raises(ValueError, match=r"records the non-deterministic mode"):
+        cake_chain.gdn_chunk_det_backward({"deterministic": mode}, None)
+    # a det tape (the key True, or absent: the autograd chain's own tape) passes the check and is read
+    for tape in ({"deterministic": True}, {}):
+        with pytest.raises(KeyError, match="arch"):
+            cake_chain.gdn_chunk_det_backward(tape, None)
 
 
 def test_registry_records_are_well_formed() -> None:
@@ -1376,6 +1456,38 @@ def test_run_to_run_bitwise(route, device) -> None:
         _assert_bitwise(first, _run(inputs, seq_lens, route=route), OUTPUT_NAMES)
     uncached = _run(inputs, seq_lens, route=route, host_cache=False)
     _assert_bitwise(first, uncached, OUTPUT_NAMES)
+
+
+@pytest.mark.parametrize("route", ["host", "device"])
+def test_torch_deterministic_algorithms_change_nothing(route, device) -> None:
+    # every launch is fixed-order: PyTorch's deterministic mode (strict, so an alert would raise) gives the same bits
+    seq_lens = (2048, 100, 513)
+    inputs = _inputs(seq_lens, (2, 6), torch.bfloat16, device, seed=5)
+    enabled = torch.are_deterministic_algorithms_enabled()
+    warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+    torch.use_deterministic_algorithms(True)
+    try:
+        strict = _run(inputs, seq_lens, route=route)
+    finally:
+        torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
+    _assert_bitwise(strict, _run(inputs, seq_lens, route=route), OUTPUT_NAMES)
+
+
+def test_low_level_entries_record_and_check_the_mode(device) -> None:
+    seq_lens = (300, 77, 640)
+    inputs = _inputs(seq_lens, (2, 6), torch.bfloat16, device, seed=263)
+    index = cake_chain._device_index(device)
+    plans = cake_chain.scan_plans(sum(seq_lens), len(seq_lens), 6, index, seq_lens)
+    meta = cake_chain.build_chunk_meta(seq_lens, device, scan_plans=plans)
+    q, k, v, g, beta, do = (inputs[n] for n in ("q", "k", "v", "g", "beta", "do"))
+    tape = cake_chain.gdn_chunk_det_forward(
+        q, k, v, g, beta, meta=meta, arch=cake_backend.device_arch(index)
+    )
+    assert tape["deterministic"] is True
+    grads = cake_chain.gdn_chunk_det_backward(tape, do)
+    assert all(bool(torch.isfinite(grads[n]).all()) for n in GRAD_NAMES)
+    with pytest.raises(ValueError, match="records the non-deterministic mode"):
+        cake_chain.gdn_chunk_det_backward({**tape, "deterministic": False}, do)
 
 
 @pytest.mark.parametrize(

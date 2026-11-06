@@ -110,7 +110,6 @@ __all__ = [
     "REG_SCAN_CONFIGS",
     "ChainOptions",
     "ChunkGatedDeltaRuleDetFunction",
-    "ChunkGatedDeltaRuleFunction",
     "ChunkMeta",
     "ScanPlan",
     "SegmentTable",
@@ -119,16 +118,13 @@ __all__ = [
     "build_chunk_meta",
     "build_chunk_meta_from_cu_seqlens",
     "choose_scan_plan",
-    "chunk_gated_delta_rule",
     "chunk_gated_delta_rule_det",
     "dhu_tc_pricing",
     "finalize_stage",
     "fwd_ho_vh2_engaged",
     "fwd_ho_vh2_splits",
-    "gdn_chunk_backward",
     "gdn_chunk_det_backward",
     "gdn_chunk_det_forward",
-    "gdn_chunk_forward",
     "lpt_sequence_order",
     "lpt_walk",
     "make_options",
@@ -2040,7 +2036,7 @@ def gdn_chunk_det_forward(q, k, v, g, beta, *, meta, arch, scale=None, initial_s
         "total_tokens": total_tokens, "qn": qn, "kn": kn, "rstd_q": rstd_q, "rstd_k": rstd_k, "g_cs": g_cs, "A": A,
         "w": w, "u": u, "v": v, "beta32": beta32, "meta": meta, "scale": float(scale), "output": o,
         "final_state": final_state if output_final_state else None, "initial_state": initial_state, "h": h,
-        "v_new": v_new, "options": options,
+        "v_new": v_new, "options": options, "deterministic": True,
     }  # fmt: skip
 
 
@@ -2050,8 +2046,14 @@ def gdn_chunk_det_forward(q, k, v, g, beta, *, meta, arch, scale=None, initial_s
 def gdn_chunk_det_backward(
     forward, do, dht=None, *, initial_state=None, dbeta_dtype=None
 ) -> dict[str, Any]:
-    """The backward chain over one forward tape; returns ``dq``, ``dk``, ``dv``, ``dg``, ``dbeta`` and
-    ``dinitial_state``."""
+    """The backward chain over one forward tape of :func:`gdn_chunk_det_forward`; returns ``dq``, ``dk``, ``dv``,
+    ``dg``, ``dbeta`` and ``dinitial_state``.  A tape of the non-deterministic package (it records
+    ``deterministic=False``) raises ``ValueError``."""
+    mode = forward.get("deterministic", True)
+    if mode is not True:
+        raise ValueError("gdn_chunk_det_backward reads the tape of a deterministic forward (gdn_chunk_det_forward); "
+                         f"this tape records the non-deterministic mode (deterministic={mode!r}) of "
+                         "flashinfer.experimental.cake.cake_gdn_train, whose backward reads it")  # fmt: skip
     arch = forward["arch"]
     meta = forward["meta"]
     options = forward.get("options") or ChainOptions()
@@ -2634,10 +2636,3 @@ def chunk_gated_delta_rule_det(
         scale = 1.0 / math.sqrt(q.shape[-1])
     return ChunkGatedDeltaRuleDetFunction.apply(q, k, v, g, beta, float(scale), initial_state, output_final_state,
                                                 cu_seqlens, cu_seqlens_cpu, use_qk_l2norm_in_kernel, options)  # fmt: skip
-
-
-# Former names of the entry points, kept as aliases of the deterministic ones.
-ChunkGatedDeltaRuleFunction = ChunkGatedDeltaRuleDetFunction
-chunk_gated_delta_rule = chunk_gated_delta_rule_det
-gdn_chunk_forward = gdn_chunk_det_forward
-gdn_chunk_backward = gdn_chunk_det_backward
