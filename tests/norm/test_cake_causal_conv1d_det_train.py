@@ -1942,6 +1942,15 @@ def _bits(t: torch.Tensor) -> torch.Tensor:
     return t.view(torch.int16) if t.dtype == BF16 else t.view(torch.int32)
 
 
+def _clear_tile_rule_caches() -> None:
+    """Forget every cached value derived from the channel-tile rule."""
+
+    loader._channel_split.cache_clear()
+    loader._channel_choice.cache_clear()
+    loader._workspace_owners_of.cache_clear()
+    pkg._backward_workspace_bytes.cache_clear()
+
+
 @pytest.mark.parametrize("kind", tuple(ROUTE_SETTINGS))
 def test_narrow_tiles_launch_and_keep_y_and_dx_bits(kind, monkeypatch) -> None:
     """On the narrow single-tile rows each route launches its route's plan
@@ -1988,14 +1997,19 @@ def test_narrow_tiles_launch_and_keep_y_and_dx_bits(kind, monkeypatch) -> None:
         for got, first in zip(again, grads, strict=True):
             if first is not None:
                 assert torch.equal(_bits(got), _bits(first)), (kind, S, C)
+        # The one-tile plan is not the shipped rule's: forget every cached value
+        # the rule sizes (the channel split, the per-C program choice and
+        # workspace owners, and the backward workspace bytes the default
+        # workspace takes), so the forced plan gets the workspace the public
+        # bytes function gives its own rule, and the shipped rule's after.
         try:
             with monkeypatch.context() as m:
                 m.setattr(loader, "NARROW_TILE_ROUTES", {"fwd": (), "bwd": ()})
-                loader._channel_split.cache_clear()
+                _clear_tile_rule_caches()
                 y_one = cake_causal_conv1d_det_train_forward(x, w, cu, bias=b)
                 one = _backward(x, w, cu, dy, b, policy)
         finally:
-            loader._channel_split.cache_clear()
+            _clear_tile_rule_caches()
         assert torch.equal(_bits(y), _bits(y_one)), (kind, S, C, "y")
         assert torch.equal(_bits(grads[0]), _bits(one[0])), (kind, S, C, "dx")
 
