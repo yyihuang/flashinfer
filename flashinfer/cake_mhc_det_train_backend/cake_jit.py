@@ -8890,8 +8890,15 @@ FWD_MAP_CLAIM = {
 # at 7168.
 FWD_MAP_XNRM = {
     "sm_100a": ((64, 7168),),
-    "sm_103a": ((64, 6144),),
+    "sm_103a": ((64, 6656),),
     "sm_107a": ((64, 14928), (15288, 65536)),
+}
+# FWD_MAP_XNRM_PATHS (r11 private probe): extra _xn bands per architecture and call path (cake_jit.PDL_PATHS);
+# the forward path runs fwd_prepare, the checkpoint path fwd_recompute. H 4096 only.
+FWD_MAP_XNRM_PATHS: dict[str, dict[str, tuple[tuple[int, int], ...]]] = {
+    "sm_100a": {},
+    "sm_103a": {},
+    "sm_107a": {},
 }
 # FWD_COEF_REGIMES: the coefficient pass's dispatch per architecture, in grid units of the 8-token CTA (grid =
 # ceil(T / 8) = mhc_det_fwd_coef.grid_rule(T, tokens_per_cta=8); every form bitwise the production chain). "round5" =
@@ -9207,6 +9214,13 @@ BWD_DPL_BANDS = {
     "sm_103a": (),
     "sm_107a": (),
 }
+# BWD_DPL_PATHS (r11 private probe): extra _dpl bands per architecture and call path (backward / checkpoint:
+# both run bwd_finish). H 4096 only.
+BWD_DPL_PATHS: dict[str, dict[str, tuple[tuple[int, int], ...]]] = {
+    "sm_100a": {},
+    "sm_103a": {},
+    "sm_107a": {},
+}
 BWD_DPL_SLABS = ("dynl", "dynr")  # the K7 programs with a _dpl form
 # K5_GRID_BANDS: (above, at_most, grid_per_sm) per architecture -- the backward prepare's launch grid by token count
 # inside a band the design's persistent M1 grid min(ceil(T / 2), grid_per_sm x sm_count) (grid-stride
@@ -9252,6 +9266,13 @@ FWD_FINISH_ROWS = {"production": 4, "r2": 2}
 FWD_FINISH_COL_SPLIT = 2
 # K3_TILING: the collapse's (rows_per_cta, col_split) of record (k3_grid): one half token per CTA at H 4096.
 K3_TILING = (1, 2)
+# K3_GRID_BANDS (r11 private probe): (above, at_most, grid_per_sm) -- the collapse's launch grid
+# min(k3_grid, grid_per_sm x SM count) inside a band (grid-stride trips of the same binary). H 4096 only.
+K3_GRID_BANDS: dict[str, tuple[tuple[int, int, int], ...]] = {
+    "sm_100a": (),
+    "sm_103a": ((3072, 3584, 6),),
+    "sm_107a": (),
+}
 # K6_CTAS_PER_SM: the token owner's resident CTAs per SM, the factor of k6_grid's G6 (two 90112-B rings at H 4096).
 K6_CTAS_PER_SM = 2
 
@@ -9530,7 +9551,7 @@ def fn_split_grid(
 
 
 def fwd_map_program(
-    T, sm_count, arch, hidden=HIDDEN
+    T, sm_count, arch, hidden=HIDDEN, path=None
 ):  # -> the mapping-pass program of record for T tokens
     program = _tab("FWD_MAP_PRODUCTION", hidden)
     for above, at_most, band in _tab("FWD_MAP_BANDS", hidden)[arch]:
@@ -9558,6 +9579,13 @@ def fwd_map_program(
     for above, at_most in _tab("FWD_MAP_XNRM", hidden)[arch]:  # the X loads hinted
         if above < T <= at_most:
             program += "_xn"
+    if (
+        path is not None
+        and int(hidden) == HIDDEN
+        and not program.endswith("_xn")
+        and _in_bands(T, FWD_MAP_XNRM_PATHS.get(arch, {}).get(path, ()))
+    ):  # r11 probe: the X loads hinted on this call path only
+        program += "_xn"
     return program
 
 
@@ -9663,7 +9691,7 @@ def bwd_token_program(
 
 
 def bwd_slab_program(
-    T, sm_count, arch, hidden=HIDDEN
+    T, sm_count, arch, hidden=HIDDEN, path=None
 ):  # -> the column-slab pass's program of record for T tokens
     program = _tab("BWD_SLAB_PROGRAM", hidden)[arch]
     for above, at_most, band in _tab("BWD_SLAB_BANDS", hidden)[
@@ -9682,9 +9710,14 @@ def bwd_slab_program(
             units <= sm_count or kept
         ):  # one round of K7 units, or a chunk count / (P, T) run the band keeps on xrsg
             program = fit[1]
-    if program in BWD_DPL_SLABS and _in_bands(
-        T, _tab("BWD_DPL_BANDS", hidden)[arch]
-    ):  # the dfn_part partials kept in L2 for the final reduction
+    if program in BWD_DPL_SLABS and (
+        _in_bands(T, _tab("BWD_DPL_BANDS", hidden)[arch])
+        or (
+            path is not None
+            and int(hidden) == HIDDEN
+            and _in_bands(T, BWD_DPL_PATHS.get(arch, {}).get(path, ()))
+        )
+    ):  # the dfn_part partials kept in L2 for the final reduction (r11 probe: + the call path's bands)
         program += "_dpl"
     return program
 
@@ -9696,7 +9729,7 @@ def _in_bands(
 
 
 def bwd_reduce_program(
-    T, sm_count, arch, hidden=HIDDEN
+    T, sm_count, arch, hidden=HIDDEN, path=None
 ):  # -> the final reduction's program of record for T tokens
     program = _tab("BWD_REDUCE_PROGRAM", hidden)[arch]
     for band, above, at_most in _tab("BWD_REDUCE_REGIMES", hidden)[arch]:
@@ -9710,7 +9743,7 @@ def bwd_reduce_program(
         for refined, p_min, p_max in parts:
             if p_min <= P and (p_max is None or p_max >= P):
                 program = refined
-    if bwd_slab_program(T, sm_count, arch, hidden).endswith(
+    if bwd_slab_program(T, sm_count, arch, hidden, path).endswith(
         "_dpl"
     ):  # the column-slab pass kept dfn_part in L2: the form loading it EVICT_FIRST
         program += "_dpl"
@@ -9814,6 +9847,20 @@ def k3_grid(
     T, hidden=HIDDEN
 ):  # fwd_collapse (rows_per_cta=1, col_split=2 at H 4096): 2 T CTAs; ceil(T H / 2048)
     return row_cta_grid(T, *_tab("K3_TILING", hidden))
+
+
+def k3_grid_cap(T, sm_count, arch, hidden=HIDDEN):  # -> the K3_GRID_BANDS cap at T, or 0 (no cap)
+    if int(hidden) != HIDDEN:
+        return 0
+    for above, at_most, grid_per_sm in K3_GRID_BANDS.get(arch, ()):
+        if above < T <= at_most:
+            return int(grid_per_sm) * int(sm_count)
+    return 0
+
+
+def k3_grid_of_record(T, sm_count, arch, hidden=HIDDEN):  # -> the collapse's launch grid of record
+    cap = k3_grid_cap(T, sm_count, arch, hidden)
+    return min(k3_grid(T, hidden), cap) if cap else k3_grid(T, hidden)
 
 
 def k4_grid(T):  # fwd_finish production (rows_per_cta=4, col_split=2): ceil(T / 2) CTAs
@@ -10149,6 +10196,7 @@ def carried_modules(
     rows: int,
     sm_count: int,
     sinkhorn_iters: int = SINKHORN_ITERS,
+    path: Optional[str] = None,
 ) -> tuple[str, ...]:
     """:func:`selected_modules` of a checkpoint-carry call: ``fwd_recompute`` with the
     dual-layout fn split of :data:`FN_SPLIT_CARRY` in place of its fn split, ``bwd_finish``
@@ -10161,7 +10209,13 @@ def carried_modules(
             f"no checkpoint carry of the {route_key(hidden, kind)!r} route on {arch!r}"
         )
     names = selected_modules(
-        arch, hidden, kind, rows=rows, sm_count=sm_count, sinkhorn_iters=sinkhorn_iters
+        arch,
+        hidden,
+        kind,
+        rows=rows,
+        sm_count=sm_count,
+        sinkhorn_iters=sinkhorn_iters,
+        path=path,
     )
     if MODULES[names[0]]["role"] not in ("fn_split_fwd", "fn_split_bwd"):
         raise ValueError(
@@ -10186,6 +10240,8 @@ SELECT_RULE_KINDS = (
 # record: a call at another count needs the role's run-time-count record.
 RUN_TIME_ITERS_ROLES = ("fwd_coef", "bwd_token")
 # The host rules a ``program`` selection rule may name (the record's program key must equal the rule's value).
+# r11 probe: the program rules that read the call path
+PATH_PROGRAM_RULES = ("fwd_map_program", "bwd_slab_program", "bwd_reduce_program")
 PROGRAM_RULES = (
     "fwd_map_program",
     "fwd_coef_program",
@@ -10202,6 +10258,7 @@ def _selects(
     arch: str,
     sinkhorn_iters: int = SINKHORN_ITERS,
     hidden: int = HIDDEN,
+    path: Optional[str] = None,
 ) -> bool:
     if rule is None:
         return True
@@ -10215,7 +10272,11 @@ def _selects(
             raise ValueError(
                 f"unknown Cake mHC training program rule: {rule['rule']!r}"
             )
-        program = globals()[rule["rule"]](rows, sm_count, arch, hidden)
+        program = (
+            globals()[rule["rule"]](rows, sm_count, arch, hidden, path=path)
+            if rule["rule"] in PATH_PROGRAM_RULES
+            else globals()[rule["rule"]](rows, sm_count, arch, hidden)
+        )
         if (
             rule["rule"] == "bwd_reduce_program"
             and int(sinkhorn_iters) != SINKHORN_ITERS
@@ -10259,6 +10320,7 @@ def selected_modules(
     rows: int,
     sm_count: int,
     sinkhorn_iters: int = SINKHORN_ITERS,
+    path: Optional[str] = None,
 ) -> tuple[str, ...]:
     """Ordered module names one public call launches on ``arch`` for ``rows`` tokens
     on a device of ``sm_count`` SMs.
@@ -10336,6 +10398,7 @@ def selected_modules(
             arch,
             sinkhorn_iters,
             MODULES[name]["hidden"],
+            path,
         )
     )
     if not names:
@@ -10511,6 +10574,12 @@ def launch_grid(
             limit = per_sm * sm_count(device_index)
         if limit > 0:
             grid_x = min(grid_x, limit)
+        if record.get("role") == "fwd_collapse":  # r11 probe: K3_GRID_BANDS
+            cap = k3_grid_cap(
+                rows, sm_count(device_index), device_arch(device_index), record["hidden"]
+            )
+            if cap:
+                grid_x = min(grid_x, cap)
     elif kind == "units_bounded":
         plan = host_plan(
             rows, sm_count(device_index), device_arch(device_index), record["hidden"]
