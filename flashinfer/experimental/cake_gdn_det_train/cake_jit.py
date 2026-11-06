@@ -1256,7 +1256,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_det_train_77231bf6aa5083c535df",
+        "kernel_symbol": "kernel_cake_gdn_det_train_00d1afe880a59b909284",
         "launch": {
             "block": (384, 1, 1),
             "cluster": (1, 1, 1),
@@ -1264,7 +1264,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 222976,
             "use_pdl": False,
         },
-        "library": "cake_gdn_det_train_77231bf6aa5083c535df",
+        "library": "cake_gdn_det_train_00d1afe880a59b909284",
         "stage": "dhu_tc2_wavefront",
     },
     "dhu_tc2_wavefront_sm_107a": {
@@ -1729,7 +1729,7 @@ MODULES: dict[str, dict[str, Any]] = {
             ["grid", "grid_z"],
         ],
         "ffi_entry": "run",
-        "kernel_symbol": "kernel_cake_gdn_det_train_0b4d86ff7e9093ca0ca9",
+        "kernel_symbol": "kernel_cake_gdn_det_train_dbc291c1e23d2eab406b",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (2, 1, 1),
@@ -1737,7 +1737,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 108160,
             "use_pdl": False,
         },
-        "library": "cake_gdn_det_train_0b4d86ff7e9093ca0ca9",
+        "library": "cake_gdn_det_train_dbc291c1e23d2eab406b",
         "stage": "tail_g2_bf16_wavefront",
         "tile_table": "packed",
         "wait_entry": "wait_geq",
