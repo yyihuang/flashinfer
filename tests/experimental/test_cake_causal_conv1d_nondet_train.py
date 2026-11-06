@@ -47,7 +47,10 @@ tiles, on a caller-owned workspace of the public size and on the package's, with
 package's, the gradients within budget of the reference and of the deterministic package, and the workspace zero
 after the call.  The 32-vector tiles of ``NARROW_TILES`` the same way at every key of the architecture's table
 (``NARROW_CASES``: the key's channel ends and an inner channel count, at token counts inside the key's range), and
-the side-stream one-SM trim of a three-tile narrow row's grid.
+the side-stream one-SM trim of a three-tile narrow row's grid; the forward's 32-vector tiles of C = 576 to 760 on
+the ``fwd`` and ``fwd_bias`` routes (``y`` bitwise the deterministic package's) and its public workspace of three
+tiles' counters, and C = 768, which keeps its grouped single tile (the C = 768 rows of ``CASES``: ``y`` bitwise the
+deterministic package's three tiles).
 
 This suite names its package once, through ``tests.test_helpers.cake_package`` (key
 ``cake_causal_conv1d_nondet_train``), and the deterministic package for the parity checks through the same table;
@@ -1291,6 +1294,52 @@ def test_workspace_bytes_depend_on_channels_only() -> None:
         ws = pkg.cake_causal_conv1d_nondet_train_backward_workspace(1, C, device)
         assert ws.dtype == torch.uint8 and ws.numel() == nbytes
         assert int(torch.count_nonzero(ws)) == 0
+
+
+def test_forward_workspace_holds_the_narrow_forward_tiles() -> None:
+    """The public forward workspace holds the counters of the forward's 32-vector tiles: at C = 576 to 760 the
+    ``fwd`` and ``fwd_bias`` routes run three tiles (``cake_jit.NARROW_FORWARD_ROUTES``), so the workspace is three
+    times the single tile's (C = 568, 768 and 776; C = 768 keeps its grouped single tile); a forward of each such
+    route on a caller-owned workspace of exactly that size returns ``y`` bitwise the deterministic package's (when
+    importable) and leaves the workspace zero."""
+
+    device, arch = _device(), _arch()
+    nbytes = {
+        C: pkg.cake_causal_conv1d_nondet_train_forward_workspace_bytes(1, C, device)
+        for C in (568, 576, 640, 704, 760, 768, 776)
+    }
+    for C, value in nbytes.items():
+        assert value == 4 * loader.forward_workspace_words(arch, C), C
+        assert value == pkg.cake_causal_conv1d_nondet_train_forward_workspace_bytes(
+            10**6, C, device
+        ), C
+    assert nbytes[568] > 0 and nbytes[568] == nbytes[768] == nbytes[776], nbytes
+    for C in (576, 640, 704, 760):
+        assert nbytes[C] == 3 * nbytes[568], nbytes
+    det = _det_or_none()
+    S, docs = 4097, (1000, 0, 3, 3094)
+    for kind in ("fwd", "fwd_bias"):
+        if _route_pending(arch, kind):
+            continue
+        C = 640
+        x, w, cu, _ = _inputs(S, C, docs, key=13)
+        b = _bias_input(C, F32, key=13) if kind == "fwd_bias" else None
+        ws = pkg.cake_causal_conv1d_nondet_train_forward_workspace(S, C, device)
+        assert ws.dtype == torch.int32 and 4 * ws.numel() == nbytes[C], kind
+        y = _forward(x, w, cu, bias=b, workspace=ws)
+        torch.cuda.synchronize(device)
+        assert int(torch.count_nonzero(ws)) == 0, kind
+        _assert_within(
+            y.float(),
+            reference_forward(x, w, cu, b).float(),
+            atol=Y_ATOL,
+            rtol=Y_RTOL,
+            label=f"y {kind} C={C}",
+        )
+        if det is not None:
+            assert torch.equal(
+                y, det.cake_causal_conv1d_det_train_forward(x, w, cu, bias=b)
+            ), f"y differs from the deterministic package ({kind} C={C})"
 
 
 @pytest.mark.parametrize("kind", tuple(ROUTE_SETTINGS))

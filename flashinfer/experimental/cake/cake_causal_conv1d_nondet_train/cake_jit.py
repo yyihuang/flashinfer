@@ -3057,6 +3057,21 @@ def _ceil_div(numerator: int, denominator: int) -> int:
 # The roles whose programs plan their channel tiles with :func:`channel_split`
 # (the KCP programs plan with ``legacy=True``): each has its own rule.
 SPLIT_ROLES = ("fwd", "bwd")
+# The forward routes whose single-tile rows run 32-vector tiles (``ct_vec`` 32,
+# four token sub-tiles, the last tile partial) instead of one tile of ``cv = C
+# / vec`` vectors, at 128 threads and ``NARROW_FORWARD_VECTORS[0] <= cv <=
+# NARROW_FORWARD_VECTORS[1]``, except a row whose one tile takes the kernels'
+# grouped path (``(ct_vec & 31) == 0 && ct_vec > 32 && ct_vec * 8 == C``,
+# :func:`_grouped_single_tile`: cv = 96, C = 768): C = 576 to 760, three
+# tiles.  This is the deterministic package's forward rule for the same forward
+# programs without its C = 768 rows, which keep the grouped single tile.  One
+# tile of cv vectors leaves 128 - cv lanes of every CTA idle over the whole
+# token axis; the programs are unchanged and ``y`` keeps its bits.  The
+# backward plans its narrow rows from :data:`NARROW_TILES` instead, so no
+# backward route takes this rule.
+NARROW_FORWARD_ROUTES: tuple[str, ...] = ("fwd", "fwd_bias")
+NARROW_FORWARD_VECTORS: tuple[int, int] = (72, 96)
+NARROW_FORWARD_THREADS = 128
 
 
 def channel_split(
@@ -3065,8 +3080,9 @@ def channel_split(
     geometry: dict[str, int],
     role: str | None = None,
     legacy: bool = False,
+    route: str | None = None,
 ) -> tuple[int, int, int]:
-    """``(ct_vec, n_sub, n_ch_tiles)`` of ``C`` channels under a record's build geometry and role.
+    """``(ct_vec, n_sub, n_ch_tiles)`` of ``C`` channels under a record's build geometry, role and route.
 
     ``ct_vec`` channel vectors per channel tile (one thread each), ``n_sub =
     threads // ct_vec`` token sub-tiles per CTA and ``n_ch_tiles = ceil(C / vec
@@ -3095,16 +3111,35 @@ def channel_split(
     from ``ct_vec`` on the device and are measured under this rule).  Each
     role's rule is kept in sync with its copies (the kernel generator of
     that role and the test plan of that kind).
+
+    ``route`` is the launch's route (one of :data:`KINDS` of the role; the
+    host passes the forward record's).  On a route of
+    :data:`NARROW_FORWARD_ROUTES` the forward's single-tile rows at C = 576 to
+    760 run 32-vector tiles, ``(32, threads // 32, ceil(cv / 32))``, so C =
+    640 runs (32, 4, 3) instead of (80, 1, 1); ``y`` keeps its bits.  C = 768
+    keeps (96, 1, 1): its one tile takes the kernels' grouped path.  Without a
+    route, on every other route, for the backward role and under ``legacy``
+    the split above stays.
     """
 
     return _channel_split(
-        int(C), int(geometry["vec"]), int(geometry["threads"]), role, bool(legacy)
+        int(C),
+        int(geometry["vec"]),
+        int(geometry["threads"]),
+        role,
+        bool(legacy),
+        route,
     )
 
 
 @functools.lru_cache(maxsize=4096)
 def _channel_split(
-    C: int, vec: int, threads: int, role: str | None, legacy: bool
+    C: int,
+    vec: int,
+    threads: int,
+    role: str | None,
+    legacy: bool,
+    route: str | None = None,
 ) -> tuple[int, int, int]:
     """:func:`channel_split` of plain arguments, memoized: a model's channel
     counts are few, so every call after a channel count's first reuses its
@@ -3114,11 +3149,21 @@ def _channel_split(
         raise ValueError(
             f"role must be one of {SPLIT_ROLES} (or legacy=True), got {role!r}"
         )
+    if route is not None and (
+        route not in KINDS or role is None or route_role(route) != role
+    ):
+        raise ValueError(f"route={route!r} is not a route of role {role!r}")
     if C <= 0 or C % vec:
         raise ValueError(f"C={C} must be a positive multiple of {vec}")
     channel_vectors = C // vec
     if legacy or channel_vectors <= threads:
         ct_vec = min(channel_vectors, threads)
+        if (
+            not legacy
+            and route in NARROW_FORWARD_ROUTES
+            and _narrow_forward(channel_vectors, threads, C)
+        ):
+            ct_vec = 32
     else:
         candidates = [
             width
@@ -3155,6 +3200,30 @@ def _fallback_split(channel_vectors: int, threads: int, role: str) -> int:
             round(_lane_use(channel_vectors, width, threads), 9),
             width,
         ),
+    )
+
+
+def _narrow_forward(channel_vectors: int, threads: int, C: int) -> bool:
+    """Whether a forward single-tile row runs 32-vector tiles on the routes of :data:`NARROW_FORWARD_ROUTES`."""
+
+    low, high = NARROW_FORWARD_VECTORS
+    return (
+        threads == NARROW_FORWARD_THREADS
+        and low <= channel_vectors <= high
+        and not _grouped_single_tile(channel_vectors, C)
+    )
+
+
+def _grouped_single_tile(channel_vectors: int, C: int) -> bool:
+    """Whether one tile of all ``channel_vectors`` vectors of ``C`` channels meets the kernels' grouped test.
+
+    The kernels take their grouped path when ``(ct_vec & 31) == 0 && ct_vec >
+    32 && ct_vec * 8 == C``; a single-tile row has ``ct_vec = cv``.  Such a row
+    keeps its single tile on every route.
+    """
+
+    return (
+        channel_vectors % 32 == 0 and channel_vectors > 32 and channel_vectors * 8 == C
     )
 
 
@@ -3370,7 +3439,7 @@ def plan(
     arch: str | None = None,
     route: str | None = None,
 ) -> dict[str, int]:
-    """The kernel's launch scalars for one problem under a record's build geometry and role.
+    """The kernel's launch scalars for one problem under a record's build geometry, role and route.
 
     ``geometry`` is ``record["grid_rule"]["geometry"]``: ``threads`` per CTA
     and ``vec`` BF16 channels per thread; ``role`` is ``record["role"]``
@@ -3379,16 +3448,17 @@ def plan(
     and ``legacy`` are passed on) and ``search_steps``, the number of halvings
     of the device-side binary search over ``cu_seqlens`` (``max(1, ceil(log2
     num_docs))``).  Every value is a pure function of ``(S, C, num_docs)``, the
-    geometry and the role: the host never reads ``cu_seqlens``, and the kernel
-    derives its token ranges from ``S`` and the grid.  The ``flags`` scalar of
+    geometry, the role and the route: the host never reads ``cu_seqlens``, and
+    the kernel derives its token ranges from ``S`` and the grid.  The ``flags`` scalar of
     the ``dtype_flags`` programs is not a plan value: the host derives it from
     the tensors of the call.  Given the backward record's ``arch`` and
     ``route`` (:func:`record_route`), a row of :data:`TILE_OVERRIDES`
     (:func:`tile_override`) replaces the split by ``(ct_vec, threads //
     ct_vec, ceil(C / vec / ct_vec))``, else a row of :data:`NARROW_TILES`
     (:func:`narrow_tile_row`, at 128 threads) by ``(32, threads // 32, ceil(C
-    / vec / 32))``; without them, for the forward role and under ``legacy``
-    the split is :func:`channel_split`'s.
+    / vec / 32))``; without them and under ``legacy`` the split is
+    :func:`channel_split`'s.  The forward role passes its record's ``route``
+    on (:data:`NARROW_FORWARD_ROUTES`; a backward route there is refused).
     """
 
     S, C, num_docs = int(S), int(C), int(num_docs)
@@ -3413,7 +3483,8 @@ def _plan_split(
     """:func:`plan`'s ``(ct_vec, n_sub, n_ch_tiles)`` of one call: for a
     backward call given ``arch`` and ``route`` (not ``legacy``), the
     :data:`TILE_OVERRIDES` row's split, else the :data:`NARROW_TILES` row's,
-    else :func:`channel_split`'s."""
+    else :func:`channel_split`'s (route-free); for a forward call
+    :func:`channel_split`'s on ``route``."""
 
     if role == "bwd" and not legacy and arch is not None and route is not None:
         override = tile_override(arch, route, C, S)
@@ -3423,7 +3494,13 @@ def _plan_split(
             narrow = _narrow_split(arch, route, C, geometry)
             if narrow is not None:
                 return narrow
-    return channel_split(C, geometry=geometry, role=role, legacy=legacy)
+    return channel_split(
+        C,
+        geometry=geometry,
+        role=role,
+        legacy=legacy,
+        route=route if role == "fwd" else None,
+    )
 
 
 def search_steps(num_docs: int) -> int:
@@ -3720,9 +3797,10 @@ def plan_row(
     ``occupancy`` record at ``C % 32`` on the default grid), and ``num_docs``
     only through :func:`search_steps`; so with this row :func:`row_launch`
     returns what :func:`plan` and :func:`launch_grid` return for the call
-    (the planning a backward ``_launch`` does: ``plan(..., arch=, route=)``
-    with the record's route) without selecting, splitting or sizing the grid
-    again.  Registry errors raise as in :func:`selected_modules`.
+    (the planning ``_launch`` does: ``plan(..., arch=, route=)`` with the
+    record's route, which a forward record's split follows) without
+    selecting, splitting or sizing the grid again.  Registry errors raise as
+    in :func:`selected_modules`.
     """
 
     C = int(C)
@@ -3732,10 +3810,12 @@ def plan_row(
     record = MODULES[names[0]]
     rule = record["grid_rule"]
     geometry, role = rule["geometry"], record["role"]
-    split = channel_split(C, geometry=geometry, role=role)
+    route = record_route(record, arch)
+    split = channel_split(
+        C, geometry=geometry, role=role, route=route if role == "fwd" else None
+    )
     override = None
     if role == "bwd":
-        route = record_route(record, arch)
         entry = TILE_OVERRIDES.get(arch, {}).get((route, C))
         if entry is not None:
             ct_vec, s_min, s_max = (int(value) for value in entry)
@@ -3910,10 +3990,11 @@ def forward_workspace_words(arch: str, C: int) -> int:
     """Int32 words of the forward workspace for ``C`` channels on ``arch``.
 
     The largest :func:`counter_words` over every forward program of every
-    forward route of the architecture (each planned with its own geometry and
-    role), so one buffer serves every forward route; it depends on ``C`` only
-    (never on ``S`` or the device's SM count).  0 when no forward program of
-    the architecture takes ``work``.
+    forward route of the architecture (each planned with its own geometry,
+    role and route, so the 32-vector tiles of :data:`NARROW_FORWARD_ROUTES`
+    count), so one buffer serves every forward route; it depends on ``C``
+    only (never on ``S`` or the device's SM count).  0 when no forward program
+    of the architecture takes ``work``.
     """
 
     words = 0
@@ -3923,7 +4004,10 @@ def forward_workspace_words(arch: str, C: int) -> int:
             if record["workspace_rule"] is None:
                 continue
             _, _, n_ch_tiles = channel_split(
-                C, geometry=record["grid_rule"]["geometry"], role=record["role"]
+                C,
+                geometry=record["grid_rule"]["geometry"],
+                role=record["role"],
+                route=kind,
             )
             words = max(words, counter_words(record, n_ch_tiles))
     return words

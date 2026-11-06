@@ -546,7 +546,8 @@ def test_tile_override_bounds_and_plan() -> None:
     """A row's ``ct_vec`` applies from ``S_min`` through ``S_max`` (both included) and to no other token count,
     route or architecture; ``plan`` of a backward record given its architecture and route then plans ``(ct_vec,
     threads // ct_vec, ceil(C / vec / ct_vec))``, and :func:`cake_jit.channel_split`'s split outside the range, for
-    the forward role, under ``legacy`` and without the architecture or the route."""
+    the forward role (on a forward route without 32-vector tiles; a backward route is refused there), under
+    ``legacy`` and without the architecture or the route."""
 
     for arch, rows in cake_jit.TILE_OVERRIDES.items():
         for (route, C), (ct_vec, s_min, s_max) in rows.items():
@@ -587,7 +588,7 @@ def test_tile_override_bounds_and_plan() -> None:
                     {"role": "bwd"},
                     {"role": "bwd", "arch": arch},
                     {"role": "bwd", "route": route},
-                    {"role": "fwd", "arch": arch, "route": route},
+                    {"role": "fwd", "arch": arch, "route": "fwd_dt"},
                 ):
                     got = cake_jit.plan(s_min, C, 3, geometry=geometry, **kwargs)
                     want = cake_jit.channel_split(
@@ -596,6 +597,16 @@ def test_tile_override_bounds_and_plan() -> None:
                     assert (got["ct_vec"], got["n_sub"], got["n_ch_tiles"]) == want, (
                         label,
                         kwargs,
+                    )
+                with pytest.raises(ValueError, match="is not a route of role"):
+                    cake_jit.plan(
+                        s_min,
+                        C,
+                        3,
+                        geometry=geometry,
+                        role="fwd",
+                        arch=arch,
+                        route=route,
                     )
                 got = cake_jit.plan(
                     s_min, C, 3, geometry=geometry, legacy=True, arch=arch, route=route
@@ -624,7 +635,8 @@ def test_backward_workspace_covers_every_override_row() -> None:
 
 
 # ----------------------------------------------------------------------------------------------------------------
-# The 32-vector channel tiles of the narrow single-tile backward rows (``NARROW_TILES``).
+# The 32-vector channel tiles of the narrow single-tile backward rows (``NARROW_TILES``) and of the forward
+# (``NARROW_FORWARD_ROUTES``).
 
 # A table that exercises the narrow-row plan on every architecture whatever the rendered table holds: the sm_100a
 # rows of the shipped rule, plus rows on the other architectures (one of them spans a ``TILE_OVERRIDES`` row of its
@@ -798,6 +810,125 @@ def test_backward_workspace_covers_every_narrow_row(narrow_table) -> None:
                     )["n_ch_tiles"]
                     layout = cake_jit.accumulator_layout(record, C, tiles)
                     assert layout["total_bytes"] <= nbytes, (arch, route, C, name)
+
+
+def _grouped_single_tile(C: int, geometry: dict) -> bool:
+    """Whether ``C`` runs one channel tile that takes the kernels' grouped path, ``(ct_vec & 31) == 0 && ct_vec > 32
+    && ct_vec * 8 == C`` with ``ct_vec = C / vec <= threads`` (C = 768 at 128 x 8 keeps it on every route)."""
+
+    cv = C // geometry["vec"]
+    return cv <= geometry["threads"] and cv % 32 == 0 and cv > 32 and cv * 8 == C
+
+
+@pytest.mark.cpu_only
+def test_forward_split_follows_the_deterministic_rule_by_route() -> None:
+    """The forward plans its channel tiles by route as the deterministic package does (the same forward programs),
+    except a single-tile row whose one tile takes the kernels' grouped path (C = 768 at 128 x 8), which keeps it:
+    on ``fwd`` and ``fwd_bias`` the single-tile rows at C = 576 to 760 run ``(32, 4, 3)`` at 128 threads, on
+    ``fwd_dt`` and everywhere else the route-free split stays; ``legacy`` ignores the route.  The backward role
+    keeps the route-free split on every backward route (its narrow rows are ``NARROW_TILES``'), and a route of the
+    other role is refused, by :func:`cake_jit.channel_split` and by ``plan``."""
+
+    geometries = [{"threads": 128, "vec": 8}]
+    for record in cake_jit.MODULES.values():
+        if record["grid_rule"]["geometry"] not in geometries:
+            geometries.append(record["grid_rule"]["geometry"])
+    for geometry in geometries:
+        for kind in cake_jit.KINDS:
+            role = cake_jit.route_role(kind)
+            for C in range(8, 8193, 8):
+                got = cake_jit.channel_split(
+                    C, geometry=geometry, role=role, route=kind
+                )
+                if role == "fwd" and not _grouped_single_tile(C, geometry):
+                    want = det_jit.channel_split(
+                        C, geometry=geometry, role=role, route=kind
+                    )
+                else:
+                    want = cake_jit.channel_split(C, geometry=geometry, role=role)
+                assert got == want, (geometry, kind, C)
+                legacy = cake_jit.channel_split(C, geometry=geometry, legacy=True)
+                got = cake_jit.channel_split(
+                    C, geometry=geometry, legacy=True, role=role, route=kind
+                )
+                assert got == legacy, (geometry, kind, C)
+    geometry = {"threads": 128, "vec": 8}
+
+    def forward_split(C: int, kind: str) -> tuple[int, int, int]:
+        return cake_jit.channel_split(C, geometry=geometry, role="fwd", route=kind)
+
+    for C in range(576, 761, 8):
+        for kind in ("fwd", "fwd_bias"):
+            assert forward_split(C, kind) == (32, 4, 3), (kind, C)
+        assert forward_split(C, "fwd_dt") == (C // 8, 1, 1), C
+        for arch in ARCHES:
+            for kind in ("fwd", "fwd_bias", "fwd_dt"):
+                on_row = {"arch": arch, "route": kind}
+                got = cake_jit.plan(
+                    250340, C, 4, geometry=geometry, role="fwd", **on_row
+                )
+                assert _split3(got) == forward_split(C, kind), (arch, kind, C)
+    for C in (568, 768, 776):
+        for kind in ("fwd", "fwd_bias"):
+            assert forward_split(C, kind) == (C // 8, 1, 1), (kind, C)
+    for kind in ("fwd", "fwd_bias"):
+        split = det_jit.channel_split(768, geometry=geometry, role="fwd", route=kind)
+        assert split == (32, 4, 3), kind
+    for role, route in (("fwd", "bwd"), ("bwd", "fwd"), ("fwd", "nope"), (None, "fwd")):
+        with pytest.raises(ValueError):
+            cake_jit.channel_split(
+                640, geometry=geometry, role=role, route=route, legacy=role is None
+            )
+    with pytest.raises(ValueError, match="is not a route of role"):
+        cake_jit.plan(250340, 640, 4, geometry=geometry, role="fwd", route="bwd")
+
+
+@pytest.mark.cpu_only
+@pytest.mark.parametrize("arch", ARCHES)
+def test_forward_workspace_holds_the_narrow_forward_tiles(arch) -> None:
+    """The forward workspace is the largest counter count over every forward program of every forward route, each
+    planned on its route: three tiles' counters at C = 576 to 760 (the 32-vector tiles of ``fwd`` / ``fwd_bias``),
+    three times the single tile's at C = 568, 768 (its grouped single tile) and 776 (2 words per tile: 6 words
+    instead of 2)."""
+
+    def words(C: int) -> int:
+        most = 0
+        for kind in cake_jit.forward_kinds(arch):
+            for name in cake_jit.route_modules(arch, kind):
+                record = cake_jit.MODULES[name]
+                if record["workspace_rule"] is None:
+                    continue
+                _, _, tiles = cake_jit.channel_split(
+                    C, geometry=record["grid_rule"]["geometry"], role="fwd", route=kind
+                )
+                most = max(most, cake_jit.counter_words(record, tiles))
+        return most
+
+    def per_tile(kinds) -> int:
+        return max(
+            (
+                int(cake_jit.MODULES[name]["workspace_rule"]["words_per_tile"])
+                for kind in kinds
+                if kind in cake_jit.ROUTES[arch]
+                for name in cake_jit.route_modules(arch, kind)
+                if cake_jit.MODULES[name]["workspace_rule"] is not None
+            ),
+            default=0,
+        )
+
+    narrow = per_tile(cake_jit.NARROW_FORWARD_ROUTES)
+    single = per_tile(cake_jit.forward_kinds(arch))
+    if not narrow:
+        pytest.skip(f"no forward program of {arch} takes counters on a narrow route")
+    for C in range(8, 2049, 8):
+        assert cake_jit.forward_workspace_words(arch, C) == words(C), (arch, C)
+    for C in (568, 768, 776):
+        assert cake_jit.forward_workspace_words(arch, C) == single, (arch, C)
+    for C in range(576, 761, 8):
+        assert cake_jit.forward_workspace_words(arch, C) == max(3 * narrow, single), (
+            arch,
+            C,
+        )
 
 
 # ----------------------------------------------------------------------------------------------------------------

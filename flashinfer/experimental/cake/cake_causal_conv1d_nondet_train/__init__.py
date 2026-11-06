@@ -100,7 +100,10 @@ Host design (the knobs are keywords; no environment variable):
   push the top CTAs, each with a whole token stream, into a second wave.
   ``dx`` keeps its bits (the partition is read from ``gridDim.x``, as above).
 - The forward workspace (int32 token-chunk counters) follows the det
-  package's rules.
+  package's rules, and so does the forward's channel split: on the ``fwd`` and
+  ``fwd_bias`` routes the single-tile rows at C = 576 to 760 run 32-vector
+  tiles (``cake_jit.NARROW_FORWARD_ROUTES``; ``y`` keeps its bits).  C = 768
+  keeps its single tile, which takes the kernels' grouped path.
 - Host plan: the first call of a row (architecture, route, ``C``, device,
   ``bwd_grid_mult``) selects its program, splits ``C`` into channel tiles,
   reads the row's ``TILE_OVERRIDES`` or ``NARROW_TILES`` entry and sizes the
@@ -522,11 +525,13 @@ def _launch(
     unwritten.  The caller launches this grid, so a call plans it once.  A
     backward ``bwd_grid_mult`` above 1 launches that many times the record's
     untrimmed grid (``launch_grid`` without the row), never trimmed to whole
-    channel-tile ranks; the scalars do not depend on the grid.  A backward
-    record's plan takes the device's architecture ``arch`` and the record's
-    route, so a row of ``cake_jit.TILE_OVERRIDES`` or ``cake_jit.NARROW_TILES``
-    runs its narrower channel tiles.  At ``bwd_grid_mult`` 1 the grid is
-    :func:`_one_sm_trim` of the row's ``launch_grid``.
+    channel-tile ranks; the scalars do not depend on the grid.  A record's
+    plan takes the device's architecture ``arch`` and the record's route, so a
+    backward row of ``cake_jit.TILE_OVERRIDES`` or ``cake_jit.NARROW_TILES``
+    runs its narrower channel tiles and a forward row of a route of
+    ``cake_jit.NARROW_FORWARD_ROUTES`` its 32-vector tiles.  At
+    ``bwd_grid_mult`` 1 the grid is :func:`_one_sm_trim` of the row's
+    ``launch_grid``.
     """
 
     scalars = plan(
