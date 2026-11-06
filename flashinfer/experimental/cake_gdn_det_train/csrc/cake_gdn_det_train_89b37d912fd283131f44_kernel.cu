@@ -71,13 +71,6 @@ __device__ __forceinline__ void mbarrier_init(int mbar_addr, int count) {
 }
 
 
-__device__ __forceinline__ void mbarrier_expect_tx(int mbar_addr, uint32_t bytes) {
-    asm volatile(
-        "mbarrier.expect_tx.relaxed.cta.shared::cta.b64 [%0], %1;"
-        :: "r"(mbar_addr), "r"(bytes) : "memory");
-}
-
-
 
 // CTA-local pipelines have short, resident producer/consumer edges.  Omitting
 // suspendTimeHint keeps a miss on the lightweight TRYWAIT retry path; the
@@ -120,12 +113,6 @@ union MmaSmemDesc {
 };
 
 
-
-__device__ __forceinline__ void mbarrier_arrive(int mbar_addr) {
-    asm volatile(
-        "mbarrier.arrive.release.cta.shared::cta.b64 _, [%0];"
-        :: "r"(mbar_addr) : "memory");
-}
 
 
 
@@ -354,7 +341,6 @@ kernel_cake_gdn_det_train_89b37d912fd283131f44(__nv_bfloat16* __restrict__ qn, _
             // rx_full: 1 barriers, init_count=1
             mbarrier_init(smem + 108080, 1);
             asm volatile("fence.mbarrier_init.release.cluster;" ::: "memory");
-            mbarrier_expect_tx(smem + 108080, 30720);
         }
     }
 
@@ -1996,10 +1982,10 @@ kernel_cake_gdn_det_train_89b37d912fd283131f44(__nv_bfloat16* __restrict__ qn, _
     }
     if (warp == 0) {
         if (elect_sync()) {
-            if (rank != 2) {
-                mbarrier_expect_tx(rx_full_addr, 3072);
-            }
-            mbarrier_arrive(rx_full_addr);
+            int rx_bytes = ((rank != 2) ? 33792 : 30720);
+            asm volatile(
+                "mbarrier.arrive.expect_tx.release.cluster.shared::cta.b64 _, [%0], %1;"
+                :: "r"(rx_full_addr), "r"((uint32_t)(rx_bytes)) : "memory");
             asm volatile("tcgen05.fence::after_thread_sync;");
 #if __CUDA_ARCH__ == 1070
             int _mma_a_lo_1 = ((s_da3b_addr) >> 4) & 0x7FFF;
