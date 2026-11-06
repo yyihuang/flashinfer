@@ -1656,6 +1656,7 @@ kernel_deepgemm_mega_moe_v3_grouped_fused(DeepgemmTensorMap const* A, DeepgemmTe
                     asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                     __syncwarp();
                     if (elect_sync()) {
+                        asm volatile("fence.proxy.async.global;" ::: "memory");
                         tma_3d_gmem2smem_cta2(smem_a_addr + load_stage * 51200, A2, 0, off_m2_1, iter_k_3 * 2, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
                         tma_4d_gmem2smem_cta2(smem_b_addr + load_stage * 51200, B2, 0, off_n2 + cta_rank * 64, iter_k_3 * 2, exp_id2_1, ((tma_full_addr + (load_stage) * 8) & 0xFEFFFFFF));
                         asm volatile(
