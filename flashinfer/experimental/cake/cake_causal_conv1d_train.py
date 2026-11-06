@@ -27,17 +27,45 @@ Every entry point takes ``deterministic: bool = True``:
   backward is ONE ordinary launch whose CTAs add their ``dweight`` / ``dbias``
   rows into zeroed accumulators with unordered global reductions (the
   deterministic backward is a main launch plus a fixed-order reduce launch).
-* With ``torch.use_deterministic_algorithms(True)`` a call with
-  ``deterministic=False`` runs the deterministic package and warns once
-  (``UserWarning``): determinism requested anywhere is never silently dropped.
-  The backend itself never falls back: its entry points that launch the
-  unordered reduction (the backward, hence the autograd backward) raise
-  PyTorch's non-determinism alert (a ``RuntimeError``, or a ``UserWarning``
-  with ``warn_only=True``); its forward (the deterministic forward programs'
-  bits) does not alert.
+* With ``torch.use_deterministic_algorithms(True)`` (also with
+  ``warn_only=True``) a call with ``deterministic=False`` runs the
+  deterministic package and warns once per entry point and process
+  (``UserWarning``, naming the caller's line): determinism requested anywhere
+  is never silently dropped.  The backend itself never falls back: its entry
+  points that launch the unordered reduction (the backward, hence the autograd
+  backward) raise PyTorch's non-determinism alert (a ``RuntimeError``, or a
+  ``UserWarning`` with ``warn_only=True``); its forward (the deterministic
+  forward programs' bits) does not alert.
   Under that fallback a caller-owned backward ``workspace`` (a
   ``deterministic=False`` buffer) is not passed on; the deterministic package
   allocates its own.
+
+Numerical mode at a glance ("torch deterministic mode" is
+``torch.use_deterministic_algorithms(True)``, with or without
+``warn_only=True``)::
+
+    call                                  torch deterministic mode off   torch deterministic mode on
+    this module, deterministic=True       deterministic                  deterministic
+      (the default)
+    this module, deterministic=False      non-deterministic              deterministic + one UserWarning
+                                                                           per entry point and process
+    this module, a non-bool mode          TypeError                      TypeError
+    the deterministic names (*_det*)      deterministic; no              deterministic; no warning
+                                            ``deterministic`` keyword
+                                            (TypeError)
+    the non-deterministic backend         non-deterministic              its backward raises RuntimeError
+      (deterministic=False only, else                                      (warn_only=True: UserWarning,
+      ValueError)                                                          then it runs); no fallback
+
+The workspace helpers and ``is_cake_causal_conv1d_train_supported`` answer
+for the package their ``deterministic`` keyword names, whatever torch's mode.
+The package is chosen at each forward call and the autograd backward runs the
+same package, so keep torch's deterministic setting the same from a forward to
+its backward: when it turns on between a non-deterministic forward and its
+backward, that backward raises (above).  A checkpoint recompute
+(``torch.utils.checkpoint``) calls the entry point again: with
+``use_reentrant=True`` torch's setting at that recompute chooses the package of
+the recomputed forward and its backward.
 
 Numerical contract of ``deterministic=False``: only the run-to-run bitwise
 reproducibility of ``dweight`` / ``dbias`` is relaxed.  ``y`` is bitwise the
@@ -130,12 +158,14 @@ Usage::
 
 from __future__ import annotations
 
-import warnings
 from typing import Optional
 
 import torch
 
 from ...api_logging import flashinfer_experimental_api
+# The mode rules (and the set of entry points that already warned about the fallback) are the KCP facade's, so
+# both selectable facades validate, fall back and warn alike.
+from ...cake_causal_conv1d_train_kcp import _deterministic, _mode
 from .cake_causal_conv1d_train_backend import (  # noqa: F401
     ARCHES,
     BWD_GRID_MULTS,
@@ -147,32 +177,6 @@ _FEATURE = (
     "Cake causal conv1d + SiLU training with a selectable numerical mode "
     "(SM100/SM103/SM107)"
 )
-# The entry points that already warned about the deterministic fallback under torch's deterministic mode.
-_FALLBACK_WARNED: set[str] = set()
-
-
-def _deterministic(deterministic: object, entry: str) -> bool:
-    """Whether a call runs the deterministic package: ``deterministic`` itself, or torch's deterministic mode
-    (``torch.are_deterministic_algorithms_enabled()``) overriding ``deterministic=False`` with a one-time
-    warning per entry point."""
-
-    if not isinstance(deterministic, bool):
-        raise TypeError(
-            f"{entry}: deterministic must be a bool, got {type(deterministic).__name__}"
-        )
-    if deterministic:
-        return True
-    if torch.are_deterministic_algorithms_enabled():
-        if entry not in _FALLBACK_WARNED:
-            _FALLBACK_WARNED.add(entry)
-            warnings.warn(
-                f"{entry}(deterministic=False) runs the deterministic implementation because "
-                "torch.use_deterministic_algorithms(True) is in effect",
-                UserWarning,
-                stacklevel=3,
-            )
-        return True
-    return False
 
 
 def _det():
@@ -195,11 +199,7 @@ def is_cake_causal_conv1d_train_supported(
     package's support with ``deterministic=True``, the non-deterministic package's (also requiring its rendered
     ``build.json``) with ``deterministic=False``."""
 
-    if not isinstance(deterministic, bool):
-        raise TypeError(
-            f"deterministic must be a bool, got {type(deterministic).__name__}"
-        )
-    if deterministic:
+    if _mode(deterministic, "is_cake_causal_conv1d_train_supported"):
         return _det().is_cake_causal_conv1d_det_train_supported(device)
     return _backend().is_cake_causal_conv1d_train_supported(device)
 
@@ -224,11 +224,7 @@ def cake_causal_conv1d_train_backward_workspace_bytes(
     change it).
     """
 
-    if not isinstance(deterministic, bool):
-        raise TypeError(
-            f"deterministic must be a bool, got {type(deterministic).__name__}"
-        )
-    if deterministic:
+    if _mode(deterministic, "cake_causal_conv1d_train_backward_workspace_bytes"):
         return _det().cake_causal_conv1d_det_train_backward_workspace_bytes(
             S, C, device, bwd_grid_mult=bwd_grid_mult
         )
@@ -250,11 +246,7 @@ def cake_causal_conv1d_train_backward_workspace(
     (``deterministic=False``: ZEROED, kept zero by every launch, the same size for every ``bwd_grid_mult``;
     reuse it for every later backward call of one stream, never for two launches that may run at once)."""
 
-    if not isinstance(deterministic, bool):
-        raise TypeError(
-            f"deterministic must be a bool, got {type(deterministic).__name__}"
-        )
-    if deterministic:
+    if _mode(deterministic, "cake_causal_conv1d_train_backward_workspace"):
         return _det().cake_causal_conv1d_det_train_backward_workspace(
             S, C, device, bwd_grid_mult=bwd_grid_mult
         )
@@ -270,11 +262,7 @@ def cake_causal_conv1d_train_forward_workspace_bytes(
     """Bytes of the caller-owned forward workspace (zeroed int32 token-chunk counters) for ``C`` channels on
     ``device``; both packages run the same forward programs, so the size is the same either way."""
 
-    if not isinstance(deterministic, bool):
-        raise TypeError(
-            f"deterministic must be a bool, got {type(deterministic).__name__}"
-        )
-    if deterministic:
+    if _mode(deterministic, "cake_causal_conv1d_train_forward_workspace_bytes"):
         return _det().cake_causal_conv1d_det_train_forward_workspace_bytes(S, C, device)
     return _backend().cake_causal_conv1d_train_forward_workspace_bytes(
         S, C, device, deterministic=False
@@ -287,11 +275,7 @@ def cake_causal_conv1d_train_forward_workspace(
 ) -> torch.Tensor:
     """Allocate a zeroed int32 forward workspace (left zero by every launch; keep one per stream)."""
 
-    if not isinstance(deterministic, bool):
-        raise TypeError(
-            f"deterministic must be a bool, got {type(deterministic).__name__}"
-        )
-    if deterministic:
+    if _mode(deterministic, "cake_causal_conv1d_train_forward_workspace"):
         return _det().cake_causal_conv1d_det_train_forward_workspace(S, C, device)
     return _backend().cake_causal_conv1d_train_forward_workspace(
         S, C, device, deterministic=False
@@ -483,14 +467,18 @@ def cake_causal_conv1d(
         call, used by the backward.
     deterministic : bool
         ``True`` (default): ``flashinfer.cake_causal_conv1d_det_train.cake_causal_conv1d_det``.
-        ``False``: the non-deterministic autograd Function
-        (:class:`CakeCausalConv1dFunction`), whose backward is one launch with
-        unordered ``dweight`` / ``dbias`` reductions.  The mode is chosen at the
-        forward call (torch's deterministic mode then turns ``False`` into
-        ``True`` with a one-time warning) and the backward runs the same package:
-        when torch's deterministic mode is turned on between a non-deterministic
-        forward and its backward, that backward raises a ``RuntimeError`` (a
-        ``UserWarning`` with ``warn_only=True``).
+        ``False``: the non-deterministic package's autograd Function
+        (``flashinfer.experimental.cake.cake_causal_conv1d_train_backend.CakeCausalConv1dFunction``),
+        whose backward is one launch with unordered ``dweight`` / ``dbias``
+        reductions.  The package is chosen at the forward call (torch's
+        deterministic mode then turns ``False`` into ``True`` with a one-time
+        warning) and the backward runs the same package: when torch's
+        deterministic mode is turned on between a non-deterministic forward and
+        its backward, that backward raises a ``RuntimeError`` (a
+        ``UserWarning`` with ``warn_only=True``).  Under
+        ``torch.utils.checkpoint(..., use_reentrant=True)`` the recompute calls
+        this function again, so torch's setting at that recompute chooses the
+        package of the recomputed forward and its backward.
 
     Returns
     -------

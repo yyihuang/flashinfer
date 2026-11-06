@@ -19,7 +19,8 @@ process, world size 1, the deterministic KCP suite's contexts and FP64 oracle.
 (a) The facade keyword: ``None`` is never validated or forwarded; a ``bool`` or a non-``int`` raises ``TypeError``, a
     negative value ``ValueError``; ``deterministic=True`` with ``>= 1`` raises ``ValueError`` naming
     ``cooperative=False``; ``deterministic=True`` with 0 runs the deterministic entry point without the keyword;
-    torch's deterministic mode runs the deterministic entry point without forwarding it.
+    torch's deterministic mode runs the deterministic entry point without forwarding it, with ``cooperative=False``
+    for ``K >= 1`` (its form beside a kernel of another stream).
 (b) ``K`` = 1 and 2: the main backward launches the single-wave grid less ``K x ctas_per_sm`` CTAs on both host
     paths, at a width the shipped grid already trims and at one it does not; ``dx`` is bitwise the deterministic
     backward's, ``dweight`` within budget of the FP64 oracle, the workspace reads back zero.
@@ -140,7 +141,7 @@ def test_deterministic_with_a_reserve_points_to_cooperative_false(k, multi) -> N
 def test_keyword_routing(monkeypatch) -> None:
     """``None`` is not forwarded anywhere; ``deterministic=True`` with 0 runs the deterministic entry without the
     keyword; ``deterministic=False`` forwards the value; torch's deterministic mode drops it (validated) with the
-    fallback warning."""
+    fallback warning and runs the deterministic entry point with ``cooperative=False``."""
 
     det_single, det_multi, nd_single, nd_multi = _route_recorders(monkeypatch)
     facade.cake_causal_conv1d_kcp(None, None, None, deterministic=True)
@@ -185,6 +186,7 @@ def test_keyword_routing(monkeypatch) -> None:
         torch.use_deterministic_algorithms(prev)
         facade._FALLBACK_WARNED.clear()
     assert len(det_single.calls) == 3 and "bwd_reserve_sms" not in det_single.calls[-1]
+    assert det_single.calls[-1] == {"recompute_handle": None, "cooperative": False}
     assert len(nd_single.calls) == 3
 
 

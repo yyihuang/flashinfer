@@ -552,6 +552,86 @@ def test_backward_keeps_its_speed_beside_a_resident_side_kernel(
     )
 
 
+def _facade_run(p, mode, **keywords):
+    """``y`` / ``dx`` / ``dweight`` of one autograd pass through the selectable KCP facade."""
+
+    import warnings
+
+    from flashinfer import cake_causal_conv1d_train_kcp as facade
+    from flashinfer.api_logging import ExperimentalWarning
+
+    x = p.x_local.clone().requires_grad_(True)
+    w = p.w.clone().requires_grad_(True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ExperimentalWarning)
+        y = facade.cake_causal_conv1d_kcp(x, w, p.ctx, deterministic=mode, **keywords)
+    return y, x, w
+
+
+@pytest.mark.parametrize("warn_only", [False, True], ids=["strict", "warn_only"])
+def test_facade_torch_deterministic_mode(monkeypatch, warn_only) -> None:
+    """Through the KCP facade: under torch's deterministic mode (strict or ``warn_only``) ``deterministic=False``
+    returns the deterministic entry point's bits, also with ``bwd_reserve_sms=1`` (run as ``cooperative=False``;
+    refused on an architecture without the reserve, as without the mode).  A mode turned on between a
+    non-deterministic forward and its backward: ``RuntimeError`` (strict) or a warning and the non-deterministic
+    backward (``warn_only``)."""
+
+    import warnings
+
+    from flashinfer import cake_causal_conv1d_det_train_kcp as det_facade
+    from flashinfer import cake_causal_conv1d_train_kcp as facade
+
+    monkeypatch.setattr(facade, "_FALLBACK_WARNED", set())
+    device = torch.device("cuda")
+    p = _problem((65,), (64, 1), 256, device)
+    arch = pkg._device_arch(device)
+
+    def det_run(**keywords):
+        x = p.x_local.clone().requires_grad_(True)
+        w = p.w.clone().requires_grad_(True)
+        y = det_facade.cake_causal_conv1d_det_kcp(x, w, p.ctx, **keywords)
+        y.backward(p.dy_local)
+        return {"y": y.detach(), "dx": x.grad, "dw": w.grad}
+
+    expected = det_run()
+    expected_side = det_run(cooperative=False)
+    prev, prev_warn = (
+        torch.are_deterministic_algorithms_enabled(),
+        torch.is_deterministic_algorithms_warn_only_enabled(),
+    )
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=warn_only)
+        with pytest.warns(UserWarning, match="runs the deterministic implementation"):
+            y, x, w = _facade_run(p, False)
+        y.backward(p.dy_local)
+        got = {"y": y.detach(), "dx": x.grad, "dw": w.grad}
+        assert all(torch.equal(_bits(got[n]), _bits(expected[n])) for n in got)
+        if arch in conv_kcp.RESERVE_UNSUPPORTED:
+            with pytest.raises(ValueError, match=f"not supported on {arch}"):
+                _facade_run(p, False, bwd_reserve_sms=1)
+        else:
+            y, x, w = _facade_run(p, False, bwd_reserve_sms=1)
+            y.backward(p.dy_local)
+            got = {"y": y.detach(), "dx": x.grad, "dw": w.grad}
+            assert all(torch.equal(_bits(got[n]), _bits(expected_side[n])) for n in got)
+
+        torch.use_deterministic_algorithms(False)
+        y, x, w = _facade_run(p, False)
+        torch.use_deterministic_algorithms(True, warn_only=warn_only)
+        if not warn_only:
+            with pytest.raises(RuntimeError, match="cake_causal_conv1d_backward_kcp"):
+                y.backward(p.dy_local)
+        else:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                y.backward(p.dy_local)
+            assert any("cake_causal_conv1d_backward_kcp" in str(c.message) for c in caught)
+            assert torch.equal(_bits(x.grad), _bits(expected["dx"]))
+            _dw_within(w.grad, expected["dw"], "warn_only dweight vs deterministic")
+    finally:
+        torch.use_deterministic_algorithms(prev, warn_only=prev_warn)
+
+
 def test_torch_deterministic_mode_alerts_on_the_backward() -> None:
     device = torch.device("cuda")
     p = _problem((65,), (64, 1), 256, device)

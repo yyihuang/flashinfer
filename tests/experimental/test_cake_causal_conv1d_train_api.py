@@ -19,19 +19,23 @@ facade ``flashinfer.experimental.cake.cake_causal_conv1d_train`` and the KCP fac
 
 Dispatch (CPU, the packages replaced by recorders): ``deterministic=True`` (the default) calls the deterministic
 package with the caller's arguments unchanged, ``deterministic=False`` the non-deterministic package; a non-bool
-mode is a ``TypeError``; under ``torch.use_deterministic_algorithms(True)`` a ``deterministic=False`` call runs the
-deterministic package and warns once per entry point, without handing it a non-deterministic workspace.  The
-entry points are marked experimental, mirror the packages' signatures, and leave every deterministic and legacy
-name unchanged; ``import flashinfer`` imports neither facade.  The opt-in ``bwd_grid_mult`` reaches the selected
-package unchanged (the fallback included) and is refused with the deterministic package's errors in both modes.  On
-a device (once the non-deterministic package is rendered): the facades return the packages' bits, at every
-``bwd_grid_mult``.  The numerical contract itself is
-``test_cake_causal_conv1d_train.py``'s.
+mode is a ``TypeError`` naming the entry point (the helpers included); under ``torch.use_deterministic_algorithms(True)``
+(strict and ``warn_only=True`` alike) a ``deterministic=False`` call runs the deterministic package and warns once
+per entry point and process, attributed to the caller's line, without handing it a non-deterministic workspace.
+The KCP facade checks ``cooperative`` and ``bwd_reserve_sms`` the same way in both torch modes and runs a fallback
+call with a reserve as ``cooperative=False``.  The entry points are marked experimental, mirror the packages'
+signatures, and leave every deterministic and legacy name unchanged; ``import flashinfer`` imports neither facade.
+The opt-in ``bwd_grid_mult`` reaches the selected package unchanged (the fallback included) and is refused with the
+deterministic package's errors in both modes.  On a device (once the non-deterministic package is rendered): the
+facades return the packages' bits, at every ``bwd_grid_mult``; a torch-mode change between a forward and its
+backward, and ``torch.utils.checkpoint`` (reentrant and not), behave as the facade documents.  The numerical
+contract itself is ``test_cake_causal_conv1d_train.py``'s.
 """
 
 from __future__ import annotations
 
 import inspect
+import os
 import subprocess
 import sys
 import types
@@ -110,7 +114,8 @@ def recorded(monkeypatch):
     monkeypatch.setattr(
         facade, "_backend", lambda: _namespace("nondet", nondet_names, log)
     )
-    monkeypatch.setattr(facade, "_FALLBACK_WARNED", set())
+    # Both facades share the KCP facade's set of entry points that already warned.
+    monkeypatch.setattr(kcp_facade, "_FALLBACK_WARNED", set())
     yield log
 
 
@@ -128,15 +133,38 @@ def kcp_recorded(monkeypatch):
     yield log
 
 
-@pytest.fixture
-def torch_deterministic():
+@pytest.fixture(params=[False, True], ids=["strict", "warn_only"])
+def torch_deterministic(request):
+    """torch's deterministic mode, strict and with ``warn_only=True``: the facades fall back alike in both."""
+
     prev, prev_warn = (
         torch.are_deterministic_algorithms_enabled(),
         torch.is_deterministic_algorithms_warn_only_enabled(),
     )
-    torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(True, warn_only=request.param)
     try:
-        yield
+        yield request.param
+    finally:
+        torch.use_deterministic_algorithms(prev, warn_only=prev_warn)
+
+
+@pytest.fixture
+def torch_mode():
+    """Set torch's deterministic mode inside a test (``None`` = off); the caller's mode is restored afterwards."""
+
+    prev, prev_warn = (
+        torch.are_deterministic_algorithms_enabled(),
+        torch.is_deterministic_algorithms_warn_only_enabled(),
+    )
+
+    def set_mode(warn_only):
+        if warn_only is None:
+            torch.use_deterministic_algorithms(False)
+        else:
+            torch.use_deterministic_algorithms(True, warn_only=warn_only)
+
+    try:
+        yield set_mode
     finally:
         torch.use_deterministic_algorithms(prev, warn_only=prev_warn)
 
@@ -149,6 +177,12 @@ def _quiet(call):
         warnings.simplefilter("ignore", ExperimentalWarning)
         result = call()
     return result, [w for w in caught if FALLBACK in str(w.message)]
+
+
+def _from_this_file(warning) -> bool:
+    """Whether a warning names a line of this test file (the caller), not a frame of flashinfer."""
+
+    return os.path.abspath(warning.filename) == os.path.abspath(__file__)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -232,15 +266,28 @@ def test_mode_must_be_a_bool(recorded) -> None:
             with pytest.raises(TypeError, match="deterministic must be a bool"):
                 _quiet(lambda: getattr(facade, entry)(*args, deterministic=bad))
         for helper in HELPERS:
-            with pytest.raises(TypeError, match="deterministic must be a bool"):
+            with pytest.raises(
+                TypeError, match=f"^{helper}: deterministic must be a bool"
+            ):
                 getattr(facade, helper)(64, 256, torch.device("cpu"), deterministic=bad)
+        with pytest.raises(
+            TypeError,
+            match="^is_cake_causal_conv1d_train_supported: deterministic must be a bool",
+        ):
+            facade.is_cake_causal_conv1d_train_supported(
+                torch.device("cpu"), deterministic=bad
+            )
         for entry in KCP_ENTRIES:
-            with pytest.raises(TypeError, match="deterministic must be a bool"):
-                _quiet(
-                    lambda: getattr(kcp_facade, entry)(
-                        None, None, None, deterministic=bad
+            # The plain path and the keyword path (cooperative / bwd_reserve_sms given).
+            for keywords in ({}, {"cooperative": False}, {"bwd_reserve_sms": 0}):
+                with pytest.raises(
+                    TypeError, match=f"^{entry}: deterministic must be a bool"
+                ):
+                    _quiet(
+                        lambda: getattr(kcp_facade, entry)(
+                            None, None, None, deterministic=bad, **keywords
+                        )
                     )
-                )
     assert recorded == []
 
 
@@ -292,6 +339,10 @@ def test_torch_deterministic_mode_falls_back_and_warns_once(
             assert fallback == [] or fallback[0].category is UserWarning
             assert fallback == [] or f"{entry}(deterministic=False)" in str(
                 fallback[0].message
+            )
+            assert fallback == [] or _from_this_file(fallback[0]), (
+                entry,
+                fallback[0].filename,
             )
     # A non-deterministic backward workspace is not handed to the deterministic package; a deterministic call's is.
     recorded.clear()
@@ -428,14 +479,98 @@ def test_kcp_package_refuses_a_cooperative_backward() -> None:
 def test_kcp_facade_falls_back_under_torch_deterministic_mode(
     kcp_recorded, torch_deterministic
 ) -> None:
+    """Strict and ``warn_only=True`` alike: ``deterministic=False`` runs the deterministic entry point, on the plain
+    path and on the keyword path, with one warning per entry point naming the caller's line; ``cooperative`` is
+    forwarded when given and a reserve without it runs the deterministic entry point with ``cooperative=False``."""
+
     x, w, ctx = (object() for _ in range(3))
     for entry, det_name in KCP_ENTRIES.items():
         for repeat in range(2):
+            kcp_recorded.clear()
             result, fallback = _quiet(
                 lambda: getattr(kcp_facade, entry)(x, w, ctx, deterministic=False)
             )
             assert result == f"det.{det_name}"
             assert len(fallback) == (1 if repeat == 0 else 0), (entry, repeat)
+            assert fallback == [] or _from_this_file(fallback[0]), (
+                entry,
+                fallback[0].filename,
+            )
+            assert kcp_recorded == [
+                (f"det.{det_name}", (x, w, ctx), {"recompute_handle": None})
+            ]
+        kcp_facade._FALLBACK_WARNED.clear()
+        for keywords, forwarded in (
+            ({"cooperative": False}, {"cooperative": False}),
+            ({"bwd_reserve_sms": 0}, {}),
+            ({"bwd_reserve_sms": 1}, {"cooperative": False}),
+            ({"bwd_reserve_sms": 2, "cooperative": False}, {"cooperative": False}),
+        ):
+            kcp_recorded.clear()
+            result, fallback = _quiet(
+                lambda: getattr(kcp_facade, entry)(
+                    x, w, ctx, deterministic=False, **keywords
+                )
+            )
+            assert result == f"det.{det_name}", keywords
+            assert kcp_recorded == [
+                (
+                    f"det.{det_name}",
+                    (x, w, ctx),
+                    {"recompute_handle": None, **forwarded},
+                )
+            ], keywords
+            if fallback:
+                assert _from_this_file(fallback[0]), (entry, fallback[0].filename)
+
+
+@pytest.mark.cpu_only
+@pytest.mark.parametrize("warn_only", [None, False, True], ids=["off", "strict", "warn_only"])
+def test_kcp_facade_checks_its_keywords_alike_in_every_torch_mode(
+    kcp_recorded, torch_mode, monkeypatch, warn_only
+) -> None:
+    """``deterministic=False`` with ``cooperative=True`` is a ``ValueError`` and a non-``bool`` ``cooperative`` a
+    ``TypeError`` whatever torch's mode, before anything runs; a reserve goes through the non-deterministic
+    package's device check (sm_107a, the SM count) in every mode."""
+
+    from flashinfer.experimental.cake.cake_causal_conv1d_train_backend import (
+        kcp as kcp_backend,
+    )
+
+    checked: list = []
+    monkeypatch.setattr(
+        kcp_backend, "_reserve_fits", lambda *args: checked.append(args)
+    )
+    torch_mode(warn_only)
+    x, w, ctx = (object() for _ in range(3))
+    for entry in KCP_ENTRIES:
+        with pytest.raises(ValueError, match=f"{entry}: cooperative=True applies to"):
+            _quiet(
+                lambda: getattr(kcp_facade, entry)(
+                    x, w, ctx, cooperative=True, deterministic=False
+                )
+            )
+        with pytest.raises(
+            TypeError, match=f"{entry}: cooperative must be None or a bool"
+        ):
+            _quiet(
+                lambda: getattr(kcp_facade, entry)(
+                    x, w, ctx, cooperative=1, deterministic=False
+                )
+            )
+        assert kcp_recorded == [], entry
+        checked.clear()
+        _quiet(
+            lambda: getattr(kcp_facade, entry)(
+                [x] if "multi" in entry else x,
+                w,
+                ctx,
+                bwd_reserve_sms=3,
+                deterministic=False,
+            )
+        )
+        assert checked == [(3, x, entry)], (entry, checked)
+        kcp_recorded.clear()
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -734,7 +869,7 @@ def test_autograd_in_both_modes() -> None:
 def test_torch_deterministic_mode_runs_the_deterministic_package(
     torch_deterministic, monkeypatch
 ) -> None:
-    monkeypatch.setattr(facade, "_FALLBACK_WARNED", set())
+    monkeypatch.setattr(kcp_facade, "_FALLBACK_WARNED", set())
     x0, w0, cu, dy, _ = _problem()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ExperimentalWarning)
@@ -748,3 +883,127 @@ def test_torch_deterministic_mode_runs_the_deterministic_package(
         w = w0.clone().requires_grad_(True)
         facade.cake_causal_conv1d(x, w, cu, deterministic=False).backward(dy)
         assert torch.equal(x.grad, expected[0]) and torch.equal(w.grad, expected[1])
+
+
+@gpu
+@pytest.mark.parametrize("bias", [False, True], ids=["nobias", "bias"])
+def test_torch_mode_change_between_forward_and_backward(
+    torch_mode, monkeypatch, bias
+) -> None:
+    """The package is chosen at the forward call.  A non-deterministic forward whose backward runs under torch's
+    deterministic mode raises there (strict) or warns and runs the non-deterministic backward (``warn_only=True``,
+    ``dx`` bitwise, the parameter gradients within budget); a forward that fell back keeps the deterministic
+    backward after the mode is turned off (bitwise)."""
+
+    monkeypatch.setattr(kcp_facade, "_FALLBACK_WARNED", set())
+    x0, w0, cu, dy, b0 = _problem()
+    b0 = b0 if bias else None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ExperimentalWarning)
+        expected = det_facade.cake_causal_conv1d_det_train_backward(
+            x0, w0, cu, dy, bias=b0
+        )
+
+        def forward(mode):
+            x = x0.clone().requires_grad_(True)
+            w = w0.clone().requires_grad_(True)
+            b = None if b0 is None else b0.clone().requires_grad_(True)
+            y = facade.cake_causal_conv1d(x, w, cu, b, deterministic=mode)
+            return y, (x, w) if b is None else (x, w, b)
+
+        torch_mode(None)
+        y, leaves = forward(False)
+        torch_mode(False)
+        with pytest.raises(RuntimeError, match="cake_causal_conv1d"):
+            y.backward(dy)
+
+        torch_mode(None)
+        y, leaves = forward(False)
+        torch_mode(True)
+        with pytest.warns(UserWarning, match="cake_causal_conv1d"):
+            y.backward(dy)
+        assert torch.equal(leaves[0].grad, expected[0])
+        for got, want in zip(
+            (leaf.grad for leaf in leaves[1:]), expected[1:], strict=True
+        ):
+            torch.testing.assert_close(got, want, atol=DW_ATOL, rtol=DW_RTOL)
+
+        for warn_only in (False, True):
+            torch_mode(warn_only)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                y, leaves = forward(False)
+            torch_mode(None)
+            y.backward(dy)
+            for got, want in zip(
+                (leaf.grad for leaf in leaves), expected, strict=True
+            ):
+                assert torch.equal(got, want), warn_only
+
+
+def _checkpointed(x0, w0, cu, dy, *, mode, reentrant, before_backward=None):
+    from torch.utils.checkpoint import checkpoint
+
+    x = x0.clone().requires_grad_(True)
+    w = w0.clone().requires_grad_(True)
+    y = checkpoint(
+        lambda x_, w_: facade.cake_causal_conv1d(x_, w_, cu, deterministic=mode),
+        x,
+        w,
+        use_reentrant=reentrant,
+    )
+    if before_backward is not None:
+        before_backward()
+    y.backward(dy)
+    return y.detach(), x.grad, w.grad
+
+
+@gpu
+@pytest.mark.parametrize("reentrant", [False, True], ids=["nonreentrant", "reentrant"])
+def test_checkpoint_in_both_modes(torch_mode, monkeypatch, reentrant) -> None:
+    """``torch.utils.checkpoint`` with an unchanged torch mode returns the uncheckpointed call's bits (``y``, ``dx``,
+    and ``dweight`` for ``deterministic=True``; ``dweight`` within budget for ``False``).  A torch mode turned on
+    after a non-deterministic forward: the reentrant recompute calls the facade again and runs the deterministic
+    package (bitwise, with the fallback warning); the non-reentrant backward is the forward's non-deterministic
+    node and raises."""
+
+    monkeypatch.setattr(kcp_facade, "_FALLBACK_WARNED", set())
+    x0, w0, cu, dy, _ = _problem()
+    torch_mode(None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ExperimentalWarning)
+        expected = det_facade.cake_causal_conv1d_det_train_backward(x0, w0, cu, dy)
+        y_det = det_facade.cake_causal_conv1d_det_train_forward(x0, w0, cu)
+        for mode in (True, False):
+            y, dx, dw = _checkpointed(
+                x0, w0, cu, dy, mode=mode, reentrant=reentrant
+            )
+            assert torch.equal(y, y_det) and torch.equal(dx, expected[0]), mode
+            if mode:
+                assert torch.equal(dw, expected[1])
+            else:
+                torch.testing.assert_close(dw, expected[1], atol=DW_ATOL, rtol=DW_RTOL)
+
+        if reentrant:
+            with pytest.warns(UserWarning, match=FALLBACK):
+                y, dx, dw = _checkpointed(
+                    x0,
+                    w0,
+                    cu,
+                    dy,
+                    mode=False,
+                    reentrant=True,
+                    before_backward=lambda: torch_mode(False),
+                )
+            assert torch.equal(dx, expected[0]) and torch.equal(dw, expected[1])
+        else:
+            with pytest.raises(RuntimeError):
+                _checkpointed(
+                    x0,
+                    w0,
+                    cu,
+                    dy,
+                    mode=False,
+                    reentrant=False,
+                    before_backward=lambda: torch_mode(False),
+                )

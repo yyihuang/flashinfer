@@ -18,8 +18,9 @@ a selectable numerical mode: thin experimental entry points.  ``deterministic=Tr
 deterministic KCP entry points of :mod:`flashinfer.cake_causal_conv1d_det_train_kcp` unchanged;
 ``deterministic=False`` runs the non-deterministic KCP backend
 ``flashinfer.experimental.cake.cake_causal_conv1d_train_backend.kcp`` (imported on first use).  With
-``torch.use_deterministic_algorithms(True)`` a call with ``deterministic=False`` runs the deterministic entry point
-and warns once (``UserWarning``).
+``torch.use_deterministic_algorithms(True)`` (also with ``warn_only=True``) a call with ``deterministic=False`` runs
+the deterministic entry point and warns once per entry point and process (``UserWarning``); see "Numerical mode"
+below.
 
 Both modes share the context contract (the ``KcpContext`` of the KDA step; the numerical mode is never stored in
 it), FP32 taps and no bias, the halo exchanges (one ``all_to_all_single`` per direction, with recompute handles
@@ -49,10 +50,43 @@ The non-deterministic backward beside a kernel of another stream (FlashInfer iss
 its single wave::
 
     y_local = cake_causal_conv1d_kcp(x_local, weight, ctx, deterministic=False, bwd_reserve_sms=1)
+
+Numerical mode (the same rules as the single-rank facade ``flashinfer.experimental.cake.cake_causal_conv1d_train``;
+"torch deterministic mode" is ``torch.use_deterministic_algorithms(True)``, with or without ``warn_only=True``):
+
+=====================================  =========================  =========================================
+call                                   torch deterministic mode   runs
+                                       off                        on
+=====================================  =========================  =========================================
+this module, ``deterministic=True``    deterministic              deterministic
+(the default)
+this module, ``deterministic=False``   non-deterministic          deterministic, with one ``UserWarning``
+                                                                  per entry point and process (it names
+                                                                  the caller's line)
+this module, a non-``bool`` mode       ``TypeError``              ``TypeError``
+the deterministic names (``*_det_*``)  deterministic; no          deterministic; no warning
+                                       ``deterministic`` keyword
+                                       (``TypeError``)
+the non-deterministic KCP backend      non-deterministic          its backward raises ``RuntimeError``
+(``deterministic=False`` only, else                               before any exchange (``warn_only=True``:
+``ValueError``)                                                   a ``UserWarning``, then it runs); it
+                                                                  never falls back
+=====================================  =========================  =========================================
+
+The keywords are checked the same way in both torch modes: ``deterministic=False`` refuses ``cooperative=True``
+and, on sm_107a or at the device's SM count, ``bwd_reserve_sms >= 1`` (``ValueError``).  Under the fallback a
+``bwd_reserve_sms >= 1`` without ``cooperative`` runs the deterministic entry point with ``cooperative=False``,
+its form beside a kernel of another stream.  The package is chosen at each forward call; the backward runs the
+same package.  Keep torch's deterministic setting the same from a forward to its backward and on every rank: when
+it turns on between a non-deterministic forward and its backward, that backward raises (above).  A checkpoint
+recompute (``torch.utils.checkpoint``) calls the entry point again: with ``use_reentrant=True`` torch's setting at
+that recompute chooses the package of the recomputed forward and its backward.
 """
 
 from __future__ import annotations
 
+import inspect
+import os
 import warnings
 from typing import Any, Optional, Sequence
 
@@ -61,8 +95,12 @@ import torch
 from .api_logging import flashinfer_experimental_api
 
 _FEATURE = "Cake context-parallel causal conv1d + SiLU training with a selectable numerical mode (SM100/SM103/SM107)"
-# The entry points that already warned about the deterministic fallback under torch's deterministic mode.
+# The entry points that already warned about the deterministic fallback under torch's deterministic mode: this
+# module's and those of the single-rank facade ``flashinfer.experimental.cake.cake_causal_conv1d_train``, which
+# imports the mode helpers below.
 _FALLBACK_WARNED: set[str] = set()
+# The flashinfer package directory: frames below it are the entry points, their decorators and the packages.
+_PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _bwd_reserve_sms(
@@ -96,15 +134,68 @@ def _given(**keywords: Any) -> dict[str, Any]:
     return {name: value for name, value in keywords.items() if value is not None}
 
 
-def _deterministic(deterministic: object, entry: str) -> bool:
-    """Whether a call runs the deterministic entry point: ``deterministic`` itself, or torch's deterministic mode
-    overriding ``deterministic=False`` with a one-time warning per entry point."""
+def _check_nondet_keywords(
+    cooperative: object, reserve: Optional[int], x: Any, entry: str
+) -> None:
+    """The non-deterministic package's checks of a ``deterministic=False`` call's ``cooperative`` (``None`` or
+    ``False``) and ``bwd_reserve_sms`` (refused on sm_107a and at the device's SM count), run whatever torch's
+    deterministic mode: a call that raises without that mode raises under its fallback too."""
+
+    from .experimental.cake.cake_causal_conv1d_train_backend import (  # noqa: PLC0415
+        kcp as _kcp,
+    )
+
+    _kcp._ordinary_launch(cooperative, entry)
+    if reserve:
+        _kcp._reserve_fits(reserve, x, entry)
+
+
+def _det_cooperative(
+    cooperative: Optional[bool], deterministic: bool, reserve: Optional[int]
+) -> Optional[bool]:
+    """``cooperative`` for the deterministic entry point: as given, except that a ``deterministic=False`` call with
+    ``bwd_reserve_sms >= 1`` and no ``cooperative`` (run deterministically under torch's deterministic mode) asks
+    for a backward beside a kernel of another stream, whose deterministic form is ``cooperative=False``."""
+
+    if cooperative is None and deterministic is False and reserve:
+        return False
+    return cooperative
+
+
+def _caller_stacklevel() -> int:
+    """The ``stacklevel`` of the nearest frame outside the flashinfer package, for a warning issued by the function
+    that calls this one (the decorators between the caller and the entry point vary with the API logging level, so
+    a fixed ``stacklevel`` could name a frame of flashinfer)."""
+
+    frame = inspect.currentframe()
+    level = 0
+    while frame is not None:
+        parent = frame.f_back
+        level += 1
+        if parent is not None and not os.path.abspath(
+            parent.f_code.co_filename
+        ).startswith(_PACKAGE_ROOT + os.sep):
+            return level
+        frame = parent
+    return 3
+
+
+def _mode(deterministic: object, entry: str) -> bool:
+    """``deterministic`` of a call, validated: a ``bool`` (``TypeError`` naming ``entry`` otherwise)."""
 
     if not isinstance(deterministic, bool):
         raise TypeError(
             f"{entry}: deterministic must be a bool, got {type(deterministic).__name__}"
         )
-    if deterministic:
+    return deterministic
+
+
+def _deterministic(deterministic: object, entry: str) -> bool:
+    """Whether a call runs the deterministic entry point: ``deterministic`` itself, or torch's deterministic mode
+    (``torch.are_deterministic_algorithms_enabled()``, also with ``warn_only=True``) overriding
+    ``deterministic=False`` with one warning per entry point and process, attributed to the caller's line."""
+
+    if _mode(deterministic, entry):
         return True
     if torch.are_deterministic_algorithms_enabled():
         if entry not in _FALLBACK_WARNED:
@@ -113,7 +204,7 @@ def _deterministic(deterministic: object, entry: str) -> bool:
                 f"{entry}(deterministic=False) runs the deterministic implementation because "
                 "torch.use_deterministic_algorithms(True) is in effect",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=_caller_stacklevel(),
             )
         return True
     return False
@@ -155,7 +246,7 @@ def cake_causal_conv1d_kcp(
         forwarded when given (``False`` starts beside a small kernel of another stream; see
         :func:`flashinfer.cake_causal_conv1d_det_train_kcp.cake_causal_conv1d_det_kcp`).  The non-deterministic
         main backward is always one ordinary launch: there ``None`` and ``False`` mean the same and ``True`` raises
-        ``ValueError``.
+        ``ValueError`` (also under torch's deterministic mode).
     deterministic : bool
         ``True`` (default): ``cake_causal_conv1d_det_kcp`` (fixed-order, bitwise reproducible ``dweight`` partial).
         ``False``: the one-launch backward with an unordered ``dweight`` partial (``y`` / ``dx`` bitwise the
@@ -188,8 +279,9 @@ def cake_causal_conv1d_kcp(
 
         Portable spelling beside a one-SM kernel of another stream: ``cooperative=False`` for
         ``deterministic=True``, ``bwd_reserve_sms=1`` for ``deterministic=False``.  Under
-        ``torch.use_deterministic_algorithms(True)``, ``deterministic=False`` runs the deterministic entry point and
-        the keyword (validated) is not forwarded.  Each rank may choose its own value (no collective depends on it).
+        ``torch.use_deterministic_algorithms(True)``, ``deterministic=False`` runs the deterministic entry point: the
+        keyword is validated as above and not forwarded, and ``K >= 1`` without ``cooperative`` runs it with
+        ``cooperative=False``.  Each rank may choose its own value (no collective depends on it).
 
     Returns
     -------
@@ -243,6 +335,8 @@ def _kcp_with_keywords(
     to the selected entry point (each keyword only when given)."""
 
     reserve = _bwd_reserve_sms(bwd_reserve_sms, deterministic, "cake_causal_conv1d_kcp")
+    if deterministic is False:
+        _check_nondet_keywords(cooperative, reserve, x_local, "cake_causal_conv1d_kcp")
     if _deterministic(deterministic, "cake_causal_conv1d_kcp"):
         from .cake_causal_conv1d_det_train_kcp import (  # noqa: PLC0415
             cake_causal_conv1d_det_kcp,
@@ -253,7 +347,7 @@ def _kcp_with_keywords(
             weight,
             ctx,
             recompute_handle=recompute_handle,
-            **_given(cooperative=cooperative),
+            **_given(cooperative=_det_cooperative(cooperative, deterministic, reserve)),
         )
     from .experimental.cake.cake_causal_conv1d_train_backend import (  # noqa: PLC0415
         kcp as _kcp,
@@ -360,6 +454,11 @@ def _multi_kcp_with_keywords(
     reserve = _bwd_reserve_sms(
         bwd_reserve_sms, deterministic, "cake_causal_conv1d_multi_kcp"
     )
+    if deterministic is False:
+        first = xs[0] if isinstance(xs, (list, tuple)) and len(xs) > 0 else None
+        _check_nondet_keywords(
+            cooperative, reserve, first, "cake_causal_conv1d_multi_kcp"
+        )
     if _deterministic(deterministic, "cake_causal_conv1d_multi_kcp"):
         from .cake_causal_conv1d_det_train_kcp import (  # noqa: PLC0415
             cake_causal_conv1d_det_multi_kcp,
@@ -370,7 +469,7 @@ def _multi_kcp_with_keywords(
             weights,
             ctx,
             recompute_handle=recompute_handle,
-            **_given(cooperative=cooperative),
+            **_given(cooperative=_det_cooperative(cooperative, deterministic, reserve)),
         )
     from .experimental.cake.cake_causal_conv1d_train_backend import (  # noqa: PLC0415
         kcp as _kcp,

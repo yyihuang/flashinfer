@@ -104,6 +104,53 @@ of 64-256 sequences, is reproducible with::
 Training causal conv1d (Cake)
 -----------------------------
 
+.. rubric:: Numerical mode: deterministic and non-deterministic entry points
+
+Every deterministic name carries ``det`` (for example
+``cake_causal_conv1d_det``) and always runs the deterministic programs: it takes
+no ``deterministic`` keyword (passing one is a ``TypeError``), and
+``torch.use_deterministic_algorithms`` does not change it.  The selectable entry
+points of ``flashinfer.experimental.cake.cake_causal_conv1d_train`` and
+``flashinfer.cake_causal_conv1d_train_kcp`` take ``deterministic: bool = True``.
+The non-deterministic package
+``flashinfer.experimental.cake.cake_causal_conv1d_train_backend`` (and its
+``kcp`` module) accepts only ``deterministic=False``.
+
+.. list-table:: Which programs run
+   :header-rows: 1
+
+   * - Call
+     - torch deterministic mode off
+     - ``torch.use_deterministic_algorithms(True)``, also with ``warn_only=True``
+   * - A deterministic name (``*_det*``)
+     - deterministic
+     - deterministic, no warning
+   * - A selectable entry point, ``deterministic=True`` (the default)
+     - deterministic
+     - deterministic
+   * - A selectable entry point, ``deterministic=False``
+     - non-deterministic
+     - deterministic, with one ``UserWarning`` per entry point and process
+       (it names the caller's line)
+   * - A selectable entry point, a non-``bool`` ``deterministic``
+     - ``TypeError``
+     - ``TypeError``
+   * - The non-deterministic package (``deterministic=False`` only, otherwise
+       ``ValueError``)
+     - non-deterministic
+     - its backward raises ``RuntimeError`` before it launches (with
+       ``warn_only=True``: a ``UserWarning``, then it runs); it never falls back
+
+The package is chosen at each forward call, and the autograd backward runs the
+same package.  Keep torch's deterministic setting the same from a forward to
+its backward, and on every rank of a context-parallel group: when it turns on
+between a non-deterministic forward and its backward, that backward raises as
+in the last row.  ``torch.utils.checkpoint`` with ``use_reentrant=True`` calls
+the entry point again during the backward, so the setting at that time chooses
+the package.  The workspace helpers and ``is_cake_causal_conv1d_train_supported``
+answer for the package that their ``deterministic`` keyword names, whatever
+torch's setting.
+
 Packed width-4 depthwise causal convolution + SiLU forward / backward for
 training on SM100, SM103 and SM107: documents delimited by ``cu_seqlens`` and
 convolved on their own, FP32 or BF16 taps and an optional FP32 or BF16
@@ -210,9 +257,15 @@ returns the rank-local FP32 ``dweight`` partial with the same property.
 Interaction with ``torch.use_deterministic_algorithms(True)``:
 
 * The dispatching entry points run the deterministic package for
-  ``deterministic=False`` and warn once per entry point (``UserWarning``).
-  They do not pass a non-deterministic backward workspace to the
-  deterministic package.
+  ``deterministic=False`` and warn once per entry point and process
+  (``UserWarning``, attributed to the caller's line), with or without
+  ``warn_only=True``.  They do not pass a non-deterministic backward workspace
+  to the deterministic package.  The KCP entry points check ``cooperative``
+  and ``bwd_reserve_sms`` the same way in both torch modes
+  (``deterministic=False`` refuses ``cooperative=True``, and a reserve on
+  sm_107a or at the device's SM count); under the fallback a reserve without
+  ``cooperative`` runs the deterministic KCP entry point with
+  ``cooperative=False``, its form beside a kernel of another stream.
 * The backend entry points never fall back.  The entry points that launch the
   unordered reduction (the single-rank backward, the KCP backward, the KCP
   multi backward, and so the autograd backward) raise PyTorch's alert for an
@@ -229,4 +282,6 @@ ticket counter per channel tile.  Allocate it with
 on ``C`` and the route, not on ``S``.  Do not share one workspace between two
 backward launches that can run at the same time, for example on two streams.
 Without a caller workspace the package keeps one zeroed buffer per device and
-stream, and allocates a fresh zeroed buffer inside a CUDA Graph capture.
+stream; inside a CUDA Graph capture it keeps one zeroed buffer per capture and
+stream, shared by the captured backward calls on that stream (with capture id
+0, each captured call allocates and zeroes its own).
