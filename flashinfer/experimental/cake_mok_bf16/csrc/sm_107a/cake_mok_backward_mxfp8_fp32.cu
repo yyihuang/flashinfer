@@ -5757,11 +5757,19 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                     int _parity_output_arrived_2 = (int)((unsigned int)gemm_out0 % 2);
                                     mbarrier_wait(output_arrived_addr, _parity_output_arrived_2);
                                     int warp_row = tid / 32 * 32;
+                                    float wgrad_even[16];
+                                    float wgrad_odd[16];
+                                    tmem_ld_x16(&wgrad_even[0], taddr_1 + (unsigned int)(warp_row << 16));
                                     #pragma unroll
                                     for (int chunk_24 = 0; chunk_24 < 16; chunk_24++) {
-                                        float _tmem_load_4[16];
-                                        tmem_ld_x16(&_tmem_load_4[0], taddr_1 + (unsigned int)(warp_row << 16) + (unsigned int)(chunk_24 * 16));
-                                        asm volatile("tcgen05.wait::ld.sync.aligned;");
+                                        asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+                                        if (chunk_24 + 1 < 16) {
+                                            if (chunk_24 % 2 == 0) {
+                                                tmem_ld_x16(&wgrad_odd[0], taddr_1 + (unsigned int)(warp_row << 16) + (unsigned int)((chunk_24 + 1) * 16));
+                                            } else {
+                                                tmem_ld_x16(&wgrad_even[0], taddr_1 + (unsigned int)(warp_row << 16) + (unsigned int)((chunk_24 + 1) * 16));
+                                            }
+                                        }
                                         if (tid == 0) {
                                             asm volatile("cp.async.bulk.wait_group.read 2;");
                                         }
@@ -5770,7 +5778,11 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                         for (int vec_9 = 0; vec_9 < 4; vec_9++) {
                                             unsigned int address_13 = d_smem_addr + (unsigned int)(chunk_24 % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_9 * 16);
                                             address_13 = address_13 ^ (address_13 & 511) >> 7 << 4;
-                                            asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_13 - flat_view_addr)), "f"(_tmem_load_4[vec_9 * 4]), "f"(_tmem_load_4[vec_9 * 4 + 1]), "f"(_tmem_load_4[vec_9 * 4 + 2]), "f"(_tmem_load_4[vec_9 * 4 + 3]) : "memory");
+                                            if (chunk_24 % 2 == 0) {
+                                                asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_13 - flat_view_addr)), "f"(wgrad_even[vec_9 * 4]), "f"(wgrad_even[vec_9 * 4 + 1]), "f"(wgrad_even[vec_9 * 4 + 2]), "f"(wgrad_even[vec_9 * 4 + 3]) : "memory");
+                                            } else {
+                                                asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_13 - flat_view_addr)), "f"(wgrad_odd[vec_9 * 4]), "f"(wgrad_odd[vec_9 * 4 + 1]), "f"(wgrad_odd[vec_9 * 4 + 2]), "f"(wgrad_odd[vec_9 * 4 + 3]) : "memory");
+                                            }
                                         }
                                         asm volatile("barrier.sync 1, 128;" ::: "memory");
                                         if (tid == 0) {
@@ -5786,11 +5798,17 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                         }
                                     }
                                     if (has_hi_2 != 0) {
+                                        tmem_ld_x16(&wgrad_even[0], taddr_1 + (unsigned int)(warp_row << 16) + 256);
                                         #pragma unroll
                                         for (int chunk_25 = 0; chunk_25 < 16; chunk_25++) {
-                                            float _tmem_load_5[16];
-                                            tmem_ld_x16(&_tmem_load_5[0], taddr_1 + (unsigned int)(warp_row << 16) + 256 + (unsigned int)(chunk_25 * 16));
-                                            asm volatile("tcgen05.wait::ld.sync.aligned;");
+                                            asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+                                            if (chunk_25 + 1 < 16) {
+                                                if (chunk_25 % 2 == 0) {
+                                                    tmem_ld_x16(&wgrad_odd[0], taddr_1 + (unsigned int)(warp_row << 16) + 256 + (unsigned int)((chunk_25 + 1) * 16));
+                                                } else {
+                                                    tmem_ld_x16(&wgrad_even[0], taddr_1 + (unsigned int)(warp_row << 16) + 256 + (unsigned int)((chunk_25 + 1) * 16));
+                                                }
+                                            }
                                             if (tid == 0) {
                                                 asm volatile("cp.async.bulk.wait_group.read 2;");
                                             }
@@ -5799,7 +5817,11 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             for (int vec_10 = 0; vec_10 < 4; vec_10++) {
                                                 unsigned int address_14 = d_smem_addr + (unsigned int)((16 + chunk_25) % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_10 * 16);
                                                 address_14 = address_14 ^ (address_14 & 511) >> 7 << 4;
-                                                asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_14 - flat_view_addr)), "f"(_tmem_load_5[vec_10 * 4]), "f"(_tmem_load_5[vec_10 * 4 + 1]), "f"(_tmem_load_5[vec_10 * 4 + 2]), "f"(_tmem_load_5[vec_10 * 4 + 3]) : "memory");
+                                                if (chunk_25 % 2 == 0) {
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_14 - flat_view_addr)), "f"(wgrad_even[vec_10 * 4]), "f"(wgrad_even[vec_10 * 4 + 1]), "f"(wgrad_even[vec_10 * 4 + 2]), "f"(wgrad_even[vec_10 * 4 + 3]) : "memory");
+                                                } else {
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_14 - flat_view_addr)), "f"(wgrad_odd[vec_10 * 4]), "f"(wgrad_odd[vec_10 * 4 + 1]), "f"(wgrad_odd[vec_10 * 4 + 2]), "f"(wgrad_odd[vec_10 * 4 + 3]) : "memory");
+                                                }
                                             }
                                             asm volatile("barrier.sync 1, 128;" ::: "memory");
                                             if (tid == 0) {
@@ -6025,11 +6047,19 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                         int _parity_output_arrived_3 = (int)((unsigned int)gemm_out0 % 2);
                                         mbarrier_wait(output_arrived_addr, _parity_output_arrived_3);
                                         int warp_row_1 = tid / 32 * 32;
+                                        float wgrad_even_1[16];
+                                        float wgrad_odd_1[16];
+                                        tmem_ld_x16(&wgrad_even_1[0], taddr_1 + (unsigned int)(warp_row_1 << 16));
                                         #pragma unroll
                                         for (int chunk_26 = 0; chunk_26 < 16; chunk_26++) {
-                                            float tmem_load[16];
-                                            tmem_ld_x16(&tmem_load[0], taddr_1 + (unsigned int)(warp_row_1 << 16) + (unsigned int)(chunk_26 * 16));
-                                            asm volatile("tcgen05.wait::ld.sync.aligned;");
+                                            asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+                                            if (chunk_26 + 1 < 16) {
+                                                if (chunk_26 % 2 == 0) {
+                                                    tmem_ld_x16(&wgrad_odd_1[0], taddr_1 + (unsigned int)(warp_row_1 << 16) + (unsigned int)((chunk_26 + 1) * 16));
+                                                } else {
+                                                    tmem_ld_x16(&wgrad_even_1[0], taddr_1 + (unsigned int)(warp_row_1 << 16) + (unsigned int)((chunk_26 + 1) * 16));
+                                                }
+                                            }
                                             if (tid == 0) {
                                                 asm volatile("cp.async.bulk.wait_group.read 2;");
                                             }
@@ -6038,7 +6068,11 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             for (int vec_11 = 0; vec_11 < 4; vec_11++) {
                                                 unsigned int address_15 = d_smem_addr + (unsigned int)(chunk_26 % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_11 * 16);
                                                 address_15 = address_15 ^ (address_15 & 511) >> 7 << 4;
-                                                asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_15 - flat_view_addr)), "f"(tmem_load[vec_11 * 4]), "f"(tmem_load[vec_11 * 4 + 1]), "f"(tmem_load[vec_11 * 4 + 2]), "f"(tmem_load[vec_11 * 4 + 3]) : "memory");
+                                                if (chunk_26 % 2 == 0) {
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_15 - flat_view_addr)), "f"(wgrad_even_1[vec_11 * 4]), "f"(wgrad_even_1[vec_11 * 4 + 1]), "f"(wgrad_even_1[vec_11 * 4 + 2]), "f"(wgrad_even_1[vec_11 * 4 + 3]) : "memory");
+                                                } else {
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_15 - flat_view_addr)), "f"(wgrad_odd_1[vec_11 * 4]), "f"(wgrad_odd_1[vec_11 * 4 + 1]), "f"(wgrad_odd_1[vec_11 * 4 + 2]), "f"(wgrad_odd_1[vec_11 * 4 + 3]) : "memory");
+                                                }
                                             }
                                             asm volatile("barrier.sync 1, 128;" ::: "memory");
                                             if (tid == 0) {
@@ -6054,11 +6088,17 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             }
                                         }
                                         if (has_hi_3 != 0) {
+                                            tmem_ld_x16(&wgrad_even_1[0], taddr_1 + (unsigned int)(warp_row_1 << 16) + 256);
                                             #pragma unroll
                                             for (int chunk_27 = 0; chunk_27 < 16; chunk_27++) {
-                                                float tmem_load_1[16];
-                                                tmem_ld_x16(&tmem_load_1[0], taddr_1 + (unsigned int)(warp_row_1 << 16) + 256 + (unsigned int)(chunk_27 * 16));
-                                                asm volatile("tcgen05.wait::ld.sync.aligned;");
+                                                asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+                                                if (chunk_27 + 1 < 16) {
+                                                    if (chunk_27 % 2 == 0) {
+                                                        tmem_ld_x16(&wgrad_odd_1[0], taddr_1 + (unsigned int)(warp_row_1 << 16) + 256 + (unsigned int)((chunk_27 + 1) * 16));
+                                                    } else {
+                                                        tmem_ld_x16(&wgrad_even_1[0], taddr_1 + (unsigned int)(warp_row_1 << 16) + 256 + (unsigned int)((chunk_27 + 1) * 16));
+                                                    }
+                                                }
                                                 if (tid == 0) {
                                                     asm volatile("cp.async.bulk.wait_group.read 2;");
                                                 }
@@ -6067,7 +6107,11 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                                 for (int vec_12 = 0; vec_12 < 4; vec_12++) {
                                                     unsigned int address_16 = d_smem_addr + (unsigned int)((16 + chunk_27) % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_12 * 16);
                                                     address_16 = address_16 ^ (address_16 & 511) >> 7 << 4;
-                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_16 - flat_view_addr)), "f"(tmem_load_1[vec_12 * 4]), "f"(tmem_load_1[vec_12 * 4 + 1]), "f"(tmem_load_1[vec_12 * 4 + 2]), "f"(tmem_load_1[vec_12 * 4 + 3]) : "memory");
+                                                    if (chunk_27 % 2 == 0) {
+                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_16 - flat_view_addr)), "f"(wgrad_even_1[vec_12 * 4]), "f"(wgrad_even_1[vec_12 * 4 + 1]), "f"(wgrad_even_1[vec_12 * 4 + 2]), "f"(wgrad_even_1[vec_12 * 4 + 3]) : "memory");
+                                                    } else {
+                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_16 - flat_view_addr)), "f"(wgrad_odd_1[vec_12 * 4]), "f"(wgrad_odd_1[vec_12 * 4 + 1]), "f"(wgrad_odd_1[vec_12 * 4 + 2]), "f"(wgrad_odd_1[vec_12 * 4 + 3]) : "memory");
+                                                    }
                                                 }
                                                 asm volatile("barrier.sync 1, 128;" ::: "memory");
                                                 if (tid == 0) {
@@ -6292,11 +6336,19 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                         int _parity_output_arrived_4 = (int)((unsigned int)gemm_out0 % 2);
                                         mbarrier_wait(output_arrived_addr, _parity_output_arrived_4);
                                         int warp_row_2 = tid / 32 * 32;
+                                        float wgrad_even_2[16];
+                                        float wgrad_odd_2[16];
+                                        tmem_ld_x16(&wgrad_even_2[0], taddr_1 + (unsigned int)(warp_row_2 << 16));
                                         #pragma unroll
                                         for (int chunk_28 = 0; chunk_28 < 16; chunk_28++) {
-                                            float tmem_load_2[16];
-                                            tmem_ld_x16(&tmem_load_2[0], taddr_1 + (unsigned int)(warp_row_2 << 16) + (unsigned int)(chunk_28 * 16));
-                                            asm volatile("tcgen05.wait::ld.sync.aligned;");
+                                            asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+                                            if (chunk_28 + 1 < 16) {
+                                                if (chunk_28 % 2 == 0) {
+                                                    tmem_ld_x16(&wgrad_odd_2[0], taddr_1 + (unsigned int)(warp_row_2 << 16) + (unsigned int)((chunk_28 + 1) * 16));
+                                                } else {
+                                                    tmem_ld_x16(&wgrad_even_2[0], taddr_1 + (unsigned int)(warp_row_2 << 16) + (unsigned int)((chunk_28 + 1) * 16));
+                                                }
+                                            }
                                             if (tid == 0) {
                                                 asm volatile("cp.async.bulk.wait_group.read 2;");
                                             }
@@ -6305,7 +6357,11 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             for (int vec_13 = 0; vec_13 < 4; vec_13++) {
                                                 unsigned int address_17 = d_smem_addr + (unsigned int)(chunk_28 % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_13 * 16);
                                                 address_17 = address_17 ^ (address_17 & 511) >> 7 << 4;
-                                                asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_17 - flat_view_addr)), "f"(tmem_load_2[vec_13 * 4]), "f"(tmem_load_2[vec_13 * 4 + 1]), "f"(tmem_load_2[vec_13 * 4 + 2]), "f"(tmem_load_2[vec_13 * 4 + 3]) : "memory");
+                                                if (chunk_28 % 2 == 0) {
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_17 - flat_view_addr)), "f"(wgrad_even_2[vec_13 * 4]), "f"(wgrad_even_2[vec_13 * 4 + 1]), "f"(wgrad_even_2[vec_13 * 4 + 2]), "f"(wgrad_even_2[vec_13 * 4 + 3]) : "memory");
+                                                } else {
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_17 - flat_view_addr)), "f"(wgrad_odd_2[vec_13 * 4]), "f"(wgrad_odd_2[vec_13 * 4 + 1]), "f"(wgrad_odd_2[vec_13 * 4 + 2]), "f"(wgrad_odd_2[vec_13 * 4 + 3]) : "memory");
+                                                }
                                             }
                                             asm volatile("barrier.sync 1, 128;" ::: "memory");
                                             if (tid == 0) {
@@ -6321,11 +6377,17 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             }
                                         }
                                         if (has_hi_4 != 0) {
+                                            tmem_ld_x16(&wgrad_even_2[0], taddr_1 + (unsigned int)(warp_row_2 << 16) + 256);
                                             #pragma unroll
                                             for (int chunk_29 = 0; chunk_29 < 16; chunk_29++) {
-                                                float tmem_load_1_1[16];
-                                                tmem_ld_x16(&tmem_load_1_1[0], taddr_1 + (unsigned int)(warp_row_2 << 16) + 256 + (unsigned int)(chunk_29 * 16));
-                                                asm volatile("tcgen05.wait::ld.sync.aligned;");
+                                                asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+                                                if (chunk_29 + 1 < 16) {
+                                                    if (chunk_29 % 2 == 0) {
+                                                        tmem_ld_x16(&wgrad_odd_2[0], taddr_1 + (unsigned int)(warp_row_2 << 16) + 256 + (unsigned int)((chunk_29 + 1) * 16));
+                                                    } else {
+                                                        tmem_ld_x16(&wgrad_even_2[0], taddr_1 + (unsigned int)(warp_row_2 << 16) + 256 + (unsigned int)((chunk_29 + 1) * 16));
+                                                    }
+                                                }
                                                 if (tid == 0) {
                                                     asm volatile("cp.async.bulk.wait_group.read 2;");
                                                 }
@@ -6334,7 +6396,11 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                                 for (int vec_14 = 0; vec_14 < 4; vec_14++) {
                                                     unsigned int address_18 = d_smem_addr + (unsigned int)((16 + chunk_29) % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_14 * 16);
                                                     address_18 = address_18 ^ (address_18 & 511) >> 7 << 4;
-                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_18 - flat_view_addr)), "f"(tmem_load_1_1[vec_14 * 4]), "f"(tmem_load_1_1[vec_14 * 4 + 1]), "f"(tmem_load_1_1[vec_14 * 4 + 2]), "f"(tmem_load_1_1[vec_14 * 4 + 3]) : "memory");
+                                                    if (chunk_29 % 2 == 0) {
+                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_18 - flat_view_addr)), "f"(wgrad_even_2[vec_14 * 4]), "f"(wgrad_even_2[vec_14 * 4 + 1]), "f"(wgrad_even_2[vec_14 * 4 + 2]), "f"(wgrad_even_2[vec_14 * 4 + 3]) : "memory");
+                                                    } else {
+                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_18 - flat_view_addr)), "f"(wgrad_odd_2[vec_14 * 4]), "f"(wgrad_odd_2[vec_14 * 4 + 1]), "f"(wgrad_odd_2[vec_14 * 4 + 2]), "f"(wgrad_odd_2[vec_14 * 4 + 3]) : "memory");
+                                                    }
                                                 }
                                                 asm volatile("barrier.sync 1, 128;" ::: "memory");
                                                 if (tid == 0) {
@@ -6545,15 +6611,15 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                             unsigned int packed_7[128];
                             #pragma unroll
                             for (int i_100 = 0; i_100 < 8; i_100++) {
-                                float tmem_load_3[32];
+                                float tmem_load[32];
                                 asm volatile(
                                     "tcgen05.ld.sync.aligned.32x32b.x32.b32"
                                     " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
-                                    : "=f"(tmem_load_3[0]), "=f"(tmem_load_3[1]), "=f"(tmem_load_3[2]), "=f"(tmem_load_3[3]), "=f"(tmem_load_3[4]), "=f"(tmem_load_3[5]), "=f"(tmem_load_3[6]), "=f"(tmem_load_3[7]), "=f"(tmem_load_3[8]), "=f"(tmem_load_3[9]), "=f"(tmem_load_3[10]), "=f"(tmem_load_3[11]), "=f"(tmem_load_3[12]), "=f"(tmem_load_3[13]), "=f"(tmem_load_3[14]), "=f"(tmem_load_3[15]), "=f"(tmem_load_3[16]), "=f"(tmem_load_3[17]), "=f"(tmem_load_3[18]), "=f"(tmem_load_3[19]), "=f"(tmem_load_3[20]), "=f"(tmem_load_3[21]), "=f"(tmem_load_3[22]), "=f"(tmem_load_3[23]), "=f"(tmem_load_3[24]), "=f"(tmem_load_3[25]), "=f"(tmem_load_3[26]), "=f"(tmem_load_3[27]), "=f"(tmem_load_3[28]), "=f"(tmem_load_3[29]), "=f"(tmem_load_3[30]), "=f"(tmem_load_3[31])
+                                    : "=f"(tmem_load[0]), "=f"(tmem_load[1]), "=f"(tmem_load[2]), "=f"(tmem_load[3]), "=f"(tmem_load[4]), "=f"(tmem_load[5]), "=f"(tmem_load[6]), "=f"(tmem_load[7]), "=f"(tmem_load[8]), "=f"(tmem_load[9]), "=f"(tmem_load[10]), "=f"(tmem_load[11]), "=f"(tmem_load[12]), "=f"(tmem_load[13]), "=f"(tmem_load[14]), "=f"(tmem_load[15]), "=f"(tmem_load[16]), "=f"(tmem_load[17]), "=f"(tmem_load[18]), "=f"(tmem_load[19]), "=f"(tmem_load[20]), "=f"(tmem_load[21]), "=f"(tmem_load[22]), "=f"(tmem_load[23]), "=f"(tmem_load[24]), "=f"(tmem_load[25]), "=f"(tmem_load[26]), "=f"(tmem_load[27]), "=f"(tmem_load[28]), "=f"(tmem_load[29]), "=f"(tmem_load[30]), "=f"(tmem_load[31])
                                     : "r"(taddr_1 + (unsigned int)(warp_row_3 << 16) + (unsigned int)(i_100 * 32)));
                                 #pragma unroll
                                 for (int j_24 = 0; j_24 < 16; j_24++) {
-                                    packed_7[i_100 * 16 + j_24] = __as_u32(__float22bfloat162_rn(make_float2(tmem_load_3[2 * j_24], tmem_load_3[2 * j_24 + 1])));
+                                    packed_7[i_100 * 16 + j_24] = __as_u32(__float22bfloat162_rn(make_float2(tmem_load[2 * j_24], tmem_load[2 * j_24 + 1])));
                                 }
                             }
                             asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
@@ -7428,15 +7494,15 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                 unsigned int packed_8[128];
                                 #pragma unroll
                                 for (int i_117 = 0; i_117 < 8; i_117++) {
-                                    float tmem_load_4[32];
+                                    float tmem_load_1[32];
                                     asm volatile(
                                         "tcgen05.ld.sync.aligned.32x32b.x32.b32"
                                         " {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];"
-                                        : "=f"(tmem_load_4[0]), "=f"(tmem_load_4[1]), "=f"(tmem_load_4[2]), "=f"(tmem_load_4[3]), "=f"(tmem_load_4[4]), "=f"(tmem_load_4[5]), "=f"(tmem_load_4[6]), "=f"(tmem_load_4[7]), "=f"(tmem_load_4[8]), "=f"(tmem_load_4[9]), "=f"(tmem_load_4[10]), "=f"(tmem_load_4[11]), "=f"(tmem_load_4[12]), "=f"(tmem_load_4[13]), "=f"(tmem_load_4[14]), "=f"(tmem_load_4[15]), "=f"(tmem_load_4[16]), "=f"(tmem_load_4[17]), "=f"(tmem_load_4[18]), "=f"(tmem_load_4[19]), "=f"(tmem_load_4[20]), "=f"(tmem_load_4[21]), "=f"(tmem_load_4[22]), "=f"(tmem_load_4[23]), "=f"(tmem_load_4[24]), "=f"(tmem_load_4[25]), "=f"(tmem_load_4[26]), "=f"(tmem_load_4[27]), "=f"(tmem_load_4[28]), "=f"(tmem_load_4[29]), "=f"(tmem_load_4[30]), "=f"(tmem_load_4[31])
+                                        : "=f"(tmem_load_1[0]), "=f"(tmem_load_1[1]), "=f"(tmem_load_1[2]), "=f"(tmem_load_1[3]), "=f"(tmem_load_1[4]), "=f"(tmem_load_1[5]), "=f"(tmem_load_1[6]), "=f"(tmem_load_1[7]), "=f"(tmem_load_1[8]), "=f"(tmem_load_1[9]), "=f"(tmem_load_1[10]), "=f"(tmem_load_1[11]), "=f"(tmem_load_1[12]), "=f"(tmem_load_1[13]), "=f"(tmem_load_1[14]), "=f"(tmem_load_1[15]), "=f"(tmem_load_1[16]), "=f"(tmem_load_1[17]), "=f"(tmem_load_1[18]), "=f"(tmem_load_1[19]), "=f"(tmem_load_1[20]), "=f"(tmem_load_1[21]), "=f"(tmem_load_1[22]), "=f"(tmem_load_1[23]), "=f"(tmem_load_1[24]), "=f"(tmem_load_1[25]), "=f"(tmem_load_1[26]), "=f"(tmem_load_1[27]), "=f"(tmem_load_1[28]), "=f"(tmem_load_1[29]), "=f"(tmem_load_1[30]), "=f"(tmem_load_1[31])
                                         : "r"(taddr_1 + (unsigned int)(warp_row_4 << 16) + (unsigned int)(i_117 * 32)));
                                     #pragma unroll
                                     for (int j_25 = 0; j_25 < 16; j_25++) {
-                                        packed_8[i_117 * 16 + j_25] = __as_u32(__float22bfloat162_rn(make_float2(tmem_load_4[2 * j_25], tmem_load_4[2 * j_25 + 1])));
+                                        packed_8[i_117 * 16 + j_25] = __as_u32(__float22bfloat162_rn(make_float2(tmem_load_1[2 * j_25], tmem_load_1[2 * j_25 + 1])));
                                     }
                                 }
                                 asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
@@ -10620,8 +10686,8 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             int warp_row_6 = tid / 32 * 32;
                                             #pragma unroll
                                             for (int chunk_40 = 0; chunk_40 < 16; chunk_40++) {
-                                                float tmem_load_5[16];
-                                                tmem_ld_x16(&tmem_load_5[0], taddr_1 + (unsigned int)(warp_row_6 << 16) + (unsigned int)(chunk_40 * 16));
+                                                float tmem_load_2[16];
+                                                tmem_ld_x16(&tmem_load_2[0], taddr_1 + (unsigned int)(warp_row_6 << 16) + (unsigned int)(chunk_40 * 16));
                                                 asm volatile("tcgen05.wait::ld.sync.aligned;");
                                                 if (tid == 0) {
                                                     asm volatile("cp.async.bulk.wait_group.read 2;");
@@ -10631,7 +10697,7 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                                 for (int vec_17 = 0; vec_17 < 4; vec_17++) {
                                                     unsigned int address_31 = d_smem_addr + (unsigned int)(chunk_40 % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_17 * 16);
                                                     address_31 = address_31 ^ (address_31 & 511) >> 7 << 4;
-                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_31 - flat_view_addr)), "f"(tmem_load_5[vec_17 * 4]), "f"(tmem_load_5[vec_17 * 4 + 1]), "f"(tmem_load_5[vec_17 * 4 + 2]), "f"(tmem_load_5[vec_17 * 4 + 3]) : "memory");
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_31 - flat_view_addr)), "f"(tmem_load_2[vec_17 * 4]), "f"(tmem_load_2[vec_17 * 4 + 1]), "f"(tmem_load_2[vec_17 * 4 + 2]), "f"(tmem_load_2[vec_17 * 4 + 3]) : "memory");
                                                 }
                                                 asm volatile("barrier.sync 1, 128;" ::: "memory");
                                                 if (tid == 0) {
@@ -10649,8 +10715,8 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             if (has_hi_10 != 0) {
                                                 #pragma unroll
                                                 for (int chunk_41 = 0; chunk_41 < 16; chunk_41++) {
-                                                    float tmem_load_1_2[16];
-                                                    tmem_ld_x16(&tmem_load_1_2[0], taddr_1 + (unsigned int)(warp_row_6 << 16) + 256 + (unsigned int)(chunk_41 * 16));
+                                                    float tmem_load_1_1[16];
+                                                    tmem_ld_x16(&tmem_load_1_1[0], taddr_1 + (unsigned int)(warp_row_6 << 16) + 256 + (unsigned int)(chunk_41 * 16));
                                                     asm volatile("tcgen05.wait::ld.sync.aligned;");
                                                     if (tid == 0) {
                                                         asm volatile("cp.async.bulk.wait_group.read 2;");
@@ -10660,7 +10726,7 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                                     for (int vec_18 = 0; vec_18 < 4; vec_18++) {
                                                         unsigned int address_32 = d_smem_addr + (unsigned int)((16 + chunk_41) % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_18 * 16);
                                                         address_32 = address_32 ^ (address_32 & 511) >> 7 << 4;
-                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_32 - flat_view_addr)), "f"(tmem_load_1_2[vec_18 * 4]), "f"(tmem_load_1_2[vec_18 * 4 + 1]), "f"(tmem_load_1_2[vec_18 * 4 + 2]), "f"(tmem_load_1_2[vec_18 * 4 + 3]) : "memory");
+                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_32 - flat_view_addr)), "f"(tmem_load_1_1[vec_18 * 4]), "f"(tmem_load_1_1[vec_18 * 4 + 1]), "f"(tmem_load_1_1[vec_18 * 4 + 2]), "f"(tmem_load_1_1[vec_18 * 4 + 3]) : "memory");
                                                     }
                                                     asm volatile("barrier.sync 1, 128;" ::: "memory");
                                                     if (tid == 0) {
@@ -10948,8 +11014,8 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             int warp_row_7 = tid / 32 * 32;
                                             #pragma unroll
                                             for (int chunk_42 = 0; chunk_42 < 16; chunk_42++) {
-                                                float tmem_load_6[16];
-                                                tmem_ld_x16(&tmem_load_6[0], taddr_1 + (unsigned int)(warp_row_7 << 16) + (unsigned int)(chunk_42 * 16));
+                                                float tmem_load_3[16];
+                                                tmem_ld_x16(&tmem_load_3[0], taddr_1 + (unsigned int)(warp_row_7 << 16) + (unsigned int)(chunk_42 * 16));
                                                 asm volatile("tcgen05.wait::ld.sync.aligned;");
                                                 if (tid == 0) {
                                                     asm volatile("cp.async.bulk.wait_group.read 2;");
@@ -10959,7 +11025,7 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                                 for (int vec_19 = 0; vec_19 < 4; vec_19++) {
                                                     unsigned int address_33 = d_smem_addr + (unsigned int)(chunk_42 % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_19 * 16);
                                                     address_33 = address_33 ^ (address_33 & 511) >> 7 << 4;
-                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_33 - flat_view_addr)), "f"(tmem_load_6[vec_19 * 4]), "f"(tmem_load_6[vec_19 * 4 + 1]), "f"(tmem_load_6[vec_19 * 4 + 2]), "f"(tmem_load_6[vec_19 * 4 + 3]) : "memory");
+                                                    asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_33 - flat_view_addr)), "f"(tmem_load_3[vec_19 * 4]), "f"(tmem_load_3[vec_19 * 4 + 1]), "f"(tmem_load_3[vec_19 * 4 + 2]), "f"(tmem_load_3[vec_19 * 4 + 3]) : "memory");
                                                 }
                                                 asm volatile("barrier.sync 1, 128;" ::: "memory");
                                                 if (tid == 0) {
@@ -10977,8 +11043,8 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                             if (has_hi_11 != 0) {
                                                 #pragma unroll
                                                 for (int chunk_43 = 0; chunk_43 < 16; chunk_43++) {
-                                                    float tmem_load_1_3[16];
-                                                    tmem_ld_x16(&tmem_load_1_3[0], taddr_1 + (unsigned int)(warp_row_7 << 16) + 256 + (unsigned int)(chunk_43 * 16));
+                                                    float tmem_load_1_2[16];
+                                                    tmem_ld_x16(&tmem_load_1_2[0], taddr_1 + (unsigned int)(warp_row_7 << 16) + 256 + (unsigned int)(chunk_43 * 16));
                                                     asm volatile("tcgen05.wait::ld.sync.aligned;");
                                                     if (tid == 0) {
                                                         asm volatile("cp.async.bulk.wait_group.read 2;");
@@ -10988,7 +11054,7 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                                     for (int vec_20 = 0; vec_20 < 4; vec_20++) {
                                                         unsigned int address_34 = d_smem_addr + (unsigned int)((16 + chunk_43) % 3 * 8192) + (unsigned int)(tid * 64) + (unsigned int)(vec_20 * 16);
                                                         address_34 = address_34 ^ (address_34 & 511) >> 7 << 4;
-                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_34 - flat_view_addr)), "f"(tmem_load_1_3[vec_20 * 4]), "f"(tmem_load_1_3[vec_20 * 4 + 1]), "f"(tmem_load_1_3[vec_20 * 4 + 2]), "f"(tmem_load_1_3[vec_20 * 4 + 3]) : "memory");
+                                                        asm volatile("st.shared.v4.f32 [%0], {%1,%2,%3,%4};" :: "r"(flat_view_addr + (address_34 - flat_view_addr)), "f"(tmem_load_1_2[vec_20 * 4]), "f"(tmem_load_1_2[vec_20 * 4 + 1]), "f"(tmem_load_1_2[vec_20 * 4 + 2]), "f"(tmem_load_1_2[vec_20 * 4 + 3]) : "memory");
                                                     }
                                                     asm volatile("barrier.sync 1, 128;" ::: "memory");
                                                     if (tid == 0) {

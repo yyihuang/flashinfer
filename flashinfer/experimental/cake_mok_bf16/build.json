@@ -55,9 +55,9 @@
     }
   },
   "generator": {
-    "cake_revision": "c7392c99bc11b1841985f5370ef6248a78070061",
+    "cake_revision": "e4cf7fb36d9f7abfa2d21382e10346c9c02013ab",
     "cuda": "13.4.92",
-    "rendered_at": "2026-11-06T03:38:58Z"
+    "rendered_at": "2026-11-06T07:38:02Z"
   },
   "libraries": [
     {
@@ -304,7 +304,7 @@
     },
     {
       "arch": "sm_107a",
-      "closure_sha256": "8cf33a33cb211c2e1795c50af585140d9f39dc7d0178706d001b2228fc28f433",
+      "closure_sha256": "d87ba1f5ed6e7b0447beb6d01ddf75e534af19329b37759b3375895f804ca5d1",
       "entry": "run",
       "gencode": "-gencode=arch=compute_107a,code=sm_107a",
       "min_cuda": "13.4",
@@ -317,7 +317,7 @@
       "path": "aot/cake_mok_backward_mxfp8_clamped_fp32_sm_107a.so",
       "sha256": {
         "csrc/sm_100a/cake_mok_backward_mxfp8_fp32_binding.cu": "701eca2cdb3ccee05b88e07454b13fd4525a9b66e4f253179d7f7ee3f15e0a04",
-        "csrc/sm_107a/cake_mok_backward_mxfp8_clamped_fp32.cu": "81b0dda030d7ee2b9143d568822fda4f0bc06b6fb3818f978e7ec0b01ebb900f"
+        "csrc/sm_107a/cake_mok_backward_mxfp8_clamped_fp32.cu": "f72bb89f9d222843c6b9bd028db16f416b2a89bb88e3a74a690b357ff485456d"
       },
       "sources": [
         "csrc/sm_107a/cake_mok_backward_mxfp8_clamped_fp32.cu",
@@ -436,7 +436,7 @@
     },
     {
       "arch": "sm_107a",
-      "closure_sha256": "2a9f91ffc7f3987d0af126355ae203307f9bcd10cec04b495895fb0d1b64ba40",
+      "closure_sha256": "e93a30a192a23331b7c7b29916dd0d6622328b054c86b5b9b820e8a9a050e529",
       "entry": "run",
       "gencode": "-gencode=arch=compute_107a,code=sm_107a",
       "min_cuda": "13.4",
@@ -449,7 +449,7 @@
       "path": "aot/cake_mok_backward_mxfp8_fp32_sm_107a.so",
       "sha256": {
         "csrc/sm_100a/cake_mok_backward_mxfp8_fp32_binding.cu": "701eca2cdb3ccee05b88e07454b13fd4525a9b66e4f253179d7f7ee3f15e0a04",
-        "csrc/sm_107a/cake_mok_backward_mxfp8_fp32.cu": "34859112f81ee85c1c2f9a6065f29a760134ce4ca2ef6317b7de7b0f90adbcc1"
+        "csrc/sm_107a/cake_mok_backward_mxfp8_fp32.cu": "09c664286816a47783d282da1ca05494774d58e07e5c01ac0558b468b4e2d966"
       },
       "sources": [
         "csrc/sm_107a/cake_mok_backward_mxfp8_fp32.cu",
@@ -1628,7 +1628,7 @@
     },
     {
       "arch": "sm_107a",
-      "closure_sha256": "b02e7c44ef6f45695eae59d631156c86c0dd9ab81000a3e6548a5aaf327c1183",
+      "closure_sha256": "0b9c74387865c53814f4dd87a7d7b895f207a165a2ef40c8514d56282df08f0f",
       "entry": "run",
       "gencode": "-gencode=arch=compute_107a,code=sm_107a",
       "min_cuda": "13.4",
@@ -1641,7 +1641,7 @@
       "path": "aot/cake_mok_forward_mxfp8_clamped_multimacro_sm_107a.so",
       "sha256": {
         "csrc/sm_100a/cake_mok_forward_mxfp8_binding.cu": "a8006fb8234b18e631c60b88f363217333382dd7a0f1437f55002909738cf1c4",
-        "csrc/sm_107a/cake_mok_forward_mxfp8_clamped_multimacro.cu": "070f9a41a0c901019f45316b9241d0d1439af991e7de941affd7b080dd43d2ff"
+        "csrc/sm_107a/cake_mok_forward_mxfp8_clamped_multimacro.cu": "31879ddd24c46c63fc75b6d41c0b722787e9bc91379aa87d402ce91677a0460c"
       },
       "sources": [
         "csrc/sm_107a/cake_mok_forward_mxfp8_clamped_multimacro.cu",
@@ -1716,7 +1716,7 @@
     },
     {
       "arch": "sm_107a",
-      "closure_sha256": "dd8752c78f4634260c341ad9eb149c5ab27e19e2f97a1913ebcf457a424e7f6d",
+      "closure_sha256": "1f6260537a553ac4428c87218aac1dd9172b5ae6852ccd0da42c473727c35484",
       "entry": "run",
       "gencode": "-gencode=arch=compute_107a,code=sm_107a",
       "min_cuda": "13.4",
@@ -1729,7 +1729,7 @@
       "path": "aot/cake_mok_forward_mxfp8_multimacro_sm_107a.so",
       "sha256": {
         "csrc/sm_100a/cake_mok_forward_mxfp8_binding.cu": "a8006fb8234b18e631c60b88f363217333382dd7a0f1437f55002909738cf1c4",
-        "csrc/sm_107a/cake_mok_forward_mxfp8_multimacro.cu": "74909ff7e0e95755a2d2c396903b9911a17da4abc230766337e0173bf8934a6d"
+        "csrc/sm_107a/cake_mok_forward_mxfp8_multimacro.cu": "3e7ea552f2bd8d650c5996089ff8b42e308577f135a8254cb8f83aeaac383d2f"
       },
       "sources": [
         "csrc/sm_107a/cake_mok_forward_mxfp8_multimacro.cu",
