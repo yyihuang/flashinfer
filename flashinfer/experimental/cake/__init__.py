@@ -15,8 +15,10 @@ limitations under the License.
 
 Experimental Cake packages without a run-to-run bitwise contract: the
 non-deterministic counterparts of the deterministic (``*_det_*``) Cake training
-packages.  Each one has a facade whose ``deterministic: bool = True`` keyword
-routes to the deterministic package and whose ``deterministic=False`` runs the
-package's own non-deterministic programs.  Each subpackage is standalone
-(import it by its full name); this module imports nothing.
+packages.  A package's non-deterministic programs run only in a call made with
+``deterministic=False`` or in a continuation of such a call; each family's entry
+docstrings and its README or module documentation state how the other values of
+``deterministic`` and ``torch.use_deterministic_algorithms(True)`` behave.  Each
+subpackage is standalone (import it by its full name); this module imports
+nothing.
 """

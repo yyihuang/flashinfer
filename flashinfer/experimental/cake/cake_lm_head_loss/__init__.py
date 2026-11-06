@@ -22,7 +22,7 @@ limitations under the License.
 # ``flashinfer.chunked_lm_head.chunked_lm_head_loss``, ``chunked_lm_head_logprob``,
 # ``chunked_lm_head_preload`` and the candidate-support entries
 # ``chunked_lm_head_support_logprob`` / ``chunked_lm_head_support_kl`` with
-# ``deterministic=False`` (their default ``deterministic=True`` runs the
-# deterministic package ``flashinfer.experimental.cake_lm_head_det_loss``); the
-# autograd wrappers, host planning, JIT registration and the generated sources
-# live in this package.
+# ``deterministic=False``; the deterministic entries are
+# ``flashinfer.chunked_lm_head.chunked_lm_head_det_*`` (the deterministic package
+# ``flashinfer.experimental.cake_lm_head_det_loss``).  The autograd wrappers, host
+# planning, JIT registration and the generated sources live in this package.

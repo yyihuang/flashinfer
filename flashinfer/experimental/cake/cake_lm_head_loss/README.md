@@ -19,19 +19,19 @@ backend selection, autotuning or trace-apply.  Its libraries are loaded
 prebuilt from `aot/` when the package ships them and JIT-built by FlashInfer
 from `build.json` otherwise (see "Layout of this package").
 
-## Deterministic and non-deterministic routes
+## Mode and dispatch rules
 
 | | deterministic | non-deterministic (this package) |
 | --- | --- | --- |
 | package | `flashinfer.experimental.cake_lm_head_det_loss` | `flashinfer.experimental.cake.cake_lm_head_loss` |
-| public call | `chunked_lm_head_det_*(...)`, or `chunked_lm_head_*(...)` with the default `deterministic=True` | `chunked_lm_head_*(..., deterministic=False)` |
+| public call | `chunked_lm_head_det_*(...)` | `chunked_lm_head_*(..., deterministic=False)` |
 | `loss`, `logp`, `lse` | fixed order, bitwise run to run | fixed order, bitwise run to run (the same programs) |
 | zero-weight policy rows (`loss_weights == 0`) | in the chunk loop | left out of the gradient path (see "Zero-weight policy rows") |
 | log-probability rows with `dlogp == 0` | in the chunk loop | ordered last; the backward's GEMMs skip their work (see "Zero-gradient rows of the log-probability backward") |
-| `dW` | chunk order, bitwise run to run | chunk order (the same programs); no run-to-run promise |
+| `dW` | chunk order, bitwise run to run | chunk order, bitwise run to run (the same programs) |
 | `dX` of a K-sliced chunk | slice 0 stored, slices `>= 1` in FP32 slabs added in slab order | one launch per chunk adds every slice into the `-0.0`-filled FP32 accumulator rows in an unordered FP32 reduction; a one-slice chunk stores its rows as the deterministic package does |
 | precision boundaries | BF16 logits and `dlogits`, FP32 loss arithmetic, FP32 `dX` / `dW` accumulation, one final cast each | the same |
-| under `torch.use_deterministic_algorithms(True)` | runs | the public entries run the deterministic package (one warning per entry point); this package's gradient entries raise PyTorch's alert |
+| under `torch.use_deterministic_algorithms(True)` | runs | this package's entries raise PyTorch's alert before a K-sliced dX launch (below); the dispatchers' rules: `docs/training_backend_names.md` |
 
 ## Public entry points (`flashinfer/chunked_lm_head.py`)
 
@@ -48,19 +48,12 @@ logp = chunked_lm_head_logprob(X, W, labels, temperature=tau, deterministic=Fals
 
 The det-free entries `chunked_lm_head_loss`, `chunked_lm_head_logprob`,
 `chunked_lm_head_preload`, `chunked_lm_head_support_logprob` and
-`chunked_lm_head_support_kl` take a keyword-only `deterministic: bool = True`:
-
-* `True` (the default): the deterministic entry (`chunked_lm_head_det_*`) with
-  the same arguments -- the same bits, no added allocation or synchronization;
-  the entry adds one identity test of host work and its own frame.
-* `False`: this package, after the same argument checks and with the same
-  `FLASHINFER_CAKE_LM_HEAD_LOSS_*` fallbacks of the switches.  While torch's
-  deterministic algorithms are enabled (also with `warn_only=True`), the
-  deterministic entry runs instead and a `UserWarning` names the entry once
-  per process.  An explicit dX `k_slices` pin above the deterministic entry's
-  four slices is then dropped (that GEMM takes the deterministic entry's
-  slice rule), with one more `UserWarning`.
-* Anything else: `TypeError`.
+`chunked_lm_head_support_kl` take a keyword-only `deterministic`: pass
+`deterministic=False` to reach this package, after the same argument checks
+and with the same `FLASHINFER_CAKE_LM_HEAD_LOSS_*` fallbacks of the switches.
+The dispatchers' full rules (the other values of `deterministic`, torch's
+deterministic algorithms) are in `docs/training_backend_names.md`.  The
+deterministic entries are `chunked_lm_head_det_*`.
 
 The arguments, outputs, memory rule, switches, ignored-row semantics,
 compaction, the policy objective and its clip, the opt-in forms
@@ -72,29 +65,41 @@ give "bitwise the same" output compare the same operations in one run; in
 this package the K-sliced dX reduction may round differently from one run to
 the next.
 
-The package's own entries (`cake_backend.forward_loss`, `backward_loss`,
+The package's own entries (`cake_backend.forward_loss`,
 `forward_logprob`, `backward_logprob`, `forward_logprob_keep`,
 `backward_logprob_keep`, `prepare_lm_head_loss` and the runner,
 `chunked_lm_head_loss` / `chunked_lm_head_logprob` /
 `chunked_lm_head_logprob_keep`, the temperature entries
 `chunked_lm_head_logprob_temperature`, `forward_logprob_temperature`,
 `backward_logprob_temperature` and `prepare_lm_head_loss_temperature`, the same
-in `cake_backend_opt_in`, and the candidate-support entries) take
-`deterministic` with the default `True` and raise `ValueError` for any value
-but `False`: a caller asks for this package's mode explicitly.  With
-`torch.use_deterministic_algorithms(True)` every entry that launches the
-gradient GEMMs raises PyTorch's alert in PyTorch's wording (`RuntimeError`, or
-a `UserWarning` under `warn_only=True`) before it binds or launches anything:
-`forward_loss` with `need_dx` or `need_dw` (the forward runs the dX and dW
-GEMMs), the deferred last-chunk weight-gradient GEMM of `backward_loss` (and
-the budget form's recompute), `backward_logprob`, `backward_logprob_keep`,
-`backward_logprob_temperature`, a
-runner's `forward()` /
-`backward()` that launch them, and the candidate-support backward.  The
-log-probability forward, a forward without trainable inputs and (gradient
-placement `"auto"`) a loss-entry call under `torch.no_grad` launch no gradient
-GEMM and do not alert.  The autograd contexts record the mode
-(`ctx.deterministic`).
+in `cake_backend_opt_in`, the candidate-support entries and
+`cake_support.SupportLogprobFunction`, which checks it first in its forward)
+take `deterministic` with the default `True` and raise `ValueError` for any
+value but `False`, naming the deterministic entry
+(`flashinfer.chunked_lm_head.chunked_lm_head_det_*`): a caller asks for this
+package's mode explicitly.  `cake_backend.validate_lm_head_inputs` is their
+shared mode check.  `backward_loss` and `ForwardResult.backward` continue a
+`forward_loss` call of this package and take no mode; pass them only that
+call's accumulators and operands.
+
+With `torch.use_deterministic_algorithms(True)` an entry raises PyTorch's
+alert in PyTorch's wording (`RuntimeError`, or a `UserWarning` under
+`warn_only=True`) before it launches the K-sliced dX reduction
+(`gemm_dx_red*`: a chunk of more than one dX slice, the counted two-slice
+chunks of the zero-gradient row skip included; or the candidate-support
+backward's dense dX at more than one slice): `forward_loss` and a loss
+runner's `forward()` (the loss forward runs the dX GEMM), `backward_logprob`,
+`backward_logprob_temperature` and a log-probability runner's `backward()` (in
+both modules), and `backward_logprob_keep`.  An eager entry checks its plan where
+the plan is final -- after the valid-row count, so a call on the hidden
+valid-row count path has launched chunk 0's row gather and logits GEMM when a
+strict alert stops it -- and before its first dX launch, and a strict alert
+leaves no partial binding.  Launches of one fixed order do not alert: a call whose
+dX chunks all have one slice (the plain store), the weight-gradient GEMMs, the
+deferred last-chunk weight gradient of `backward_loss` and the budget form's
+recompute, the casts, the candidate-support backward at one dense dX slice and
+its sparse passes, the log-probability forward and a call without trainable
+inputs.  The autograd contexts record the mode (`ctx.deterministic`).
 
 ## Kept log-probability logits (`memory_mode="keep_logits"`)
 
@@ -128,9 +133,8 @@ explicit pair `forward_logprob_keep` / `backward_logprob_keep`
 * `logp`, `lse` and `dW` are the default path's bits.  `dX` is formed from the
   same `dz` and the same products; a chunk of more than one dX slice adds them
   in the unordered reduction below, as the default path does.
-* The dispatcher `chunked_lm_head_logprob` passes `memory_mode="keep_logits"`
-  on unchanged: to the deterministic entry (`deterministic=True`, or the
-  deterministic-algorithms fallback) or to this package (`deterministic=False`).
+* The dispatcher `chunked_lm_head_logprob(..., deterministic=False)` passes
+  `memory_mode="keep_logits"` to this package unchanged.
 
 ## Temperature of the log-probability entry (`temperature=`)
 
@@ -170,8 +174,6 @@ without a temperature parameter).
 * `memory_mode="budget"` and `num_valid_rows` take a temperature;
   `memory_mode="keep_logits"` takes none (`ValueError`), and
   `chunked_lm_head_loss` has no `temperature` keyword.
-* `deterministic=True` (or the deterministic-algorithms fallback) passes the
-  temperature to the deterministic entry unchanged.
 * `chunked_lm_head_preload(deterministic=False, temperature=True)` also loads
   the temperature forms; without it a process that never passes a temperature
   loads (or JIT-builds) no temperature library.
@@ -182,7 +184,9 @@ without a temperature parameter).
 deterministic entries' contract (`chunked_lm_head_det_support_logprob` /
 `_kl`) plus the `deterministic` keyword (the deterministic entries have none).
 As part of this package they make no run-to-run promise for the gradients, and
-their backward raises the alert above.  Their programs are the deterministic
+their backward raises the alert above only when its dense dX runs a block of
+more than one K slice (a cell below; never on `sm_103a` or `sm_107a`).  Their
+programs are the deterministic
 package's (every sum has one owner and one order) with two changes on the
 support path:
 
@@ -499,8 +503,8 @@ shared by `cake_backend_opt_in.py`.
 
 | Name | What it is now |
 | --- | --- |
-| `flashinfer.chunked_lm_head.chunked_lm_head_{loss,logprob,preload,support_logprob,support_kl}` | dispatchers: `deterministic=True` -> `chunked_lm_head_det_*`, `False` -> this package |
-| `flashinfer.chunked_lm_head.chunked_lm_head_det_*` | the deterministic entries, unchanged (`deterministic=False` raises) |
+| `flashinfer.chunked_lm_head.chunked_lm_head_{loss,logprob,preload,support_logprob,support_kl}` | dispatchers: `deterministic=False` -> this package (their full rules: `docs/training_backend_names.md`) |
+| `flashinfer.chunked_lm_head.chunked_lm_head_det_*` | the deterministic entries (`flashinfer.experimental.cake_lm_head_det_loss`) |
 | `flashinfer.experimental.cake.cake_lm_head_loss` | this package |
 | `cake_backend.{prepare_lm_head_loss, validate_lm_head_inputs, lm_head_loss_workspace_size, LmHeadLossRunner, ChunkedLmHeadLossFunction, ChunkedLmHeadLogprobFunction, chunked_lm_head_loss, chunked_lm_head_logprob}` | this package's objects |
 | `cake_backend.{chunked_lm_head_logprob_keep, ChunkedLmHeadLogprobKeepFunction, forward_logprob_keep, backward_logprob_keep, KeptForwardResult, kept_memory_report}` | this package's kept-logits objects (the deterministic package's `chunked_lm_head_det_logprob_keep`, `ChunkedLmHeadDetLogprobKeepFunction` and the same eager names) |
