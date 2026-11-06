@@ -5,7 +5,9 @@
 - This package is the deterministic route only.  Every public name carries
   `det`: `chunk_gated_delta_rule_det`, `ChunkGatedDeltaRuleDetFunction`,
   `gdn_chunk_det_forward` and `gdn_chunk_det_backward`.  The package exports
-  no other name; the planner and table helpers stay in `cake_chain`.
+  no other name; the planner and table helpers stay in `cake_chain`.  The
+  experimental facade `flashinfer.cake_gdn_det_train` exports the same four
+  names and forwards every keyword to this package.
 - The entries take no `deterministic` keyword.  Passing one, with any value,
   raises `TypeError`.
 - `torch.use_deterministic_algorithms(True)` changes nothing: every launch is
