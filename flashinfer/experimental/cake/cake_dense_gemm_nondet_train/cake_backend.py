@@ -5199,7 +5199,9 @@ def cake_dense_gemm_nondet_train_projection(
 ) -> torch.Tensor:
     """``out[l, m, n] = sum_k A[l, m, k] B[l, k, n]`` for strided views (the cached convenience path; see the
     deterministic package for the view contract).  A weight-gradient layout (both operands MN-major) runs this
-    package's split-K program where the planner takes the row; every other layout and row runs the deterministic
+    package's split-K program where the planner takes the row; a one-head one the planner does not take runs the
+    plan of the deterministic ``cake_dense_gemm_det_train_projection_wgrad`` in that entry's orientation
+    (:func:`_single_head_wgrad`); every other layout and row runs the deterministic
     program.  ``enable_pdl`` (default: the device supports it)
     launches either program as a programmatic dependent launch; each waits for the preceding kernel before its first
     global access, and ``weights_static=True`` lets the deterministic swapped small-token forward start its loads of
@@ -5228,6 +5230,22 @@ def cake_dense_gemm_nondet_train_projection(
             enable_pdl,
             weights_static,
         )
+    wgrad = _single_head_wgrad(A, B, out, transposed_out)
+    if wgrad is not None:
+        # a one-head weight gradient: a row without a verdict runs the deterministic weight-gradient entry's plan in
+        # that entry's orientation (``wgrad_views``), whichever orientation the call gives -- in the call's own
+        # orientation the deterministic planner pads a narrow ``d_out`` to 256-row tiles
+        G, X, dw = wgrad
+
+        def det_call() -> Any:
+            deterministic_backend().cake_dense_gemm_det_train_projection_wgrad(
+                G, X, dw, **_pdl_kw(enable_pdl)
+            )
+            return out
+
+        def det_args() -> tuple:
+            return _wgrad_det_args(G, X, dw, "auto", None)
+
     return _atomic_k1(
         "launch",
         A,
@@ -5403,6 +5421,29 @@ def _wgrad_det_args(
         G, X, arch=det.arch_for(out.device), out_f32=out.dtype == torch.float32
     )
     return A, B, out, transposed, (("cta_rows", cta_rows), ("sk", sk))
+
+
+def _single_head_wgrad(
+    A: torch.Tensor,
+    B: torch.Tensor,
+    out: torch.Tensor,
+    transposed_out: bool,
+) -> Optional[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """``(G, X, dw)`` of the weight gradient ``dw[N, K] = G[T, N].T @ X[T, K]`` that a one-head call of
+    :func:`cake_dense_gemm_nondet_train_projection` computes -- ``A = G.T``, ``B = X``, or with ``transposed_out``
+    ``A = X.T``, ``B = G`` (the weight-gradient entry's own call); ``[1, ...]`` views as their one head -- else
+    ``None``: a batched call, or ``G`` / ``X`` / ``dw`` without a unit inner stride (the weight-gradient entry's
+    views)."""
+    if A.dim() == 3:
+        if any(t.dim() != 3 or int(t.shape[0]) != 1 for t in (A, B, out)):
+            return None
+        A, B, out = A[0], B[0], out[0]
+    if A.dim() != 2 or B.dim() != 2 or out.dim() != 2:
+        return None
+    G, X = (B, A.t()) if transposed_out else (A.t(), B)
+    if G.stride(-1) != 1 or X.stride(-1) != 1 or out.stride(-1) != 1:
+        return None
+    return G, X, out
 
 
 def cake_dense_gemm_nondet_train_router_plan(

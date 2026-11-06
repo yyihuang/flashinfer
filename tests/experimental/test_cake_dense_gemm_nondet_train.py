@@ -226,15 +226,21 @@ def test_k1_routes(monkeypatch, layout):
         assert args[0] == "launch" and args[1] is A and args[2] is B and args[3] is out
         assert kwargs["transposed_out"] is False and kwargs["own"] == {}
         assert kwargs["enable_pdl"] is None and kwargs["weights_static"] is False
-        assert kwargs["det_call"]() is det.result  # a row the planner does not take
-        assert det.calls == [
-            ((A, B, out), {"transposed_out": False, "enable_pdl": None})
-        ]
-        # ... runs the deterministic package's call through this package's binding
-        dA, dB, dout, transposed, knobs = kwargs["det_args"]()
-        assert (
-            dA is A and dB is B and dout is out and transposed is False and knobs == ()
-        )
+        # a one-head weight gradient (``A = G.T``, ``B = X``) the planner does not take: the deterministic
+        # weight-gradient entry, in its orientation
+        wgrad = _patch_det(monkeypatch, "cake_dense_gemm_nondet_train_projection_wgrad")
+        assert kwargs["det_call"]() is out and not det.calls
+        (((G, X, dw), wkw),) = wgrad.calls
+        assert wkw == {} and X is B and dw is out
+        assert G.shape == (32, 8) and G.stride() == (8, 1)
+        assert G.data_ptr() == A.data_ptr()
+        # ... through this package's binding of that entry's call
+        views = Recorder()
+        monkeypatch.setattr(cake_backend, "_wgrad_det_args", views)
+        assert kwargs["det_args"]() is views.result
+        (((vG, vX, vdw, sk, cta_rows), _),) = views.calls
+        assert vX is B and vdw is out and (sk, cta_rows) == ("auto", None)
+        assert vG.shape == (32, 8) and vG.data_ptr() == A.data_ptr()
     else:
         # CPU views: the binding hands the call to the deterministic package
         assert result is det.result and not atomic.calls
@@ -5607,6 +5613,60 @@ def test_k1_convenience_calls_cache_their_bindings(monkeypatch):
     ((_, atomic),) = cake_backend._K1_ATOMIC_CACHE.items()
     assert atomic.plan is not None and atomic.plan.splits == 2 and atomic.k1 is not None
     assert atomic.det_plan is None and atomic.arena is not None
+
+
+@pytest.mark.parametrize("head", ["2d", "3d"])
+@pytest.mark.parametrize("transposed", [False, True])
+def test_k1_one_head_generic_call_binds_the_wgrad_entry_plan(
+    monkeypatch, transposed, head
+):
+    """A one-head weight gradient through the generic ``cake_dense_gemm_nondet_train_projection`` -- ``A = G.T``,
+    ``B = X``, or with ``transposed_out`` ``A = X.T``, ``B = G``; ``[T, d]`` views or their ``[1, ...]`` heads --
+    whose row has no verdict binds the deterministic plan of ``cake_dense_gemm_det_train_projection_wgrad`` (its
+    orientation, ``wgrad_views``, and knobs) in either orientation of the call: the plan that entry's verdicts were
+    measured against, not the deterministic planner's plan of the call's own orientation.  A batched call keeps the
+    plan of its own orientation."""
+    arch = "sm_103a"
+    entry_fn = _cpu_k1_launches(monkeypatch, arch)
+    monkeypatch.setattr(cake_backend, "_k1_index", lambda *views: 0)
+    bf16, T = torch.bfloat16, 1000
+    G, X = torch.empty(T, 128, dtype=bf16), torch.empty(T, 4096, dtype=bf16)
+    dw = torch.empty(128, 4096)
+    wA, wB, wt = det_backend.wgrad_views(G, X, arch=arch, out_f32=True)
+    want = det_backend._k1_plan(
+        wA, wB, dw, transposed_out=wt, knobs=dict(sk="auto", cta_rows=None)
+    )[0]
+    A, B = (X.t(), G) if transposed else (G.t(), X)
+    out = dw
+    if head == "3d":
+        A, B, out = A.unsqueeze(0), B.unsqueeze(0), dw.unsqueeze(0)
+    own = det_backend._k1_plan(A, B, out, transposed_out=transposed, knobs={})[0]
+    # the call's own orientation plans otherwise when it is not the weight-gradient entry's
+    assert (own == want) == (transposed == wt)
+    for _ in range(2):
+        assert (
+            cake_backend.cake_dense_gemm_nondet_train_projection(
+                A, B, out, transposed_out=transposed
+            )
+            is out
+        )
+    ((_, entry),) = cake_backend._K1_ATOMIC_CACHE.items()
+    assert entry.plan is None and entry.k1 is not None and entry.det_plan == want
+    assert len(entry_fn.calls) == 2
+    # two heads: the batched call's own orientation
+    cake_backend._K1_ATOMIC_CACHE.clear()
+    G2, X2 = torch.empty(2, T, 128, dtype=bf16), torch.empty(2, T, 4096, dtype=bf16)
+    A2, B2 = (X2.transpose(1, 2), G2) if transposed else (G2.transpose(1, 2), X2)
+    out2 = torch.empty(2, 128, 4096)
+    cake_backend.cake_dense_gemm_nondet_train_projection(
+        A2, B2, out2, transposed_out=transposed
+    )
+    ((_, batched),) = cake_backend._K1_ATOMIC_CACHE.items()
+    assert batched.plan is None
+    assert (
+        batched.det_plan
+        == det_backend._k1_plan(A2, B2, out2, transposed_out=transposed, knobs={})[0]
+    )
 
 
 #: The L2 size of the 152-SM GB200 and GB300 parts (``L2_cache_size``) the forward rows were measured on.

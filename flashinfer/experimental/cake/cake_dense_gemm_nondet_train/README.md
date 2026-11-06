@@ -984,7 +984,10 @@ issues its launches back to back.  A cached K1 launch of the convenience path or
 runs the deterministic program -- the forward, the input gradient, a weight-gradient row without a verdict -- launches
 it through a cached binding of this package: the deterministic package's plan and program (its bits, with its `sk` /
 `cta_rows` knobs and its weight-gradient orientation), with its stream-K slabs and slice counters in this package's
-arena, keyed by the entry point's own tensors.  A batched forward that the deterministic package runs on its swapped
+arena, keyed by the entry point's own tensors.  A one-head weight gradient through the generic
+`cake_dense_gemm_nondet_train_projection` (`A = G.T`, `B = X`, or `A = X.T`, `B = G` with `transposed_out`) whose row
+has no verdict runs the plan of `cake_dense_gemm_det_train_projection_wgrad` in that entry's orientation, whichever
+orientation the call gives: the plan the verdicts were measured against.  A batched forward that the deterministic package runs on its swapped
 small-token program makes that package's call (with `enable_pdl` and `weights_static`).
 A cached K2 launch of the convenience path orders its arguments once per cache key
 and converts the arena's BF16x3 stack once per arena growth, so a call passes only the caller's views (each
