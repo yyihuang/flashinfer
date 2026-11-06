@@ -253,8 +253,10 @@ and does not change the launch sequence.
 - Two-macro-batch forward program (sm_107a MXFP8 only): the
   `forward_mxfp8[_clamped]_multimacro` build streams macro batch 0's
   unaliased rows to the experts while macro batch 1 combines, instead of
-  after it. Each rank chooses it from the same lagged observation as the
-  split, when its padded schedule rows (`num_tokens`) filled exactly two
+  after it, and from two macro batches on skips the column-major x copy of
+  every macro batch past the first (macro batch 0 rewrites those
+  coordinates). Each rank chooses it from the same lagged observation as the
+  split, when its padded schedule rows (`num_tokens`) filled two or more
   macro batches; otherwise, before the first observation and at a schedule
   capacity of at most one macro batch the default build runs (and no
   observation is queued for this alone). Both builds give bitwise the same

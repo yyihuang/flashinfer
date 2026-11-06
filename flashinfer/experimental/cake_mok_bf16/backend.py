@@ -116,11 +116,13 @@ def select_multimacro(tokens, macro_size):
 
     ``tokens`` is the rank's observed schedule row count (the padded
     ``num_tokens`` the forward kernel reads), ``None`` before any observation.
-    True exactly when that schedule holds two macro batches, the case the
-    program speeds up; the two programs give bitwise the same results for any
-    schedule, so a stale observation costs time only. Host-only.
+    True when that schedule holds two or more macro batches: the program
+    streams macro batch 0 ahead of macro batch 1's combine at two and skips
+    the column-major x copy of every macro batch past the first at two or
+    more; the two programs give bitwise the same results for any schedule, so
+    a stale observation costs time only. Host-only.
     """
-    return tokens is not None and -(-int(tokens) // macro_size) == 2
+    return tokens is not None and -(-int(tokens) // macro_size) >= 2
 
 
 class MoKFunctional:

@@ -935,14 +935,16 @@ MoKConfig = cake_package("cake_mok_bf16", "workspace").MoKConfig
 
 def test_select_multimacro_decision_table():
     """The sm_107a multimacro forward runs exactly when the observed schedule
-    rows fill two macro batches; no observation keeps the default program."""
+    rows fill two or more macro batches; no observation keeps the default
+    program."""
     select = backend.select_multimacro
     assert select(None, 1024) is False
     assert not select(0, 1024)
     assert not select(1024, 1024)  # one macro batch
     assert select(1025, 1024)
     assert select(2048, 1024)
-    assert not select(2049, 1024)  # three macro batches
+    assert select(2049, 1024)  # three macro batches
+    assert select(666624, 262144)  # hot2-class padded rows (three macro batches)
     assert select(265472, 262144)  # u32768-class padded rows
     assert not select(262144, 262144)
 
@@ -1011,7 +1013,7 @@ def test_multimacro_choice_follows_the_lagged_schedule_rows(monkeypatch, capsys)
     assert functional._multimacro(config, workspaces[-1]) is sm107
     monkeypatch.undo()
     assert observe(skewed, config) == 2048  # four macro batches of 512
-    assert functional._multimacro(config, workspaces[-1]) is False
+    assert functional._multimacro(config, workspaces[-1]) is sm107
     prefix = "[cake_mok_bf16 rank 0] forward program -> "
     lines = [
         line
@@ -1019,10 +1021,7 @@ def test_multimacro_choice_follows_the_lagged_schedule_rows(monkeypatch, capsys)
         if "forward program" in line
     ]
     assert lines == (
-        [
-            prefix + "multimacro (schedule rows 1024, macro batch 512)",
-            prefix + "default (schedule rows 2048, macro batch 512)",
-        ]
+        [prefix + "multimacro (schedule rows 1024, macro batch 512)"]
         if sm107
         else []
     )
