@@ -171,7 +171,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # packed FP32 pairs (build {"lanes": 8,
     # "math": "x2", "pdl": false, "rows_per_thread": 1, "threads": 128,
     # "width": 256}).
-    "cake_rmsnorm_silu_gate_train_05ffc12001cf81513436": {
+    "cake_rmsnorm_silu_gate_train_eb1efc3ba817b552879b": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -198,8 +198,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "row_blocks",
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_05ffc12001cf81513436",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_05ffc12001cf81513436",
+        "kernel": "cake_rmsnorm_silu_gate_train_eb1efc3ba817b552879b",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_eb1efc3ba817b552879b",
         "launch": {
             "block": (128, 1, 1),
             "cluster": (1, 1, 1),
@@ -207,7 +207,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 0,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_05ffc12001cf81513436",
+        "library": "cake_rmsnorm_silu_gate_train_eb1efc3ba817b552879b",
         "logical": {
             "eps": "eps",
             "heads": "heads",
@@ -230,7 +230,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # 0, "threads": 256}); whole waves of at most 6 blocks per CTA, from 2400
     # rows per SM on sm_100a and sm_103a (on sm_103a up to the extra-long
     # forward's 3000; sm_107a runs the extra-long forward instead).
-    "cake_rmsnorm_silu_gate_train_7b7fac905aff1ddaa258": {
+    "cake_rmsnorm_silu_gate_train_8896950159ff9dcc7352": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -262,8 +262,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_block": 32,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_7b7fac905aff1ddaa258",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_7b7fac905aff1ddaa258",
+        "kernel": "cake_rmsnorm_silu_gate_train_8896950159ff9dcc7352",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_8896950159ff9dcc7352",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -271,7 +271,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 0,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_7b7fac905aff1ddaa258",
+        "library": "cake_rmsnorm_silu_gate_train_8896950159ff9dcc7352",
         "logical": {
             "eps": "eps",
             "heads": "heads",
@@ -294,7 +294,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # 0, "threads": 256}); whole waves of at most 6 blocks per CTA, from 3000
     # rows per SM on sm_103a and from 1740 (four whole waves, the long
     # forward's start there) on sm_107a.
-    "cake_rmsnorm_silu_gate_train_7f014401d5cc855ab883": {
+    "cake_rmsnorm_silu_gate_train_3c471600a7ddb00a1af8": {
         "arches": [
             "sm_103a",
             "sm_107a",
@@ -326,8 +326,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_block": 32,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_7f014401d5cc855ab883",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_7f014401d5cc855ab883",
+        "kernel": "cake_rmsnorm_silu_gate_train_3c471600a7ddb00a1af8",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_3c471600a7ddb00a1af8",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -335,7 +335,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 0,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_7f014401d5cc855ab883",
+        "library": "cake_rmsnorm_silu_gate_train_3c471600a7ddb00a1af8",
         "logical": {
             "eps": "eps",
             "heads": "heads",
@@ -359,7 +359,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # "prefetch_ahead": 1, "prefetch_wave": 1, "threads": 128}); whole waves of
     # at most 2 blocks per CTA, from 976 rows per SM on sm_100a and sm_103a and
     # from 800 on sm_107a, up to the long forward's.
-    "cake_rmsnorm_silu_gate_train_87f0173e9583ad4fdd2a": {
+    "cake_rmsnorm_silu_gate_train_1870188fc3081a7640b2": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -393,8 +393,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_block": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_87f0173e9583ad4fdd2a",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_87f0173e9583ad4fdd2a",
+        "kernel": "cake_rmsnorm_silu_gate_train_1870188fc3081a7640b2",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_1870188fc3081a7640b2",
         "launch": {
             "block": (128, 1, 1),
             "cluster": (1, 1, 1),
@@ -402,7 +402,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 0,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_87f0173e9583ad4fdd2a",
+        "library": "cake_rmsnorm_silu_gate_train_1870188fc3081a7640b2",
         "logical": {
             "eps": "eps",
             "heads": "heads",
@@ -424,7 +424,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # "x2_early", "min_blocks": 4, "prefetch_ahead": 0, "prefetch_wave": 0,
     # "threads": 256}), one block per CTA, up to 12 rows per SM on sm_100a and
     # sm_103a and 59 on sm_107a.
-    "cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2": {
+    "cake_rmsnorm_silu_gate_train_38a9584599496b595329": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -456,8 +456,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2",
+        "kernel": "cake_rmsnorm_silu_gate_train_38a9584599496b595329",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_38a9584599496b595329",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -465,7 +465,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 0,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2",
+        "library": "cake_rmsnorm_silu_gate_train_38a9584599496b595329",
         "logical": {
             "eps": "eps",
             "heads": "heads",
@@ -486,7 +486,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # four FP64 accumulator slots (build {"lanes": 16, "math": "x2",
     # "out": "bf16", "prefetch": "rows", "rows_per_thread": 1, "slots": 4,
     # "threads": 256, "width": 128}).
-    "cake_rmsnorm_silu_gate_train_58f1ac96c476c73ec5c8": {
+    "cake_rmsnorm_silu_gate_train_e02fdc13360bdabbe165": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -524,8 +524,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "row_claims",
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_58f1ac96c476c73ec5c8",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_58f1ac96c476c73ec5c8",
+        "kernel": "cake_rmsnorm_silu_gate_train_e02fdc13360bdabbe165",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_e02fdc13360bdabbe165",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -533,7 +533,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 20736,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_58f1ac96c476c73ec5c8",
+        "library": "cake_rmsnorm_silu_gate_train_e02fdc13360bdabbe165",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -564,7 +564,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # "math": "x2", "out": "bf16", "prefetch": "bulk", "rows_per_thread": 1,
     # "slots": 4, "threads": 256, "width": 128}), 5 CTAs per SM, from 12000
     # rows per SM (below it the mid backward).
-    "cake_rmsnorm_silu_gate_train_9f2f4d1f2b85a7469a7d": {
+    "cake_rmsnorm_silu_gate_train_8965620946aa7c9d7c35": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -605,8 +605,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_9f2f4d1f2b85a7469a7d",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_9f2f4d1f2b85a7469a7d",
+        "kernel": "cake_rmsnorm_silu_gate_train_8965620946aa7c9d7c35",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_8965620946aa7c9d7c35",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -614,7 +614,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 20736,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_9f2f4d1f2b85a7469a7d",
+        "library": "cake_rmsnorm_silu_gate_train_8965620946aa7c9d7c35",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -647,7 +647,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # "prefetch": "bulk", "rows_per_thread": 1, "slots": 4, "threads": 256,
     # "width": 128}), 5 CTAs per SM, from 800 rows per SM on sm_100a and 700 on
     # sm_103a up to the long backward's 12000.
-    "cake_rmsnorm_silu_gate_train_f14663d91454a0e833f7": {
+    "cake_rmsnorm_silu_gate_train_23b27047dc966ad67faf": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -688,8 +688,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_f14663d91454a0e833f7",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_f14663d91454a0e833f7",
+        "kernel": "cake_rmsnorm_silu_gate_train_23b27047dc966ad67faf",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_23b27047dc966ad67faf",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -697,7 +697,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 20736,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_f14663d91454a0e833f7",
+        "library": "cake_rmsnorm_silu_gate_train_23b27047dc966ad67faf",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -728,7 +728,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # {"lanes": 16, "math": "x2", "out": "bf16", "prefetch": "rows",
     # "rows_per_thread": 1, "slots": 4, "threads": 128, "width": 128}), from
     # 1024 rows per SM.
-    "cake_rmsnorm_silu_gate_train_8b61372f6a32eeca4d10": {
+    "cake_rmsnorm_silu_gate_train_379a6ac908e7c89268fe": {
         "arches": [
             "sm_107a",
         ],
@@ -765,8 +765,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "min_rows_per_sm": 1024,
             "rows_per_cta": 8,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_8b61372f6a32eeca4d10",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_8b61372f6a32eeca4d10",
+        "kernel": "cake_rmsnorm_silu_gate_train_379a6ac908e7c89268fe",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_379a6ac908e7c89268fe",
         "launch": {
             "block": (128, 1, 1),
             "cluster": (1, 1, 1),
@@ -774,7 +774,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 10496,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_8b61372f6a32eeca4d10",
+        "library": "cake_rmsnorm_silu_gate_train_379a6ac908e7c89268fe",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -877,7 +877,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # four FP64 accumulator slots (build {"lanes": 16, "math": "x2",
     # "out": "f32", "prefetch": "rows", "rows_per_thread": 1, "slots": 4,
     # "threads": 256, "width": 128}).
-    "cake_rmsnorm_silu_gate_train_26c869703d0ab9e4a39d": {
+    "cake_rmsnorm_silu_gate_train_cf2972cf3286848f7f2c": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -915,8 +915,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "kind": "row_claims",
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_26c869703d0ab9e4a39d",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_26c869703d0ab9e4a39d",
+        "kernel": "cake_rmsnorm_silu_gate_train_cf2972cf3286848f7f2c",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_cf2972cf3286848f7f2c",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -924,7 +924,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 20736,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_26c869703d0ab9e4a39d",
+        "library": "cake_rmsnorm_silu_gate_train_cf2972cf3286848f7f2c",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -955,7 +955,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # "math": "x2", "out": "f32", "prefetch": "bulk", "rows_per_thread": 1,
     # "slots": 4, "threads": 256, "width": 128}), 5 CTAs per SM, from 12000
     # rows per SM (below it the mid backward).
-    "cake_rmsnorm_silu_gate_train_e6a05f4e7ec6b374d3f2": {
+    "cake_rmsnorm_silu_gate_train_ff6c54205a57e128a8cd": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -996,8 +996,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_e6a05f4e7ec6b374d3f2",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_e6a05f4e7ec6b374d3f2",
+        "kernel": "cake_rmsnorm_silu_gate_train_ff6c54205a57e128a8cd",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_ff6c54205a57e128a8cd",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1005,7 +1005,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 20736,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_e6a05f4e7ec6b374d3f2",
+        "library": "cake_rmsnorm_silu_gate_train_ff6c54205a57e128a8cd",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -1038,7 +1038,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # "prefetch": "bulk", "rows_per_thread": 1, "slots": 4, "threads": 256,
     # "width": 128}), 5 CTAs per SM, from 800 rows per SM on sm_100a and 700 on
     # sm_103a up to the long backward's 12000.
-    "cake_rmsnorm_silu_gate_train_69d7df1dfbf3cfd61749": {
+    "cake_rmsnorm_silu_gate_train_994ad8cf102ab896dc33": {
         "arches": [
             "sm_100a",
             "sm_103a",
@@ -1079,8 +1079,8 @@ MODULES: dict[str, dict[str, Any]] = {
             },
             "rows_per_cta": 16,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_69d7df1dfbf3cfd61749",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_69d7df1dfbf3cfd61749",
+        "kernel": "cake_rmsnorm_silu_gate_train_994ad8cf102ab896dc33",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_994ad8cf102ab896dc33",
         "launch": {
             "block": (256, 1, 1),
             "cluster": (1, 1, 1),
@@ -1088,7 +1088,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 20736,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_69d7df1dfbf3cfd61749",
+        "library": "cake_rmsnorm_silu_gate_train_994ad8cf102ab896dc33",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -1119,7 +1119,7 @@ MODULES: dict[str, dict[str, Any]] = {
     # {"lanes": 16, "math": "x2", "out": "f32", "prefetch": "rows",
     # "rows_per_thread": 1, "slots": 4, "threads": 128, "width": 128}), from
     # 1024 rows per SM.
-    "cake_rmsnorm_silu_gate_train_4c6188a9425364b78977": {
+    "cake_rmsnorm_silu_gate_train_625a819ff3e368e5ead7": {
         "arches": [
             "sm_107a",
         ],
@@ -1156,8 +1156,8 @@ MODULES: dict[str, dict[str, Any]] = {
             "min_rows_per_sm": 1024,
             "rows_per_cta": 8,
         },
-        "kernel": "cake_rmsnorm_silu_gate_train_4c6188a9425364b78977",
-        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_4c6188a9425364b78977",
+        "kernel": "cake_rmsnorm_silu_gate_train_625a819ff3e368e5ead7",
+        "kernel_symbol": "kernel_cake_rmsnorm_silu_gate_train_625a819ff3e368e5ead7",
         "launch": {
             "block": (128, 1, 1),
             "cluster": (1, 1, 1),
@@ -1165,7 +1165,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "dynamic_smem_bytes": 10496,
             "use_pdl": False,
         },
-        "library": "cake_rmsnorm_silu_gate_train_4c6188a9425364b78977",
+        "library": "cake_rmsnorm_silu_gate_train_625a819ff3e368e5ead7",
         "logical": {
             "accumulate": "accumulate",
             "dw": "dw",
@@ -1267,44 +1267,44 @@ MODULES: dict[str, dict[str, Any]] = {
 
 ROUTES: dict[str, dict[str, str]] = {
     "sm_100a": {
-        "fwd": "cake_rmsnorm_silu_gate_train_05ffc12001cf81513436",
-        "fwd_long": "cake_rmsnorm_silu_gate_train_7b7fac905aff1ddaa258",
-        "fwd_mid": "cake_rmsnorm_silu_gate_train_87f0173e9583ad4fdd2a",
-        "fwd_short": "cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2",
-        "bwd_bf16": "cake_rmsnorm_silu_gate_train_58f1ac96c476c73ec5c8",
-        "bwd_bf16_long": "cake_rmsnorm_silu_gate_train_9f2f4d1f2b85a7469a7d",
-        "bwd_bf16_mid": "cake_rmsnorm_silu_gate_train_f14663d91454a0e833f7",
+        "fwd": "cake_rmsnorm_silu_gate_train_eb1efc3ba817b552879b",
+        "fwd_long": "cake_rmsnorm_silu_gate_train_8896950159ff9dcc7352",
+        "fwd_mid": "cake_rmsnorm_silu_gate_train_1870188fc3081a7640b2",
+        "fwd_short": "cake_rmsnorm_silu_gate_train_38a9584599496b595329",
+        "bwd_bf16": "cake_rmsnorm_silu_gate_train_e02fdc13360bdabbe165",
+        "bwd_bf16_long": "cake_rmsnorm_silu_gate_train_8965620946aa7c9d7c35",
+        "bwd_bf16_mid": "cake_rmsnorm_silu_gate_train_23b27047dc966ad67faf",
         "bwd_bf16_short": "cake_rmsnorm_silu_gate_train_cb597a0bebd6145e2024",
-        "bwd_f32": "cake_rmsnorm_silu_gate_train_26c869703d0ab9e4a39d",
-        "bwd_f32_long": "cake_rmsnorm_silu_gate_train_e6a05f4e7ec6b374d3f2",
-        "bwd_f32_mid": "cake_rmsnorm_silu_gate_train_69d7df1dfbf3cfd61749",
+        "bwd_f32": "cake_rmsnorm_silu_gate_train_cf2972cf3286848f7f2c",
+        "bwd_f32_long": "cake_rmsnorm_silu_gate_train_ff6c54205a57e128a8cd",
+        "bwd_f32_mid": "cake_rmsnorm_silu_gate_train_994ad8cf102ab896dc33",
         "bwd_f32_short": "cake_rmsnorm_silu_gate_train_c447141e8f19dd798212",
     },
     "sm_103a": {
-        "fwd": "cake_rmsnorm_silu_gate_train_05ffc12001cf81513436",
-        "fwd_xlong": "cake_rmsnorm_silu_gate_train_7f014401d5cc855ab883",
-        "fwd_long": "cake_rmsnorm_silu_gate_train_7b7fac905aff1ddaa258",
-        "fwd_mid": "cake_rmsnorm_silu_gate_train_87f0173e9583ad4fdd2a",
-        "fwd_short": "cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2",
-        "bwd_bf16": "cake_rmsnorm_silu_gate_train_58f1ac96c476c73ec5c8",
-        "bwd_bf16_long": "cake_rmsnorm_silu_gate_train_9f2f4d1f2b85a7469a7d",
-        "bwd_bf16_mid": "cake_rmsnorm_silu_gate_train_f14663d91454a0e833f7",
+        "fwd": "cake_rmsnorm_silu_gate_train_eb1efc3ba817b552879b",
+        "fwd_xlong": "cake_rmsnorm_silu_gate_train_3c471600a7ddb00a1af8",
+        "fwd_long": "cake_rmsnorm_silu_gate_train_8896950159ff9dcc7352",
+        "fwd_mid": "cake_rmsnorm_silu_gate_train_1870188fc3081a7640b2",
+        "fwd_short": "cake_rmsnorm_silu_gate_train_38a9584599496b595329",
+        "bwd_bf16": "cake_rmsnorm_silu_gate_train_e02fdc13360bdabbe165",
+        "bwd_bf16_long": "cake_rmsnorm_silu_gate_train_8965620946aa7c9d7c35",
+        "bwd_bf16_mid": "cake_rmsnorm_silu_gate_train_23b27047dc966ad67faf",
         "bwd_bf16_short": "cake_rmsnorm_silu_gate_train_cb597a0bebd6145e2024",
-        "bwd_f32": "cake_rmsnorm_silu_gate_train_26c869703d0ab9e4a39d",
-        "bwd_f32_long": "cake_rmsnorm_silu_gate_train_e6a05f4e7ec6b374d3f2",
-        "bwd_f32_mid": "cake_rmsnorm_silu_gate_train_69d7df1dfbf3cfd61749",
+        "bwd_f32": "cake_rmsnorm_silu_gate_train_cf2972cf3286848f7f2c",
+        "bwd_f32_long": "cake_rmsnorm_silu_gate_train_ff6c54205a57e128a8cd",
+        "bwd_f32_mid": "cake_rmsnorm_silu_gate_train_994ad8cf102ab896dc33",
         "bwd_f32_short": "cake_rmsnorm_silu_gate_train_c447141e8f19dd798212",
     },
     "sm_107a": {
-        "fwd": "cake_rmsnorm_silu_gate_train_05ffc12001cf81513436",
-        "fwd_xlong": "cake_rmsnorm_silu_gate_train_7f014401d5cc855ab883",
-        "fwd_mid": "cake_rmsnorm_silu_gate_train_87f0173e9583ad4fdd2a",
-        "fwd_short": "cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2",
-        "bwd_bf16": "cake_rmsnorm_silu_gate_train_58f1ac96c476c73ec5c8",
-        "bwd_bf16_long": "cake_rmsnorm_silu_gate_train_8b61372f6a32eeca4d10",
+        "fwd": "cake_rmsnorm_silu_gate_train_eb1efc3ba817b552879b",
+        "fwd_xlong": "cake_rmsnorm_silu_gate_train_3c471600a7ddb00a1af8",
+        "fwd_mid": "cake_rmsnorm_silu_gate_train_1870188fc3081a7640b2",
+        "fwd_short": "cake_rmsnorm_silu_gate_train_38a9584599496b595329",
+        "bwd_bf16": "cake_rmsnorm_silu_gate_train_e02fdc13360bdabbe165",
+        "bwd_bf16_long": "cake_rmsnorm_silu_gate_train_379a6ac908e7c89268fe",
         "bwd_bf16_short": "cake_rmsnorm_silu_gate_train_cb597a0bebd6145e2024",
-        "bwd_f32": "cake_rmsnorm_silu_gate_train_26c869703d0ab9e4a39d",
-        "bwd_f32_long": "cake_rmsnorm_silu_gate_train_4c6188a9425364b78977",
+        "bwd_f32": "cake_rmsnorm_silu_gate_train_cf2972cf3286848f7f2c",
+        "bwd_f32_long": "cake_rmsnorm_silu_gate_train_625a819ff3e368e5ead7",
         "bwd_f32_short": "cake_rmsnorm_silu_gate_train_c447141e8f19dd798212",
     },
 }
