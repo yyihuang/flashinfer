@@ -52,29 +52,25 @@ its single wave::
     y_local = cake_causal_conv1d_kcp(x_local, weight, ctx, deterministic=False, bwd_reserve_sms=1)
 
 Numerical mode (the same rules as the single-rank facade ``flashinfer.experimental.cake.cake_causal_conv1d_train``;
-"torch deterministic mode" is ``torch.use_deterministic_algorithms(True)``, with or without ``warn_only=True``):
+"torch deterministic mode" is ``torch.use_deterministic_algorithms(True)``, with or without ``warn_only=True``)::
 
-=====================================  =========================  =========================================
-call                                   torch deterministic mode   runs
-                                       off                        on
-=====================================  =========================  =========================================
-this module, ``deterministic=True``    deterministic              deterministic
-(the default)
-this module, ``deterministic=False``   non-deterministic          deterministic, with one ``UserWarning``
-                                                                  per entry point and process (it names
-                                                                  the caller's line)
-this module, a non-``bool`` mode       ``TypeError``              ``TypeError``
-the deterministic names (``*_det_*``)  deterministic; no          deterministic; no warning
-                                       ``deterministic`` keyword
-                                       (``TypeError``)
-the non-deterministic KCP backend      non-deterministic          its backward raises ``RuntimeError``
-(``deterministic=False`` only, else                               before any exchange (``warn_only=True``:
-``ValueError``)                                                   a ``UserWarning``, then it runs); it
-                                                                  never falls back
-=====================================  =========================  =========================================
+    call                                   torch deterministic mode off   torch deterministic mode on
+    this module, deterministic=True        deterministic                  deterministic
+      (the default)
+    this module, deterministic=False       non-deterministic              deterministic + one UserWarning per
+                                                                            entry point and process (it names
+                                                                            the caller's line)
+    this module, a non-bool mode           TypeError                      TypeError
+    the deterministic names (*_det_*)      deterministic; no              deterministic; no warning
+                                             deterministic keyword
+                                             (TypeError)
+    the non-deterministic KCP backend      non-deterministic              its backward raises RuntimeError
+      (deterministic=False only, else                                       before any exchange (warn_only=True:
+      ValueError)                                                           a UserWarning, then it runs); it
+                                                                            never falls back
 
 The keywords are checked the same way in both torch modes: ``deterministic=False`` refuses ``cooperative=True``
-and, on sm_107a or at the device's SM count, ``bwd_reserve_sms >= 1`` (``ValueError``).  Under the fallback a
+and ``bwd_reserve_sms >= 1`` on sm_107a or at or above the device's SM count (``ValueError``).  Under the fallback a
 ``bwd_reserve_sms >= 1`` without ``cooperative`` runs the deterministic entry point with ``cooperative=False``,
 its form beside a kernel of another stream.  The package is chosen at each forward call; the backward runs the
 same package.  Keep torch's deterministic setting the same from a forward to its backward and on every rank: when
@@ -88,6 +84,7 @@ from __future__ import annotations
 import inspect
 import os
 import warnings
+from collections.abc import Iterable
 from typing import Any, Optional, Sequence
 
 import torch
@@ -454,8 +451,11 @@ def _multi_kcp_with_keywords(
     reserve = _bwd_reserve_sms(
         bwd_reserve_sms, deterministic, "cake_causal_conv1d_multi_kcp"
     )
+    if isinstance(xs, Iterable) and not isinstance(xs, torch.Tensor):
+        # One pass over any iterable (the packages read ``xs`` as ``list(xs)``), so the check sees the first tensor.
+        xs = list(xs)
     if deterministic is False:
-        first = xs[0] if isinstance(xs, (list, tuple)) and len(xs) > 0 else None
+        first = xs[0] if isinstance(xs, list) and xs else None
         _check_nondet_keywords(
             cooperative, reserve, first, "cake_causal_conv1d_multi_kcp"
         )

@@ -34,6 +34,7 @@ contract itself is ``test_cake_causal_conv1d_train.py``'s.
 
 from __future__ import annotations
 
+import collections
 import inspect
 import os
 import subprocess
@@ -185,6 +186,13 @@ def _from_this_file(warning) -> bool:
     return os.path.abspath(warning.filename) == os.path.abspath(__file__)
 
 
+def _names_the_call(warning, call) -> bool:
+    """Whether a warning names the line that calls the entry point: the one-statement body of ``call``, a function
+    of this file defined as ``def call():`` with its ``return ...(...)`` on the next line."""
+
+    return _from_this_file(warning) and warning.lineno == call.__code__.co_firstlineno + 1
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # Dispatch (CPU).
 
@@ -331,18 +339,21 @@ def test_torch_deterministic_mode_falls_back_and_warns_once(
         args = (x, w, cu, dy) if entry.endswith("backward") else (x, w, cu)
         for repeat in range(3):
             recorded.clear()
-            result, fallback = _quiet(
-                lambda: getattr(facade, entry)(*args, deterministic=False)
-            )
+
+            def call():
+                return getattr(facade, entry)(*args, deterministic=False)
+
+            result, fallback = _quiet(call)
             assert result == f"det.{det_name}", entry
             assert len(fallback) == (1 if repeat == 0 else 0), (entry, repeat)
             assert fallback == [] or fallback[0].category is UserWarning
             assert fallback == [] or f"{entry}(deterministic=False)" in str(
                 fallback[0].message
             )
-            assert fallback == [] or _from_this_file(fallback[0]), (
+            assert fallback == [] or _names_the_call(fallback[0], call), (
                 entry,
                 fallback[0].filename,
+                fallback[0].lineno,
             )
     # A non-deterministic backward workspace is not handed to the deterministic package; a deterministic call's is.
     recorded.clear()
@@ -487,31 +498,36 @@ def test_kcp_facade_falls_back_under_torch_deterministic_mode(
     for entry, det_name in KCP_ENTRIES.items():
         for repeat in range(2):
             kcp_recorded.clear()
-            result, fallback = _quiet(
-                lambda: getattr(kcp_facade, entry)(x, w, ctx, deterministic=False)
-            )
+
+            def call():
+                return getattr(kcp_facade, entry)(x, w, ctx, deterministic=False)
+
+            result, fallback = _quiet(call)
             assert result == f"det.{det_name}"
             assert len(fallback) == (1 if repeat == 0 else 0), (entry, repeat)
-            assert fallback == [] or _from_this_file(fallback[0]), (
+            assert fallback == [] or _names_the_call(fallback[0], call), (
                 entry,
                 fallback[0].filename,
+                fallback[0].lineno,
             )
             assert kcp_recorded == [
                 (f"det.{det_name}", (x, w, ctx), {"recompute_handle": None})
             ]
         kcp_facade._FALLBACK_WARNED.clear()
-        for keywords, forwarded in (
-            ({"cooperative": False}, {"cooperative": False}),
-            ({"bwd_reserve_sms": 0}, {}),
-            ({"bwd_reserve_sms": 1}, {"cooperative": False}),
-            ({"bwd_reserve_sms": 2, "cooperative": False}, {"cooperative": False}),
+        for index, (keywords, forwarded) in enumerate(
+            (
+                ({"cooperative": False}, {"cooperative": False}),
+                ({"bwd_reserve_sms": 0}, {}),
+                ({"bwd_reserve_sms": 1}, {"cooperative": False}),
+                ({"bwd_reserve_sms": 2, "cooperative": False}, {"cooperative": False}),
+            )
         ):
             kcp_recorded.clear()
-            result, fallback = _quiet(
-                lambda: getattr(kcp_facade, entry)(
-                    x, w, ctx, deterministic=False, **keywords
-                )
-            )
+
+            def call():
+                return getattr(kcp_facade, entry)(x, w, ctx, deterministic=False, **keywords)
+
+            result, fallback = _quiet(call)
             assert result == f"det.{det_name}", keywords
             assert kcp_recorded == [
                 (
@@ -520,8 +536,13 @@ def test_kcp_facade_falls_back_under_torch_deterministic_mode(
                     {"recompute_handle": None, **forwarded},
                 )
             ], keywords
-            if fallback:
-                assert _from_this_file(fallback[0]), (entry, fallback[0].filename)
+            # The keyword path warns like the plain path: once per entry point (the set was cleared above).
+            assert len(fallback) == (1 if index == 0 else 0), (entry, keywords)
+            assert fallback == [] or _names_the_call(fallback[0], call), (
+                entry,
+                fallback[0].filename,
+                fallback[0].lineno,
+            )
 
 
 @pytest.mark.cpu_only
@@ -531,7 +552,7 @@ def test_kcp_facade_checks_its_keywords_alike_in_every_torch_mode(
 ) -> None:
     """``deterministic=False`` with ``cooperative=True`` is a ``ValueError`` and a non-``bool`` ``cooperative`` a
     ``TypeError`` whatever torch's mode, before anything runs; a reserve goes through the non-deterministic
-    package's device check (sm_107a, the SM count) in every mode."""
+    package's device check (sm_107a, the SM count) in every mode, on the first tensor of any iterable ``xs``."""
 
     from flashinfer.experimental.cake.cake_causal_conv1d_train_backend import (
         kcp as kcp_backend,
@@ -562,7 +583,7 @@ def test_kcp_facade_checks_its_keywords_alike_in_every_torch_mode(
         checked.clear()
         _quiet(
             lambda: getattr(kcp_facade, entry)(
-                [x] if "multi" in entry else x,
+                collections.deque([x]) if "multi" in entry else x,
                 w,
                 ctx,
                 bwd_reserve_sms=3,

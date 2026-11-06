@@ -263,8 +263,8 @@ Interaction with ``torch.use_deterministic_algorithms(True)``:
   to the deterministic package.  The KCP entry points check ``cooperative``
   and ``bwd_reserve_sms`` the same way in both torch modes
   (``deterministic=False`` refuses ``cooperative=True``, and a reserve on
-  sm_107a or at the device's SM count); under the fallback a reserve without
-  ``cooperative`` runs the deterministic KCP entry point with
+  sm_107a or at or above the device's SM count); under the fallback a
+  reserve without ``cooperative`` runs the deterministic KCP entry point with
   ``cooperative=False``, its form beside a kernel of another stream.
 * The backend entry points never fall back.  The entry points that launch the
   unordered reduction (the single-rank backward, the KCP backward, the KCP
