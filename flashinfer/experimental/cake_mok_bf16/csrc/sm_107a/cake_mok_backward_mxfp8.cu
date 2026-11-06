@@ -647,7 +647,7 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
         __syncthreads();
         int offset = 0;
         int rows = ((macro_size) < (tokens - offset) ? (macro_size) : (tokens - offset));
-        #pragma unroll 1
+        #pragma unroll 4
         for (int row = (cluster * 2 + cta_rank_0) * 256 + tid; row < rows; row += comm_sms * 256) {
             int peer = schedule_rank[offset + row];
             int token = schedule_token[offset + row];
@@ -677,14 +677,22 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
         int macro_tokens = ((macro_size) < (tokens - macro_offset) ? (macro_size) : (tokens - macro_offset));
         int tasks = macro_tokens / 128 * col_blocks;
         int task = cluster * 2 + cta_rank_0;
+        int ahead_peer = -1;
+        int ahead_token = -1;
+        float ahead_weight = 0.0f;
+        ahead_peer = -1;
+        ahead_token = -1;
+        ahead_weight = 0.0f;
+        if (task < tasks && tid < 128) {
+            int ahead_row = task / col_blocks * 128 + tid;
+            ahead_peer = schedule_rank[macro_offset + ahead_row];
+            ahead_token = schedule_token[macro_offset + ahead_row];
+            ahead_weight = ((ahead_peer >= 0) ? weights[ahead_row] : 0.0f);
+        }
         if (task < tasks) {
             int min_1 = ((256) < (hidden - task % col_blocks * 512) ? (256) : (hidden - task % col_blocks * 512));
-            int peer_1 = -1;
-            int peer_token = -1;
-            if (tid < 128) {
-                peer_1 = schedule_rank[macro_offset + task / col_blocks * 128 + tid];
-                peer_token = schedule_token[macro_offset + task / col_blocks * 128 + tid];
-            }
+            int peer_1 = ahead_peer;
+            int peer_token = ahead_token;
             uint32_t cta_count = __syncthreads_count(peer_1 >= 0);
             if (tid == 0) {
                 mbarrier_arrive_expect_tx(dispatch_arrived_addr, cta_count * (unsigned int)(min_1 * 2));
@@ -706,12 +714,8 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
             int lo_cols = ((256) < (chunk_cols) ? (256) : (chunk_cols));
             int hi_cols = chunk_cols - lo_cols;
             if (hi_cols > 0) {
-                int peer_2 = -1;
-                int peer_token_1 = -1;
-                if (tid < 128) {
-                    peer_2 = schedule_rank[macro_offset + row_1 + tid];
-                    peer_token_1 = schedule_token[macro_offset + row_1 + tid];
-                }
+                int peer_2 = ahead_peer;
+                int peer_token_1 = ahead_token;
                 uint32_t cta_count_1 = __syncthreads_count(peer_2 >= 0);
                 if (tid == 0) {
                     mbarrier_arrive_expect_tx(dispatch_arrived_hi_addr, cta_count_1 * (unsigned int)(hi_cols * 2));
@@ -726,10 +730,18 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
                     }
                 }
             }
-            int weight_peer = -1;
             if (tid < 128) {
-                weight_peer = schedule_rank[macro_offset + row_1 + tid];
-                flat_view_7[tid] = ((weight_peer >= 0) ? weights[row_1 + tid] : 0.0f);
+                flat_view_7[tid] = ahead_weight;
+            }
+            int next_task = task + comm_sms;
+            ahead_peer = -1;
+            ahead_token = -1;
+            ahead_weight = 0.0f;
+            if (next_task < tasks && tid < 128) {
+                int ahead_row_1 = next_task / col_blocks * 128 + tid;
+                ahead_peer = schedule_rank[macro_offset + ahead_row_1];
+                ahead_token = schedule_token[macro_offset + ahead_row_1];
+                ahead_weight = ((ahead_peer >= 0) ? weights[ahead_row_1] : 0.0f);
             }
             int _parity_dispatch_arrived = (int)((unsigned int)dispatch_seq % 2);
             mbarrier_wait(dispatch_arrived_addr, _parity_dispatch_arrived);
@@ -1261,15 +1273,10 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
                     asm volatile("cp.async.bulk.commit_group;");
                 }
             }
-            int next_task = task + comm_sms;
             if (next_task < tasks) {
                 int min_2 = ((256) < (hidden - next_task % col_blocks * 512) ? (256) : (hidden - next_task % col_blocks * 512));
-                int peer_3 = -1;
-                int peer_token_2 = -1;
-                if (tid < 128) {
-                    peer_3 = schedule_rank[macro_offset + next_task / col_blocks * 128 + tid];
-                    peer_token_2 = schedule_token[macro_offset + next_task / col_blocks * 128 + tid];
-                }
+                int peer_3 = ahead_peer;
+                int peer_token_2 = ahead_token;
                 uint32_t cta_count_2 = __syncthreads_count(peer_3 >= 0);
                 if (tid == 0) {
                     mbarrier_arrive_expect_tx(dispatch_arrived_addr, cta_count_2 * (unsigned int)(min_2 * 2));
@@ -3318,14 +3325,22 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
                 int macro_tokens_0 = ((macro_size) < (tokens - macro_offset_0) ? (macro_size) : (tokens - macro_offset_0));
                 int tasks_0 = macro_tokens_0 / 128 * col_blocks_0_1;
                 int task_0 = cluster * 2 + cta_rank_0;
+                int ahead_peer_0 = -1;
+                int ahead_token_0 = -1;
+                float ahead_weight_0 = 0.0f;
+                ahead_peer_0 = -1;
+                ahead_token_0 = -1;
+                ahead_weight_0 = 0.0f;
+                if (task_0 < tasks_0 && tid < 128) {
+                    int ahead_row_2 = task_0 / col_blocks_0_1 * 128 + tid;
+                    ahead_peer_0 = schedule_rank[macro_offset_0 + ahead_row_2];
+                    ahead_token_0 = schedule_token[macro_offset_0 + ahead_row_2];
+                    ahead_weight_0 = ((ahead_peer_0 >= 0) ? weights[ahead_row_2] : 0.0f);
+                }
                 if (task_0 < tasks_0) {
                     int min_1_1 = ((256) < (hidden - task_0 % col_blocks_0_1 * 512) ? (256) : (hidden - task_0 % col_blocks_0_1 * 512));
-                    int peer_8 = -1;
-                    int peer_token_6 = -1;
-                    if (tid < 128) {
-                        peer_8 = schedule_rank[macro_offset_0 + task_0 / col_blocks_0_1 * 128 + tid];
-                        peer_token_6 = schedule_token[macro_offset_0 + task_0 / col_blocks_0_1 * 128 + tid];
-                    }
+                    int peer_8 = ahead_peer_0;
+                    int peer_token_6 = ahead_token_0;
                     uint32_t cta_count_6 = __syncthreads_count(peer_8 >= 0);
                     if (tid == 0) {
                         mbarrier_arrive_expect_tx(dispatch_arrived_addr, cta_count_6 * (unsigned int)(min_1_1 * 2));
@@ -3347,12 +3362,8 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
                     int lo_cols_2 = ((256) < (chunk_cols_9) ? (256) : (chunk_cols_9));
                     int hi_cols_2 = chunk_cols_9 - lo_cols_2;
                     if (hi_cols_2 > 0) {
-                        int peer_9 = -1;
-                        int peer_token_7 = -1;
-                        if (tid < 128) {
-                            peer_9 = schedule_rank[macro_offset_0 + row_11 + tid];
-                            peer_token_7 = schedule_token[macro_offset_0 + row_11 + tid];
-                        }
+                        int peer_9 = ahead_peer_0;
+                        int peer_token_7 = ahead_token_0;
                         uint32_t cta_count_7 = __syncthreads_count(peer_9 >= 0);
                         if (tid == 0) {
                             mbarrier_arrive_expect_tx(dispatch_arrived_hi_addr, cta_count_7 * (unsigned int)(hi_cols_2 * 2));
@@ -3367,10 +3378,18 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
                             }
                         }
                     }
-                    int weight_peer_1 = -1;
                     if (tid < 128) {
-                        weight_peer_1 = schedule_rank[macro_offset_0 + row_11 + tid];
-                        flat_view_7[tid] = ((weight_peer_1 >= 0) ? weights[row_11 + tid] : 0.0f);
+                        flat_view_7[tid] = ahead_weight_0;
+                    }
+                    int next_task_2 = task_0 + comm_sms;
+                    ahead_peer_0 = -1;
+                    ahead_token_0 = -1;
+                    ahead_weight_0 = 0.0f;
+                    if (next_task_2 < tasks_0 && tid < 128) {
+                        int ahead_row_3 = next_task_2 / col_blocks_0_1 * 128 + tid;
+                        ahead_peer_0 = schedule_rank[macro_offset_0 + ahead_row_3];
+                        ahead_token_0 = schedule_token[macro_offset_0 + ahead_row_3];
+                        ahead_weight_0 = ((ahead_peer_0 >= 0) ? weights[ahead_row_3] : 0.0f);
                     }
                     int _parity_dispatch_arrived_2 = (int)((unsigned int)dispatch_seq % 2);
                     mbarrier_wait(dispatch_arrived_addr, _parity_dispatch_arrived_2);
@@ -3902,15 +3921,10 @@ kernel_cake_mok_backward_mxfp8(const __grid_constant__ CUtensorMap dy_s, const _
                             asm volatile("cp.async.bulk.commit_group;");
                         }
                     }
-                    int next_task_2 = task_0 + comm_sms;
                     if (next_task_2 < tasks_0) {
                         int min_2_1 = ((256) < (hidden - next_task_2 % col_blocks_0_1 * 512) ? (256) : (hidden - next_task_2 % col_blocks_0_1 * 512));
-                        int peer_10 = -1;
-                        int peer_token_8 = -1;
-                        if (tid < 128) {
-                            peer_10 = schedule_rank[macro_offset_0 + next_task_2 / col_blocks_0_1 * 128 + tid];
-                            peer_token_8 = schedule_token[macro_offset_0 + next_task_2 / col_blocks_0_1 * 128 + tid];
-                        }
+                        int peer_10 = ahead_peer_0;
+                        int peer_token_8 = ahead_token_0;
                         uint32_t cta_count_8 = __syncthreads_count(peer_10 >= 0);
                         if (tid == 0) {
                             mbarrier_arrive_expect_tx(dispatch_arrived_addr, cta_count_8 * (unsigned int)(min_2_1 * 2));
