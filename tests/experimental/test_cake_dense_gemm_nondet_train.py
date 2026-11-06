@@ -8665,6 +8665,47 @@ def test_gpu_k1_deterministic_program_through_the_binding():
         cake_backend.cake_dense_gemm_nondet_train_projection_forward(Xm, W)
 
 
+def test_gpu_k1_one_head_generic_call_is_the_wgrad_entry():
+    """A one-head weight gradient through the generic ``cake_dense_gemm_nondet_train_projection`` on a row without
+    a verdict -- both orientations of the call, ``[T, d]`` views and their ``[1, ...]`` heads, BF16 and FP32 out --
+    gives the bits of the deterministic ``cake_dense_gemm_det_train_projection_wgrad``: that entry's plan and
+    orientation, the plan the verdicts were measured against."""
+    device = _det_device_or_skip()
+    cake_backend.cake_dense_gemm_nondet_train_convenience_cache_clear()
+    arch = det_backend.arch_for(device)
+    sm_count = det_backend.device_facts(device).sm_count
+    g = torch.Generator(device=device).manual_seed(SEED + 90)
+    rows = ((48, 5120, 1024), (64, 5120, 2048), (32, 4096, 4097), (128, 4096, 1000))
+    ran = 0
+    for N, K, T in rows + ((2048, 4096, 1000),):
+        X, G = _bf16((T, K), device, g), _bf16((T, N), device, g)
+        for dtype in (torch.bfloat16, torch.float32):
+            f32 = dtype == torch.float32
+            kw = dict(arch=arch, L=1, M=K, N=N, K=T, out_f32=f32, sm_count=sm_count)
+            if cake_backend.k1_plan(**kw) or cake_backend.k1_dsm_plan(**kw):
+                continue  # a row with a verdict or a cluster range: this package's program
+            dw = torch.empty(N, K, device=device, dtype=dtype)
+            want = det_backend.cake_dense_gemm_det_train_projection_wgrad(G, X, dw)
+            want = want.clone()
+            for transposed in (False, True):
+                A, B = (X.t(), G) if transposed else (G.t(), X)
+                for head in (False, True):
+                    out = torch.empty(N, K, device=device, dtype=dtype)
+                    views = (A, B, out)
+                    if head:
+                        views = tuple(t.unsqueeze(0) for t in views)
+                    for _ in range(2):
+                        out.fill_(float("nan"))
+                        got = cake_backend.cake_dense_gemm_nondet_train_projection(
+                            *views, transposed_out=transposed
+                        )
+                        assert got is views[2]
+                        torch.cuda.synchronize()
+                        assert torch.equal(out, want), (N, K, T, f32, transposed, head)
+                    ran += 1
+    assert ran
+
+
 def test_gpu_k1_bound_launch_is_the_unbound_launch(k1_rule):
     """A row with a verdict at two splits (two partials per element: bitwise reproducible): the convenience path's
     bound launch gives the bits of the per-call ordered launch (``_launch_atomic_k1_unbound``) and of the prepared
