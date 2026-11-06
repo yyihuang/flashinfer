@@ -3513,10 +3513,11 @@ SPLIT_ROLES = ("fwd", "bwd")
 # The routes whose single-tile rows run 32-vector tiles (``ct_vec`` 32, four
 # token sub-tiles, the last tile partial) instead of one tile of ``cv = C /
 # vec`` vectors, per role, at 128 threads (:func:`_narrow_tile`): the backward
-# at 64 < cv < 128 (C = 520 to 1016, three or four tiles) and cv = 28 (C =
-# 224), the forward at 72 <= cv <= 96 (C = 576 to 768), on every route.  One
-# tile of cv vectors leaves 128 - cv lanes of every CTA idle over the whole
-# token axis; the programs are unchanged.
+# at 64 < cv < 128 but cv = 96 (C = 520 to 1016 but 768, three or four tiles)
+# and cv = 28 (C = 224), the forward at 72 <= cv < 96 (C = 576 to 760), on
+# every route.  One tile of cv vectors leaves 128 - cv lanes of every CTA idle
+# over the whole token axis; cv = 96, three whole warps, keeps one tile.  The
+# programs are unchanged.
 NARROW_TILE_ROUTES: dict[str, tuple[str, ...]] = {
     "fwd": ("fwd", "fwd_dt", "fwd_bias"),
     "bwd": ("bwd", "bwd_dt", "bwd_bias", "bwd_fp32g", "bwd_bias_fp32g"),
@@ -3566,11 +3567,11 @@ def channel_split(
     ``route`` is the launch's route (one of :data:`KINDS` of the role; the
     host passes its record's).  On a route of :data:`NARROW_TILE_ROUTES` the
     single-tile rows of the role's narrow set run 32-vector tiles, ``(32,
-    threads // 32, ceil(cv / 32))``: the backward's C = 224 and 520 to 1016,
-    the forward's C = 576 to 768, so C = 640 runs (32, 4, 3) instead of (80,
-    1, 1).  ``y`` and ``dx`` keep their bits; ``dweight`` and ``dbias`` sum in
-    the narrow plan's fixed order (bitwise reproducible).  Without a route the
-    single tile stays.
+    threads // 32, ceil(cv / 32))``: the backward's C = 224 and 520 to 1016
+    but 768, the forward's C = 576 to 760, so C = 640 runs (32, 4, 3) instead
+    of (80, 1, 1).  ``y`` and ``dx`` keep their bits; ``dweight`` and
+    ``dbias`` sum in the narrow plan's fixed order (bitwise reproducible).
+    Without a route the single tile stays.
     """
 
     return _channel_split(
@@ -3660,8 +3661,10 @@ def _narrow_tile(channel_vectors: int, threads: int, role: str) -> bool:
     if threads != NARROW_TILE_THREADS:
         return False
     if role == "bwd":
-        return 64 < channel_vectors < 128 or channel_vectors == 28
-    return 72 <= channel_vectors <= 96
+        return (
+            64 < channel_vectors < 128 and channel_vectors % 32 != 0
+        ) or channel_vectors == 28
+    return 72 <= channel_vectors < 96
 
 
 def _lane_use(channel_vectors: int, width: int, threads: int) -> float:

@@ -229,16 +229,16 @@ NARROW_SPLIT_TABLE = {
         520: (32, 4, 3),
         640: (32, 4, 3),
         648: (32, 4, 3),
-        768: (32, 4, 3),
         776: (32, 4, 4),
         1016: (32, 4, 4),
     },
-    "fwd": {576: (32, 4, 3), 640: (32, 4, 3), 768: (32, 4, 3)},
+    "fwd": {576: (32, 4, 3), 640: (32, 4, 3), 760: (32, 4, 3)},
 }
-# Single-tile rows outside each role's narrow set (one tile on every route).
+# Single-tile rows outside each role's narrow set (one tile on every route; C
+# = 768, cv = 96, is three whole warps).
 ONE_TILE_ROWS = {
-    "bwd": (160, 192, 256, 512, 1024),
-    "fwd": (224, 520, 568, 776, 832),
+    "bwd": (160, 192, 256, 512, 768, 1024),
+    "fwd": (224, 520, 568, 768, 776, 832),
 }
 # Rows whose plan, launch and gradients the narrow-tile tests check per route.
 NARROW_CASES = (
@@ -814,9 +814,9 @@ def test_channel_split_narrow_tiles_per_route() -> None:
             base = loader.channel_split(C, geometry=geometry, role=role)
             got = loader.channel_split(C, geometry=geometry, role=role, route=kind)
             if role == "bwd":
-                in_set = 64 < cv < 128 or cv == 28
+                in_set = (64 < cv < 128 and cv != 96) or cv == 28
             else:
-                in_set = 72 <= cv <= 96
+                in_set = 72 <= cv < 96
             assert got == ((32, 4, -(-cv // 32)) if narrow and in_set else base), (
                 kind,
                 C,
