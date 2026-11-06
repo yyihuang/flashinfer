@@ -4486,21 +4486,29 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
         int macro_1 = 0;
         int mini_1 = 0;
         int shared = 0;
-        if (cluster - comm_clusters >= 0 && true_compute > cluster - comm_clusters) {
-            if (shared_tasks > cluster - comm_clusters) {
+        int claim = cluster - comm_clusters;
+        int late = ((true_compute - 3 * experts * routed_wgrad - (shared_tasks - (shared_down + shared_swiglu + shared_dx))) > (shared_down + shared_swiglu + shared_dx) ? (true_compute - 3 * experts * routed_wgrad - (shared_tasks - (shared_down + shared_swiglu + shared_dx))) : (shared_down + shared_swiglu + shared_dx));
+        int moved = cluster;
+        if (claim >= shared_down + shared_swiglu + shared_dx && claim < late) {
+            moved = cluster + (shared_tasks - (shared_down + shared_swiglu + shared_dx));
+        } else if (claim >= late && claim < late + (shared_tasks - (shared_down + shared_swiglu + shared_dx))) {
+            moved = cluster - late + (shared_down + shared_swiglu + shared_dx);
+        }
+        if (moved - comm_clusters >= 0 && true_compute > moved - comm_clusters) {
+            if (shared_tasks > moved - comm_clusters) {
                 shared = 1;
-                if (shared_down > cluster - comm_clusters) {
+                if (shared_down > moved - comm_clusters) {
                     kind = 0;
-                    task_2 = cluster - comm_clusters;
-                } else if (cluster - comm_clusters < shared_down + shared_swiglu) {
+                    task_2 = moved - comm_clusters;
+                } else if (moved - comm_clusters < shared_down + shared_swiglu) {
                     kind = 1;
-                    task_2 = cluster - comm_clusters - shared_down;
+                    task_2 = moved - comm_clusters - shared_down;
                 } else {
-                    if (cluster - comm_clusters < shared_down + shared_swiglu + shared_dx) {
+                    if (moved - comm_clusters < shared_down + shared_swiglu + shared_dx) {
                         kind = 2;
-                        task_2 = cluster - comm_clusters - shared_down - shared_swiglu;
+                        task_2 = moved - comm_clusters - shared_down - shared_swiglu;
                     } else {
-                        int weight_task = cluster - comm_clusters - shared_down - shared_swiglu - shared_dx;
+                        int weight_task = moved - comm_clusters - shared_down - shared_swiglu - shared_dx;
                         uint32_t _fast_div_q_0 = (shared_wgrad_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)weight_task), shared_wgrad_div.multiplier) >> shared_wgrad_div.shift_right) : (uint32_t)((unsigned int)weight_task);
                         uint32_t _fast_div_r_0 = (uint32_t)((unsigned int)weight_task) - _fast_div_q_0 * (uint32_t)(shared_wgrad_div.divisor);
                         kind = (int)_fast_div_q_0 + 3;
@@ -4508,7 +4516,7 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                     }
                 }
             } else {
-                int routed = cluster - comm_clusters - shared_tasks;
+                int routed = moved - comm_clusters - shared_tasks;
                 int macro_task = routed;
                 int replay_tasks = 0;
                 if (routed >= saved_tasks) {
@@ -11069,26 +11077,34 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                             decoded_cluster = (int)(_clc_ctaid_x_0 / 2);
                             asm volatile("fence.proxy.async.shared::cta;" ::: "memory");
                         }
+                        int claim_0 = decoded_cluster - comm_clusters;
+                        int late_0 = ((true_compute - 3 * experts * routed_wgrad - (shared_tasks - (shared_down + shared_swiglu + shared_dx))) > (shared_down + shared_swiglu + shared_dx) ? (true_compute - 3 * experts * routed_wgrad - (shared_tasks - (shared_down + shared_swiglu + shared_dx))) : (shared_down + shared_swiglu + shared_dx));
+                        int moved_0 = decoded_cluster;
+                        if (claim_0 >= shared_down + shared_swiglu + shared_dx && claim_0 < late_0) {
+                            moved_0 = decoded_cluster + (shared_tasks - (shared_down + shared_swiglu + shared_dx));
+                        } else if (claim_0 >= late_0 && claim_0 < late_0 + (shared_tasks - (shared_down + shared_swiglu + shared_dx))) {
+                            moved_0 = decoded_cluster - late_0 + (shared_down + shared_swiglu + shared_dx);
+                        }
                         int kind_1_1 = -1;
                         int task_2_2 = 0;
                         int macro_3 = 0;
                         int mini_4 = 0;
                         int shared_5 = 0;
-                        if (decoded_cluster - comm_clusters >= 0 && true_compute > decoded_cluster - comm_clusters) {
-                            if (shared_tasks > decoded_cluster - comm_clusters) {
+                        if (moved_0 - comm_clusters >= 0 && true_compute > moved_0 - comm_clusters) {
+                            if (shared_tasks > moved_0 - comm_clusters) {
                                 shared_5 = 1;
-                                if (shared_down > decoded_cluster - comm_clusters) {
+                                if (shared_down > moved_0 - comm_clusters) {
                                     kind_1_1 = 0;
-                                    task_2_2 = decoded_cluster - comm_clusters;
-                                } else if (decoded_cluster - comm_clusters < shared_down + shared_swiglu) {
+                                    task_2_2 = moved_0 - comm_clusters;
+                                } else if (moved_0 - comm_clusters < shared_down + shared_swiglu) {
                                     kind_1_1 = 1;
-                                    task_2_2 = decoded_cluster - comm_clusters - shared_down;
+                                    task_2_2 = moved_0 - comm_clusters - shared_down;
                                 } else {
-                                    if (decoded_cluster - comm_clusters < shared_down + shared_swiglu + shared_dx) {
+                                    if (moved_0 - comm_clusters < shared_down + shared_swiglu + shared_dx) {
                                         kind_1_1 = 2;
-                                        task_2_2 = decoded_cluster - comm_clusters - shared_down - shared_swiglu;
+                                        task_2_2 = moved_0 - comm_clusters - shared_down - shared_swiglu;
                                     } else {
-                                        int weight_task_2 = decoded_cluster - comm_clusters - shared_down - shared_swiglu - shared_dx;
+                                        int weight_task_2 = moved_0 - comm_clusters - shared_down - shared_swiglu - shared_dx;
                                         uint32_t _fast_div_q_11 = (shared_wgrad_div.divisor != 1) ? (__umulhi((uint32_t)((unsigned int)weight_task_2), shared_wgrad_div.multiplier) >> shared_wgrad_div.shift_right) : (uint32_t)((unsigned int)weight_task_2);
                                         uint32_t _fast_div_r_11 = (uint32_t)((unsigned int)weight_task_2) - _fast_div_q_11 * (uint32_t)(shared_wgrad_div.divisor);
                                         kind_1_1 = (int)_fast_div_q_11 + 3;
@@ -11096,7 +11112,7 @@ kernel_cake_mok_backward_mxfp8_fp32(const __grid_constant__ CUtensorMap dy_s, co
                                     }
                                 }
                             } else {
-                                int routed_1 = decoded_cluster - comm_clusters - shared_tasks;
+                                int routed_1 = moved_0 - comm_clusters - shared_tasks;
                                 int macro_task_1 = routed_1;
                                 int replay_tasks_1 = 0;
                                 if (routed_1 >= saved_tasks) {
