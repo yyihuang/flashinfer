@@ -1017,9 +1017,9 @@ def test_warn_only_alert_names_the_callers_frame():
         )
     alerts = [w for w in record if _ALERT in str(w.message)]
     assert len(alerts) == 1, [str(w.message) for w in record]
-    assert os.path.abspath(alerts[0].filename) == os.path.abspath(__file__), (
-        alerts[0].filename
-    )
+    assert os.path.abspath(alerts[0].filename) == os.path.abspath(__file__), alerts[
+        0
+    ].filename
 
 
 def test_one_slice_and_fixed_order_launches_do_not_alert(monkeypatch):
