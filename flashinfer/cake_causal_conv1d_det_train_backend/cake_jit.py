@@ -1880,7 +1880,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 512,
+                "sm_107a": 1024,
             },
             "kind": "channels_at_least",
         },
@@ -1972,7 +1972,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 512,
+                "sm_107a": 1024,
             },
             "kind": "channels_at_least",
         },
@@ -2063,7 +2063,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 512,
+                "sm_107a": 1024,
             },
             "kind": "channels_at_least",
         },
@@ -2156,7 +2156,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 512,
+                "sm_107a": 1024,
             },
             "kind": "channels_at_least",
         },
