@@ -2095,9 +2095,11 @@ class SupportLogprobFunction(torch.autograd.Function):
         if (
             ctx.backend == "cake"
             and need_dx
+            and torch.are_deterministic_algorithms_enabled()
             and _dense_dx_unordered(*ctx.cake, problem)
         ):
-            # before the backward's first launch: its dense dX adds K slices in the order they finish
+            # before the backward's first launch: its dense dX adds K slices in the order they finish (torch's flag
+            # read first: outside its deterministic algorithms the slice rule is not evaluated)
             _alert_nondeterministic("SupportLogprobFunction.backward")
         T, H, V = problem.num_rows, problem.hidden, problem.vocab
         if T == 0:

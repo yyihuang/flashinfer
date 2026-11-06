@@ -3734,25 +3734,26 @@ def _require_nondeterministic(deterministic: object, entry: str, kind: str) -> N
         )
 
 
-# This package's directory and, when the package is flashinfer's ``experimental/cake/cake_lm_head_loss``, the flashinfer
-# package's directory (its dispatchers and decorators): the frames a warning of this package skips
-# (:func:`_caller_stacklevel`; a vendored copy skips its own directory only).
+# This package's directory, the flashinfer package's directory (its dispatchers and decorators) when the package is
+# flashinfer's ``experimental/cake/cake_lm_head_loss`` (a vendored copy skips its own directory only), and torch's
+# (``Function.apply``, ``once_differentiable``, checkpoint and autocast wrappers): the frames a warning of this
+# package skips (:func:`_caller_stacklevel`).
 _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 _FLASHINFER_DIR = os.path.dirname(os.path.dirname(os.path.dirname(_PACKAGE_DIR)))
+_TORCH_DIR = os.path.dirname(os.path.abspath(torch.__file__))
 _SKIPPED_DIRS = tuple(
     d + os.sep
-    for d in (
-        (_PACKAGE_DIR, _FLASHINFER_DIR)
-        if os.path.basename(_FLASHINFER_DIR) == "flashinfer"
-        else (_PACKAGE_DIR,)
-    )
+    for d in (_PACKAGE_DIR, _FLASHINFER_DIR, _TORCH_DIR)
+    if d != _FLASHINFER_DIR or os.path.basename(d) == "flashinfer"
 )
 
 
 def _caller_stacklevel() -> int:
     """The ``stacklevel`` of the nearest frame outside :data:`_SKIPPED_DIRS` for a warning issued by the function that
     calls this one: the alert is issued at several depths (an eager entry, a runner, an autograd ``Function``, behind
-    the dispatcher), so a fixed ``stacklevel`` could name a frame of the package."""
+    the dispatcher and torch's wrappers), so a fixed ``stacklevel`` could name a frame of the package or of torch.  A
+    backward alert raised on the autograd engine's thread has no caller frame outside them and falls back to 2 (a
+    frame of the package)."""
     frame = inspect.currentframe()
     level = 0
     while frame is not None:
@@ -3796,8 +3797,9 @@ def _alert_unordered_dx(plan: "Plan", entry: str) -> None:
     (:data:`DX_RED_STAGE`, a chunk of more than one slice: :attr:`Plan.dx_fill_rows`), whose slices add in the order
     they finish.  A plan without one launches only programs of one fixed order (the one-slice dX store, the
     weight-gradient GEMMs, the casts) and does not alert.  Each entry calls it where its plan is final (after a
-    valid-row count, before the call's first dX launch)."""
-    if plan.dx_fill_rows is not None:
+    valid-row count, before the call's first dX launch).  Torch's flag is read first: outside its deterministic
+    algorithms the call does no other host work here."""
+    if torch.are_deterministic_algorithms_enabled() and plan.dx_fill_rows is not None:
         _alert_nondeterministic(entry)
 
 

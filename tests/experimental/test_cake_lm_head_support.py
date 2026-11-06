@@ -700,7 +700,7 @@ def test_cake_backward_alerts_only_before_a_k_sliced_dense_dx(monkeypatch):
     all) -- raises no alert and gives the deterministic package's bits.  A dense dX of two slices (forced) raises
     PyTorch's ``RuntimeError`` before the backward's first launch (launch record: the forward's stages only, no
     ``support_row_grad``), and the next call outside the mode runs the two slices within rounding of the
-    deterministic dX."""
+    deterministic dX.  Under ``warn_only=True`` it warns, then the backward runs (its ``dX`` within rounding)."""
     _require_cake()
     outputs, mk, kw = SUPPORT_CASES["kl two chunks"]
     mk = dict(mk)
@@ -737,6 +737,16 @@ def test_cake_backward_alerts_only_before_a_k_sliced_dense_dx(monkeypatch):
     assert "support_row_grad" in stages
     assert_same(dict(again, dX=None), dict(det, dX=None))
     _within_rounding_of_det(again["dX"], det["dX"])
+    stages.clear()
+    with (
+        _torch_deterministic(True, warn_only=True),
+        pytest.warns(UserWarning, match=f"SupportLogprobFunction.backward {_ALERT}"),
+    ):
+        warned = run_support(inp, outputs, **kw)
+    assert "support_row_grad" in stages
+    assert warned["dX"] is not None
+    assert_same(dict(warned, dX=None), dict(det, dX=None))
+    _within_rounding_of_det(warned["dX"], det["dX"])
 
 
 def _repeat_dense_dx(label, inp, outputs, kw, *, oracle, b0err, det):

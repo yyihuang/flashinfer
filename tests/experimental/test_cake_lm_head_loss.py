@@ -805,6 +805,17 @@ def _dx_calls(inp):
 
         return call
 
+    def autograd_logprob(mod, **extra):
+        def call():
+            with _torch_deterministic(False):
+                logp = mod.chunked_lm_head_logprob(
+                    X.detach().requires_grad_(True), W, labels, **extra, **kw
+                )
+            return logp.backward(torch.ones_like(logp))
+
+        return call
+
+    valid_rows = int((labels >= 0).sum())
     return {
         "forward_loss": lambda: cake_backend.forward_loss(
             X, W, labels, loss_div=1.0, **kw
@@ -819,6 +830,17 @@ def _dx_calls(inp):
             torch.zeros(labels.shape[0]),
             torch.zeros(labels.shape[0]),
             **kw,
+        ),
+        "opt_in.backward_logprob": lambda: opt_in.backward_logprob(
+            X,
+            W,
+            labels,
+            torch.zeros(labels.shape[0]),
+            torch.zeros(labels.shape[0]),
+            **kw,
+        ),
+        "opt_in.ChunkedLmHeadLogprobFunction.backward": autograd_logprob(
+            opt_in, num_valid_rows=valid_rows
         ),
         "LmHeadLossRunner.forward": runner_forward,
         "LmHeadLossRunner.backward": runner_backward_logprob,
@@ -854,7 +876,7 @@ def _dx_calls(inp):
             cake_backend
         ),
         "opt_in.ChunkedLmHeadLogprobTemperatureFunction.backward": autograd_temperature(
-            opt_in, num_valid_rows=int((labels >= 0).sum())
+            opt_in, num_valid_rows=valid_rows
         ),
     }
 
@@ -951,8 +973,8 @@ _ALERT = "does not have a deterministic implementation"
 def test_torch_deterministic_mode_alerts_before_a_k_sliced_dx(monkeypatch):
     """Under ``torch.use_deterministic_algorithms(True)`` every dX path whose plan has a K-sliced dX chunk (forced: the
     reference backend plans one slice) raises PyTorch's ``RuntimeError`` (its wording, naming the entry and the
-    deterministic package) before its first K-sliced dX launch; under ``warn_only=True`` it warns, then runs the
-    reduction."""
+    deterministic package) before its first K-sliced dX launch; under ``warn_only=True`` it warns once per call, then
+    runs the reduction."""
     inp = _host_inputs(8, device=CPU)
     launched = _record_reference_dx_red(monkeypatch)
     with _forced_dx_slices():
@@ -967,10 +989,37 @@ def test_torch_deterministic_mode_alerts_before_a_k_sliced_dx(monkeypatch):
             assert not launched, name
             with (
                 _torch_deterministic(True, warn_only=True),
-                pytest.warns(UserWarning, match=_ALERT),
+                warnings.catch_warnings(record=True) as record,
             ):
+                warnings.simplefilter("always")
                 call()
+            alerts = [w for w in record if _ALERT in str(w.message)]
+            assert len(alerts) == 1, (name, [str(w.message) for w in alerts])
+            assert issubclass(alerts[0].category, UserWarning), name
             assert launched and set(launched) == {2}, (name, launched)
+
+
+def test_warn_only_alert_names_the_callers_frame():
+    """Under ``warn_only=True`` the alert of an autograd entry's forward is attributed to the caller's frame: the
+    package's, flashinfer's and torch's frames (``Function.apply``) are skipped (forced K slices, reference
+    backend)."""
+    inp = _host_inputs(8, device=CPU)
+    X = inp.X.detach().requires_grad_(True)
+    W = inp.W.detach().requires_grad_(True)
+    with (
+        _forced_dx_slices(),
+        _torch_deterministic(True, warn_only=True),
+        warnings.catch_warnings(record=True) as record,
+    ):
+        warnings.simplefilter("always")
+        cake_backend.chunked_lm_head_loss(
+            X, W, inp.labels, loss_div=1.0, chunk_size=4, backend="reference", **ND
+        )
+    alerts = [w for w in record if _ALERT in str(w.message)]
+    assert len(alerts) == 1, [str(w.message) for w in record]
+    assert os.path.abspath(alerts[0].filename) == os.path.abspath(__file__), (
+        alerts[0].filename
+    )
 
 
 def test_one_slice_and_fixed_order_launches_do_not_alert(monkeypatch):
@@ -2709,6 +2758,90 @@ def test_device_k_sliced_call_alerts_before_its_dx_and_leaves_no_state(
     for key in ("loss", "logp", "dW"):
         assert _same_bits(warned[key], ref[key]), key
     _check_against_references(warned, inp, entry=entry)
+
+
+def test_device_kept_backward_alerts_before_its_dx_and_keeps_the_logits(glm_weight):
+    """``backward_logprob_keep`` under strict ``torch.use_deterministic_algorithms(True)`` with K-sliced dX chunks (two
+    slices pinned) raises PyTorch's ``RuntimeError`` before any dX launch (no ``gemm_dx*`` key, no ``dX_acc`` fill)
+    and leaves the kept logits unconsumed: the same views then serve a backward outside the mode, which gives the
+    default call's ``dW`` bits and a ``dX`` within the budgets.  Under ``warn_only=True`` it warns once and runs."""
+    _require_program(entry="logprob")
+    inp = _device_inputs(8191, "ce", W=glm_weight)
+    tuning = {"dx": {"k_slices": 2}}
+    kw = dict(chunk_size=4096, gemm_tuning=tuning, **ND)
+    dlogp = torch.where(inp.valid, inp.dlogp, torch.zeros_like(inp.dlogp))
+    ref = _run(inp, 4096, entry="logprob", backend="cake", gemm_tuning=tuning)
+
+    def forward():
+        return cake_backend.forward_logprob_keep(inp.X, inp.W, inp.labels, **kw)
+
+    def backward(fr):
+        X, W, labels = inp.X, inp.W, inp.labels
+        return cake_backend.backward_logprob_keep(
+            X, W, labels, fr.lse, dlogp, fr.logits, row_index=fr.row_index, **kw
+        )
+
+    def check(dx, dw, tag):
+        torch.cuda.synchronize()
+        assert _same_bits(dw, ref["dW"]), tag
+        _check_against_references(dict(ref, dX=dx, dW=dw), inp, entry="logprob")
+
+    fr = forward()
+    with (
+        _torch_deterministic(True),
+        _launch_record() as launched,
+        pytest.raises(
+            RuntimeError, match=f"backward_logprob_keep {_ALERT}.*cake_lm_head_det_loss"
+        ),
+    ):
+        backward(fr)
+    torch.cuda.synchronize()
+    dx_keys = [k for k in launched if str(k[0]).startswith(("gemm_dx", "dx_fill"))]
+    assert not dx_keys, launched
+    check(*backward(fr), "after the strict raise")  # the same kept views
+    fr = forward()
+    with (
+        _torch_deterministic(True, warn_only=True),
+        warnings.catch_warnings(record=True) as record,
+    ):
+        warnings.simplefilter("always")
+        dx, dw = backward(fr)
+    alerts = [w for w in record if _ALERT in str(w.message)]
+    assert len(alerts) == 1, [str(w.message) for w in alerts]
+    assert "backward_logprob_keep" in str(alerts[0].message)
+    check(dx, dw, "warn_only")
+
+
+def test_device_budget_recompute_backward_does_not_alert(glm_weight, monkeypatch):
+    """The opt-in loss entry's recompute form of ``memory_mode="budget"`` (forced) finishes ``dW`` in the backward by
+    the vocabulary-block recompute: weight-gradient GEMMs of one fixed order.  After a forward outside torch's
+    deterministic algorithms (two dX slices pinned), the autograd backward and ``ForwardResult.backward`` run under
+    strict ``torch.use_deterministic_algorithms(True)`` without an alert and give the same ``dW`` bits."""
+    _require_program(entry="loss")
+    step = _require_recompute()
+    inp = _device_inputs(8191, "ce", W=glm_weight)
+    calls: list = []
+    _force_budget_plan(monkeypatch, ("recompute", 0, step), calls)
+    kw = dict(
+        loss_div=inp.loss_div,
+        chunk_size=4096,
+        memory_mode="budget",
+        gemm_tuning={"dx": {"k_slices": 2}},
+        **ND,
+    )
+    X = inp.X.detach().requires_grad_(True)
+    W = inp.W.detach().requires_grad_(True)
+    loss = opt_in.chunked_lm_head_loss(X, W, inp.labels, **kw)
+    fwd = opt_in.forward_loss(inp.X, inp.W, inp.labels, **kw)
+    assert calls and set(calls) == {"loss"}, calls
+    assert loss.grad_fn.memory_plan.recompute and fwd.memory_plan.recompute
+    with _torch_deterministic(True), warnings.catch_warnings():
+        warnings.filterwarnings("error", message=f".*{_ALERT}.*")
+        loss.backward()
+        dx, dw = fwd.backward()
+    torch.cuda.synchronize()
+    assert X.grad is not None and dx is not None
+    assert _same_bits(dw, W.grad)
 
 
 # ---------------------------------------------------------------------------
