@@ -50,8 +50,6 @@ __device__ __forceinline__ int make_warp_uniform(int x) {
     return result;
 }
 
-#define CAKE_INF CUDART_INF_F
-#define THREADS 256
 #define LAUNCH_MIN_BLOCKS 4
 
 #include <math_constants.h>
@@ -121,7 +119,7 @@ __device__ __forceinline__ unsigned int __as_u32(int v) {
 extern "C" {
 
 __global__ __launch_bounds__(256, LAUNCH_MIN_BLOCKS) void
-kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restrict__ x, __nv_bfloat16* __restrict__ z, __nv_bfloat16* __restrict__ w, __nv_bfloat16* __restrict__ y, int rows, CakeFastDivmod heads, long long x_tok, long long x_head, long long z_tok, long long z_head, float eps)
+kernel_cake_rmsnorm_silu_gate_train_935c499ca25da357cbfd(__nv_bfloat16* __restrict__ x, __nv_bfloat16* __restrict__ z, __nv_bfloat16* __restrict__ w, __nv_bfloat16* __restrict__ y, int rows, CakeFastDivmod heads, long long x_tok, long long x_head, long long z_tok, long long z_head, float eps)
 {
     const int tid = threadIdx.x;
     const int warp = make_warp_uniform(tid / 32);
@@ -223,9 +221,9 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         asm("neg.f32 %0, %1;" : "=f"(_neg_7) : "f"(zs[2]));
         float mz;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(mz) : "f"(_neg_5), "f"(_neg_6), "f"(_neg_7));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(mz) : "f"(_neg_5), "f"(_neg_6), "f"(_neg_7));
         float _abs_9;
         asm("abs.f32 %0, %1;" : "=f"(_abs_9) : "f"(zs[0]));
         float _neg_8;
@@ -240,18 +238,18 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         asm("neg.f32 %0, %1;" : "=f"(_neg_12) : "f"(_abs_13));
         float ma;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(ma) : "f"(_neg_8), "f"(_neg_10), "f"(_neg_12));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(ma) : "f"(_neg_8), "f"(_neg_10), "f"(_neg_12));
         float _neg_15;
         asm("neg.f32 %0, %1;" : "=f"(_neg_15) : "f"(zs[3]));
         float _neg_16;
         asm("neg.f32 %0, %1;" : "=f"(_neg_16) : "f"(zs[4]));
         float _max3_14;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_14) : "f"(mz), "f"(_neg_15), "f"(_neg_16));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_14) : "f"(mz), "f"(_neg_15), "f"(_neg_16));
         mz = _max3_14;
         float _abs_19;
         asm("abs.f32 %0, %1;" : "=f"(_abs_19) : "f"(zs[3]));
@@ -263,9 +261,9 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         asm("neg.f32 %0, %1;" : "=f"(_neg_20) : "f"(_abs_21));
         float _max3_17;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_17) : "f"(ma), "f"(_neg_18), "f"(_neg_20));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_17) : "f"(ma), "f"(_neg_18), "f"(_neg_20));
         ma = _max3_17;
         float _neg_23;
         asm("neg.f32 %0, %1;" : "=f"(_neg_23) : "f"(zs[5]));
@@ -273,9 +271,9 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         asm("neg.f32 %0, %1;" : "=f"(_neg_24) : "f"(zs[6]));
         float _max3_22;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_22) : "f"(mz), "f"(_neg_23), "f"(_neg_24));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_22) : "f"(mz), "f"(_neg_23), "f"(_neg_24));
         mz = _max3_22;
         float _abs_27;
         asm("abs.f32 %0, %1;" : "=f"(_abs_27) : "f"(zs[5]));
@@ -287,9 +285,9 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         asm("neg.f32 %0, %1;" : "=f"(_neg_28) : "f"(_abs_29));
         float _max3_25;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_25) : "f"(ma), "f"(_neg_26), "f"(_neg_28));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_25) : "f"(ma), "f"(_neg_26), "f"(_neg_28));
         ma = _max3_25;
         float _neg_31;
         asm("neg.f32 %0, %1;" : "=f"(_neg_31) : "f"(zs[7]));
@@ -311,18 +309,18 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         asm("abs.f32 %0, %1;" : "=f"(_abs_37) : "f"(zs[2]));
         float mp;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(mp) : "f"(_abs_35), "f"(_abs_36), "f"(_abs_37));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(mp) : "f"(_abs_35), "f"(_abs_36), "f"(_abs_37));
         float _abs_39;
         asm("abs.f32 %0, %1;" : "=f"(_abs_39) : "f"(zs[3]));
         float _abs_40;
         asm("abs.f32 %0, %1;" : "=f"(_abs_40) : "f"(zs[4]));
         float _max3_38;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_38) : "f"(mp), "f"(_abs_39), "f"(_abs_40));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_38) : "f"(mp), "f"(_abs_39), "f"(_abs_40));
         mp = _max3_38;
         float _abs_42;
         asm("abs.f32 %0, %1;" : "=f"(_abs_42) : "f"(zs[5]));
@@ -330,9 +328,9 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         asm("abs.f32 %0, %1;" : "=f"(_abs_43) : "f"(zs[6]));
         float _max3_41;
         #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 1000)
-        #error "Max3Nan requires PTX three-input max.f32 support on sm_100+"
+        #error "Max3 requires PTX three-input max.f32 support on sm_100+"
         #endif
-        asm("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_41) : "f"(mp), "f"(_abs_42), "f"(_abs_43));
+        asm volatile("max.NaN.f32 %0, %1, %2, %3;" : "=f"(_max3_41) : "f"(mp), "f"(_abs_42), "f"(_abs_43));
         mp = _max3_41;
         float _abs_45;
         asm("abs.f32 %0, %1;" : "=f"(_abs_45) : "f"(zs[7]));
@@ -486,58 +484,57 @@ kernel_cake_rmsnorm_silu_gate_train_de5df3c9a4a5a804fcf2(__nv_bfloat16* __restri
         total = total + _shfl_xor_sync_79;
         float _shfl_xor_sync_80 = __shfl_xor_sync(0xFFFFFFFF, total, 8);
         total = total + _shfl_xor_sync_80;
-        float _sqrt_81;
-        asm volatile("sqrt.rn.f32 %0, %1;" : "=f"(_sqrt_81) : "f"(total * 0.0078125f + eps));
-        float rstd = __frcp_rn(_sqrt_81);
+        float rstd;
+        asm("rsqrt.approx.f32 %0, %1;" : "=f"(rstd) : "f"(total * 0.0078125f + eps));
         if (fast == 0) {
-            float _exp_83 = __nv_expf(zs[0] * -1.0f);
-            float _fdiv_82 = __fdiv_rn(zs[0], 1.0f + _exp_83);
-            gs[0] = _fdiv_82;
-            float _exp_85 = __nv_expf(zs[1] * -1.0f);
-            float _fdiv_84 = __fdiv_rn(zs[1], 1.0f + _exp_85);
-            gs[1] = _fdiv_84;
-            float _exp_87 = __nv_expf(zs[2] * -1.0f);
-            float _fdiv_86 = __fdiv_rn(zs[2], 1.0f + _exp_87);
-            gs[2] = _fdiv_86;
-            float _exp_89 = __nv_expf(zs[3] * -1.0f);
-            float _fdiv_88 = __fdiv_rn(zs[3], 1.0f + _exp_89);
-            gs[3] = _fdiv_88;
-            float _exp_91 = __nv_expf(zs[4] * -1.0f);
-            float _fdiv_90 = __fdiv_rn(zs[4], 1.0f + _exp_91);
-            gs[4] = _fdiv_90;
-            float _exp_93 = __nv_expf(zs[5] * -1.0f);
-            float _fdiv_92 = __fdiv_rn(zs[5], 1.0f + _exp_93);
-            gs[5] = _fdiv_92;
-            float _exp_95 = __nv_expf(zs[6] * -1.0f);
-            float _fdiv_94 = __fdiv_rn(zs[6], 1.0f + _exp_95);
-            gs[6] = _fdiv_94;
-            float _exp_97 = __nv_expf(zs[7] * -1.0f);
-            float _fdiv_96 = __fdiv_rn(zs[7], 1.0f + _exp_97);
-            gs[7] = _fdiv_96;
+            float _exp_82 = __nv_expf(zs[0] * -1.0f);
+            float _fdiv_81 = __fdiv_rn(zs[0], 1.0f + _exp_82);
+            gs[0] = _fdiv_81;
+            float _exp_84 = __nv_expf(zs[1] * -1.0f);
+            float _fdiv_83 = __fdiv_rn(zs[1], 1.0f + _exp_84);
+            gs[1] = _fdiv_83;
+            float _exp_86 = __nv_expf(zs[2] * -1.0f);
+            float _fdiv_85 = __fdiv_rn(zs[2], 1.0f + _exp_86);
+            gs[2] = _fdiv_85;
+            float _exp_88 = __nv_expf(zs[3] * -1.0f);
+            float _fdiv_87 = __fdiv_rn(zs[3], 1.0f + _exp_88);
+            gs[3] = _fdiv_87;
+            float _exp_90 = __nv_expf(zs[4] * -1.0f);
+            float _fdiv_89 = __fdiv_rn(zs[4], 1.0f + _exp_90);
+            gs[4] = _fdiv_89;
+            float _exp_92 = __nv_expf(zs[5] * -1.0f);
+            float _fdiv_91 = __fdiv_rn(zs[5], 1.0f + _exp_92);
+            gs[5] = _fdiv_91;
+            float _exp_94 = __nv_expf(zs[6] * -1.0f);
+            float _fdiv_93 = __fdiv_rn(zs[6], 1.0f + _exp_94);
+            gs[6] = _fdiv_93;
+            float _exp_96 = __nv_expf(zs[7] * -1.0f);
+            float _fdiv_95 = __fdiv_rn(zs[7], 1.0f + _exp_96);
+            gs[7] = _fdiv_95;
         }
         float2 rstd2 = make_float2(rstd, rstd);
-        float2 _f32x2_mul_a_98 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[0], xs[1]), rstd2), make_float2(wv[0], wv[1]));
-        float2 _f32x2_mul_b_99 = make_float2(gs[0], gs[1]);
+        float2 _f32x2_mul_a_97 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[0], xs[1]), rstd2), make_float2(wv[0], wv[1]));
+        float2 _f32x2_mul_b_98 = make_float2(gs[0], gs[1]);
         float2 y2_0;
-        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_0) : "l"(*(const unsigned long long*)&_f32x2_mul_a_98), "l"(*(const unsigned long long*)&_f32x2_mul_b_99));
+        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_0) : "l"(*(const unsigned long long*)&_f32x2_mul_a_97), "l"(*(const unsigned long long*)&_f32x2_mul_b_98));
         xs[0] = y2_0.x;
         xs[1] = y2_0.y;
-        float2 _f32x2_mul_a_100 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[2], xs[3]), rstd2), make_float2(wv[2], wv[3]));
-        float2 _f32x2_mul_b_101 = make_float2(gs[2], gs[3]);
+        float2 _f32x2_mul_a_99 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[2], xs[3]), rstd2), make_float2(wv[2], wv[3]));
+        float2 _f32x2_mul_b_100 = make_float2(gs[2], gs[3]);
         float2 y2_1;
-        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_1) : "l"(*(const unsigned long long*)&_f32x2_mul_a_100), "l"(*(const unsigned long long*)&_f32x2_mul_b_101));
+        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_1) : "l"(*(const unsigned long long*)&_f32x2_mul_a_99), "l"(*(const unsigned long long*)&_f32x2_mul_b_100));
         xs[2] = y2_1.x;
         xs[3] = y2_1.y;
-        float2 _f32x2_mul_a_102 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[4], xs[5]), rstd2), make_float2(wv[4], wv[5]));
-        float2 _f32x2_mul_b_103 = make_float2(gs[4], gs[5]);
+        float2 _f32x2_mul_a_101 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[4], xs[5]), rstd2), make_float2(wv[4], wv[5]));
+        float2 _f32x2_mul_b_102 = make_float2(gs[4], gs[5]);
         float2 y2_2;
-        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_2) : "l"(*(const unsigned long long*)&_f32x2_mul_a_102), "l"(*(const unsigned long long*)&_f32x2_mul_b_103));
+        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_2) : "l"(*(const unsigned long long*)&_f32x2_mul_a_101), "l"(*(const unsigned long long*)&_f32x2_mul_b_102));
         xs[4] = y2_2.x;
         xs[5] = y2_2.y;
-        float2 _f32x2_mul_a_104 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[6], xs[7]), rstd2), make_float2(wv[6], wv[7]));
-        float2 _f32x2_mul_b_105 = make_float2(gs[6], gs[7]);
+        float2 _f32x2_mul_a_103 = mul_f32x2_noftz(mul_f32x2_noftz(make_float2(xs[6], xs[7]), rstd2), make_float2(wv[6], wv[7]));
+        float2 _f32x2_mul_b_104 = make_float2(gs[6], gs[7]);
         float2 y2_3;
-        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_3) : "l"(*(const unsigned long long*)&_f32x2_mul_a_104), "l"(*(const unsigned long long*)&_f32x2_mul_b_105));
+        asm("mul.rn.f32x2 %0, %1, %2;" : "=l"(*(unsigned long long*)&y2_3) : "l"(*(const unsigned long long*)&_f32x2_mul_a_103), "l"(*(const unsigned long long*)&_f32x2_mul_b_104));
         xs[6] = y2_3.x;
         xs[7] = y2_3.y;
         unsigned int packed[4];
