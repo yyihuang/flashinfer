@@ -746,21 +746,12 @@ def test_autograd_records_the_mode():
     assert logp.grad_fn.deterministic is False
 
 
-def _alerting_calls(inp):
-    """``name -> call()`` of every path that launches the gradient GEMMs (each raises PyTorch's alert under torch's
-    deterministic algorithms), on the reference backend."""
+def _dx_calls(inp):
+    """``name -> call()`` of every path that launches the dX GEMMs, on the reference backend: each raises PyTorch's
+    alert under torch's deterministic algorithms when its plan has a K-sliced dX chunk (:func:`_forced_dx_slices`)
+    and runs without one when every chunk is one slice (the reference backend's own plan)."""
     X, W, labels = inp.X, inp.W, inp.labels
     kw = dict(chunk_size=4, backend="reference", **ND)
-
-    def deferred_backward():
-        with _torch_deterministic(False):
-            fwd = cake_backend.forward_loss(
-                X, W, labels, loss_div=1.0, fuse_dw_cast=True, **kw
-            )
-        assert (
-            fwd.dz_last is not None
-        )  # the plan deferred the last chunk's weight-gradient GEMM
-        return fwd.backward()
 
     def runner_forward():
         with _torch_deterministic(False):
@@ -829,7 +820,6 @@ def _alerting_calls(inp):
             torch.zeros(labels.shape[0]),
             **kw,
         ),
-        "backward_loss": deferred_backward,
         "LmHeadLossRunner.forward": runner_forward,
         "LmHeadLossRunner.backward": runner_backward_logprob,
         "opt_in.LmHeadLossRunner.forward": opt_in_runner_forward,
@@ -869,34 +859,157 @@ def _alerting_calls(inp):
     }
 
 
-def test_torch_deterministic_mode_raises_the_alert():
-    """Under ``torch.use_deterministic_algorithms(True)`` every gradient path raises PyTorch's ``RuntimeError`` (its
-    wording, naming the deterministic package); under ``warn_only=True`` it warns and computes."""
+def _fixed_order_backwards(inp):
+    """``name -> call()`` of the backward-only launches of a loss call whose forward ran outside torch's
+    deterministic algorithms -- the deferred last-chunk weight gradient (``backward_loss``), the loss runner's
+    backward and the loss autograd backward, both modules: casts and weight-gradient GEMMs of one fixed order, also
+    after a forward that ran a K-sliced dX (on the reference backend)."""
+    X, W, labels = inp.X, inp.W, inp.labels
+    kw = dict(chunk_size=4, backend="reference", **ND)
+
+    def deferred_backward(mod):
+        def call():
+            with _torch_deterministic(False):
+                fwd = mod.forward_loss(
+                    X, W, labels, loss_div=1.0, fuse_dw_cast=True, **kw
+                )
+            assert (
+                fwd.dz_last is not None
+            )  # the plan deferred the last chunk's weight-gradient GEMM
+            return fwd.backward()
+
+        return call
+
+    def runner_backward(mod):
+        def call():
+            with _torch_deterministic(False):
+                runner = mod.prepare_lm_head_loss(X, W, labels, loss_div=1.0, **kw)
+                runner.forward()
+            return runner.backward()
+
+        return call
+
+    def autograd_backward(mod):
+        def call():
+            with _torch_deterministic(False):
+                loss = mod.chunked_lm_head_loss(
+                    X.detach().requires_grad_(True),
+                    W.detach().requires_grad_(True),
+                    labels,
+                    loss_div=1.0,
+                    **kw,
+                )
+            loss.backward()
+
+        return call
+
+    return {
+        "backward_loss": deferred_backward(cake_backend),
+        "opt_in.backward_loss": deferred_backward(opt_in),
+        "LmHeadLossRunner.backward (loss)": runner_backward(cake_backend),
+        "opt_in.LmHeadLossRunner.backward (loss)": runner_backward(opt_in),
+        "ChunkedLmHeadLossFunction.backward": autograd_backward(cake_backend),
+        "opt_in.ChunkedLmHeadLossFunction.backward": autograd_backward(opt_in),
+    }
+
+
+@contextlib.contextmanager
+def _forced_dx_slices(slices: int = 2):
+    """Every plan of both backend modules -- the reference backend's included, which plans one dX slice -- runs its
+    dX GEMM at ``slices`` K slices: the K-sliced reduction (``gemm_dx_red``; the reference engine adds the slices in
+    ascending order), so the host tests reach the alert of a K-sliced dX on the CPU."""
+    originals = (cake_backend.plan_dx_slices, opt_in.plan_dx_slices)
+
+    def forced(problem, chunks, *, need_dx, **_):
+        return tuple(slices for _ in chunks) if need_dx else ()
+
+    cake_backend.plan_dx_slices = opt_in.plan_dx_slices = forced
+    try:
+        yield
+    finally:
+        cake_backend.plan_dx_slices, opt_in.plan_dx_slices = originals
+
+
+def _record_reference_dx_red(monkeypatch) -> list:
+    """The reference engine's K-sliced dX launches (``gemm_dx_red``) of the calls that follow, in order."""
+    launched: list = []
+    reduce = cake_backend.ReferenceEngine.gemm_dx_red
+
+    def recording(values):
+        launched.append(int(values["k_slices"]))
+        return reduce(values)
+
+    monkeypatch.setattr(
+        cake_backend.ReferenceEngine, "gemm_dx_red", staticmethod(recording)
+    )
+    return launched
+
+
+_ALERT = "does not have a deterministic implementation"
+
+
+def test_torch_deterministic_mode_alerts_before_a_k_sliced_dx(monkeypatch):
+    """Under ``torch.use_deterministic_algorithms(True)`` every dX path whose plan has a K-sliced dX chunk (forced: the
+    reference backend plans one slice) raises PyTorch's ``RuntimeError`` (its wording, naming the entry and the
+    deterministic package) before its first K-sliced dX launch; under ``warn_only=True`` it warns, then runs the
+    reduction."""
     inp = _host_inputs(8, device=CPU)
-    for name, call in _alerting_calls(inp).items():
-        with (
-            _torch_deterministic(True),
-            pytest.raises(
-                RuntimeError, match="does not have a deterministic implementation"
-            ) as info,
-        ):
+    launched = _record_reference_dx_red(monkeypatch)
+    with _forced_dx_slices():
+        for name, call in _dx_calls(inp).items():
+            launched.clear()
+            with (
+                _torch_deterministic(True),
+                pytest.raises(RuntimeError, match=_ALERT) as info,
+            ):
+                call()
+            assert "cake_lm_head_det_loss" in str(info.value), name
+            assert not launched, name
+            with (
+                _torch_deterministic(True, warn_only=True),
+                pytest.warns(UserWarning, match=_ALERT),
+            ):
+                call()
+            assert launched and set(launched) == {2}, (name, launched)
+
+
+def test_one_slice_and_fixed_order_launches_do_not_alert(monkeypatch):
+    """A plan whose dX chunks all have one slice (the reference backend's) runs every dX path under strict
+    ``torch.use_deterministic_algorithms(True)`` without an alert, and the backward-only launches of a loss call (the
+    deferred weight gradient, the casts, the runner's and the autograd backward) run without one even after a forward
+    that ran a K-sliced dX: their order is fixed."""
+    inp = _host_inputs(8, device=CPU)
+    launched = _record_reference_dx_red(monkeypatch)
+    with _torch_deterministic(True), warnings.catch_warnings():
+        warnings.filterwarnings("error", message=f".*{_ALERT}.*")
+        for call in _dx_calls(inp).values():
             call()
-        assert "cake_lm_head_det_loss" in str(info.value), name
-        with (
-            _torch_deterministic(True, warn_only=True),
-            pytest.warns(
-                UserWarning, match="does not have a deterministic implementation"
-            ),
-        ):
+        for call in _fixed_order_backwards(inp).values():
             call()
+    assert not launched
+    with (
+        _forced_dx_slices(),
+        _torch_deterministic(True),
+        warnings.catch_warnings(),
+    ):
+        warnings.filterwarnings("error", message=f".*{_ALERT}.*")
+        for name, call in _fixed_order_backwards(inp).items():
+            launched.clear()
+            call()
+            assert launched, name  # the forward (outside the mode) ran the K-sliced dX
 
 
 def test_paths_without_gradient_gemms_do_not_alert():
-    """The log-probability forward and a loss forward without trainable inputs launch no gradient GEMM: no alert."""
+    """The log-probability forward and a loss forward without trainable inputs launch no gradient GEMM: no alert,
+    also with every dX plan forced to K slices."""
     inp = _host_inputs(8, device=CPU)
     kw = dict(chunk_size=4, backend="reference", **ND)
-    with _torch_deterministic(True), warnings.catch_warnings():
-        warnings.filterwarnings("error", message=".*deterministic implementation.*")
+    with (
+        _forced_dx_slices(),
+        _torch_deterministic(True),
+        warnings.catch_warnings(),
+    ):
+        warnings.filterwarnings("error", message=f".*{_ALERT}.*")
         cake_backend.forward_logprob(inp.X, inp.W, inp.labels, **kw)
         cake_backend.forward_loss(
             inp.X, inp.W, inp.labels, loss_div=1.0, need_dx=False, need_dw=False, **kw
@@ -2531,6 +2644,71 @@ def test_device_logp_statistics_never_change(glm_weight):
     det = det_backend.forward_logprob(inp.X, inp.W, inp.labels, chunk_size=4096)
     assert _same_bits(nd.logp, det.logp) and _same_bits(nd.lse, det.lse)
     assert math.isfinite(float(nd.logp.sum()))
+
+
+@pytest.mark.parametrize("entry", ["loss", "logprob"])
+def test_device_one_slice_call_runs_under_strict_deterministic_algorithms(
+    glm_weight, entry
+):
+    """Under strict ``torch.use_deterministic_algorithms(True)`` a call whose dX chunks all have one slice (pinned; every
+    row valid, uncompacted) raises no alert: its launches have one order, so two runs give the same ``dX`` / ``dW``
+    bits and ``dX`` is the deterministic entry's (the same one-slice plain store).  This checks on the device the
+    fixed order of the weight gradient (chunk order, no atomics) that the package's docstrings state."""
+    _require_program(entry=entry)
+    inp = _device_inputs(8191, "ce", W=glm_weight, ignore_frac=0.0)
+    kw = dict(gemm_tuning={"dx": {"k_slices": None}}, compact_rows=False)
+    runs = []
+    for _ in range(2):
+        with _torch_deterministic(True), warnings.catch_warnings():
+            warnings.filterwarnings("error", message=f".*{_ALERT}.*")
+            runs.append(_run(inp, 4096, entry=entry, backend="cake", **kw))
+    det = _run(inp, 4096, entry=entry, backend="cake", package="det", **kw)
+    for key in ("loss", "logp", "dX", "dW"):
+        assert _same_bits(runs[0][key], runs[1][key]), key
+    assert _same_bits(runs[0]["dX"], det["dX"])
+    _check_against_references(runs[0], inp, entry=entry)
+
+
+@pytest.mark.parametrize("entry", ["loss", "logprob"])
+def test_device_k_sliced_call_alerts_before_its_dx_and_leaves_no_state(
+    glm_weight, entry
+):
+    """Under strict ``torch.use_deterministic_algorithms(True)`` a call whose plan has K-sliced dX chunks (two slices
+    pinned; the default compacted path with the hidden valid-row count) raises PyTorch's ``RuntimeError`` before any dX
+    launch -- the launch record holds no ``gemm_dx*`` key and no ``dX_acc`` fill -- on a call that forms its binding
+    and on a remembered one; the next call outside the mode gives the reference call's ``loss`` / ``logp`` / ``dW``
+    bits and a ``dX`` within the budgets (the raise leaves no half-built binding or thread state).  Under
+    ``warn_only=True`` the call warns and runs."""
+    _require_program(entry=entry)
+    inp = _device_inputs(8191, "ce", W=glm_weight)
+    kw = dict(gemm_tuning={"dx": {"k_slices": 2}})
+    name = "forward_loss" if entry == "loss" else "backward_logprob"
+    ref = _run(inp, 4096, entry=entry, backend="cake", **kw)
+    cake_backend.BINDING_CACHE.clear()
+    for attempt in ("binds", "remembered"):
+        with (
+            _torch_deterministic(True),
+            _launch_record() as launched,
+            pytest.raises(
+                RuntimeError, match=f"{name} {_ALERT}.*cake_lm_head_det_loss"
+            ),
+        ):
+            _run(inp, 4096, entry=entry, backend="cake", **kw)
+        torch.cuda.synchronize()
+        dx_keys = [k for k in launched if str(k[0]).startswith(("gemm_dx", "dx_fill"))]
+        assert not dx_keys, (attempt, launched)
+        again = _run(inp, 4096, entry=entry, backend="cake", **kw)
+        for key in ("loss", "logp", "dW"):
+            assert _same_bits(again[key], ref[key]), (attempt, key)
+        _check_against_references(again, inp, entry=entry)
+    with (
+        _torch_deterministic(True, warn_only=True),
+        pytest.warns(UserWarning, match=f"{name} {_ALERT}"),
+    ):
+        warned = _run(inp, 4096, entry=entry, backend="cake", **kw)
+    for key in ("loss", "logp", "dW"):
+        assert _same_bits(warned[key], ref[key]), key
+    _check_against_references(warned, inp, entry=entry)
 
 
 # ---------------------------------------------------------------------------
@@ -5331,9 +5509,11 @@ def test_checkpointed_step_forms_the_gradients_once(objective, kind):
 
 
 def test_checkpointed_forward_alerts_in_the_forward_under_deterministic_algorithms():
-    """Under torch's deterministic algorithms a checkpointed call keeps its fused forward: the alert stays raised in the
-    checkpointed forward, before anything is bound or launched, as without a checkpoint.  Under ``torch.no_grad`` the
-    call launches no gradient GEMM and does not alert."""
+    """Under torch's deterministic algorithms a checkpointed call keeps its fused forward: the alert of a K-sliced dX
+    (forced: the reference backend plans one slice) stays raised in the checkpointed forward, before its dX launch, as
+    without a checkpoint.  With one-slice dX chunks (the reference backend's plan) the checkpointed step, its
+    recomputation and its backward run without an alert.  Under ``torch.no_grad`` the call launches no gradient GEMM
+    and does not alert."""
     inp = _host_inputs(37, device=CPU)
     X = inp.X.detach().requires_grad_(True)
     W = inp.W.detach().requires_grad_(True)
@@ -5344,14 +5524,22 @@ def test_checkpointed_forward_alerts_in_the_forward_under_deterministic_algorith
         )
 
     with (
+        _forced_dx_slices(),
         _torch_deterministic(True),
-        pytest.raises(
-            RuntimeError, match="does not have a deterministic implementation"
-        ),
+        pytest.raises(RuntimeError, match=f"forward_loss {_ALERT}"),
     ):
         torch.utils.checkpoint.checkpoint(head, X, W, use_reentrant=False)
-    with _torch_deterministic(True), warnings.catch_warnings(), torch.no_grad():
-        warnings.filterwarnings("error", message=".*deterministic implementation.*")
+    with _torch_deterministic(True), warnings.catch_warnings():
+        warnings.filterwarnings("error", message=f".*{_ALERT}.*")
+        torch.utils.checkpoint.checkpoint(head, X, W, use_reentrant=False).backward()
+    assert X.grad is not None and W.grad is not None
+    with (
+        _forced_dx_slices(),
+        _torch_deterministic(True),
+        warnings.catch_warnings(),
+        torch.no_grad(),
+    ):
+        warnings.filterwarnings("error", message=f".*{_ALERT}.*")
         head(X, W)
 
 
