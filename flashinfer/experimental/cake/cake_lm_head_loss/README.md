@@ -53,7 +53,9 @@ The det-free entries `chunked_lm_head_loss`, `chunked_lm_head_logprob`,
 and with the same `FLASHINFER_CAKE_LM_HEAD_LOSS_*` fallbacks of the switches.
 The dispatchers' full rules (the other values of `deterministic`, torch's
 deterministic algorithms) are in `docs/training_backend_names.md`.  The
-deterministic entries are `chunked_lm_head_det_*`.
+deterministic entries are `chunked_lm_head_det_*`.  Where a later section
+says what a dispatcher call with `deterministic=False` does, it describes a
+call that reaches this package.
 
 The arguments, outputs, memory rule, switches, ignored-row semantics,
 compaction, the policy objective and its clip, the opt-in forms
@@ -67,20 +69,26 @@ the next.
 
 The package's own entries (`cake_backend.forward_loss`,
 `forward_logprob`, `backward_logprob`, `forward_logprob_keep`,
-`backward_logprob_keep`, `prepare_lm_head_loss` and the runner,
+`backward_logprob_keep`, `prepare_lm_head_loss`,
 `chunked_lm_head_loss` / `chunked_lm_head_logprob` /
 `chunked_lm_head_logprob_keep`, the temperature entries
 `chunked_lm_head_logprob_temperature`, `forward_logprob_temperature`,
 `backward_logprob_temperature` and `prepare_lm_head_loss_temperature`, the same
-in `cake_backend_opt_in`, the candidate-support entries and
-`cake_support.SupportLogprobFunction`, which checks it first in its forward)
-take `deterministic` with the default `True` and raise `ValueError` for any
-value but `False`, naming the deterministic entry
+in `cake_backend_opt_in`, and the candidate-support entries
+`cake_support.chunked_lm_head_support_logprob` /
+`chunked_lm_head_support_kl`) take a keyword `deterministic` with the default
+`True`; `cake_support.SupportLogprobFunction.forward` takes it as its last
+positional argument (no default) and checks it first.  Each raises
+`ValueError` for any value but `False`, naming the deterministic entry
 (`flashinfer.chunked_lm_head.chunked_lm_head_det_*`): a caller asks for this
-package's mode explicitly.  `cake_backend.validate_lm_head_inputs` is their
-shared mode check.  `backward_loss` and `ForwardResult.backward` continue a
-`forward_loss` call of this package and take no mode; pass them only that
-call's accumulators and operands.
+package's mode explicitly.  The shared mode check is
+`cake_backend._require_nondeterministic`: `cake_backend.validate_lm_head_inputs`
+calls it for the loss and log-probability entries of both modules, and
+`cake_support._support_call` and `SupportLogprobFunction.forward` call it for
+the candidate-support entries.  A runner's `forward()` / `backward()` take no
+mode (its `prepare_*` call checked it).  `backward_loss` and
+`ForwardResult.backward` continue a `forward_loss` call of this package and
+take no mode; pass them only that call's accumulators and operands.
 
 With `torch.use_deterministic_algorithms(True)` an entry raises PyTorch's
 alert in PyTorch's wording (`RuntimeError`, or a `UserWarning` under
@@ -133,8 +141,10 @@ explicit pair `forward_logprob_keep` / `backward_logprob_keep`
 * `logp`, `lse` and `dW` are the default path's bits.  `dX` is formed from the
   same `dz` and the same products; a chunk of more than one dX slice adds them
   in the unordered reduction below, as the default path does.
-* The dispatcher `chunked_lm_head_logprob(..., deterministic=False)` passes
-  `memory_mode="keep_logits"` to this package unchanged.
+* The dispatcher `chunked_lm_head_logprob` passes `memory_mode="keep_logits"`
+  unchanged to the entry it runs (this package for a `deterministic=False`
+  call that reaches it; the dispatchers' rules:
+  `docs/training_backend_names.md`).
 
 ## Temperature of the log-probability entry (`temperature=`)
 
