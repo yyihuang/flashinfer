@@ -1702,8 +1702,8 @@ def cake_causal_conv1d_nondet_kcp(
         order of ``ctx.cu_seqlens_local``.
     weight : torch.Tensor
         FP32 ``[C, 4]`` contiguous taps; ``weight[c, 3]`` multiplies the current token.
-    ctx : ContextDetKcp
-        The rank's context (``flashinfer.cake_kda_det_train_kcp.build_context_det_kcp``): fragment table, halo
+    ctx : CakeKDADetKcpContext
+        The rank's context (``flashinfer.cake_kda_det_train_kcp.cake_kda_det_train_kcp_build_context``): fragment table, halo
         plan, process group.  Every rank of the group calls this function once per layer, in the same order.
     graph : str, optional
         ``None`` (the shipped default ``GRAPH_DEFAULT`` = ``"off"``, the eager path) or ``"replay"``: keyed CUDA-graph
