@@ -7371,9 +7371,9 @@ def chunked_lm_head_loss(
     ``grad_weight_dtype`` must equal ``W.dtype`` here: PyTorch's autograd engine
     casts every gradient to its leaf's dtype, so an FP32 ``dW`` cannot leave
     this entry through ``W.grad`` for a BF16 ``W``.  Use ``forward_loss(...,
-    need_dw=True)`` + ``backward_loss(dx_acc, dw_acc, g, grad_weight_dtype=
-    torch.float32, row_index=result.row_index, num_rows=result.num_rows)`` for
-    an FP32 weight gradient.
+    need_dw=True, deterministic=False)`` + ``backward_loss(dx_acc, dw_acc, g,
+    grad_weight_dtype=torch.float32, row_index=result.row_index,
+    num_rows=result.num_rows)`` for an FP32 weight gradient.
 
     The switches, each a keyword whose ``None`` (the default) selects the
     documented default -- this module reads no environment variable:
@@ -7466,8 +7466,9 @@ def chunked_lm_head_loss(
     if grad_weight_dtype != W.dtype:
         raise ValueError(
             f"grad_weight_dtype={grad_weight_dtype} differs from W.dtype={W.dtype}: the autograd engine casts "
-            "every gradient to its leaf's dtype, so this entry cannot return it; use forward_loss(..., need_dw=True) + "
-            "backward_loss(dx_acc, dw_acc, g, grad_weight_dtype=torch.float32, row_index=..., num_rows=...) for an FP32 dW"
+            "every gradient to its leaf's dtype, so this entry cannot return it; use forward_loss(..., need_dw=True, "
+            "deterministic=False) + backward_loss(dx_acc, dw_acc, g, grad_weight_dtype=torch.float32, row_index=..., "
+            "num_rows=...) for an FP32 dW"
         )
     if (
         not (

@@ -1970,6 +1970,10 @@ class SupportLogprobFunction(torch.autograd.Function):
         cake,
         deterministic: bool,
     ):
+        # an exported Function checks the mode itself (the entries checked it already)
+        _require_nondeterministic(
+            deterministic, "SupportLogprobFunction", "chunked_lm_head_support_logprob"
+        )
         if _TOP_SAVED_HOOKS(False) is not None and _selective_checkpoint_modes():
             # under selective activation checkpointing: every dispatch mode popped (as in :mod:`.cake_backend`)
             with _modes_off():
@@ -1996,7 +2000,7 @@ class SupportLogprobFunction(torch.autograd.Function):
             backend,
             cake,
         )
-        # the call's numerical mode (False: validated by the entry)
+        # the call's numerical mode (False: checked above)
         ctx.deterministic = deterministic
         T, M = problem.num_rows, problem.num_pairs
         device = X.device
@@ -2133,7 +2137,7 @@ def _support_call(
 ) -> dict[str, torch.Tensor]:
     if backend not in BACKENDS:
         raise ValueError(f"backend must be one of {BACKENDS}, got {backend!r}")
-    _require_nondeterministic(deterministic, entry)
+    _require_nondeterministic(deterministic, entry, entry)
     if not isinstance(check_inputs, bool):
         raise ValueError("check_inputs must be a bool")
     problem = validate_support_inputs(

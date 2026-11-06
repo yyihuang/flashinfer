@@ -3708,15 +3708,25 @@ def _temperature_rows(
     return value if row_index is None else value.index_select(0, row_index)
 
 
-def _require_nondeterministic(deterministic: object, entry: str) -> None:
-    """Refuse every numerical mode but ``deterministic=False``: this package runs the unordered dX reduction and has
-    no deterministic programs."""
+# The public deterministic entry of each kind of entry of this package (``flashinfer.chunked_lm_head``): the entry the
+# mode error names.
+_DET_ENTRIES = {
+    "loss": "flashinfer.chunked_lm_head.chunked_lm_head_det_loss",
+    "logprob": "flashinfer.chunked_lm_head.chunked_lm_head_det_logprob",
+    "chunked_lm_head_support_logprob": "flashinfer.chunked_lm_head.chunked_lm_head_det_support_logprob",
+    "chunked_lm_head_support_kl": "flashinfer.chunked_lm_head.chunked_lm_head_det_support_kl",
+}
+
+
+def _require_nondeterministic(deterministic: object, entry: str, kind: str) -> None:
+    """Refuse every numerical mode but ``deterministic=False`` (``kind``: the key of :data:`_DET_ENTRIES` whose
+    deterministic entry the error names): this package runs the unordered dX reduction and has no deterministic
+    programs."""
     if deterministic is not False:
         raise ValueError(
-            f"{entry} of flashinfer.experimental.cake.cake_lm_head_loss is the non-deterministic implementation "
-            f"(unordered dX reduction) and needs deterministic=False, got deterministic={deterministic!r}; the "
-            "deterministic programs are flashinfer.experimental.cake_lm_head_det_loss (or "
-            "flashinfer.chunked_lm_head.chunked_lm_head_loss with deterministic=True)"
+            f"{entry} of flashinfer.experimental.cake.cake_lm_head_loss is the non-deterministic path only, got "
+            f"deterministic={deterministic!r}: pass deterministic=False for the non-deterministic path; the "
+            f"deterministic entry is {_DET_ENTRIES[kind]} (package flashinfer.experimental.cake_lm_head_det_loss)"
         )
 
 
@@ -3777,7 +3787,8 @@ def validate_lm_head_inputs(
     entry: str = "loss",
     geometry: Geometry = DEFAULT_GEOMETRY,
 ) -> Problem:
-    """Shape / dtype / stride validation shared by the entry points.
+    """Shape / dtype / stride validation shared by the entry points, and their mode check: ``deterministic`` other
+    than ``False`` is a ``ValueError`` (:func:`_require_nondeterministic`).
 
     Returns the :class:`Problem`.  Device placement is checked separately so
     this runs on host tensors.  ``T == 0`` is accepted (the eager entry points
@@ -3786,7 +3797,7 @@ def validate_lm_head_inputs(
     if entry not in ENTRIES:
         raise ValueError(f"entry must be one of {ENTRIES}")
     if deterministic is not False:
-        _require_nondeterministic(deterministic, f"the {entry} entry")
+        _require_nondeterministic(deterministic, f"the {entry} entry", entry)
     if X.ndim != 2 or X.dtype != torch.bfloat16:
         raise ValueError("X must be a BF16 [T, H] tensor")
     if W.ndim != 2 or W.dtype != torch.bfloat16:
@@ -12181,9 +12192,9 @@ def chunked_lm_head_loss(
     ``grad_weight_dtype`` must equal ``W.dtype`` here: PyTorch's autograd engine
     casts every gradient to its leaf's dtype, so an FP32 ``dW`` cannot leave
     this entry through ``W.grad`` for a BF16 ``W``.  Use ``forward_loss(...,
-    need_dw=True)`` + ``backward_loss(dx_acc, dw_acc, g, grad_weight_dtype=
-    torch.float32, row_index=result.row_index, num_rows=result.num_rows)`` for
-    an FP32 weight gradient.
+    need_dw=True, deterministic=False)`` + ``backward_loss(dx_acc, dw_acc, g,
+    grad_weight_dtype=torch.float32, row_index=result.row_index,
+    num_rows=result.num_rows)`` for an FP32 weight gradient.
 
     The switches, each a keyword whose ``None`` (the default) selects the
     documented default -- this module reads no environment variable:
@@ -12239,8 +12250,9 @@ def chunked_lm_head_loss(
     if grad_weight_dtype != W.dtype:
         raise ValueError(
             f"grad_weight_dtype={grad_weight_dtype} differs from W.dtype={W.dtype}: the autograd engine casts "
-            "every gradient to its leaf's dtype, so this entry cannot return it; use forward_loss(..., need_dw=True) + "
-            "backward_loss(dx_acc, dw_acc, g, grad_weight_dtype=torch.float32, row_index=..., num_rows=...) for an FP32 dW"
+            "every gradient to its leaf's dtype, so this entry cannot return it; use forward_loss(..., need_dw=True, "
+            "deterministic=False) + backward_loss(dx_acc, dw_acc, g, grad_weight_dtype=torch.float32, row_index=..., "
+            "num_rows=...) for an FP32 dW"
         )
     if (
         not (

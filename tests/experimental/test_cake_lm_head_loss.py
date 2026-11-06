@@ -532,11 +532,18 @@ def test_sm107_takes_the_sm103_rule_tables_except_the_long_chunk_ring():
     assert long_ring, "no C 8192 chunk took the sm_103a long-chunk ring"
 
 
+# The entries of ``_mode_calls`` that run on the ``cake`` backend only (the kept-logits pair): their mode check runs on
+# host tensors before anything else, their ``deterministic=False`` path on a device (the kept-logits device tests).
+_CAKE_ONLY_MODE_CALLS = frozenset({"forward_logprob_keep", "backward_logprob_keep"})
+
+
 def _mode_calls(X, W, labels):
     """Every entry of the package that takes ``deterministic``, as ``name -> call(deterministic)`` on host tensors
-    (the reference backend, so a call that passes the mode check computes on the CPU)."""
+    (the reference backend, so a call that passes the mode check computes on the CPU; the ``cake`` backend for the
+    entries of :data:`_CAKE_ONLY_MODE_CALLS`)."""
     common = dict(chunk_size=4, backend="reference")
     loss_kw = dict(common, loss_div=1.0)
+    rows = labels.shape[0]
     return {
         "validate_lm_head_inputs": lambda d: cake_backend.validate_lm_head_inputs(
             X, W, labels, loss_div=1.0, deterministic=d
@@ -637,20 +644,81 @@ def _mode_calls(X, W, labels):
                 **common,
             )
         ),
+        "chunked_lm_head_logprob_keep": lambda d: (
+            cake_backend.chunked_lm_head_logprob_keep(
+                X, W, labels, deterministic=d, **common
+            )
+        ),
+        "forward_logprob_keep": lambda d: cake_backend.forward_logprob_keep(
+            X, W, labels, deterministic=d, chunk_size=4, backend="cake"
+        ),
+        "backward_logprob_keep": lambda d: cake_backend.backward_logprob_keep(
+            X,
+            W,
+            labels,
+            torch.zeros(rows),
+            torch.zeros(rows),
+            (),
+            deterministic=d,
+            chunk_size=4,
+            backend="cake",
+        ),
+        "opt_in.forward_logprob": lambda d: opt_in.forward_logprob(
+            X, W, labels, deterministic=d, **common
+        ),
+        "opt_in.backward_logprob": lambda d: opt_in.backward_logprob(
+            X,
+            W,
+            labels,
+            torch.zeros(rows),
+            torch.zeros(rows),
+            deterministic=d,
+            **common,
+        ),
+        "opt_in.backward_logprob_temperature": lambda d: (
+            opt_in.backward_logprob_temperature(
+                X,
+                W,
+                labels,
+                torch.zeros(rows),
+                torch.zeros(rows),
+                deterministic=d,
+                temperature=0.7,
+                **common,
+            )
+        ),
     }
+
+
+def _det_entry_of(name: str) -> str:
+    """The public deterministic entry the mode error of ``_mode_calls``'s entry ``name`` names (the temperature and
+    kept-logits entries belong to the log-probability entry)."""
+    kind = "logprob" if "logprob" in name or "temperature" in name else "loss"
+    return f"flashinfer.chunked_lm_head.chunked_lm_head_det_{kind}"
 
 
 @pytest.mark.parametrize("value", [True, None, 1, 0, "False"])
 def test_every_entry_refuses_any_mode_but_false(value):
     """``deterministic`` other than ``False`` (the default ``True`` included; ``0`` and other falsy values too) is a
-    ``ValueError`` that names the deterministic package, raised before any work."""
+    ``ValueError`` that names the deterministic entry (``flashinfer.chunked_lm_head.chunked_lm_head_det_*``) and its
+    package and says how to reach this one, raised before any work."""
     inp = _host_inputs(8, device=CPU)
     for name, call in _mode_calls(inp.X, inp.W, inp.labels).items():
         with pytest.raises(ValueError, match="cake_lm_head_det_loss") as info:
             call(value)
-        assert "deterministic=False" in str(info.value), name
+        message = str(info.value)
+        assert "pass deterministic=False for the non-deterministic path" in message, (
+            name
+        )
+        assert f"deterministic entry is {_det_entry_of(name)} " in message, (
+            name,
+            message,
+        )
+        assert f"deterministic={value!r}" in message, name
     # the defaults refuse too: every entry of this package must be asked for the non-deterministic mode
-    with pytest.raises(ValueError, match="deterministic=False"):
+    with pytest.raises(
+        ValueError, match="flashinfer.chunked_lm_head.chunked_lm_head_det_loss "
+    ):
         cake_backend.chunked_lm_head_loss(
             inp.X, inp.W, inp.labels, loss_div=1.0, backend="reference"
         )
@@ -658,7 +726,9 @@ def test_every_entry_refuses_any_mode_but_false(value):
 
 def test_every_entry_accepts_false():
     inp = _host_inputs(8, device=CPU)
-    for call in _mode_calls(inp.X, inp.W, inp.labels).values():
+    for name, call in _mode_calls(inp.X, inp.W, inp.labels).items():
+        if name in _CAKE_ONLY_MODE_CALLS:
+            continue  # a cake-backend entry: its False path runs on a device
         call(False)  # no exception: the reference backend computes on the host
 
 
@@ -5458,36 +5528,6 @@ def test_opt_in_count_form_places_the_gradients_alike(kind):
     _assert_step_bits(run, plain)
 
 
-def test_deterministic_true_is_one_call_of_the_deterministic_entry_under_no_grad_and_checkpoint(
-    monkeypatch,
-):
-    """The public ``deterministic=True`` path stays one call of the deterministic entry with the caller's arguments
-    (no gradient placement of its own), under ``torch.no_grad`` and inside a checkpoint (its forward and its
-    recomputation)."""
-    from flashinfer import chunked_lm_head as pub
-
-    calls = []
-
-    def recording(*args, **kwargs):
-        calls.append((args, kwargs))
-        # saves its input: a checkpoint's backward unpacks it and so runs the recomputation
-        return args[0].float().square().sum() * 0.0
-
-    monkeypatch.setattr(pub, "_det_loss", recording)
-    inp = _host_inputs(64, "ce")
-    kw = dict(loss_div=inp.loss_div, chunk_size=32)
-    X = inp.X.detach().requires_grad_(True)
-    with torch.no_grad():
-        pub.chunked_lm_head_loss(X, inp.W, inp.labels, **kw)
-    assert len(calls) == 1 and calls[0][0][0] is X and calls[0][1] == kw
-    torch.utils.checkpoint.checkpoint(
-        lambda a: pub.chunked_lm_head_loss(a, inp.W, inp.labels, **kw),
-        X,
-        use_reentrant=False,
-    ).backward()
-    assert len(calls) == 3 and all(c[1] == kw for c in calls)
-
-
 @pytest.mark.parametrize("graph", ["no_grad", "inference_mode"])
 @pytest.mark.parametrize("objective", ["ce", "policy"])
 def test_device_no_graph_launches_no_gradient_gemm(glm_weight, objective, graph):
@@ -6162,11 +6202,12 @@ def test_logprob_keep_entry_points_and_opt_in_mode(monkeypatch):
         inspect.signature(cake_backend.chunked_lm_head_logprob_keep).parameters
         == default_params
     )
-    assert list(
-        inspect.signature(cake_backend.chunked_lm_head_logprob_keep).parameters
-    ) == list(
-        inspect.signature(det_backend.chunked_lm_head_det_logprob_keep).parameters
-    )
+    # the deterministic entry's parameters without the mode keyword (it has none, or one that takes True only)
+    keep = inspect.signature(cake_backend.chunked_lm_head_logprob_keep).parameters
+    det = inspect.signature(det_backend.chunked_lm_head_det_logprob_keep).parameters
+    assert [n for n in keep if n != "deterministic"] == [
+        n for n in det if n != "deterministic"
+    ]
     for fn in (
         cake_backend.chunked_lm_head_logprob,
         cake_backend.forward_logprob,

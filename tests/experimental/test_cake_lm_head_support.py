@@ -191,10 +191,17 @@ def _torch_deterministic(enabled: bool, warn_only: bool = False):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("value", [True, None, 1, 0])
+@pytest.mark.parametrize("value", [True, None, 1, 0, "False"])
 def test_entries_refuse_any_mode_but_false(value):
+    """Any ``deterministic`` but ``False`` (the default included) is a ``ValueError`` naming the deterministic entry,
+    also through ``SupportLogprobFunction.apply`` directly: the exported autograd Function checks the mode first in
+    its forward."""
     inp = small(T=8, k_cap=4, labels=True, teacher=True)
-    with pytest.raises(ValueError, match="deterministic=False"):
+    refusal = (
+        "pass deterministic=False for the non-deterministic path; the deterministic entry is "
+        "flashinfer.chunked_lm_head.chunked_lm_head_det_support_logprob "
+    )
+    with pytest.raises(ValueError, match=refusal):
         support_logprob(
             inp.X,
             inp.W,
@@ -205,7 +212,9 @@ def test_entries_refuse_any_mode_but_false(value):
             backend=REF,
             deterministic=value,
         )
-    with pytest.raises(ValueError, match="cake_lm_head_det_loss"):
+    with pytest.raises(
+        ValueError, match="chunked_lm_head_det_support_kl .*cake_lm_head_det_loss"
+    ):
         support_kl(
             inp.X,
             inp.W,
@@ -215,6 +224,26 @@ def test_entries_refuse_any_mode_but_false(value):
             **inp.kwargs(),
             backend=REF,
             deterministic=value,
+        )
+    # the Function itself: the mode check is its forward's first statement (no other argument is read before it)
+    with pytest.raises(
+        ValueError,
+        match="SupportLogprobFunction of .*chunked_lm_head_det_support_logprob ",
+    ):
+        cake_support.SupportLogprobFunction.apply(
+            inp.X,
+            inp.W,
+            inp.support_ids,
+            inp.support_offsets,
+            inp.labels,
+            None,
+            None,
+            None,
+            None,
+            False,
+            REF,
+            None,
+            value,
         )
     with pytest.raises(
         ValueError, match="deterministic=False"
