@@ -84,6 +84,20 @@ any grid size, so ``dx`` is still bitwise the deterministic one and
 on it (one accumulator set and one counter per channel tile, whatever the
 grid).
 
+The backward entry points (the explicit backward and the autograd entry) also
+take the opt-in ``bwd_reserve_sms: int = 0`` (keyword-only; FlashInfer issue
+#8365; the deterministic package has no such keyword): ``K >= 1`` caps the
+backward grid at ``ctas_per_sm x (SM count - K)`` CTAs on every backward
+route, so kernels of other streams that hold up to ``K`` SMs (for example a
+communication kernel) leave the backward one wave.  Only the CTA count, and
+so the order of the cross-CTA sums, changes: ``y`` and ``dx`` are bitwise the
+default's, ``dweight`` / ``dbias`` stay within their budgets.  The package
+validates it before anything is allocated or launched: ``TypeError`` for a
+non-int, ``ValueError`` below 0 and, for ``K >= 1``, beside a
+``bwd_grid_mult`` other than 1, on a program whose grid is not one wave, on an
+(architecture, route) the package lists in ``RESERVE_REFUSED``, or when fewer
+CTAs than channel tiles would remain.
+
 Name map (the deterministic package -> the non-deterministic package)::
 
     flashinfer.cake_causal_conv1d_det_train.             flashinfer.cake_causal_conv1d_nondet_train.
@@ -116,6 +130,9 @@ Usage::
     dx, dweight = cake_causal_conv1d_nondet_train_backward(
         x, weight, cu_seqlens, dy, bwd_grid_mult=3
     )
+
+    # opt-in: the backward leaves one SM to a kernel of another stream (default 0)
+    y = cake_causal_conv1d_nondet(x, weight, cu_seqlens, bias, bwd_reserve_sms=1)
 """
 
 from __future__ import annotations
@@ -142,6 +159,16 @@ def _backend():
     from .experimental.cake import cake_causal_conv1d_nondet_train  # noqa: PLC0415
 
     return cake_causal_conv1d_nondet_train
+
+
+def _reserve_given(bwd_reserve_sms: Any) -> dict[str, Any]:
+    """``{"bwd_reserve_sms": value}`` unless the call keeps the default (the ``int`` 0, which is the package's own
+    default): a call without the keyword reaches the package unchanged, and every other value (a ``bool`` included)
+    reaches it to be validated there."""
+
+    if type(bwd_reserve_sms) is int and bwd_reserve_sms == 0:
+        return {}
+    return {"bwd_reserve_sms": bwd_reserve_sms}
 
 
 @flashinfer_api
@@ -271,6 +298,7 @@ def cake_causal_conv1d_nondet_train_backward(
     dweight: Optional[torch.Tensor] = None,
     dbias: Optional[torch.Tensor] = None,
     bwd_grid_mult: int = 1,
+    bwd_reserve_sms: int = 0,
 ) -> tuple[torch.Tensor, ...]:
     r"""Packed width-4 depthwise causal convolution + SiLU, training backward (one launch, unordered
     ``dweight`` / ``dbias`` reductions).
@@ -305,6 +333,25 @@ def cake_causal_conv1d_nondet_train_backward(
         default's; more CTAs add into the same accumulators (same budgets, same
         workspace size).  ``TypeError`` for a non-int, ``ValueError`` for
         another value.
+    bwd_reserve_sms : int
+        Opt-in SM reserve of the backward grid (default 0, the default grid;
+        FlashInfer issue #8365): ``K >= 1`` launches at most ``ctas_per_sm x
+        (SM count - K)`` CTAs (``min(G, ctas_per_sm x (SM count - K))``, ``G``
+        the default grid) on every backward route, so kernels of other streams
+        that hold up to ``K`` SMs leave the backward one wave; the unloaded
+        backward gives up the work of those ``K`` SMs.  The default grid of the
+        ``bwd`` and ``bwd_fp32g`` routes already leaves one SM free where its
+        last channel-tile rank holds at least ``ctas_per_sm`` CTAs, and there
+        ``K = 1`` keeps it.  Only the CTA count changes, so only the order of
+        the cross-CTA sums does: ``dx`` is bitwise the default's and
+        ``dweight`` / ``dbias`` stay within their budgets (same workspace
+        size).  Forwarded to the package unless it is the default 0.
+        ``TypeError`` for a non-int (``bool`` included); ``ValueError`` below 0
+        and, for ``K >= 1``, beside a ``bwd_grid_mult`` other than 1, on a
+        program whose grid is not one wave, on an (architecture, route) of the
+        package's ``RESERVE_REFUSED``, or when fewer CTAs than channel tiles
+        would remain (the message names the largest ``K`` that fits); each is
+        raised before an output is allocated or anything launches.
 
     Returns
     -------
@@ -325,6 +372,7 @@ def cake_causal_conv1d_nondet_train_backward(
         dweight=dweight,
         dbias=dbias,
         bwd_grid_mult=bwd_grid_mult,
+        **_reserve_given(bwd_reserve_sms),
     )
 
 
@@ -337,6 +385,7 @@ def cake_causal_conv1d_nondet(
     *,
     silu_grad_preactivation: str = "bf16",
     bwd_grid_mult: int = 1,
+    bwd_reserve_sms: int = 0,
 ) -> torch.Tensor:
     """Autograd-enabled packed width-4 depthwise causal convolution + SiLU, non-deterministic backward.
 
@@ -360,6 +409,14 @@ def cake_causal_conv1d_nondet(
         The backward's opt-in finer partition (default 1; see
         :func:`cake_causal_conv1d_nondet_train_backward`); checked at the forward
         call, used by the backward.
+    bwd_reserve_sms : int
+        The backward's opt-in SM reserve (default 0, the default grid; see
+        :func:`cake_causal_conv1d_nondet_train_backward`): ``K >= 1`` caps the
+        backward grid at ``ctas_per_sm x (SM count - K)`` CTAs; ``y`` and ``dx``
+        bitwise the default's, ``dweight`` / ``dbias`` within their budgets.
+        Forwarded to the package unless it is the default 0; every refusal is
+        raised at the forward call, before anything runs, and the backward
+        (also after a checkpoint recompute) launches the capped grid.
 
     Returns
     -------
@@ -376,6 +433,7 @@ def cake_causal_conv1d_nondet(
         bias,
         silu_grad_preactivation=silu_grad_preactivation,
         bwd_grid_mult=bwd_grid_mult,
+        **_reserve_given(bwd_reserve_sms),
     )
 
 

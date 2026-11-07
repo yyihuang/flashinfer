@@ -99,11 +99,24 @@ Host design (the knobs are keywords; no environment variable):
   so a kernel on another stream that keeps one SM's shared memory does not
   push the top CTAs, each with a whole token stream, into a second wave.
   ``dx`` keeps its bits (the partition is read from ``gridDim.x``, as above).
+- Opt-in SM reserve of the backward (keyword ``bwd_reserve_sms``, default
+  ``RESERVE_DEFAULT`` = 0: the grid above; FlashInfer issue #8365):
+  ``bwd_reserve_sms=K >= 1`` caps the backward grid at ``ctas_per_sm x (SM
+  count - K)`` CTAs on every backward route (:func:`_reserved_grid`), so
+  kernels of other streams that hold up to ``K`` SMs leave the launch one
+  wave.  Only the CTA count changes (the same programs): ``dx`` keeps its
+  bits and ``dweight`` / ``dbias`` sum the same terms in another order,
+  within the same budgets.  It needs ``bwd_grid_mult`` 1 and a single-wave
+  program, leaves at least one CTA per channel tile, and is refused on the
+  (architecture, route) pairs of :data:`RESERVE_REFUSED` (none); each
+  refusal is a ``ValueError`` raised before anything is allocated or
+  launched.  The host plan keys hold ``K``.
 - The forward workspace (int32 token-chunk counters) follows the det
   package's rules.
 - Host plan: the first call of a row (architecture, route, ``C``, device,
-  ``bwd_grid_mult``) selects its program, splits ``C`` into channel tiles,
-  reads the row's ``TILE_OVERRIDES`` or ``NARROW_TILES`` entry and sizes the
+  ``bwd_grid_mult``, and ``bwd_reserve_sms`` when not 0) selects its
+  program, splits ``C`` into channel tiles, reads the row's
+  ``TILE_OVERRIDES`` or ``NARROW_TILES`` entry and sizes the
   grid (``cake_jit.plan_row``); later calls of the row only compare ``S`` with
   the entry's token range (and size the grid where ``launch_grid`` trims it
   by ``S``), so they launch the values a per-call plan gives.  A row whose
@@ -156,6 +169,12 @@ SILU_GRAD_PREACTIVATIONS = ("bf16", "fp32")
 # The backward grid multiples a call may choose (``bwd_grid_mult``): 1 is the default grid; 2, 3 and 4 launch that
 # many times its untrimmed CTA count.  The deterministic package's ``BWD_GRID_MULTS`` (a test checks they agree).
 BWD_GRID_MULTS: tuple[int, ...] = (1, 2, 3, 4)
+# The opt-in SM reserve of the backward (keyword ``bwd_reserve_sms``): 0 = the shipped grid (:func:`_one_sm_trim`);
+# ``K >= 1`` caps it at ``ctas_per_sm x (SM count - K)`` CTAs (:func:`_reserved_grid`).
+RESERVE_DEFAULT = 0
+# The (architecture, backward route) pairs that refuse ``bwd_reserve_sms >= 1`` (a ``ValueError`` naming the reason):
+# architecture -> route -> reason.  Empty: every backward route of every architecture takes the reserve.
+RESERVE_REFUSED: dict[str, dict[str, str]] = {}
 # The forward workspaces of the calls that pass none: (device index, CUDA stream
 # handle) -> a zeroed int32 buffer, grown as needed.  The launches of one stream
 # run in order and each leaves its counters zero, so the stream's buffer serves
@@ -190,13 +209,14 @@ _LAYOUTS: dict[tuple, dict] = {}
 # callback drops the entry when the workspace dies.
 _ACCUMULATOR_VIEWS: dict[int, tuple[weakref.ref, dict]] = {}
 # The host plan of each call row, planned by the row's first call: ``(arch, route kind, C, device index,
-# bwd_grid_mult) -> (cake_jit.RowPlan or None, {n_ch_tiles: the forward's counter words or the backward's accumulator
-# layout})``.  Selecting the route's program, splitting C into channel tiles, looking up the TILE_OVERRIDES /
-# NARROW_TILES row and sizing the grid cost several us of host time in front of every launch; with the row's plan a
-# call only compares ``S`` with the row's token range (``cake_jit.row_launch``).  A row whose program selection reads
-# ``S`` (``cake_jit.tokens_select``) holds ``None`` and plans every call.  At most ``_ROW_PLANS_MAX`` rows (then
-# emptied); :func:`plan_cache_clear` empties it (needed after a change of the registry tables, the SM count or the
-# architecture a device reports, which the rows were planned from).
+# bwd_grid_mult)``, followed by the backward's ``bwd_reserve_sms`` when it is not 0, ``-> (cake_jit.RowPlan or None,
+# {n_ch_tiles: the forward's counter words or the backward's accumulator layout})``.  Selecting the route's program,
+# splitting C into channel tiles, looking up the TILE_OVERRIDES / NARROW_TILES row and sizing the grid cost several us
+# of host time in front of every launch; with the row's plan a call only compares ``S`` with the row's token range
+# (``cake_jit.row_launch``).  A row whose program selection reads ``S`` (``cake_jit.tokens_select``) holds ``None``
+# and plans every call.  At most ``_ROW_PLANS_MAX`` rows (then emptied); :func:`plan_cache_clear` empties it (needed
+# after a change of the registry tables, the SM count or the architecture a device reports, which the rows were
+# planned from).
 _ROW_PLANS: dict[tuple, tuple[Optional[_loader.RowPlan], dict]] = {}
 _ROW_PLANS_MAX = 1024
 # The torch dtype of each accumulator / counter dtype name of a workspace rule.
@@ -465,6 +485,29 @@ def _bwd_grid_mult(value: object) -> int:
     return value
 
 
+def _bwd_reserve_sms(value: object, bwd_grid_mult: int) -> int:
+    """Validate ``bwd_reserve_sms`` of a call at the validated ``bwd_grid_mult``: an ``int`` (``TypeError``
+    otherwise, ``bool`` included) of at least 0 (``ValueError`` otherwise); ``K >= 1`` only at ``bwd_grid_mult`` 1
+    (``ValueError``: the reserve caps the default grid).  The checks that need the call's route and channel tiles
+    run where its backward is planned (:func:`_reserved_grid`)."""
+
+    if type(value) is not int:
+        raise TypeError(
+            "bwd_reserve_sms must be an int (0, the default grid, or the SMs to leave to kernels of other "
+            f"streams), got {type(value).__name__} {value!r}"
+        )
+    if value < 0:
+        raise ValueError(
+            f"bwd_reserve_sms must be >= 0, got {value}; pass 0 for the default grid"
+        )
+    if value and bwd_grid_mult != 1:
+        raise ValueError(
+            f"bwd_reserve_sms={value} caps the default backward grid (bwd_grid_mult=1), got "
+            f"bwd_grid_mult={bwd_grid_mult}; pass bwd_reserve_sms=0 or bwd_grid_mult=1"
+        )
+    return value
+
+
 def _scalars(scalars: dict[str, int]) -> dict[str, int]:
     """The launch scalars :func:`cake_jit.plan` produced (``flags`` is set beside them by the caller)."""
 
@@ -512,6 +555,7 @@ def _launch(
     device_index: int,
     arch: str,
     bwd_grid_mult: int = 1,
+    reserve: int = RESERVE_DEFAULT,
 ) -> tuple[dict[str, int], tuple[int, int, int]]:
     """The kernel scalars and the grid of one launch of ``record`` (the host plan of ``cake_jit``).
 
@@ -526,7 +570,9 @@ def _launch(
     record's plan takes the device's architecture ``arch`` and the record's
     route, so a row of ``cake_jit.TILE_OVERRIDES`` or ``cake_jit.NARROW_TILES``
     runs its narrower channel tiles.  At ``bwd_grid_mult`` 1 the grid is
-    :func:`_one_sm_trim` of the row's ``launch_grid``.
+    :func:`_one_sm_trim` of the row's ``launch_grid``, capped by
+    :func:`_reserved_grid` when the backward's ``reserve`` (``bwd_reserve_sms``)
+    is 1 or more.
     """
 
     scalars = plan(
@@ -549,6 +595,16 @@ def _launch(
         )
     else:
         grid = (launch_grid(record, device_index=device_index)[0] * bwd_grid_mult, 1, 1)
+    if reserve:
+        grid = _reserved_grid(
+            record,
+            scalars["n_ch_tiles"],
+            grid,
+            device_index=device_index,
+            arch=arch,
+            bwd_grid_mult=bwd_grid_mult,
+            reserve=reserve,
+        )
     _check_tiles(C, scalars["n_ch_tiles"], grid)
     return scalars, grid
 
@@ -588,6 +644,69 @@ def _one_sm_trim(
     return (full - k, int(grid[1]), int(grid[2]))
 
 
+def _reserved_grid(
+    record: dict,
+    n_ch_tiles: int,
+    grid: tuple[int, int, int],
+    *,
+    device_index: int,
+    arch: str,
+    bwd_grid_mult: int,
+    reserve: int,
+) -> tuple[int, int, int]:
+    """The backward grid of ``bwd_reserve_sms`` ``reserve`` = ``K >= 1`` (FlashInfer issue #8365): the call's
+    shipped grid ``grid`` (:func:`_one_sm_trim` of the row's ``launch_grid``) with ``grid[0]`` capped at
+    ``ctas_per_sm x (SM count - K)`` CTAs and ``grid[1:]`` kept, on every backward route, so kernels of other
+    streams that hold up to ``K`` SMs leave the launch one wave.  The program reads its token partition and ticket
+    count from ``gridDim``: ``dx`` keeps its bits and only the order of the cross-CTA sums changes.
+
+    ``ValueError`` (naming the keyword, ``K``, the route and the architecture; raised before the launch) when the
+    cap cannot be honoured: ``bwd_grid_mult`` other than 1, a program whose grid on ``arch`` is not one wave (grid
+    rule other than ``occupancy``, or ``grid_mult`` above 1), an (``arch``, route) of :data:`RESERVE_REFUSED`, or a
+    capped grid with fewer CTAs than ``max(1, n_ch_tiles)`` (every channel tile needs a CTA; a shipped grid already
+    below that is left to :func:`_check_tiles`, as without the reserve)."""
+
+    route = _loader.record_route(record, arch)
+    if bwd_grid_mult != 1:
+        raise ValueError(
+            f"bwd_reserve_sms={reserve} caps the default backward grid (bwd_grid_mult=1), got "
+            f"bwd_grid_mult={bwd_grid_mult} on the {route!r} route on {arch}; pass bwd_reserve_sms=0 or "
+            "bwd_grid_mult=1"
+        )
+    rule = record["grid_rule"]
+    waves = _loader.grid_mult(record, arch)
+    if rule["kind"] != "occupancy" or waves != 1:
+        raise ValueError(
+            f"bwd_reserve_sms={reserve} needs a single-wave backward grid, but the {route!r} route's program "
+            f"{record['kernel']} on {arch} has grid rule {rule['kind']!r} with grid_mult {waves}; pass "
+            "bwd_reserve_sms=0"
+        )
+    reason = RESERVE_REFUSED.get(arch, {}).get(route)
+    if reason is not None:
+        raise ValueError(
+            f"bwd_reserve_sms={reserve} is not supported on the {route!r} backward route on {arch}: {reason}; "
+            "pass bwd_reserve_sms=0"
+        )
+    k = int(rule["ctas_per_sm"])
+    sms = _loader.sm_count(device_index)
+    reserved = max(0, min(int(grid[0]), k * (sms - int(reserve))))
+    need = max(1, int(n_ch_tiles))
+    if reserved < need <= int(grid[0]):
+        # the largest reserve whose capped grid still holds ``need`` CTAs
+        most = sms - -(-need // k)
+        instead = (
+            f"pass bwd_reserve_sms={most} or less"
+            if most >= 1
+            else "pass bwd_reserve_sms=0"
+        )
+        raise ValueError(
+            f"bwd_reserve_sms={reserve} leaves {reserved} CTAs of the {route!r} backward grid on {arch} "
+            f"({k} CTAs per SM on {sms} SMs); its {int(n_ch_tiles)} channel tiles need at least {need}; "
+            f"{instead}"
+        )
+    return (reserved, int(grid[1]), int(grid[2]))
+
+
 def _check_tiles(C: int, n_ch_tiles: int, grid: tuple[int, int, int]) -> None:
     """Refuse a launch whose ``grid`` has fewer CTAs than ``C``'s ``n_ch_tiles`` channel tiles (``ValueError``)."""
 
@@ -607,6 +726,18 @@ def _route_needs(policy: Optional[str]) -> str:
     return f"this backward (bias / BF16 taps or dweight / silu_grad_preactivation={policy!r})"
 
 
+def _backward_kind(
+    policy: str, w: torch.Tensor, b: Optional[torch.Tensor], dw_dtype: torch.dtype
+) -> str:
+    """The backward route of a call: its bias, SiLU' ``policy`` and the dtypes of its taps ``w`` and ``dweight``."""
+
+    return backward_route(
+        bias=b is not None,
+        fp32_grad=policy == "fp32",
+        bf16_taps_or_dweight=torch.bfloat16 in (w.dtype, dw_dtype),
+    )
+
+
 def _call_plan(
     arch: str,
     kind: str,
@@ -617,14 +748,19 @@ def _call_plan(
     device_index: int,
     policy: Optional[str] = None,
     bwd_grid_mult: int = 1,
+    reserve: int = RESERVE_DEFAULT,
 ) -> tuple[tuple[str, ...], dict, dict[str, int], tuple[int, int, int], dict]:
     """``(names, record, scalars, grid, per_tiles)`` of one call of route ``kind``: the programs :func:`_route`
     selects, the first one's record, the :data:`cake_jit.PLAN_SCALARS` and the grid :func:`_launch` plans (same
     values, same errors), from the call's ``_ROW_PLANS`` row; ``per_tiles`` is the row's dict for the host values
     of each channel tile count (empty and not kept for a row planned per call).  ``policy`` is the backward's
-    ``silu_grad_preactivation`` (``None`` for the forward) and only names the route in an error."""
+    ``silu_grad_preactivation`` (``None`` for the forward) and only names the route in an error.  ``reserve`` is
+    the backward's ``bwd_reserve_sms``: 1 or more caps the grid (:func:`_reserved_grid`) and keys a row of its own
+    (0 keeps the key of a call without it)."""
 
-    key = (arch, kind, C, device_index, bwd_grid_mult)
+    key: tuple = (arch, kind, C, device_index, bwd_grid_mult)
+    if reserve:
+        key = (*key, reserve)
     hit = _ROW_PLANS.get(key)
     if hit is None:
         # A missing route or a registry error raises as in a per-call plan.
@@ -647,6 +783,7 @@ def _call_plan(
             device_index=device_index,
             arch=arch,
             bwd_grid_mult=bwd_grid_mult,
+            reserve=reserve,
         )
         return names, record, _scalars(scalars), grid, {}
     scalars, grid = _loader.row_launch(row, S, num_docs, device_index=device_index)
@@ -658,6 +795,16 @@ def _call_plan(
         arch=arch,
         bwd_grid_mult=bwd_grid_mult,
     )
+    if reserve:
+        grid = _reserved_grid(
+            row.record,
+            scalars["n_ch_tiles"],
+            grid,
+            device_index=device_index,
+            arch=arch,
+            bwd_grid_mult=bwd_grid_mult,
+            reserve=reserve,
+        )
     _check_tiles(C, scalars["n_ch_tiles"], grid)
     return row.names, row.record, scalars, grid, per_tiles
 
@@ -1110,6 +1257,7 @@ def cake_causal_conv1d_nondet_train_backward(
     dweight: Optional[torch.Tensor] = None,
     dbias: Optional[torch.Tensor] = None,
     bwd_grid_mult: int = 1,
+    bwd_reserve_sms: int = 0,
 ) -> tuple[torch.Tensor, ...]:
     r"""Packed width-4 depthwise causal convolution + SiLU, training backward, ONE ordinary launch with unordered
     cross-CTA ``dweight`` / ``dbias`` reductions.
@@ -1157,6 +1305,26 @@ def cake_causal_conv1d_nondet_train_backward(
         ``dweight`` / ``dbias`` keep the route's budget.  The workspace size does
         not depend on it.  ``TypeError`` for a non-int, ``ValueError`` for
         another value.
+    bwd_reserve_sms : int
+        Opt-in SM reserve of the backward grid (default 0 =
+        ``RESERVE_DEFAULT``: the default grid; FlashInfer issue #8365).
+        ``K >= 1`` launches ``min(G, ctas_per_sm x (SM count - K))`` CTAs, ``G``
+        the default grid's CTA count, on every backward route, so kernels of
+        other streams that hold up to ``K`` SMs leave the launch one wave; the
+        unloaded backward gives up the work of those ``K`` SMs.  The default
+        grid of the ``bwd`` and ``bwd_fp32g`` routes already leaves one SM free
+        where its last channel-tile rank holds at least ``ctas_per_sm`` CTAs,
+        and there ``K = 1`` keeps it.  Only the CTA count changes, so only the
+        order of the cross-CTA sums does: ``dx`` is bitwise the default's and
+        ``dweight`` / ``dbias`` stay within the route's budget; the workspace
+        size does not depend on it.  ``TypeError`` for a non-int (``bool``
+        included); ``ValueError`` below 0 and, for ``K >= 1``, beside a
+        ``bwd_grid_mult`` other than 1, on a program whose grid is not one
+        wave, on an (architecture, route) of ``RESERVE_REFUSED``, or when fewer
+        CTAs than channel tiles would remain (the message names the largest
+        ``K`` that fits).  Each is raised before an output is allocated or
+        anything launches (with ``S == 0`` only the value is checked: nothing
+        launches).
 
     Returns
     -------
@@ -1170,6 +1338,7 @@ def cake_causal_conv1d_nondet_train_backward(
 
     policy = _silu_grad_preactivation(silu_grad_preactivation)
     bwd_grid_mult = _bwd_grid_mult(bwd_grid_mult)
+    reserve = _bwd_reserve_sms(bwd_reserve_sms, bwd_grid_mult)
     x = _require_tensor(x, "x")
     device = x.device
     arch = _device_arch(device)
@@ -1178,6 +1347,25 @@ def cake_causal_conv1d_nondet_train_backward(
     b = None if bias is None else _bias(bias, C, device=device)
     cu, num_docs = _cu_seqlens(cu_seqlens, device=device)
     _, _, dy_flat = _tokens(dy, "dy", device=device, shape=tuple(x.shape))
+    planned: Optional[tuple] = None
+    if reserve and S:
+        # Every refusal of the reserve before an output is allocated: the plan of the route the call's dtypes select
+        # (``dweight``'s when given, else the taps'), kept for the launch.
+        planned = _call_plan(
+            arch,
+            _backward_kind(
+                policy,
+                w,
+                b,
+                dweight.dtype if isinstance(dweight, torch.Tensor) else w.dtype,
+            ),
+            S,
+            C,
+            num_docs,
+            device_index=_device_index(device),
+            policy=policy,
+            reserve=reserve,
+        )
     dx_out = _output(
         dx, "dx", shape=tuple(x.shape), dtype=torch.bfloat16, device=device
     )
@@ -1215,22 +1403,19 @@ def cake_causal_conv1d_nondet_train_backward(
             return dx_out, dw_out
         db_out.zero_()
         return dx_out, dw_out, db_out
-    kind = backward_route(
-        bias=b is not None,
-        fp32_grad=policy == "fp32",
-        bf16_taps_or_dweight=torch.bfloat16 in (w.dtype, dw_out.dtype),
-    )
     device_index = _device_index(device)
-    names, record, scalars, grid, per_tiles = _call_plan(
-        arch,
-        kind,
-        S,
-        C,
-        num_docs,
-        device_index=device_index,
-        policy=policy,
-        bwd_grid_mult=bwd_grid_mult,
-    )
+    if planned is None:
+        planned = _call_plan(
+            arch,
+            _backward_kind(policy, w, b, dw_out.dtype),
+            S,
+            C,
+            num_docs,
+            device_index=device_index,
+            policy=policy,
+            bwd_grid_mult=bwd_grid_mult,
+        )
+    names, record, scalars, grid, per_tiles = planned
     n_ch_tiles = scalars["n_ch_tiles"]
     layout = per_tiles.get(n_ch_tiles)
     if layout is None:
@@ -1310,6 +1495,106 @@ class CakeCausalConv1dNondetFunction(torch.autograd.Function):
         return grads[0], grads[1], None, dbias, None, None
 
 
+class _CakeCausalConv1dReserveFunction(CakeCausalConv1dNondetFunction):
+    """:class:`CakeCausalConv1dNondetFunction` with the opt-in SM reserve of the backward:
+    ``apply(x, weight, cu_seqlens, bias, silu_grad_preactivation, bwd_grid_mult, reserve)``, ``reserve`` the
+    caller's validated ``bwd_reserve_sms >= 1``, kept on the autograd context for the backward (one more input, one
+    more ``None`` gradient)."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        x,
+        weight,
+        cu_seqlens,
+        bias,
+        silu_grad_preactivation,
+        bwd_grid_mult,
+        reserve,
+    ):
+        ctx.reserve = reserve
+        return CakeCausalConv1dNondetFunction.forward(
+            ctx, x, weight, cu_seqlens, bias, silu_grad_preactivation, bwd_grid_mult
+        )
+
+    @staticmethod
+    def backward(ctx, grad_y):
+        x, weight, cu_seqlens, bias = ctx.saved_tensors
+        if grad_y is None:
+            grad_y = torch.zeros_like(x)
+        dy = grad_y.to(torch.bfloat16).contiguous()
+        grads = cake_causal_conv1d_nondet_train_backward(
+            x,
+            weight,
+            cu_seqlens,
+            dy,
+            bias=bias,
+            silu_grad_preactivation=ctx.silu_grad_preactivation,
+            bwd_grid_mult=ctx.bwd_grid_mult,
+            bwd_reserve_sms=ctx.reserve,
+        )
+        dbias = grads[2] if bias is not None else None
+        return grads[0], grads[1], None, dbias, None, None, None
+
+
+def _reserve_refusals(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    cu_seqlens: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    *,
+    policy: str,
+    reserve: int,
+) -> None:
+    """The refusals (``ValueError``) of ``bwd_reserve_sms`` ``reserve >= 1`` for the backward of an autograd call,
+    raised at the call, before its forward allocates or launches anything: the call's tensors are validated as the
+    forward validates them, then the backward :class:`_CakeCausalConv1dReserveFunction` runs (``dweight`` / ``dbias``
+    in the parameters' dtypes) is planned with the reserve (:func:`_call_plan`; the backward reuses its row).  Zero
+    tokens plan nothing: that backward launches nothing."""
+
+    x = _require_tensor(x, "x")
+    device = x.device
+    arch = _device_arch(device)
+    S, C, _ = _tokens(x, "x", device=device)
+    w = _weight(weight, C, device=device, dtypes=PARAMETER_DTYPES)
+    b = None if bias is None else _bias(bias, C, device=device)
+    _, num_docs = _cu_seqlens(cu_seqlens, device=device)
+    if S:
+        _call_plan(
+            arch,
+            _backward_kind(policy, w, b, w.dtype),
+            S,
+            C,
+            num_docs,
+            device_index=_device_index(device),
+            policy=policy,
+            reserve=reserve,
+        )
+
+
+def _reserved_autograd(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    cu_seqlens: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    *,
+    silu_grad_preactivation: str,
+    bwd_grid_mult: int,
+    bwd_reserve_sms: object,
+) -> torch.Tensor:
+    """:func:`cake_causal_conv1d_nondet` with a ``bwd_reserve_sms`` other than the ``int`` 0: every check of the
+    reserve runs before the forward (:func:`_bwd_reserve_sms`, :func:`_reserve_refusals`), then
+    :class:`_CakeCausalConv1dReserveFunction` carries it to the backward."""
+
+    policy = _silu_grad_preactivation(silu_grad_preactivation)
+    bwd_grid_mult = _bwd_grid_mult(bwd_grid_mult)
+    reserve = _bwd_reserve_sms(bwd_reserve_sms, bwd_grid_mult)
+    _reserve_refusals(x, weight, cu_seqlens, bias, policy=policy, reserve=reserve)
+    return _CakeCausalConv1dReserveFunction.apply(
+        x, weight, cu_seqlens, bias, policy, bwd_grid_mult, reserve
+    )
+
+
 def cake_causal_conv1d_nondet(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -1318,6 +1603,7 @@ def cake_causal_conv1d_nondet(
     *,
     silu_grad_preactivation: str = "bf16",
     bwd_grid_mult: int = 1,
+    bwd_reserve_sms: int = 0,
 ) -> torch.Tensor:
     """Autograd-enabled packed width-4 depthwise causal convolution + SiLU, non-deterministic backward.
 
@@ -1339,6 +1625,14 @@ def cake_causal_conv1d_nondet(
         The backward's opt-in finer partition (default 1; see
         :func:`cake_causal_conv1d_nondet_train_backward`); checked here, used by
         the backward.
+    bwd_reserve_sms : int
+        The backward's opt-in SM reserve (default 0, the default grid; see
+        :func:`cake_causal_conv1d_nondet_train_backward`): ``K >= 1`` caps the
+        backward grid at ``ctas_per_sm x (SM count - K)`` CTAs.  ``y`` and
+        ``dx`` are bitwise the default's, ``dweight`` / ``dbias`` within the
+        route's budget.  Every refusal (``TypeError`` / ``ValueError``) is
+        raised here, before the forward runs; the backward launches the capped
+        grid, also when it reruns the forward under activation checkpointing.
 
     Returns
     -------
@@ -1349,6 +1643,16 @@ def cake_causal_conv1d_nondet(
         mode it alerts like :func:`cake_causal_conv1d_nondet_train_backward`.
     """
 
+    if type(bwd_reserve_sms) is not int or bwd_reserve_sms:
+        return _reserved_autograd(
+            x,
+            weight,
+            cu_seqlens,
+            bias,
+            silu_grad_preactivation=silu_grad_preactivation,
+            bwd_grid_mult=bwd_grid_mult,
+            bwd_reserve_sms=bwd_reserve_sms,
+        )
     return CakeCausalConv1dNondetFunction.apply(
         x, weight, cu_seqlens, bias, silu_grad_preactivation, bwd_grid_mult
     )
@@ -1358,6 +1662,8 @@ __all__ = [
     "ARCHES",
     "BWD_GRID_MULTS",
     "PARAMETER_DTYPES",
+    "RESERVE_DEFAULT",
+    "RESERVE_REFUSED",
     "SILU_GRAD_PREACTIVATIONS",
     "SUPPORTED_COMPUTE_CAPABILITIES",
     "CakeCausalConv1dNondetFunction",

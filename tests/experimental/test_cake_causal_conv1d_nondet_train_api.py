@@ -24,7 +24,8 @@ to the non-deterministic package unchanged, also under ``torch.use_deterministic
 (``flashinfer.cake_causal_conv1d_det_train[_kcp]``).  The module chooses the mode: no entry point of either package
 takes a ``deterministic`` keyword (``TypeError``), and the deterministic names are unchanged.  The entry points are
 stable APIs (none is marked experimental, and a call emits no ``ExperimentalWarning``) and take the deterministic
-package's parameters (the KCP ones plus ``bwd_reserve_sms``);
+package's parameters (the single-rank backward and autograd entries and the KCP ones plus keyword-only
+``bwd_reserve_sms``, which reaches the package only when a call changes its default);
 ``import flashinfer`` imports neither module, and the KCP module imports the package on first use only.  The opt-in
 ``bwd_grid_mult`` is refused with the deterministic package's errors, and ``cooperative=True`` with an error that names
 the deterministic KCP package.  On a device (once the package is rendered): the entry points return the package's
@@ -81,6 +82,12 @@ KCP_ENTRIES = {
     "cake_causal_conv1d_nondet_kcp": "cake_causal_conv1d_det_kcp",
     "cake_causal_conv1d_nondet_kcp_multi": "cake_causal_conv1d_det_multi_kcp",
 }
+# The single-rank entry points that run the backward: they take the deterministic package's parameters plus the
+# keyword-only opt-in SM reserve ``bwd_reserve_sms: int = 0``, last.
+RESERVE_ENTRIES = (
+    "cake_causal_conv1d_nondet_train_backward",
+    "cake_causal_conv1d_nondet",
+)
 FACADE = "flashinfer.cake_causal_conv1d_nondet_train"
 KCP_FACADE = "flashinfer.cake_causal_conv1d_nondet_train_kcp"
 PACKAGE = "flashinfer.experimental.cake.cake_causal_conv1d_nondet_train"
@@ -323,6 +330,52 @@ def test_kcp_entry_points_pass_keywords_when_given(kcp_recorded) -> None:
 
 
 @pytest.mark.cpu_only
+def test_reserve_keyword_reaches_the_package_when_given(recorded) -> None:
+    """``bwd_reserve_sms`` of the single-rank backward and autograd entries reaches the package only when a call
+    changes the default: the ``int`` 0 (the package's own default) is not forwarded, so such a call reaches the
+    package as a call without the keyword; every other value (a ``bool``, a ``float`` or a negative value included)
+    reaches it unchanged, for the package to validate.  Nothing warns and nothing runs the deterministic package."""
+
+    x, w, cu, dy, b, ws = (object() for _ in range(6))
+    calls = {
+        "cake_causal_conv1d_nondet_train_backward": (
+            (x, w, cu, dy),
+            {"bias": b, "silu_grad_preactivation": "fp32", "workspace": ws, "dx": None, "dweight": None, "dbias": None,
+             "bwd_grid_mult": 1},
+        ),
+        "cake_causal_conv1d_nondet": ((x, w, cu, b), {"silu_grad_preactivation": "fp32", "bwd_grid_mult": 1}),
+    }  # fmt: skip
+    # (value, forwarded); None = the keyword left out of the call
+    cases = (
+        (None, False),
+        (0, False),
+        (1, True),
+        (3, True),
+        (False, True),
+        (True, True),
+        (-1, True),
+        (0.0, True),
+        (1.0, True),
+    )
+    for entry, (args, kwargs) in calls.items():
+        for value, forwarded in cases:
+            given = {} if value is None else {"bwd_reserve_sms": value}
+            recorded.clear()
+            result, caught = _quiet(
+                lambda: getattr(facade, entry)(*args, **kwargs, **given)
+            )
+            assert result == f"nondet.{entry}" and caught == [], (entry, value)
+            ((name, got_args, got_kwargs),) = recorded
+            assert name == f"nondet.{entry}" and got_args == args, (entry, value)
+            expected = {**kwargs, **given} if forwarded else kwargs
+            assert got_kwargs == expected, (entry, value, got_kwargs)
+            if forwarded:
+                sent = got_kwargs["bwd_reserve_sms"]
+                assert type(sent) is type(value), (entry, value)
+    assert not any(name.startswith("det.") for name, *_ in recorded)
+
+
+@pytest.mark.cpu_only
 def test_kcp_package_refuses_a_cooperative_backward() -> None:
     """The non-deterministic package's main backward is one ordinary launch: ``cooperative=True`` is a
     ``ValueError`` that names the deterministic KCP package and a non-``bool`` a ``TypeError``, both before anything
@@ -361,12 +414,17 @@ def _parameters(fn) -> list[tuple]:
 @pytest.mark.cpu_only
 def test_entry_points_mirror_the_package() -> None:
     """The single-rank module's entry points, helpers and support query take exactly the package's parameters, which
-    are the deterministic package's; the KCP module's take the deterministic KCP package's plus keyword-only
-    ``bwd_reserve_sms`` last, each as the package takes it."""
+    are the deterministic package's (the backward and autograd entries plus keyword-only ``bwd_reserve_sms``, default
+    0, last); the KCP module's take the deterministic KCP package's plus keyword-only ``bwd_reserve_sms`` last, each
+    as the package takes it."""
 
+    reserve = ("bwd_reserve_sms", inspect.Parameter.KEYWORD_ONLY, 0)
     for entry, det_name in {**ENTRIES, **HELPERS, SUPPORTED[0]: SUPPORTED[1]}.items():
         mine = _parameters(getattr(facade, entry))
         assert mine == _parameters(getattr(backend, entry)), entry
+        if entry in RESERVE_ENTRIES:
+            assert mine[-1] == reserve, entry
+            mine = mine[:-1]
         assert mine == _parameters(getattr(det_facade, det_name)), entry
     assert _parameters(facade.is_cake_causal_conv1d_nondet_train_supported) == [
         ("device", inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.empty),
