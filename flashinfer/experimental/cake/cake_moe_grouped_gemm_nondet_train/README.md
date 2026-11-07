@@ -92,19 +92,27 @@ What differs from the deterministic module:
 
 - `fwd`, `dgrad` and the weight gradient with the 256-wide k tile run this
   package's copies of the deterministic programs and host plan (but for the
-  sm_100a `dgrad` evict-first twin below): bitwise the deterministic outputs.
+  evict-first twins below): bitwise the deterministic outputs.
   The 256-wide k tile's `main_wave` program is the same kernel rendered from a
   newer source: it takes two more buffer arguments (`A_rows`, `B_rows`) that
   its sm_100a / sm_103a builds never read, and it has no sm_107a build.
-- On sm_100a the data gradient also has an L2 evict-first twin of its wide
-  tile (`main_wide_ef`), this package's own build: the deterministic
-  package's sm_100a wide domain-scheduled program with the G loads and the
-  dX stores marked evict-first, so that each group's weights stay in L2. The
-  host takes it under the deterministic package's evict-first rule
-  (`dgrad_evict_first`: at least `dgrad_evict_first_min_rows` rows per group
-  on average and `K >= dgrad_evict_first_min_k`), with sm_100a added to
-  `dgrad_evict_first_archs`. The eviction priority changes no arithmetic: dX
-  is bitwise the deterministic package's.
+- On sm_100a and sm_103a the data gradient and the forward pass also have L2
+  evict-first twins of their wide tiles (`main_wide_ef`), this package's own
+  builds: the data gradient's are the deterministic package's sm_100a wide
+  domain-scheduled program and its sm_103a 3 / 3 head / tail A-collector wide
+  program with the G loads and the dX stores marked evict-first; the
+  forward's is its sm_100a / sm_103a wide domain-scheduled forward program
+  with the X loads and the Y stores marked evict-first. Each keeps the
+  group's weights in L2. The host takes the data gradient's under the
+  deterministic package's evict-first rule (`dgrad_evict_first`: at least the
+  architecture's `dgrad_evict_first_min_rows` rows per group on average,
+  4096 on sm_100a and 16384 elsewhere, and `K` at least its
+  `dgrad_evict_first_min_k`, 4096), with sm_100a and sm_103a added to
+  `dgrad_evict_first_archs`, before the 3 / 3 head / tail twin; and the
+  forward's where `K` is at least the architecture's `fwd_evict_first_min_k`
+  (6144: the gate/up projection; `fwd_evict_first_archs`). The eviction
+  priority changes no arithmetic; these builds are held to the accuracy
+  budget and, like every program of this package, carry no bit contract.
 - The weight gradient with the 512-wide k tile runs builds of the
   deterministic package's k512 forms (`main`, `main_wave`, `main_halves`,
   `main_wave_halves`, `main_halves_k256t`) whose split tail -- the tiles of
@@ -301,8 +309,10 @@ backend="cake")` stays on the deterministic module.
 
 `cake_moe_grouped_gemm_nondet(x, w, offs)` is a
 `torch.autograd.Function` wrapper (`CakeMoEGroupedGemmNondetFunction`) that saves `x`, `w` and
-`offs` only. Its forward is the deterministic forward (bitwise), so a
-non-reentrant activation-checkpoint replay recomputes the same `Y`; its
+`offs` only. Its forward runs the forward programs above (the deterministic
+forward's copies, and its own evict-first builds), so a non-reentrant
+activation-checkpoint replay runs the same program and recomputes the same
+`Y`; its
 backward produces `x.grad` with the `dgrad` programs and `w.grad` with the
 `wgrad` programs in the dtype of `w`, accumulated into an existing `.grad` by
 autograd as usual; forward and backward always run this package.
@@ -324,10 +334,22 @@ same planner, constants and stage rules: grid, output tile, evict-first and
 release, k256 tail); see that package's README. Differences:
 
 - Data-gradient evict-first twin: `HOST_PLAN_CONSTANTS["dgrad_evict_first_archs"]`
-  lists sm_100a and sm_107a (the deterministic package: sm_107a). On sm_100a
-  `main_wide_ef` is this package's own build of the domain-scheduled wide
-  tile (same domain schedule and probed queue split as `main_wide`); on
-  sm_107a it is the copy of the deterministic A-collector twin.
+  lists sm_100a, sm_103a and sm_107a (the deterministic package: sm_107a), and
+  `dgrad_evict_first_min_rows` / `dgrad_evict_first_min_k` are per
+  architecture (sm_100a: 4096 rows per group; sm_103a and sm_107a: 16384;
+  `K >= 4096` everywhere). On sm_100a `main_wide_ef` is this package's own
+  build of the domain-scheduled wide tile (same domain schedule and probed
+  queue split as `main_wide`), on sm_103a its own build of the 3 / 3 head /
+  tail A-collector wide tile (the rule precedes `main_wide_ts33`, whose
+  thresholds it implies); on sm_107a it is the copy of the deterministic
+  A-collector twin.
+- Forward evict-first twin: `HOST_PLAN_CONSTANTS["fwd_evict_first_archs"]`
+  (sm_100a, sm_103a) and `fwd_evict_first_min_k` (6144 per architecture) are
+  this package's (`fwd_evict_first`): from that `K` the forward pass takes
+  `main_wide_ef`, its own build of the domain-scheduled wide tile with
+  evict-first X loads and Y stores. The rule is disjoint from the sm_107a
+  half-release evict-first twin and the sm_103a 3 / 3 head / tail twin, which
+  serve `K <= 2048`.
 
 - Unordered tail (`plan_wgrad(..., unordered_tail=True)`): the 512-wide k
   tile on the architectures of `HOST_PLAN_CONSTANTS["unordered_tail_archs"]`
@@ -366,15 +388,16 @@ tail-reduce programs are copies of the deterministic package's under this
 package's prefix (`cake_moe_grouped_gemm_<digest>`, the same digests), except
 that the 256-wide k tile's `main_wave` program is rendered from a newer source
 of the same kernel (two more, unused buffer arguments; sm_100a / sm_103a
-only) and that the data gradient's sm_100a `main_wide_ef` program is this
-package's own evict-first build of the deterministic wide domain-scheduled
-kernel; the 512-wide k tile's routes bind the unordered-tail builds.
+only) and that the sm_100a / sm_103a `main_wide_ef` programs of the forward
+and data-gradient routes are this package's own evict-first builds of the
+deterministic wide kernels; the 512-wide k tile's routes bind the
+unordered-tail builds.
 
 | feature | sm_100a | sm_103a | sm_107a |
 | --- | --- | --- | --- |
 | `fwd` / `dgrad` `main`, `main_wide` | domain schedule | domain schedule | static schedule (A collector on `main_wide`) |
-| `fwd` `main_wide_ef` / `main_wide_ts33` | - / - | - / yes | yes / - |
-| `dgrad` `main_wide_ef` / `main_wide_ts33` | yes (this package's build) / - | - / yes | yes / - |
+| `fwd` `main_wide_ef` / `main_wide_ts33` | yes (this package's build) / - | yes (this package's build) / yes | yes / - |
+| `dgrad` `main_wide_ef` / `main_wide_ts33` | yes (this package's build) / - | yes (this package's build) / yes | yes / - |
 | `dgrad` probed queue split | yes | yes | - |
 | `wgrad` k256 `main` + ordered `tail_reduce` | yes | yes | yes |
 | `wgrad` k256 `main_wave` | yes | yes | - |
@@ -423,9 +446,10 @@ support query, the handoff with no deterministic route, the `TypeError` of a
 public name carries `nondet`, no callable takes a `deterministic` argument, and
 every removed path and name fails at import.
 `test_cake_moe_grouped_gemm_nondet_train_reproducibility.py` checks that `fwd` /
-`dgrad` give the deterministic package's bits (also through the module), and
-reports the run-to-run variation of the unordered weight
-gradient.
+`dgrad` give the deterministic package's bits where they run copies of its
+programs (also through the module), holds this package's own evict-first builds
+to the accuracy budget (recording their bits as data), and reports the run-to-run
+variation of the unordered weight gradient.
 `test_cake_moe_grouped_gemm_nondet_train_standalone.py` imports a copy with `flashinfer`
 blocked. `test_cake_moe_grouped_gemm_nondet_train_acc.py` covers the accumulate mode: the
 `_acc` stages against the shipped set and their twins, the plans, the routes

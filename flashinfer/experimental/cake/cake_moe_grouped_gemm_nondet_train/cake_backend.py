@@ -35,12 +35,16 @@ argument.  The deterministic entries are those of the module
 package's copies of the deterministic programs and give their bits (the
 256-wide k tile's ``main_wave`` program is the same kernel rendered from a newer
 source: it takes two more buffer arguments, ``A_rows`` / ``B_rows``, which its
-sm_100a / sm_103a builds never read, and it has no sm_107a build).  The data
-gradient's sm_100a ``main_wide_ef`` program is this package's own build: the
-deterministic package's sm_100a wide domain-scheduled program with the L2
-evict-first G loads and dX stores, which the deterministic package does not
-ship; the eviction priority moves lines in L2 and nothing else, so it gives the
-bits of that program (``main_wide``).  The
+sm_100a / sm_103a builds never read, and it has no sm_107a build).  Three
+``main_wide_ef`` programs are this package's own builds, which the deterministic
+package does not ship: the data gradient's on sm_100a (the deterministic
+package's sm_100a wide domain-scheduled program with L2 evict-first G loads and
+dX stores) and on sm_103a (its sm_103a 3 / 3 head / tail A-collector wide
+program with the same policies), and the forward pass's on sm_100a and sm_103a
+(its wide domain-scheduled forward program with L2 evict-first X loads and Y
+stores).  The eviction priority moves lines in L2 and changes no arithmetic;
+like every program of this package, these carry an accuracy budget, not a bit
+contract.  The
 weight gradient with the 512-wide k tile runs the builds of the deterministic
 package's k512 forms whose split tail (the tiles of the last partial wave, cut
 into ``tail_splits`` k-step units over the clusters) is added in place: each
@@ -76,21 +80,26 @@ raster follow from host-known scalars (tensor shapes, the SM count, the
 architecture) so a prepared launch is CUDA-graph capturable and stays valid for
 any ``offs`` written later.  The host planner below makes the deterministic
 package's decisions from ``HOST_PLAN_CONSTANTS`` with its rules; the constants
-are the deterministic package's but for ``dgrad_evict_first_archs``, which also
-lists sm_100a (this package's own ``main_wide_ef`` program), and the split of the
-unordered tail follows ``atomic_tail_plan`` (``wgrad_atomic_tail_plan``).
+are the deterministic package's but for the rules of this package's own
+``main_wide_ef`` programs (``dgrad_evict_first_archs`` also lists sm_100a and
+sm_103a, ``dgrad_evict_first_min_rows`` is 4096 on sm_100a, and
+``fwd_evict_first_archs`` / ``fwd_evict_first_min_k`` are this package's), and
+the split of the unordered tail follows ``atomic_tail_plan``
+(``wgrad_atomic_tail_plan``).
 
 Program choice.  ``fwd`` and ``dgrad`` launch the 512-column output tile (the
 route's ``main_wide`` stage) when the output columns are a multiple of
 ``wide_block_n`` and the architecture is listed in ``wide_fwd_archs`` /
 ``wide_dgrad_archs``, else the 256-column tile (``main``).  On the
-architectures of ``dgrad_evict_first_archs`` (sm_100a and sm_107a) the data
-gradient launches the twin of its wide tile that loads G and stores dX with the
-L2 evict-first policy (``main_wide_ef``: on sm_100a this package's own build of
-the domain-scheduled wide tile, on sm_107a the copy of the deterministic
-package's A-collector one) when the groups average at least
-``dgrad_evict_first_min_rows`` rows (``sum_m // E``) and dX has at least
-``dgrad_evict_first_min_k`` columns (``K``).  On the architectures of
+architectures of ``dgrad_evict_first_archs`` (sm_100a, sm_103a and sm_107a) the
+data gradient launches the twin of its wide tile that loads G and stores dX
+with the L2 evict-first policy (``main_wide_ef``: on sm_100a this package's own
+build of the domain-scheduled wide tile, on sm_103a its own build of the 3 / 3
+head / tail A-collector wide tile, on sm_107a the copy of the deterministic
+package's A-collector one) when the groups average at least the architecture's
+``dgrad_evict_first_min_rows`` rows (``sum_m // E``) and dX has at least its
+``dgrad_evict_first_min_k`` columns (``K``); this rule precedes the 3 / 3 head /
+tail twin's.  On the architectures of
 ``dgrad_wide_ts33_archs`` the data gradient launches the twin of its wide tile
 that splits three head and three tail k steps of an item around the release
 of the accumulator's halves instead of four and three (``main_wide_ts33``)
@@ -104,10 +113,14 @@ architectures of
 ``fwd_lwh_ef_archs`` the forward pass launches the twin of its wide tile that
 releases the last wave of tiles in halves and stores Y with the L2 evict-first
 policy (``main_wide_ef``) when its reduction ``K`` (the columns of x) is at most
-``fwd_lwh_ef_max_k``, the down projection of an MoE layer.  The weight gradient takes the
-512-wide k tile when ``K`` is a multiple of 512, the architecture is listed in
-``k512_archs`` and the groups average at least the architecture's
-``k512_min_rows_per_group`` rows, else the 256-wide tile.  It launches the
+``fwd_lwh_ef_max_k``, the down projection of an MoE layer.  On the architectures
+of ``fwd_evict_first_archs`` (sm_100a and sm_103a) the forward pass launches this
+package's own build of its domain-scheduled wide tile that loads X and stores Y
+with the L2 evict-first policy (``main_wide_ef``) when ``K`` is at least the
+architecture's ``fwd_evict_first_min_k``, the gate/up projection.  The weight
+gradient takes the 512-wide k tile when ``K`` is a multiple of 512, the
+architecture is listed in ``k512_archs`` and the groups average at least the
+architecture's ``k512_min_rows_per_group`` rows, else the 256-wide tile.  It launches the
 wave-synchronised build (``main_wave``) from ``wave_sync_min_k`` on the
 architectures ``wave_sync_archs`` lists for its k tile, with the
 architecture's ``wave_sync_mode``; with the 512-wide k tile on the
@@ -1820,10 +1833,12 @@ def cake_moe_grouped_gemm_nondet_train_prepare_forward(
     ``x``: ``[sum_m, K]`` bf16; ``w``: ``[E, N, K]`` bf16; ``offs``: int32
     ``[E]`` device end offsets; ``N % 256 == 0``, ``K % 64 == 0`` (the
     512-column tile when ``N % 512 == 0`` on the architectures of
-    ``wide_fwd_archs``, its 3 / 3 head / tail twin where ``fwd_wide_ts33`` holds).
-    ``out`` may be row-padded (any row stride, unit column
-    stride).  The programs are copies of the deterministic package's and give
-    its bits.
+    ``wide_fwd_archs``, its L2 evict-first twin where ``fwd_lwh_ef`` or
+    ``fwd_evict_first`` holds, its 3 / 3 head / tail twin where ``fwd_wide_ts33``
+    holds).  ``out`` may be row-padded (any row stride, unit column stride).  The
+    programs are copies of the deterministic package's, which give its bits, but
+    for the sm_100a / sm_103a evict-first twin, this package's own build of the
+    deterministic wide tile (the same arithmetic, held to the accuracy budget).
     """
     return _prepare_row_op("fwd", x, w, offs, out)
 
@@ -1842,8 +1857,9 @@ def cake_moe_grouped_gemm_nondet_train_prepare_dgrad(
     ``wide_dgrad_archs``, its L2 evict-first twin where ``dgrad_evict_first``
     holds for ``K``, ``sum_m`` and ``E``, its 3 / 3 head / tail twin where
     ``dgrad_wide_ts33`` holds).  The programs are copies of the deterministic
-    package's, but for the sm_100a evict-first twin, this package's own build of
-    the deterministic wide tile, and all give the deterministic package's bits.
+    package's, which give its bits, but for the sm_100a and sm_103a evict-first
+    twins, this package's own builds of the deterministic wide tiles (the same
+    arithmetic, held to the accuracy budget).
     """
     return _prepare_row_op("dgrad", g, w, offs, out)
 

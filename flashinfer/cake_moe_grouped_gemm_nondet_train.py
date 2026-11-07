@@ -53,9 +53,11 @@ tail and every preparation run in a fixed order and never alert.
 
 Numerical contract: only the run-to-run bitwise reproducibility of the weight
 gradient ``dW`` is relaxed.  ``Y`` and ``dX`` are bitwise the deterministic
-package's (copies of the same programs; on sm_100a the data gradient's L2
-evict-first twin is the package's own build of the deterministic wide program,
-whose cache policy changes no arithmetic), and so is ``dW`` wherever the
+package's where the package runs its copies of the same programs; its own L2
+evict-first twins of the wide tiles (the forward pass and the data gradient on
+sm_100a and sm_103a) are builds of the deterministic wide programs whose cache
+policy changes no arithmetic, held to the accuracy budget without a bit
+contract.  ``dW`` is bitwise the deterministic package's wherever the
 256-wide k tile runs or the 512-wide k tile does not split its tail.  Every
 whole tile of ``dW`` is reduced by one CTA pair over the group's rows in a
 fixed order; only the units of a split tail tile are added in an order the
@@ -159,8 +161,10 @@ def cake_moe_grouped_gemm_nondet_train_forward(
 
     Notes
     -----
-    The forward programs are copies of the deterministic package's and give its
-    bits; they never alert under torch's deterministic mode.
+    The forward programs are copies of the deterministic package's, which give its
+    bits, but for the sm_100a / sm_103a evict-first twin of the wide tile at long
+    reductions, this package's own build (the same arithmetic, no bit contract);
+    they never alert under torch's deterministic mode.
     Prepares and launches in one call.  For repeated launches over the same
     tensors (or CUDA Graph capture) use ``cake_moe_grouped_gemm_nondet_train_prepare_forward`` once and
     call ``launch()`` on the returned object.
@@ -185,9 +189,9 @@ def cake_moe_grouped_gemm_nondet_train_dgrad(
     read in place (no transpose copy), ``offs`` is ``[E]`` int32 device end
     offsets (or ``m_indptr`` ``[E + 1]``) and ``out`` is ``[sum_m, K]`` bfloat16.  ``K % 256 == 0`` and
     ``N % 64 == 0`` are required.  The programs are copies of the deterministic
-    package's, but for the sm_100a evict-first twin, this package's own build of
-    the deterministic wide tile, and all give its bits (no alert under torch's
-    deterministic mode).  See
+    package's, which give its bits, but for the sm_100a and sm_103a evict-first
+    twins, this package's own builds of the deterministic wide tiles (the same
+    arithmetic, no bit contract); none alerts under torch's deterministic mode.  See
     ``cake_moe_grouped_gemm_nondet_train_forward`` for the prepared form.
     """
     from .experimental.cake.cake_moe_grouped_gemm_nondet_train import (
@@ -259,10 +263,12 @@ def cake_moe_grouped_gemm_nondet_train_prepare_forward(
     ``x``: ``[sum_m, K]`` bf16; ``w``: ``[E, N, K]`` bf16; ``offs``: int32
     ``[E]`` device end offsets; ``N % 256 == 0``, ``K % 64 == 0`` (the
     512-column tile when ``N % 512 == 0`` on the architectures of
-    ``wide_fwd_archs``, its 3 / 3 head / tail twin where ``fwd_wide_ts33`` holds).
-    ``out`` may be row-padded (any row stride, unit column
-    stride).  The programs are copies of the deterministic package's and give
-    its bits.
+    ``wide_fwd_archs``, its L2 evict-first twin where ``fwd_lwh_ef`` or
+    ``fwd_evict_first`` holds, its 3 / 3 head / tail twin where ``fwd_wide_ts33``
+    holds).  ``out`` may be row-padded (any row stride, unit column stride).  The
+    programs are copies of the deterministic package's, which give its bits, but
+    for the sm_100a / sm_103a evict-first twin, this package's own build of the
+    deterministic wide tile (the same arithmetic, held to the accuracy budget).
     """
     from .experimental.cake.cake_moe_grouped_gemm_nondet_train.cake_backend import (
         cake_moe_grouped_gemm_nondet_train_prepare_forward as _impl,
@@ -286,8 +292,9 @@ def cake_moe_grouped_gemm_nondet_train_prepare_dgrad(
     ``wide_dgrad_archs``, its L2 evict-first twin where ``dgrad_evict_first``
     holds for ``K``, ``sum_m`` and ``E``, its 3 / 3 head / tail twin where
     ``dgrad_wide_ts33`` holds).  The programs are copies of the deterministic
-    package's, but for the sm_100a evict-first twin, this package's own build of
-    the deterministic wide tile, and all give the deterministic package's bits.
+    package's, which give its bits, but for the sm_100a and sm_103a evict-first
+    twins, this package's own builds of the deterministic wide tiles (the same
+    arithmetic, held to the accuracy budget).
     """
     from .experimental.cake.cake_moe_grouped_gemm_nondet_train.cake_backend import (
         cake_moe_grouped_gemm_nondet_train_prepare_dgrad as _impl,
