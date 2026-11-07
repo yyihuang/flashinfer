@@ -1267,7 +1267,8 @@ def _split_case(device, form):
 
 def _padded_out(e, n, k, dtype, device, fill_bits):
     """An ``[e, n, k]`` view of a row- and expert-padded buffer whose every element (the
-    padding included) holds the bit pattern ``fill_bits``; returns ``(out, buffer)``."""
+    padding included) holds the bit pattern ``fill_bits`` (as wide as ``dtype``); returns
+    ``(out, buffer)``."""
     buffer = torch.empty(e, n + 2, k + 32, dtype=dtype, device=device)
     _bits(buffer).fill_(fill_bits)
     return buffer[:, :n, :k], buffer
@@ -1445,7 +1446,14 @@ def test_fused_accumulate_matches_its_oracles(
         for group, rows in enumerate(ACC_SIZES):
             if rows:
                 out0[group, :, 1] = FP32_SUBNORMAL
-    out, buffer = _padded_out(len(ACC_SIZES), n, k, out_dtype, device, 0x7FA5A5A5)
+    out, buffer = _padded_out(
+        len(ACC_SIZES),
+        n,
+        k,
+        out_dtype,
+        device,
+        0x7FA5 if out_dtype == torch.bfloat16 else 0x7FA5A5A5,
+    )
     out.copy_(out0)
     padding = _bits(buffer).clone()
     padding[:, :n, :k] = 0
