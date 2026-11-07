@@ -359,8 +359,10 @@ def _bits(out):
 def _budget(out, ref, out_dtype):
     """Error of ``out`` against ``ref`` in the budget's unit: the worst
     ``|out - ref| / (atol + rtol |ref|)`` for bf16 (<= 1 passes), the rel-L2 over
-    ``FP32_REL_L2`` for fp32 (<= 1 passes)."""
+    ``FP32_REL_L2`` for fp32 (<= 1 passes); 0 for an empty output."""
     out, ref = out.float(), ref.float()
+    if out.numel() == 0:
+        return 0.0
     if out_dtype == torch.bfloat16:
         return float(((out - ref).abs() / (ATOL + RTOL * ref.abs())).max())
     norm = float(ref.norm())
