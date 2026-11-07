@@ -44,7 +44,10 @@ non-deterministic mode is faster), ``speedup_range`` the ``[min, max]`` of the p
 row (not a gate) records whether ``dx`` is bitwise equal between the modes and the largest relative ``dweight``
 difference.  The route is chosen as in the deterministic benchmark (``--weight-dtype``, ``--bias``,
 ``--silu-grad-preactivation``); ``--side-kernel`` adds the backward's wall latency beside a kernel resident on another
-stream (FlashInfer issues #7038 / #7548).
+stream (FlashInfer issues #7038 / #7548).  ``--bwd-reserve-sms K`` (default 0) passes ``bwd_reserve_sms=K`` to the
+non-deterministic mode's backward and autograd calls only (the deterministic package has no such keyword): its
+backward grid leaves ``K`` SMs to kernels of other streams (FlashInfer issue #8365), so with ``--side-kernel`` the run
+measures that backward beside a resident kernel; ``K`` is recorded in the JSON header and the printed route line.
 
 Non-Cake baselines (``--sota``, default ``all``; ``cake_causal_conv1d_baselines.py``): flash-linear-attention's
 ``causal_conv1d`` on its Triton (``fla``) and opt-in Gluon (``fla_gluon``) backends, Dao-AILab ``causal_conv1d_fn``
@@ -353,9 +356,17 @@ class Problem:
         )
 
 
-def _calls(p: Problem, route: Route, api: dict[str, Callable], *, own_workspace: bool):
+def _calls(
+    p: Problem,
+    route: Route,
+    api: dict[str, Callable],
+    *,
+    own_workspace: bool,
+    backward_kwargs: Optional[dict] = None,
+):
     """``{phase: fn}`` of one mode (``api``: its ``MODES`` entry points): the explicit calls into preallocated outputs
-    (``own_workspace``: caller-owned forward / backward workspaces of the mode) and the checkpointed autograd step."""
+    (``own_workspace``: caller-owned forward / backward workspaces of the mode) and the checkpointed autograd step;
+    ``backward_kwargs`` are further keywords of the mode's backward and autograd calls (``bwd_reserve_sms``)."""
 
     from torch.utils.checkpoint import checkpoint
 
@@ -370,6 +381,7 @@ def _calls(p: Problem, route: Route, api: dict[str, Callable], *, own_workspace:
         fws = api["forward_workspace"](tokens, channels, device)
         bws = api["backward_workspace"](tokens, channels, device)
     forward, backward, autograd = api["forward"], api["backward"], api["autograd"]
+    extra = dict(backward_kwargs or {})
 
     def fwd():
         return forward(p.x, p.w, p.cu, bias=p.b, out=y, workspace=fws)
@@ -377,7 +389,7 @@ def _calls(p: Problem, route: Route, api: dict[str, Callable], *, own_workspace:
     def bwd():
         return backward(
             p.x, p.w, p.cu, p.dy, bias=p.b, silu_grad_preactivation=route.silu_grad_preactivation,
-            workspace=bws, dx=dx, dweight=dw, dbias=db,
+            workspace=bws, dx=dx, dweight=dw, dbias=db, **extra,
         )  # fmt: skip
 
     def step():
@@ -396,6 +408,7 @@ def _calls(p: Problem, route: Route, api: dict[str, Callable], *, own_workspace:
             p.cu,
             b_,
             silu_grad_preactivation=route.silu_grad_preactivation,
+            **extra,
         )
 
     def ckpt():
@@ -484,6 +497,7 @@ def bench_row(
     rounds: int,
     ahead: _GpuAhead,
     sota: Sequence[str] = (),
+    bwd_reserve_sms: int = 0,
 ) -> dict:
     p = Problem(tokens, channels, route, device)
     arch = loader.arch_for_capability(torch.cuda.get_device_capability(device))
@@ -507,16 +521,26 @@ def bench_row(
             )
         }
         entries[mode] = entry
+        # The SM reserve is the non-deterministic package's keyword: the deterministic mode never receives it.
+        backward_kwargs = (
+            {"bwd_reserve_sms": bwd_reserve_sms}
+            if mode == "nondet" and bwd_reserve_sms
+            else {}
+        )
         try:
             # Memory: the package's own workspaces, first call after clearing the caches, then a steady-state call.
             _clear_package_caches()
-            calls = _calls(p, route, api, own_workspace=False)
+            calls = _calls(
+                p, route, api, own_workspace=False, backward_kwargs=backward_kwargs
+            )
             for phase in ("fwd", "bwd", "ckpt"):
                 probe = calls["ckpt_memory" if phase == "ckpt" else phase]
                 entry[f"{phase}_memory_first"] = _memory(probe, device)
                 entry[f"{phase}_memory_steady"] = _memory(probe, device)
             # Timing: caller-owned workspaces.
-            calls = _calls(p, route, api, own_workspace=True)
+            calls = _calls(
+                p, route, api, own_workspace=True, backward_kwargs=backward_kwargs
+            )
             for phase in PHASES:
                 calls[phase]()
             torch.cuda.synchronize(device)
@@ -720,6 +744,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="also time the backward's wall latency alone and beside a 1-thread kernel on another stream",
     )
     parser.add_argument(
+        "--bwd-reserve-sms",
+        type=int,
+        default=0,
+        help="pass bwd_reserve_sms=K to the non-deterministic backward and autograd calls only (default 0)",
+    )
+    parser.add_argument(
         "--rounds",
         type=int,
         default=ROUNDS,
@@ -758,7 +788,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(
         f"device {torch.cuda.get_device_name(device)} {arch} CUDA {torch.version.cuda} torch {torch.__version__}"
     )
-    print(f"route: {route.describe()}")
+    print(f"route: {route.describe()} nondet bwd_reserve_sms={args.bwd_reserve_sms}")
     if args.tokens is None and args.channels is None:
         rows = perf_rows()
     else:
@@ -769,6 +799,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         ]
     if args.rounds < 1:
         raise SystemExit("--rounds must be at least 1")
+    if args.bwd_reserve_sms < 0:
+        raise SystemExit("--bwd-reserve-sms must be at least 0")
     ahead = _GpuAhead(device)
     results = []
     for tokens, channels in rows:
@@ -781,6 +813,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             rounds=args.rounds,
             ahead=ahead,
             sota=sota,
+            bwd_reserve_sms=args.bwd_reserve_sms,
         )
         results.append(result)
         torch.cuda.empty_cache()
@@ -798,6 +831,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "cuda": torch.version.cuda,
                     "torch": torch.__version__,
                     "route": route.describe(),
+                    "bwd_reserve_sms": args.bwd_reserve_sms,
                     "sota_arms": sota,
                     "rows": results,
                 },
