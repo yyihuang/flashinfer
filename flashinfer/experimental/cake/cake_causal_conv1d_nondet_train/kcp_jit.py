@@ -37,7 +37,11 @@ The routes of an architecture are the three KCP kinds of the det package
 rows ``hist``), ``kcp_bwd_head`` (this package's copy of the det head program:
 the head-row derivatives ``dpre_head`` every consumer fragment sends back;
 grid :func:`head_grid`) and ``kcp_bwd`` (the fallback program and the
-big-channel ``_st8`` program, selected by the det channel rule).  Neither copy
+big-channel ``_st8`` program, selected by the det channel rule, and on sm_107a
+the single-tile program: the ``_st8`` body with the unrolled
+consecutive-channel flush, which owns the one channel count of the ``_st8``
+range whose plan is a single channel tile, C 1024, while the ``_st8`` program
+runs from 1032).  Neither copy
 has a cross-CTA reduction, so their outputs are the det programs' bits.  The
 ``kcp_bwd`` programs are the det KCP backward bodies with the accumulator
 reduction of this package: ONE ORDINARY launch (``occupancy`` grid of
@@ -348,7 +352,8 @@ MODULES: dict[str, dict[str, Any]] = {
         },
     },
     # Route ``kcp_bwd``: the KCP backward body of the det program
-    # ``cake_causal_conv1d_det_train_7485529a1755e5bd3036_kcp`` (the same build keywords and channel rule) whose
+    # ``cake_causal_conv1d_det_train_7485529a1755e5bd3036_kcp`` (the same build keywords and channel rule, but
+    # on sm_107a, where it runs from C 1032 and the single-tile program below owns C 1024) whose
     # cross-CTA dweight reduction is the accumulator form: an ORDINARY launch (no cooperative attribute, no grid
     # barrier) of ``ctas_per_sm x SM count`` CTAs, each adding its FP32 CTA row into ``acc`` (FP32 ``[C x 4]``,
     # ``red.global.add`` v4) and taking a ticket on its channel tile's ``work`` counter (uint32
@@ -440,7 +445,7 @@ MODULES: dict[str, dict[str, Any]] = {
             "channels": {
                 "sm_100a": 512,
                 "sm_103a": 512,
-                "sm_107a": 1024,
+                "sm_107a": 1032,
             },
             "kind": "channels_at_least",
         },
@@ -517,8 +522,9 @@ MODULES: dict[str, dict[str, Any]] = {
 
 # architecture -> KCP kind -> the records the route may launch, in launch
 # order.  The forward and the head route carry one program; the backward
-# route carries the architecture's fallback program first and the
-# big-channel ``_st8`` program second (:func:`selected_modules` launches one).
+# route carries the architecture's fallback program first, the big-channel
+# ``_st8`` program second and, on sm_107a, the single-tile program third
+# (:func:`selected_modules` launches one).
 ROUTES: dict[str, dict[str, list[str]]] = {
     "sm_100a": {
         "kcp_bwd": [
@@ -639,41 +645,46 @@ def selected_modules(
 
     The forward and the head route launch every program of their route
     (:func:`route_modules`, one each).  The backward route carries the
-    architecture's fallback program and the big-channel program and launches
-    exactly one: the record whose :func:`select_rule` admits ``C`` on ``arch``
-    when one does, else the route's single fallback record (the one without a
-    rule) -- the rule of the zero-history backward.  The choice is a pure
-    function of the architecture and the channel count (``S`` is accepted and
-    unused, and the host never reads the data), so a given ``(S, C, device)``
-    always runs the same program (``dx`` is that program's bits; the cross-CTA
-    sum of ``dweight`` is unordered).
-    Several admitting records, or zero or several fallbacks, are registry
-    errors (``RuntimeError``); an unknown rule kind is a ``ValueError``.
+    architecture's fallback program and its ruled programs (the big-channel
+    program and, on sm_107a, the single-tile program) and launches exactly one:
+    of the records whose :func:`select_rule` admits ``C`` on ``arch`` the one of
+    the highest channel threshold, else the route's single fallback record (the
+    one without a rule) -- the rule of the zero-history backward.  The choice
+    is a pure function of the architecture and the channel count (``S`` is
+    accepted and unused, and the host never reads the data), so a given ``(S,
+    C, device)`` always runs the same program (``dx`` is that program's bits;
+    the cross-CTA sum of ``dweight`` is unordered).
+    Two admitting records of one channel threshold, or zero or several
+    fallbacks, are registry errors (``RuntimeError``); an unknown rule kind is
+    a ``ValueError``.
     """
 
     names = route_modules(arch, kind)
     if kind != "kcp_bwd":
         return names
-    positive: list[str] = []
+    candidates: list[tuple[int, str]] = []
     fallback: list[str] = []
     for name in names:
         rule = select_rule(MODULES[name])
         if rule is None:
             fallback.append(name)
         elif _zero_history._admits(rule, arch=arch, C=C):
-            positive.append(name)
+            candidates.append((int(rule["channels"][arch]), name))
     if len(fallback) != 1:
         raise RuntimeError(
             f"the exported KCP backward route on {arch} declares {len(fallback)} fallback "
             "programs (records without a select_rule); expected exactly one"
         )
-    if len(positive) > 1:
+    candidates.sort(reverse=True)
+    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+        tied = [name for threshold, name in candidates if threshold == candidates[0][0]]
         raise RuntimeError(
-            f"the exported KCP backward route on {arch} selects {len(positive)} programs "
-            f"for C={int(C)} ({positive}); expected at most one"
+            f"the exported KCP backward route on {arch} selects {len(tied)} programs "
+            f"for C={int(C)} at one threshold {candidates[0][0]} ({tied}); "
+            "thresholds must be distinct"
         )
-    if positive:
-        return (positive[0],)
+    if candidates:
+        return (candidates[0][1],)
     return (fallback[0],)
 
 
