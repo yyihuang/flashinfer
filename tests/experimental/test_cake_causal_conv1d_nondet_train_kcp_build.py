@@ -260,8 +260,11 @@ def test_overlapped_backward_records() -> None:
 @pytest.mark.parametrize("sms", [132, 148, 160, 188])
 def test_dyn_plan_meets_the_kernel_requirements(sms) -> None:
     """:func:`kcp_jit.dyn_plan` gives every work plan the main program's ``kernel_requires`` admit: ``L`` lanes of
-    ``P`` per tile of 2048 channels, at most 256; one CTA per SM and at least one per lane; units of ``M`` tokens (a
-    multiple of 8, at least 24); ``NL`` units per lane covering the rank's tokens; the claim words' 16-bit counts."""
+    ``P`` per tile of 2048 channels, at most 256; two CTAs per SM (:data:`kcp_jit.DYN_WAVES`) and at least one per
+    lane; units of ``M`` tokens (a multiple of 8, at least 24); ``NL`` units per lane covering the rank's tokens; the
+    claim words' 16-bit counts."""
+
+    assert kcp_jit.DYN_WAVES == 2
 
     for C in (8, 1024, 2048, 2056, 8192, 10240, 32768, 65536):
         n_tiles = -(-C // kcp_jit.DYN_TILE)
@@ -270,7 +273,7 @@ def test_dyn_plan_meets_the_kernel_requirements(sms) -> None:
             label = (sms, C, S, p)
             assert p["n_tiles"] == n_tiles and p["L"] == n_tiles * p["P"], label
             assert 1 <= p["P"] <= 512 and p["L"] <= kcp_jit.DYN_MAX_LANES, label
-            assert p["n_ctas"] == max(p["L"], sms), label
+            assert p["n_ctas"] == max(p["L"], 2 * sms), label
             assert p["M"] % 8 == 0 and p["M"] >= 24, label
             assert 1 <= p["NL"] <= 32768 and p["P"] * p["NL"] * p["M"] >= S, label
             assert (p["L"] + 1) * p["NL"] + p["n_ctas"] <= 65535, label

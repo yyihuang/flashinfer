@@ -792,12 +792,17 @@ LOGICAL_TENSORS = (
 LOGICAL_SCALARS = (*_zero_history.LOGICAL_SCALARS, "M", "NL", "P", "L", "n_ctas")
 # The overlapped main program's channel tile (eight compute warps of 256
 # channels), its words per tile (one per warp), its most lanes and channels,
-# and its default unit of tokens.
+# its default unit of tokens and its CTAs per SM in the grid (one resident; the
+# second wave's CTAs start on SMs that free up or are cancelled through Cluster
+# Launch Control, and take units from the back of the lanes, so the lane of an
+# SM another kernel holds is drained from both ends: on a B200 (148 SMs) the
+# 16384-token, 8192-channel backward with one SM held is 2.5-3.5% faster).
 DYN_TILE = 2048
 DYN_TILE_WORDS = 8
 DYN_MAX_LANES = 256
 DYN_MAX_CHANNELS = 32 * DYN_TILE
 DYN_UNIT = 64
+DYN_WAVES = 2
 
 
 def route_applies(*, device_capability: Sequence[int], kind: str) -> bool:
@@ -965,8 +970,8 @@ def dyn_plan(S: int, C: int, sms: int) -> dict[str, int]:
     """The overlapped main program's work plan on a device of ``sms`` SMs: ``P`` lanes per tile of
     :data:`DYN_TILE` channels (as many as give every SM's CTA a lane, at most one per unit of tokens and
     :data:`DYN_MAX_LANES` lanes in all), each of ``NL`` units of ``M`` tokens (:data:`DYN_UNIT`, doubled until the
-    lanes' claim counts fit the kernel's 16-bit fields), ``L`` lanes, ``n_ctas = max(L, sms)`` CTAs (the grid) and
-    ``n_tiles``.  A pure function of ``(S, C, sms)``; ``dx`` does not depend on it."""
+    lanes' claim counts fit the kernel's 16-bit fields), ``L`` lanes, ``n_ctas = max(L, DYN_WAVES * sms)`` CTAs (the
+    grid, :data:`DYN_WAVES`) and ``n_tiles``.  A pure function of ``(S, C, sms)``; ``dx`` does not depend on it."""
 
     S, C, sms = int(S), int(C), int(sms)
     if S < 1 or C < 1 or C > DYN_MAX_CHANNELS:
@@ -980,7 +985,7 @@ def dyn_plan(S: int, C: int, sms: int) -> dict[str, int]:
         per_lane = -(-S // P)
         NL = -(-per_lane // M)
         L = n_tiles * P
-        n_ctas = max(L, sms)
+        n_ctas = max(L, DYN_WAVES * sms)
         if (L + 1) * NL + n_ctas <= 65535 and NL <= 32768:
             return {
                 "M": M,
@@ -1106,6 +1111,7 @@ __all__ = [
     "DYN_TILE",
     "DYN_TILE_WORDS",
     "DYN_UNIT",
+    "DYN_WAVES",
     "HALO",
     "HALO_KIND",
     "INT32_MAX",

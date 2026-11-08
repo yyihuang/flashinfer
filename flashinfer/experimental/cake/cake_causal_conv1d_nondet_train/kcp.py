@@ -49,7 +49,8 @@ after the head program, which overlaps the halo exchange (:func:`_bwd_overlap`):
    fragment that has them again, from the received rows.
 
 The plan of the main program is :func:`kcp_jit.dyn_plan` (units of ``M``
-tokens, ``P`` lanes per 2048-channel tile, one CTA per SM).  A call that
+tokens, ``P`` lanes per 2048-channel tile, a grid of
+:data:`kcp_jit.DYN_WAVES` CTAs per SM, one resident).  A call that
 reserves SMs (``bwd_reserve_sms >= 1``), has more than
 :data:`kcp_jit.DYN_MAX_CHANNELS` channels or no token runs the one-program
 backward (kind ``kcp_bwd``) after the wait instead: one ordinary launch whose
