@@ -615,7 +615,7 @@ def test_control_arena_knob_refuses_an_unknown_value(monkeypatch):
 
 
 # The TP route metadata of a W2D program (the 384-expert, intermediate-384 /
-# 640 sm_103a routes at 32 tokens and above) beside its dense W2 image widths.
+# 640 sm_103a routes at 16 tokens and above) beside its dense W2 image widths.
 TP_ROUTE_METADATA = {
     "block_m": 16,
     "readiness": "block",

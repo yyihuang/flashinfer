@@ -25,9 +25,9 @@ DIRECT_A_EP_TOKENS = (16,)
 DIRECT_A_EP_EXPERTS = (48, 96)
 # The TP routes whose sm_103a programs read the down-projection weights as a
 # dense image of the logical width (route metadata ``w2_dense_k`` and
-# ``w2_logical_k``): both TP shapes at 32 tokens and above, each with its
+# ``w2_logical_k``): both TP shapes at 16 tokens and above, each with its
 # (image, logical) widths.
-W2_DENSE_TOKENS = (32, 128, 512, 1024, 4096)
+W2_DENSE_TOKENS = (16, 32, 128, 512, 1024, 4096)
 W2_DENSE_WIDTHS = {(384, 384): (320, 288), (384, 640): (576, 576)}
 
 # The launch form of the TP/EP programs: the generated binding's Run() launches
@@ -247,7 +247,7 @@ def test_only_the_dense_w2_tp_routes_state_their_w2_image_widths():
         for (num_experts, intermediate), widths in W2_DENSE_WIDTHS.items()
         for num_tokens in W2_DENSE_TOKENS
     }
-    assert len(expected) == 10
+    assert len(expected) == 12
     stated = {}
     for arch in catalog.arches:
         for key, route in catalog.routes(arch).items():
