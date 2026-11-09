@@ -8594,6 +8594,21 @@ class CakeLMHeadDetLogprobAutoFunction(_main.CakeLMHeadDetLogprobFunction):
         saved = ctx.saved_tensors
         X, W, labels, lse, row_index = saved
         need_dx, need_dw = bool(ctx.needs_input_grad[0]), bool(ctx.needs_input_grad[1])
+        # PROTOTYPE L3a: a backward whose valid rows span 2 .. _PROTO_L3A_MAXN chunks runs the fast form as one chunk
+        rows = int(labels.numel()) if row_index is None else int(row_index.numel())
+        l3a = (
+            _proto_l3a_chunk(rows, ctx.chunk_size)
+            if need_dw and ctx.backend == "cake" and (row_index is not None or ctx.compact)
+            else None
+        )
+        if l3a is not None:
+            chunk = ctx.chunk_size
+            ctx.chunk_size = l3a
+            try:
+                dx, dw = _main._logprob_backward(ctx, dlogp, saved)
+            finally:
+                ctx.chunk_size = chunk
+            return (dx, dw) + (None,) * 11
         mplan = (
             _auto_logprob_plan(
                 X,
