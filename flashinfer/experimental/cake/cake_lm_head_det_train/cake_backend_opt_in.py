@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import functools
 import math
+import os
 from collections import OrderedDict
 from dataclasses import dataclass, field, fields, replace
 from typing import Any, Callable, ClassVar, Optional, Union, cast
@@ -712,6 +713,18 @@ def _save_row_grad(values: dict[str, Any]) -> None:
     """Copy a chunk's per-row gradient scale ``d`` into its rows of ``d_rows`` (the loss entry's budget forms: the
     backward recomputes ``dz`` of the vocabulary rows the forward did not accumulate from it)."""
     values["out"].copy_(values["src"])
+
+
+# PROTOTYPE (design L3a; an owner decision under the memory rule, never a default): a default call with a weight gradient
+# whose valid rows span 2 .. C6990_PROTO_L3A_MAXN chunks runs the fast form as one chunk of n * chunk_size rows (no FP32
+# [V, H] accumulator, no recompute; the one chunk holds the logits of every valid row)
+_PROTO_L3A_MAXN = int(os.environ.get("C6990_PROTO_L3A_MAXN", "2"))
+
+
+def _proto_l3a_chunk(rows: int, chunk: int) -> Optional[int]:
+    """The prototype's one-chunk size for a default call over ``rows`` valid rows (``None``: not this class)."""
+    n = -(-int(rows) // int(chunk))
+    return n * int(chunk) if 2 <= n <= _PROTO_L3A_MAXN else None
 
 
 HOST_STAGES: dict[str, Callable[[dict[str, Any]], None]] = {
@@ -4988,7 +5001,11 @@ def forward_loss(
         # never counts on the host).  A budget form keeps the hidden count when its plan of chunk-sized buffers fits,
         # else it drops the count's queued chunk-0 work (its row index was formed above)
         rows = T if row_index is None else int(row_index.numel())
-        if rows and (row_index is not None or given is not None or compact):
+        l3a = _proto_l3a_chunk(rows, chunk_size) if need_dw else None
+        if l3a is not None and (row_index is not None or given is not None or compact):
+            # PROTOTYPE L3a: the fast form over one chunk of the valid rows (the hidden count's chunk-0 work dropped)
+            chunk_size, hc = l3a, None
+        elif rows and (row_index is not None or given is not None or compact):
             mplan, keep_hc = _auto_loss_plan(
                 problem,
                 X.device,
@@ -8285,6 +8302,18 @@ class CakeLMHeadDetLogprobFunction(torch.autograd.Function):
             return (None,) * 16
         X, W, labels, lse, row_index = ctx.saved_tensors
         need_dx, need_dw = bool(ctx.needs_input_grad[0]), bool(ctx.needs_input_grad[1])
+        # PROTOTYPE L3a: a default backward whose valid rows span 2 .. _PROTO_L3A_MAXN chunks runs the fast form as one
+        # chunk of them (the forward kept its chunk size: it holds no logits)
+        rows = int(labels.numel()) if row_index is None else int(row_index.numel())
+        l3a = (
+            _proto_l3a_chunk(rows, ctx.chunk_size)
+            if ctx.auto
+            and need_dw
+            and ctx.backend == "cake"
+            and (row_index is not None or ctx.num_valid_rows is not None or ctx.compact)
+            else None
+        )
+        bwd_chunk = ctx.chunk_size if l3a is None else l3a
         mplan = (
             _auto_logprob_plan(
                 X,
@@ -8300,7 +8329,7 @@ class CakeLMHeadDetLogprobFunction(torch.autograd.Function):
                 tuning=ctx.gemm_tuning,
                 backend=ctx.backend,
             )
-            if ctx.auto and need_dw
+            if ctx.auto and need_dw and l3a is None
             else None
         )
         if need_dw and (ctx.budget or mplan is not None):
@@ -8331,7 +8360,7 @@ class CakeLMHeadDetLogprobFunction(torch.autograd.Function):
                 labels,
                 lse,
                 dlogp,
-                chunk_size=ctx.chunk_size,
+                chunk_size=bwd_chunk,
                 need_dx=need_dx,
                 need_dw=need_dw,
                 backend=ctx.backend,
