@@ -10490,7 +10490,7 @@
     },
     "grid": {
      "sm_103a": [
-      152,
+      148,
       1,
       1
      ]
@@ -10504,6 +10504,7 @@
      "local_expert_filter": true,
      "w1_expert_map": false,
      "a_source": "x",
+     "num_ctas": 148,
      "kernel_intermediate": 2304,
      "args": {
       "num_experts": 96,
@@ -10794,7 +10795,7 @@
     },
     "grid": {
      "sm_103a": [
-      152,
+      148,
       1,
       1
      ]
@@ -10808,6 +10809,7 @@
      "local_expert_filter": true,
      "w1_expert_map": false,
      "a_source": "x",
+     "num_ctas": 148,
      "kernel_intermediate": 2304,
      "args": {
       "num_experts": 48,
