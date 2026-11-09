@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import functools
 import math
+import os
 from collections import OrderedDict
 from dataclasses import dataclass, field, fields, replace
 from typing import Any, Callable, ClassVar, Optional, Union, cast
@@ -714,10 +715,17 @@ def _save_row_grad(values: dict[str, Any]) -> None:
     values["out"].copy_(values["src"])
 
 
+# PROTOTYPE K2s switch (environment, read once): C6990_PROTO_K2S=0 disables the ``"partial_spill"`` candidate
+_PROTO_K2S = os.environ.get("C6990_PROTO_K2S", "1") != "0"
+
+
 HOST_STAGES: dict[str, Callable[[dict[str, Any]], None]] = {
     "dx_reduce": _dx_reduce,
     "gather_rows": _gather_rows,
     "save_row_grad": _save_row_grad,
+    # PROTOTYPE (design K2s, an owner decision under the memory rule, never a default): a chunk's dz columns of the
+    # spilled vocabulary rows into its rows of ``dz_spill``
+    "spill_dz": _save_row_grad,
 }
 
 
@@ -742,6 +750,9 @@ class Plan(_main.Plan):
     # only (none when equal; the backward recomputes the rows ``[dw_split_end, V)``, :func:`_dw_vocab_blocks`);
     # ``None`` = up to ``V``
     dw_split_end: Optional[int] = None
+    # PROTOTYPE K2s (budget form ``"partial_spill"``): the vocabulary columns ``[s0, s1)`` of every chunk's ``dz`` before
+    # the last, copied into ``dz_spill`` after the chunk's row gradient (the backward reads them instead of recomputing)
+    dw_spill: Optional[tuple] = None
 
     def dw_acc_rows(self, index) -> tuple[int, int]:
         """The vocabulary rows ``[v0, v1)`` the weight-gradient accumulate of launch index ``index`` adds into its FP32
@@ -821,6 +832,7 @@ def make_plan(
     dx_slices_cap: Optional[int] = None,
     dw_split: Optional[int] = None,
     dw_split_end: Optional[int] = None,
+    dw_spill: Optional[tuple] = None,
 ) -> Plan:
     """The chunk schedule; ``dx_max_slices`` > 1 (K-sliced dX stages registered) picks each chunk's slice count
     (``dx_resident`` = the device's co-resident dX clusters, :func:`cluster_resident`); ``valid_rows`` (compaction)
@@ -892,6 +904,15 @@ def make_plan(
                 )
     elif dw_split_end is not None:
         raise ValueError("dw_split_end belongs to a plan with dw_split")
+    if dw_spill is not None:
+        dw_spill = (int(dw_spill[0]), int(dw_spill[1]))
+        if (
+            dw_split_end is None
+            or not keep_row_grad
+            or dw_spill[0] != int(dw_split_end)
+            or not dw_spill[0] < dw_spill[1] <= int(problem.vocab)
+        ):
+            raise ValueError(f"dw_spill={dw_spill}: [dw_split_end, s1) of a partial_ip plan with keep_row_grad")
     tuning = gemm_tuning or {}
     dx_tuning = tuning.get("dx", {})
     slices: tuple[int, ...] = ()
@@ -998,6 +1019,7 @@ def make_plan(
         keep_row_grad=bool(keep_row_grad),
         dw_split=dw_split,
         dw_split_end=dw_split_end,
+        dw_spill=dw_spill,
     )
 
 
@@ -1077,6 +1099,7 @@ class MemoryPlan:
     block_rows: Optional[int]
     predicted_bytes: int
     budget_bytes: int
+    spill_cols: int = 0  # PROTOTYPE K2s: ``"partial_spill"``'s spilled vocabulary columns ``[dw_rows, dw_rows + spill_cols)``
 
     @property
     def recompute(self) -> bool:
@@ -1088,7 +1111,7 @@ class MemoryPlan:
         return self.predicted_bytes <= self.budget_bytes
 
 
-MEMORY_FORMS = ("fused", "fused_ip", "unfused", "partial_ip", "partial", "recompute")
+MEMORY_FORMS = ("fused", "fused_ip", "unfused", "partial_spill", "partial_ip", "partial", "recompute")
 
 
 def memory_plan(
@@ -1423,6 +1446,7 @@ def memory_plan(
         return lo_k * step
 
     candidates: list[tuple[str, int, Optional[int]]] = []
+    spill_choice = None
     if fuse_dw_cast:
         candidates.append(("fused", V, None))
         if entry == "loss" and n > 1 and split < V:
@@ -1451,6 +1475,39 @@ def memory_plan(
                 if k:
                     v_ip = split + k - step
                     ip = [("partial_ip", v_ip, min(vb_ip, V - v_ip))]
+        # PROTOTYPE K2s ``"partial_spill"``: ``"partial_ip"`` whose chunks before the last also keep their ``dz``
+        # columns ``[v0, v0 + s)`` (2 (R - r_last) s bytes held from the chunk loop through the tail); every phase of
+        # ``"partial_ip"`` holds the spill, so the peak is ``max(M + upper(v0), tail(vb)) + spill(s)``; per ``v0`` the
+        # largest ``s`` that fits, then the least work ``2 (V - v0 - s) + s`` (recompute: two GEMMs per column, spill:
+        # one), ties to the larger ``v0``
+        spill_choice = None
+        if entry == "loss" and fuse_dw_cast and n > 1 and step <= split < V and _PROTO_K2S:
+            Rn = R - r_last
+            m_ip = peak("partial_ip", split, 0)
+            t_min = tail_ip(step)
+            best = None
+            for v in range(split, V, step):
+                up = live(4 * (v - split) * H) if v > split else 0
+                room = min(budget - m_ip - up, budget - t_min)
+                if room < live(2 * Rn * step):
+                    continue
+                k = min((V - v) // step, max(0, (room - 512 - (1 << 20)) // (2 * Rn * step)) + 1)
+                while k > 0 and live(2 * Rn * k * step) > room:
+                    k -= 1
+                if k <= 0:
+                    continue
+                sp = k * step
+                cost = 2 * (V - v - sp) + sp
+                if best is None or cost < best[0] or (cost == best[0] and v > best[1]):
+                    best = (cost, v, sp)
+            if best is not None:
+                _, v_sp, sp = best
+                S = live(2 * Rn * sp)
+                vb_sp = largest(lambda vb: tail_ip(vb) + S <= budget, V - v_sp)
+                if vb_sp:
+                    pred = max(peak("partial_ip", v_sp, vb_sp) + S, zero_phase, miss_phase)
+                    if pred <= budget:
+                        spill_choice = (v_sp, vb_sp, sp, pred)
         # recompute work: ``"partial"`` recomputes the rows ``[v0, V)`` of every chunk, ``"partial_ip"`` those of the
         # chunks before the last (the last one's ``dz`` stays pinned); the one with less goes first
         if ip and partial and (n - 1) * (V - ip[0][1]) > n * (V - partial[0][1]):
@@ -1462,6 +1519,23 @@ def memory_plan(
         (form, v0, vb, max(peak(form, v0, vb or 0), zero_phase, miss_phase))
         for form, v0, vb in candidates
     ]
+    first_fit = next((c for c in scored if c[3] <= budget), None)
+    if (
+        entry == "loss"
+        and recompute
+        and step < V
+        and spill_choice is not None
+        and (first_fit is None or first_fit[0] in ("partial_ip", "partial", "recompute"))
+    ):
+        v_sp, vb_sp, sp, pred = spill_choice
+        return MemoryPlan(
+            form="partial_spill",
+            dw_rows=int(v_sp),
+            block_rows=int(vb_sp),
+            predicted_bytes=int(pred),
+            budget_bytes=int(budget),
+            spill_cols=int(sp),
+        )
     chosen = next(
         (c for c in scored if c[3] <= budget), min(scored, key=lambda c: c[3])
     )
@@ -1769,6 +1843,10 @@ def stage_values(
     elif stage == "save_row_grad":
         # the budget forms' recompute reads every chunk's per-row gradient scale in the backward
         values.update(src=t["d"][:rows_c], out=t["d_rows"][row0:stop])
+    elif stage == "spill_dz":
+        # PROTOTYPE K2s: the chunk's dz columns [s0, s1) into its rows of the spill
+        s0, s1 = plan.dw_spill
+        values.update(src=dz_chunk[:, s0:s1], out=t["dz_spill"][row0:stop])
     elif stage == "row_finalize":
         d = t["d"]
 
@@ -2088,6 +2166,8 @@ def forward_keys(plan: Plan) -> tuple[tuple[str, Any], ...]:
             keys.append(("loss_reduce", index))
             if plan.need_dx or plan.need_dw:
                 keys.append(("row_grad", index))
+                if plan.dw_spill is not None and index < plan.num_chunks - 1:
+                    keys.append(("spill_dz", index))  # PROTOTYPE K2s
             if plan.need_dx:
                 keys += _dx_keys(plan, index)
             if plan.need_dw and not (plan.dw_deferred and index == plan.num_chunks - 1):
@@ -2503,6 +2583,7 @@ def prepare_lm_head_det_loss(
     _chunk_views: Optional[_HiddenCount] = None,
     dw_split: Optional[int] = None,
     dw_split_end: Optional[int] = None,
+    dw_spill: Optional[tuple] = None,
 ) -> LmHeadDetLossRunner:
     """Validate one binding and prepare its launches.
 
@@ -2685,6 +2766,7 @@ def prepare_lm_head_det_loss(
         dx_slices_cap=None if dx_slices_cap is None else int(dx_slices_cap),
         dw_split=dw_split,
         dw_split_end=dw_split_end,
+        dw_spill=dw_spill,
     )
     missing = [s for s in plan.stages if s not in stages]
     if missing:
@@ -2854,6 +2936,10 @@ def prepare_lm_head_det_loss(
             )
     if plan.keep_row_grad:
         t["d_rows"] = torch.empty((rows_loop,), dtype=torch.float32, device=device)
+    if plan.dw_spill is not None:  # PROTOTYPE K2s
+        t["dz_spill"] = torch.empty(
+            (int(plan.chunks[-1][0]), plan.dw_spill[1] - plan.dw_spill[0]), dtype=torch.bfloat16, device=device
+        )
     if layout.get("workspace"):
         t["workspace"] = carve("workspace", torch.uint8, (layout["workspace"][1],))
     if layout.get("tma_descriptor_workspace"):
@@ -3795,6 +3881,12 @@ class _Binding:
                     )
             if plan.keep_row_grad:
                 t["d_rows"] = torch.empty((T,), dtype=torch.float32, device=self.device)
+            if plan.dw_spill is not None:  # PROTOTYPE K2s
+                t["dz_spill"] = torch.empty(
+                    (int(plan.chunks[-1][0]), plan.dw_spill[1] - plan.dw_spill[0]),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
         self._launch(self.forward_late if early else self.forward_order, t, dw_stream)
         if capture is not None:
             capture.update(term=t["term"], loss_weights=t["loss_weights"])
@@ -3809,6 +3901,7 @@ class _Binding:
                 t.get(
                     "dw_acc_hi"
                 ),  # the split accumulator's upper rows (:attr:`Plan.dw_split`)
+                t.get("dz_spill"),  # PROTOTYPE K2s
             )
         return t["logp"], t["lse"]
 
@@ -4297,6 +4390,7 @@ class _BudgetResultState:
     # rows ``[a, end)`` (``None`` when ``end == a``); ``"partial_ip"`` recomputes the rows ``[end, V)``
     dw_split: Optional[tuple] = None
     dw_acc_hi: Optional[torch.Tensor] = None
+    dz_spill: Optional[torch.Tensor] = None  # PROTOTYPE K2s
 
 
 @dataclass
@@ -4390,6 +4484,7 @@ class ForwardResult(_BudgetResultState, _main._TemperatureResultState):
                     gemm_tuning=self.gemm_tuning,
                     dz_last=self.dz_last,
                     x_last=x_last,
+                    dz_spill=self.dz_spill,
                 )
             return dx, dw
         if self.memory_plan is not None and self.memory_plan.recompute:
@@ -5059,7 +5154,7 @@ def forward_loss(
             )
         )
         fuse = mplan.form == "fused"
-        split_form = mplan.form in ("fused_ip", "partial_ip")
+        split_form = mplan.form in ("fused_ip", "partial_ip", "partial_spill")
         if (
             split_form
             and need_dw
@@ -5075,8 +5170,12 @@ def forward_loss(
                     problem.vocab, Geometry.from_record(record_for(X.device)[1])
                 )
             )
-            if mplan.form == "partial_ip":
+            if mplan.form in ("partial_ip", "partial_spill"):
                 options.update(dw_split_end=int(mplan.dw_rows), keep_row_grad=True)
+            if mplan.form == "partial_spill":  # PROTOTYPE K2s
+                options.update(
+                    dw_spill=(int(mplan.dw_rows), int(mplan.dw_rows) + int(mplan.spill_cols))
+                )
         elif split_form:
             # a one-chunk call has no accumulator (nor does a call without a weight gradient): the fused form, whose
             # backward recomputes nothing
@@ -5113,6 +5212,7 @@ def forward_loss(
                 int(options["dw_split"]),
                 options.get("dw_split_end"),
                 bool(options.get("keep_row_grad")),
+                options.get("dw_spill"),
             )
         elif options is not None:
             key += (options["dw_rows"], True)  # a recompute form's plan options
@@ -5227,6 +5327,7 @@ def forward_loss(
             loss, logp = runner.forward()
             dx_acc, dw_acc = runner.dx_acc, runner.dw_acc
             dw_acc_hi = runner.tensors.get("dw_acc_hi")
+            dz_spill = runner.tensors.get("dz_spill")
             deferred = _deferred_operands(runner.plan, runner.tensors)
             row_state = _row_state(runner.plan, runner.tensors)
             memory, plan = runner.memory, runner.plan
@@ -5237,7 +5338,7 @@ def forward_loss(
                 )
             del runner
     if binding is not None:
-        loss, logp, dx_acc, dw_acc, deferred, row_state, dw_acc_hi = binding.forward(
+        loss, logp, dx_acc, dw_acc, deferred, row_state, dw_acc_hi, dz_spill = binding.forward(
             X,
             W,
             labels,
@@ -5280,6 +5381,7 @@ def forward_loss(
     )
     if mplan is not None:
         _budget_result(result, mplan, row_state, plan, X, W, dw_acc_hi)
+        result.dz_spill = dz_spill  # PROTOTYPE K2s
     return _with_zero_weight_rows(
         result,
         zero_index,
@@ -6386,6 +6488,7 @@ def _dw_vocab_blocks(
     gemm_tuning: Optional[dict[str, dict[str, Any]]] = None,
     dz_last: Optional[torch.Tensor] = None,
     x_last: Optional[torch.Tensor] = None,
+    dz_spill: Optional[torch.Tensor] = None,
 ) -> None:
     """The weight-gradient rows ``[v_start, V)`` written into ``dw_out[v_start:]`` (BF16 ``[V, H]``) in vocabulary
     blocks of ``block_rows`` rows, from the row statistics of the call (the budget forms of :func:`memory_plan`).
@@ -6459,9 +6562,20 @@ def _dw_vocab_blocks(
         values.update({name: 0 for name in COMMON_SCALARS})
         return values
 
-    for v0 in range(v_start, V, block_rows):
-        v1 = min(V, v0 + block_rows)
+    # PROTOTYPE K2s: the spilled columns [v_start, s1) of the chunks before the last are read from ``dz_spill``; the
+    # blocks do not straddle s1
+    s1 = v_start if dz_spill is None else v_start + int(dz_spill.shape[1])
+    if dz_spill is not None and (
+        not pinned or plan.dw_spill is None or tuple(plan.dw_spill) != (v_start, s1)
+    ):
+        raise ValueError("_dw_vocab_blocks: dz_spill belongs to a pinned partial_spill plan")
+    starts = [(v, s1) for v in range(v_start, s1, block_rows)] + [
+        (v, V) for v in range(s1, V, block_rows)
+    ]
+    for v0, region_end in starts:
+        v1 = min(region_end, v0 + block_rows)
         vb = v1 - v0
+        spilled = v1 <= s1
         lb = torch.where(
             labels_c < 0,
             labels_c,
@@ -6486,6 +6600,18 @@ def _dw_vocab_blocks(
             if pinned and i == n - 1:
                 # the deferred chunk: its own ``dz`` columns of this block and its ``X`` rows, no recompute
                 a_op, xc = dz_last[:, v0:v1], x_last
+            elif spilled:
+                # PROTOTYPE K2s: the chunk's spilled ``dz`` columns, no recompute
+                a_op = dz_spill[row0 : row0 + rows_c, v0 - v_start : v1 - v_start]
+                if row_index is not None:
+                    xc = torch.index_select(
+                        X, 0, row_index[row0 : row0 + rows_c], out=x_buf[:rows_c]
+                    )
+                elif gather:
+                    xc = x_buf[:rows_c]
+                    xc.copy_(X[row0 : row0 + rows_c])
+                else:
+                    xc = X[row0 : row0 + rows_c]
             else:
                 a_op = None
             if a_op is None:
@@ -7990,6 +8116,7 @@ class CakeLMHeadDetLossFunction(torch.autograd.Function):
         ctx.memory_plan = mplan = result.memory_plan
         # a split accumulator (``"fused_ip"`` / ``"partial_ip"``): its rows and upper part (``dw_acc`` the lower one)
         ctx.dw_split, ctx.dw_acc_hi = result.dw_split, result.dw_acc_hi
+        ctx.dz_spill = getattr(result, "dz_spill", None)  # PROTOTYPE K2s
         if ctx.auto_release:
             # the automatic form: the early release of the budget form its forward picked (none: the fast form)
             ctx.early_release = mplan is not None
@@ -8009,7 +8136,7 @@ class CakeLMHeadDetLossFunction(torch.autograd.Function):
 
     @staticmethod
     def _release(ctx) -> None:
-        ctx.dx_acc = ctx.dw_acc = ctx.dw_acc_hi = ctx.dw_split = None
+        ctx.dx_acc = ctx.dw_acc = ctx.dw_acc_hi = ctx.dw_split = ctx.dz_spill = None
         ctx.row_state = ctx.plan = None
         ctx.row_index = ctx.row_valid = None
         ctx.released = True
@@ -8121,7 +8248,10 @@ class CakeLMHeadDetLossFunction(torch.autograd.Function):
                     gemm_tuning=ctx.gemm_tuning,
                     dz_last=dz_last,
                     x_last=x_last,
+                    dz_spill=ctx.dz_spill,
                 )
+                if not keep:
+                    ctx.dz_spill = None
         elif mplan is not None:
             acc = [] if ctx.dw_acc is None else [ctx.dw_acc]
             if not keep:
