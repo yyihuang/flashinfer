@@ -1478,8 +1478,9 @@ def memory_plan(
         # PROTOTYPE K2s ``"partial_spill"``: ``"partial_ip"`` whose chunks before the last also keep their ``dz``
         # columns ``[v0, v0 + s)`` (2 (R - r_last) s bytes held from the chunk loop through the tail); every phase of
         # ``"partial_ip"`` holds the spill, so the peak is ``max(M + upper(v0), tail(vb)) + spill(s)``; per ``v0`` the
-        # largest ``s`` that fits, then the least work ``2 (V - v0 - s) + s`` (recompute: two GEMMs per column, spill:
-        # one), ties to the larger ``v0``
+        # largest ``s`` that fits, then the least extra work ``(V - v0 - s) + 0.15 s`` (a recomputed column costs one
+        # more logits GEMM column per chunk; a spilled one only its copy and the tail's per-block launches, about 0.15
+        # of that), ties to the larger ``v0``
         spill_choice = None
         if entry == "loss" and fuse_dw_cast and n > 1 and step <= split < V and _PROTO_K2S:
             Rn = R - r_last
@@ -1497,7 +1498,7 @@ def memory_plan(
                 if k <= 0:
                     continue
                 sp = k * step
-                cost = 2 * (V - v - sp) + sp
+                cost = 20 * (V - v - sp) + 3 * sp
                 if best is None or cost < best[0] or (cost == best[0] and v > best[1]):
                     best = (cost, v, sp)
             if best is not None:
