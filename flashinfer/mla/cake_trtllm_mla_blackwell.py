@@ -868,15 +868,26 @@ def _e4m3_decode_table_values() -> tuple[float, ...]:
     return tuple(values)
 
 
+_FP8_LUTS: dict[torch.device, torch.Tensor] = {}
+
+
 def _fp8_lut(device: torch.device) -> torch.Tensor:
-    return _workspace(
-        ("fp8_lut", device),
-        lambda: {
-            "lut": torch.tensor(
+    # Kept outside the LRU: a captured graph may read it after any number of
+    # later workspace insertions.
+    lut = _FP8_LUTS.get(device)
+    if lut is None:
+        lut = _FP8_LUTS.setdefault(
+            device,
+            torch.tensor(
                 _e4m3_decode_table_values(), dtype=torch.float32, device=device
-            )
-        },
-    )["lut"]
+            ),
+        )
+    return lut
+
+
+def _scratch(key: tuple[Any, ...], build, stateless: bool) -> dict[str, Any]:
+    """Split-KV scratch: cached per shape, or allocated on the current stream per call."""
+    return build() if stateless else _workspace(key, build)
 
 
 def row_metadata(
@@ -979,6 +990,7 @@ def _row_plan(
     total_q: int,
     page_size: int,
     topk: int,
+    stateless: bool = False,
 ) -> dict[str, torch.Tensor]:
     """The per-row metadata a domain's kernels read, built once per input identity.
 
@@ -989,6 +1001,7 @@ def _row_plan(
     version counter and rebuild the plan; writes that bypass torch must pass
     fresh tensors.  Under stream capture a plan built before capture is reused;
     a new identity's metadata is recomputed inside the graph and not cached.
+    ``stateless`` always recomputes it on the current stream and caches nothing.
     """
 
     def build() -> dict[str, torch.Tensor]:
@@ -1008,6 +1021,8 @@ def _row_plan(
             state["row_seq_lens"] = torch.full_like(row_seq_lens, topk)
         return state
 
+    if stateless:
+        return build()
     key = (
         "plan",
         domain,
@@ -1094,8 +1109,19 @@ def trtllm_mla_blackwell_decode(
     sparse_mla_top_k_lens: Optional[torch.Tensor],
     enable_dcp: bool,
     backend: Literal["cake"] = "cake",
+    stateless: bool = False,
 ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
-    """Dispatch the generated SM100a/SM103a MLA decode programs."""
+    """Dispatch the generated SM100a/SM103a MLA decode programs.
+
+    By default the row plan and the host KV lengths are cached per input
+    identity and the split-KV scratch per shape (see ``_row_plan``).
+    ``stateless=True`` reads ``seq_lens`` and ``block_tables`` only on the device
+    on every call, like the TRTLLM-GEN kernels: it never reads ``seq_lens`` on the
+    host (only the runtime-shape domains serve it), rebuilds the row plan and
+    allocates the scratch on the current stream, so any write pattern of the
+    inputs and CUDA-graph replay with updated inputs stay correct.  It costs the
+    row-plan kernels on every call.
+    """
     if backend != "cake":
         raise ValueError(f"backend must be 'cake', got {backend!r}")
     if not isinstance(query, torch.Tensor) or not query.is_cuda:
@@ -1237,7 +1263,7 @@ def trtllm_mla_blackwell_decode(
         batch_size=batch_size,
         q_len=q_len,
         table_width=table_width,
-        kv_lens=_host_kv_lens(seq_lens) if candidate else None,
+        kv_lens=_host_kv_lens(seq_lens) if candidate and not stateless else None,
         num_sms=num_sms,
     )
     plan = _row_plan(
@@ -1250,6 +1276,7 @@ def trtllm_mla_blackwell_decode(
         total_q=total_q,
         page_size=page_size,
         topk=topk,
+        stateless=stateless,
     )
     row_batches, row_seq_lens = plan["row_batches"], plan["row_seq_lens"]
     stream = int(torch.cuda.current_stream(device).cuda_stream)
@@ -1263,7 +1290,7 @@ def trtllm_mla_blackwell_decode(
         resident = max(1, num_sms // _CLUSTER_SIZE)
         work = total_q * _NATIVE_SPLIT
         grid_x = min(work, resident) * _CLUSTER_SIZE
-        state = _workspace(
+        state = _scratch(
             ("native_split8", device, total_q),
             lambda: {
                 "partial_output": torch.empty(
@@ -1277,6 +1304,7 @@ def trtllm_mla_blackwell_decode(
                     device=device,
                 ),
             },
+            stateless,
         )
         run(
             query.reshape(-1, _ALIGNED_QK_DIM),
@@ -1327,7 +1355,7 @@ def trtllm_mla_blackwell_decode(
         )
     elif domain == DOMAIN_FP8_P32:
         reduction_groups = batch_size * _P32_HEAD_GROUPS * q_len
-        state = _workspace(
+        state = _scratch(
             ("fp8_p32", device, batch_size, q_len),
             lambda: {
                 # The producer's same-kernel reduction leaves every counter at zero.
@@ -1345,6 +1373,7 @@ def trtllm_mla_blackwell_decode(
                     device=device,
                 ),
             },
+            stateless,
         )
         run(
             query.reshape(-1, _ALIGNED_QK_DIM).view(torch.uint8),
@@ -1368,7 +1397,7 @@ def trtllm_mla_blackwell_decode(
         work_items = total_q
         num_split = plan_num_split(work_items, int(max_seq_len), num_sms)
         reduce_ctas = min(64, max(1, (num_sms * 2) // max(1, work_items * 2)))
-        state = _workspace(
+        state = _scratch(
             ("fp8_page64", device, work_items, num_split),
             lambda: {
                 "partial_output": torch.empty(
@@ -1385,6 +1414,7 @@ def trtllm_mla_blackwell_decode(
                     (work_items, _ALIGNED_HEADS), dtype=torch.float32, device=device
                 ),
             },
+            stateless,
         )
         run(
             query.reshape(-1, _ALIGNED_QK_DIM).view(torch.uint8),
