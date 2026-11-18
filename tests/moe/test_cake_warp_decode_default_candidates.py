@@ -21,6 +21,7 @@ import pytest
 import torch
 
 import flashinfer
+import flashinfer.fused_moe.runners as moe_runners
 from flashinfer.fused_moe import (
     BackendOptions,
     CakeStepFunConfig,
@@ -50,13 +51,34 @@ from tests.moe.cake_warp_decode_reference import (
     reference,
 )
 from tests.moe.test_cake_warp_decode import (
-    _activation_pack as _cpu_activation_pack,
+    _activation_pack as _spec_activation_pack,
     _config as _cpu_config,
     _runner as _cpu_runner,
     _weight_pack as _cpu_weight_pack,
 )
 
 _SWITCH_ENV = "FLASHINFER_DISABLE_CAKE_AUTO_CANDIDATES"
+
+
+def _cpu_activation_pack(
+    *,
+    num_tokens: int = 7,
+    top_k: int = 4,
+    weights_dtype: torch.dtype = torch.bfloat16,
+    **kwargs,
+):
+    """CPU activation pack with real routing weights: the default entry drops
+    out-of-range routes from them on the device."""
+    topk_weights = torch.rand((num_tokens, top_k), dtype=torch.float32)
+    return _spec_activation_pack(
+        num_tokens=num_tokens,
+        top_k=top_k,
+        weights_dtype=weights_dtype,
+        topk_weights=topk_weights.to(weights_dtype),
+        **kwargs,
+    )
+
+
 _EXPERIMENTAL_ENV = "FLASHINFER_ALLOW_EXPERIMENTAL_AUTO_BACKENDS"
 # Default SwiGLU, so one prepared dictionary serves both the Cake and the
 # TRT-LLM FP4 runner.
@@ -236,11 +258,6 @@ def test_default_entry_needs_eager_warmup_for_capture(monkeypatch):
 
     assert runner.accepts(act, weights)
     capturing = True
-    assert not runner.accepts(act, weights), "no receipt and no workspace"
-
-    capturing = False
-    runner._validate_expert_id_range(topk_ids, 60)
-    capturing = True
     assert not runner.accepts(act, weights), "no workspace for this token count"
 
     capturing = False
@@ -249,11 +266,94 @@ def test_default_entry_needs_eager_warmup_for_capture(monkeypatch):
     assert runner.accepts(act, weights)
     runner.pack_inputs(act, weights)
 
-    # A router output allocated during capture, or one updated in place,
-    # has no validation receipt.
-    assert not runner.accepts(_cpu_activation_pack(topk_ids=topk_ids.clone()), weights)
+    # Capture needs only the prepared workspace of this token count: a router
+    # output allocated during capture, or one updated in place, is accepted.
+    fresh = _cpu_activation_pack(topk_ids=topk_ids.clone())
+    assert runner.accepts(fresh, weights)
+    runner.pack_inputs(fresh, weights)
     topk_ids[0, 0] = 1
-    assert not runner.accepts(act, weights)
+    assert runner.accepts(act, weights)
+    runner.pack_inputs(act, weights)
+    other_tokens = _cpu_activation_pack(
+        num_tokens=8, topk_ids=torch.zeros((8, 4), dtype=torch.int32)
+    )
+    assert not runner.accepts(other_tokens, weights)
+
+
+def test_default_entry_never_syncs_on_fresh_topk_ids(monkeypatch):
+    runner = _cpu_default_runner()
+    weights, _ = _cpu_weight_pack()
+
+    def no_validation(*args, **kwargs):
+        raise AssertionError("the default entry range-checked topk_ids")
+
+    def no_item(self):
+        raise AssertionError("the default entry read a tensor value on the host")
+
+    monkeypatch.setattr(runner, "_validate_expert_id_range", no_validation)
+    monkeypatch.setattr(torch.Tensor, "item", no_item)
+    # Keep every tensor alive: more fresh tensors than the explicit config's
+    # 64 live validation receipts.
+    live = []
+    for step in range(2 * runner._MAX_TOPK_VALIDATION_RECEIPTS + 1):
+        topk_ids = torch.full((7, 4), step % 60, dtype=torch.int32)
+        live.append(topk_ids)
+        act = _cpu_activation_pack(topk_ids=topk_ids)
+        assert runner.accepts(act, weights), f"not eligible at fresh tensor {step}"
+        inputs = runner.pack_inputs(act, weights)
+        torch.testing.assert_close(inputs[4], topk_ids, rtol=0, atol=0)
+    assert not runner._topk_validation_receipts
+
+
+@pytest.mark.parametrize("invalid_id", [-1, 60])
+def test_only_explicit_cake_rejects_out_of_range_expert_ids(invalid_id):
+    explicit, _ = _cpu_runner()
+    default = _cpu_default_runner()
+    weights, _ = _cpu_weight_pack()
+    topk_ids = torch.zeros((7, 4), dtype=torch.int32)
+    topk_ids[0, 0] = invalid_id
+    act = _cpu_activation_pack(topk_ids=topk_ids)
+
+    with pytest.raises(ValueError, match="0 <= id < 60"):
+        explicit.pack_inputs(act, weights)
+    # The default entry drops the slot on the device, as the TRT-LLM routing
+    # kernels do: expert 0 with weight 0, and every other slot unchanged.
+    assert default.accepts(act, weights)
+    topk_weights = act.topk_weights.clone()
+    inputs = default.pack_inputs(act, weights)
+    expected_ids = topk_ids.clone()
+    expected_ids[0, 0] = 0
+    expected_weights = topk_weights.clone()
+    expected_weights[0, 0] = 0
+    torch.testing.assert_close(inputs[4], expected_ids, rtol=0, atol=0)
+    torch.testing.assert_close(inputs[5], expected_weights, rtol=0, atol=0)
+    torch.testing.assert_close(act.topk_ids, topk_ids, rtol=0, atol=0)
+
+
+def test_switch_rejects_only_the_default_runner(monkeypatch):
+    explicit, _ = _cpu_runner()
+    default = _cpu_default_runner()
+    default._check_support()
+
+    monkeypatch.setenv(_SWITCH_ENV, "1")
+    with pytest.raises(NotImplementedError, match=_SWITCH_ENV):
+        default._check_support()
+    explicit._check_support()
+
+
+@pytest.mark.parametrize("tuning", [False, True])
+def test_default_entry_leaves_group_tuning(monkeypatch, tuning):
+    explicit, _ = _cpu_runner()
+    default = _cpu_default_runner()
+    weights, _ = _cpu_weight_pack()
+    act = _cpu_activation_pack(topk_ids=torch.zeros((7, 4), dtype=torch.int32))
+    tuner = SimpleNamespace(is_tuning_mode=tuning)
+    monkeypatch.setattr(moe_runners, "AutoTuner", SimpleNamespace(get=lambda: tuner))
+    monkeypatch.setattr(moe_runners, "get_autotune_process_group", lambda: object())
+
+    # Outside tuning a process group checks nothing.
+    assert default.accepts(act, weights) is not tuning
+    assert explicit.accepts(act, weights)
 
 
 def test_default_entry_leaves_before_stream_workspace_limit(monkeypatch):
@@ -445,3 +545,36 @@ def test_forced_cake_tactic_matches_reference(num_tokens):
 
     assert_close(direct, expected)
     assert_close(through_layer, expected)
+
+
+@pytest.mark.parametrize("num_tokens", [8, 32])
+def test_default_entry_drops_out_of_range_routes_like_trtllm(num_tokens):
+    """SGLang pads CUDA Graph decode batches with topk_ids = -1."""
+    _require_cake_arch()
+    layer = _layer(_config())
+    weights = _weights(_TRTLLM_KEY, "cake")
+    activations = _activations(num_tokens)
+    topk_ids = activations.topk_ids.clone()
+    topk_ids[-2:] = -1
+    topk_ids[0, -1] = _GEOMETRY.num_experts
+    caller_ids = topk_ids.clone()
+    padded = MoEActivationPack(
+        hidden_states_q=activations.hidden_states_q,
+        hidden_states_scale=activations.hidden_states_scale,
+        topk_ids=topk_ids,
+        topk_weights=activations.topk_weights,
+        routing_input_mode=RoutingInputMode.UnpackedPrecomputed,
+    )
+    trtllm_only = _layer(_config(BackendOptions((TrtllmFp4Config(),))))
+
+    assert len(layer.runners) - 1 in layer._eligible_runners(padded, weights)
+    through_cake = layer._run_tactic(
+        padded, weights, (layer._tuning_runner_ids[-1], -1)
+    ).clone()
+    expected = trtllm_only(padded, weights).clone()
+    torch.cuda.synchronize()
+
+    assert torch.equal(through_cake[-2:], torch.zeros_like(through_cake[-2:]))
+    assert_close(through_cake, expected)
+    # The caller's routing tensor is not modified.
+    assert torch.equal(topk_ids, caller_ids)

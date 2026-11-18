@@ -697,17 +697,22 @@ class CakeWarpDecodeConfig:
     later candidate only when it is strictly faster, so this entry is selected
     only when it measures faster than every earlier eligible backend. It is
     eligible only for weight packs with a ``"cake"`` view and for activation
-    packs it can serve; other calls select exactly as without it. During
-    CUDA Graph capture it is eligible only for a ``topk_ids`` tensor version
-    and token count it already served in an eager call. Setting
-    ``FLASHINFER_DISABLE_CAKE_AUTO_CANDIDATES=1`` before a ``MoELayer`` is
-    built leaves this entry out of that layer (see
+    packs it can serve; other calls select exactly as without it. Like the
+    TRT-LLM routing kernels, this entry drops a ``topk_ids`` value outside
+    ``[0, num_experts)``, such as ``-1`` padding, on the device without a host
+    sync: the slot adds nothing to the output. During CUDA Graph
+    capture it is eligible only for a token count it already served in an
+    eager call, and while an autotune process group tunes
+    (:func:`flashinfer.autotuner.set_autotune_process_group`) it is not
+    eligible. Setting ``FLASHINFER_DISABLE_CAKE_AUTO_CANDIDATES=1`` before a
+    ``MoELayer`` is built leaves this entry out of that layer (see
     :func:`flashinfer.api_logging.cake_auto_candidates_enabled`). The default
     entry resolves ``ExecutionConfig(enable_pdl=None)`` from the device, still
     rejects ``enable_pdl=False``, and loads its kernel module on first use.
 
     An explicit ``CakeWarpDecodeConfig(backend="cake")`` is not affected by
-    that switch and requires ``ExecutionConfig(enable_pdl=True)``.
+    that switch, requires ``ExecutionConfig(enable_pdl=True)``, and raises
+    ``ValueError`` for a ``topk_ids`` value outside ``[0, num_experts)``.
 
     The physical weight and activation layouts are exactly those produced by
     :class:`TrtllmFp4Config` for NVFP4×NVFP4. This keeps one quantized

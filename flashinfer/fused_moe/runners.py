@@ -51,6 +51,7 @@ from ..autotuner import (
     DynamicTensorSpec,
     TunableRunner,
     TuningConfig,
+    get_autotune_process_group,
 )
 from ..quantization.nvfp4_quantization_utils import (
     _UNSET,
@@ -1132,6 +1133,14 @@ class CakeWarpDecodeRunner(MoERunner):
         self._require_built()
         return [-1]
 
+    @staticmethod
+    def _drop_out_of_range_routes(
+        topk_ids: torch.Tensor, topk_weights: torch.Tensor, num_experts: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Route each id outside [0, num_experts) to expert 0 with weight 0."""
+        safe_ids = topk_ids.clamp(0, num_experts - 1)
+        return safe_ids, topk_weights * (safe_ids == topk_ids)
+
     def _accepts_shape(self, act: MoEActivationPack) -> bool:
         if not self._is_default_candidate():
             # An explicit Cake config keeps reporting unsupported inputs from
@@ -1173,16 +1182,14 @@ class CakeWarpDecodeRunner(MoERunner):
             or not act.topk_weights.is_contiguous()
         ):
             return False
-        # Validation receipts and stream workspaces are never evicted. Leave
-        # the default entry out before either limit is reached instead of
-        # failing the call. One winner selection can add two stream
-        # workspaces: the caller stream and the timing warmup stream.
-        receipts = self._topk_validation_receipts
-        if (
-            id(act.topk_ids) not in receipts
-            and len(receipts) >= self._MAX_TOPK_VALIDATION_RECEIPTS
-        ):
+        # Group tuning requires every rank to tune the same runners, and this
+        # entry's eligibility depends on the rank-local token count.
+        if get_autotune_process_group() is not None and AutoTuner.get().is_tuning_mode:
             return False
+        # Stream workspaces are never evicted. Leave the default entry out
+        # before that limit is reached instead of failing the call. One winner
+        # selection can add two stream workspaces: the caller stream and the
+        # timing warmup stream.
         if len(self._workspace_cache) > self._MAX_STREAM_WORKSPACES - 2:
             return False
         geometry = (
@@ -1192,32 +1199,16 @@ class CakeWarpDecodeRunner(MoERunner):
             routing.num_experts,
             routing.top_k,
         )
-        if self._is_current_stream_capturing() and not self._capture_ready(
-            act.topk_ids, geometry
-        ):
+        if self._is_current_stream_capturing() and not self._capture_ready(geometry):
             return False
         return True
 
-    def _capture_ready(
-        self,
-        topk_ids: torch.Tensor,
-        geometry: tuple[int, int, int, int, int],
-    ) -> bool:
-        """Whether pack_inputs can serve these inputs during CUDA Graph capture.
+    def _capture_ready(self, geometry: tuple[int, int, int, int, int]) -> bool:
+        """Whether pack_inputs can serve this geometry during CUDA Graph capture.
 
-        Capture can neither range-validate a new topk_ids tensor version nor
-        allocate and prepare a workspace, so both must exist from an eager call
-        with this exact tensor version and geometry.
+        Capture cannot allocate or prepare a workspace, so a prepared workspace
+        for this exact geometry must exist from an eager call.
         """
-        receipt = self._topk_validation_receipts.get(id(topk_ids))
-        if (
-            receipt is None
-            or receipt[0] is not topk_ids
-            or receipt[1] != topk_ids.data_ptr()
-            or receipt[2] != self._topk_version(topk_ids)
-            or receipt[3] != self.config.routing.num_experts
-        ):
-            return False
         cached = self._workspace_cache.get(
             (self._stream_token(self._current_stream()), geometry)
         )
@@ -1607,7 +1598,16 @@ class CakeWarpDecodeRunner(MoERunner):
             allowed_weights_dtypes=(torch.bfloat16,),
             require_contiguous=True,
         )
-        self._validate_expert_id_range(act.topk_ids, routing.num_experts)
+        topk_ids, topk_weights = act.topk_ids, act.topk_weights
+        if self._is_default_candidate():
+            # The default backend list's entry must not sync the host. It drops
+            # an out-of-range id (such as -1 padding) on the device, like the
+            # TRT-LLM routing kernels: expert 0 with weight 0.
+            topk_ids, topk_weights = self._drop_out_of_range_routes(
+                topk_ids, topk_weights, routing.num_experts
+            )
+        else:
+            self._validate_expert_id_range(act.topk_ids, routing.num_experts)
         device = act.hidden_states_q.device
         if device != self.device:
             raise ValueError(
@@ -1738,8 +1738,8 @@ class CakeWarpDecodeRunner(MoERunner):
             workspace,
             act.hidden_states_q,
             act.hidden_states_scale,
-            act.topk_ids,
-            act.topk_weights,
+            topk_ids,
+            topk_weights,
             view["gemm1_weights"],
             view["gemm1_weights_scale"],
             view["gemm2_weights"],
