@@ -21,7 +21,7 @@ import pytest
 import torch
 
 import flashinfer
-import flashinfer.fused_moe.runners as moe_runners
+from flashinfer.autotuner import autotuner as autotuner_module
 from flashinfer.fused_moe import (
     BackendOptions,
     CakeStepFunConfig,
@@ -348,9 +348,8 @@ def test_default_entry_leaves_group_tuning(monkeypatch, tuning):
     default = _cpu_default_runner()
     weights, _ = _cpu_weight_pack()
     act = _cpu_activation_pack(topk_ids=torch.zeros((7, 4), dtype=torch.int32))
-    tuner = SimpleNamespace(is_tuning_mode=tuning)
-    monkeypatch.setattr(moe_runners, "AutoTuner", SimpleNamespace(get=lambda: tuner))
-    monkeypatch.setattr(moe_runners, "get_autotune_process_group", lambda: object())
+    monkeypatch.setattr(autotuner_module.AutoTuner.get(), "is_tuning_mode", tuning)
+    monkeypatch.setattr(autotuner_module, "_tune_process_group", object())
 
     # Outside tuning a process group checks nothing.
     assert default.accepts(act, weights) is not tuning

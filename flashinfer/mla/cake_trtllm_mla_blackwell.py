@@ -1001,7 +1001,9 @@ def _row_plan(
     version counter and rebuild the plan; writes that bypass torch must pass
     fresh tensors.  Under stream capture a plan built before capture is reused;
     a new identity's metadata is recomputed inside the graph and not cached.
-    ``stateless`` always recomputes it on the current stream and caches nothing.
+    ``stateless`` always recomputes it on the current stream and caches nothing,
+    and attends a row with a KV length below 1 (a padded request) to its first
+    KV token, so that row's output is unspecified while every other row is exact.
     """
 
     def build() -> dict[str, torch.Tensor]:
@@ -1012,6 +1014,14 @@ def _row_plan(
             q_len=q_len,
             total_q=total_q,
         )
+        if stateless:
+            # The aligned and FP8 page-64 kernels load a row's first KV tile
+            # before they check its length, so a row with no KV tile (a padded
+            # request with seq_len 0, or a row with seq_len < q_len) desyncs
+            # their KV ring: later rows read wrong stages, or the kernel hangs.
+            # Without a host read, attend such rows to their first KV token;
+            # their output is unspecified, as for any padded request.
+            row_seq_lens = row_seq_lens.clamp_min(1)
         state = {"row_batches": row_batches, "row_seq_lens": row_seq_lens}
         if domain in _ALIGNED_BF16_DOMAINS:
             state["table"] = _aligned_page_table(

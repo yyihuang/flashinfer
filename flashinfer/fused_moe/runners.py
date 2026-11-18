@@ -51,7 +51,7 @@ from ..autotuner import (
     DynamicTensorSpec,
     TunableRunner,
     TuningConfig,
-    get_autotune_process_group,
+    cake_group_tuning,
 )
 from ..quantization.nvfp4_quantization_utils import (
     _UNSET,
@@ -1184,7 +1184,7 @@ class CakeWarpDecodeRunner(MoERunner):
             return False
         # Group tuning requires every rank to tune the same runners, and this
         # entry's eligibility depends on the rank-local token count.
-        if get_autotune_process_group() is not None and AutoTuner.get().is_tuning_mode:
+        if cake_group_tuning():
             return False
         # Stream workspaces are never evicted. Leave the default entry out
         # before that limit is reached instead of failing the call. One winner

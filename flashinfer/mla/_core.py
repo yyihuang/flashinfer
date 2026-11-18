@@ -27,15 +27,12 @@ from flashinfer.autotuner import (
     DynamicTensorSpec,
     TunableRunner,
     TuningConfig,
+    cake_auto_candidate_open,
     make_bucket_mapper,
 )
 from flashinfer.jit.core import logger
 
-from ..api_logging import (
-    cake_auto_candidates_enabled,
-    flashinfer_api,
-    flashinfer_experimental_api,
-)
+from ..api_logging import flashinfer_api, flashinfer_experimental_api
 from ..trace.templates.attention import (
     trtllm_batch_decode_mla_trace_dispatch,
     trtllm_batch_decode_sparse_mla_dsv4_trace_dispatch,
@@ -2835,13 +2832,18 @@ from ._batch_mla._wrapper import (
 # dynamically per profiled batch.
 _TRTLLM_GEN_MLA_MAX_BATCH = 8192
 
-# Query rows (batch * q_len) up to which the Cake candidate is profiled. The FP8
-# page-64 route allocates about 256 KiB of split-K partials per row on every
-# call, so a profiled call at this cap holds about 128 MiB of scratch.
-_CAKE_MLA_MAX_TUNE_ROWS = 512
+# Query rows (batch * q_len) up to which the Cake candidate is profiled and
+# runs. The FP8 page-64 route allocates its split-K partials on every call
+# (batch * q_len * num_split * 128 KiB, with batch * q_len * num_split at most
+# about max(2 * rows, num_sms / 2)), so a call at this cap holds about 130 MiB
+# of scratch, also inside every captured graph; the other routes the candidate
+# takes allocate only their row plan.
+_CAKE_MLA_MAX_ROWS = 512
 
-# Cake MLA families whose JIT build or load failed in this process; the tuner
-# does not retry them.
+# Cake MLA families the candidate loaded (it never builds one during stream
+# capture), and those whose JIT build or load failed in this process: the
+# candidate does not retry them.
+_CAKE_MLA_LOADED_FAMILIES: set = set()
 _CAKE_MLA_UNAVAILABLE_FAMILIES: set = set()
 
 
@@ -2962,8 +2964,6 @@ def _compute_mla_decode_buckets(
     Caps:
       - trtllm-gen kernel-hardcoded ceiling: 8192
       - cute-dsl dynamic workspace cap (via binary search)
-      - cake: ``_CAKE_MLA_MAX_TUNE_ROWS // q_len`` requests, bounding the
-        split-K scratch a profiled Cake call allocates
     """
     from ..fused_moe.utils import get_hybrid_num_tokens_buckets
 
@@ -2986,8 +2986,6 @@ def _compute_mla_decode_buckets(
             enable_dcp=enable_dcp,
         )
         cap = max(cap, cute_dsl_cap)
-    if "cake" in runner_names:
-        cap = max(cap, _CAKE_MLA_MAX_TUNE_ROWS // max(1, q_len))
 
     return get_hybrid_num_tokens_buckets(max(1, cap))
 
@@ -3036,11 +3034,11 @@ def _cake_mla_auto_candidate_reason(
     """Why the Cake Blackwell MLA route cannot join uniform ``backend="auto"`` tuning.
 
     Returns ``None`` when the route serves this request with the semantics of the
-    TRTLLM-GEN / CuTe DSL candidates. Batch-dependent limits are checked per
-    profile and per call by :meth:`_CakeTrtllmMlaBlackwellRunner.supports`.
+    TRTLLM-GEN / CuTe DSL candidates. The switch, process-group and tuner gate is
+    :func:`~flashinfer.autotuner.cake_auto_candidate_open`; batch-dependent limits
+    are checked per profile by :meth:`_CakeTrtllmMlaBlackwellRunner.get_valid_tactics`
+    and per call by :meth:`_CakeTrtllmMlaBlackwellRunner.validate_tactic`.
     """
-    if not cake_auto_candidates_enabled():
-        return "disabled by FLASHINFER_DISABLE_CAKE_AUTO_CANDIDATES=1"
     if get_compute_capability(query.device) not in ((10, 0), (10, 3)):
         return "requires SM100a or SM103a"
     if (
@@ -3090,6 +3088,14 @@ def _cake_mla_auto_candidate_reason(
         query, qk_nope_head_dim, kv_lora_rank, qk_rope_head_dim, 0
     ):
         return "has no generated program for this dimension tuple"
+    # The stateless route takes the generic tail program for other head counts,
+    # FP8 page 32 and FP8 with sinks. The tail writes NaN (0 * inf) for a
+    # zero-length (padded) request without a sink, so it does not join.
+    if query.size(-2) != 128 or (
+        query.dtype == torch.float8_e4m3fn
+        and (kv_cache.shape[-2] != 64 or sinks is not None)
+    ):
+        return "takes the generic tail program, which does not join selection"
     return None
 
 
@@ -3107,9 +3113,23 @@ class _CakeTrtllmMlaBlackwellRunner(TunableRunner):
     non-torch input updates and CUDA-graph replay with updated inputs stay
     correct, and it keeps no per-identity plan or per-shape scratch that a
     captured graph could outlive. It never reads ``seq_lens`` on the host, so only
-    its runtime-shape domains serve it; it pays its row-plan kernels on every call,
-    which profiling measures. Profiling is limited to ``_CAKE_MLA_MAX_TUNE_ROWS``
-    query rows to bound the scratch it allocates.
+    its runtime-shape domains serve it, and never its generic tail program. A
+    row with a KV length below 1 (a padded request with ``seq_lens`` 0) is
+    attended to its first KV token on the device, so its output is unspecified
+    and the other rows stay exact. It
+    launches its row-plan kernels on every call: tuning (CUDA-graph replay)
+    measures their GPU time, not the host time eager callers pay for them.
+
+    It serves at most ``_CAKE_MLA_MAX_ROWS`` query rows, which bounds the scratch
+    it allocates per call. A tuning bucket offers it only when it launches for
+    every batch the bucket serves; never the largest bucket, which also serves
+    every larger batch. ``validate_tactic`` turns a cached Cake choice into a
+    cache miss (the first candidate's default tactic) when the actual batch
+    leaves its domains or row cap, or when a stream capture would have to build
+    its program or allocate its FP8 decode table.
+    ``FLASHINFER_DISABLE_CAKE_AUTO_CANDIDATES=1`` removes the candidate, so a
+    cached bucket whose winner was Cake then misses as well, also running the
+    first candidate's default tactic rather than the bucket's runner-up.
     """
 
     def __init__(
@@ -3138,16 +3158,26 @@ class _CakeTrtllmMlaBlackwellRunner(TunableRunner):
         self.sinks = sinks
         self._enable_pdl = enable_pdl
 
-    def _domain(self, inputs) -> Optional[str]:
-        """The domain the stateless route launches for these inputs, or ``None``."""
-        from .cake_trtllm_mla_blackwell import select_domain
+    def _domain(self, inputs, batch_size: Optional[int] = None) -> Optional[str]:
+        """The domain the stateless route launches for these inputs (for
+        ``batch_size`` requests when given), or ``None`` when it does not
+        launch within the row cap or takes the generic tail program."""
+        from .cake_trtllm_mla_blackwell import (
+            DOMAIN_BF16_TAIL,
+            DOMAIN_FP8_TAIL,
+            select_domain,
+        )
 
         query, block_tables, seq_lens, out = inputs[:4]
         if not all(t.is_contiguous() for t in (query, block_tables, seq_lens, out)):
             return None
-        batch_size, q_len, num_heads, qk_dim = query.shape
+        _, q_len, num_heads, qk_dim = query.shape
+        if batch_size is None:
+            batch_size = query.size(0)
+        if batch_size * q_len > _CAKE_MLA_MAX_ROWS:
+            return None
         try:
-            return select_domain(
+            domain = select_domain(
                 dtype=query.dtype,
                 num_heads=num_heads,
                 qk_dim=qk_dim,
@@ -3171,47 +3201,99 @@ class _CakeTrtllmMlaBlackwellRunner(TunableRunner):
             )
         except ValueError:
             return None
+        return None if domain in (DOMAIN_BF16_TAIL, DOMAIN_FP8_TAIL) else domain
 
-    def supports(self, inputs) -> bool:
-        """Whether the route launches for these inputs (its domain choice does not raise)."""
-        return self._domain(inputs) is not None
-
-    def get_valid_tactics(self, inputs, profile) -> List[int]:
-        from .cake_trtllm_mla_blackwell import (
-            _device_facts,
-            get_cake_trtllm_mla_blackwell_family,
-            launch_family,
-        )
+    def _families(self, inputs, batch_sizes) -> Optional[set]:
+        """The families the route launches for these batch sizes, or ``None``
+        when one of them does not launch."""
+        from .cake_trtllm_mla_blackwell import _device_facts, launch_family
 
         query = inputs[0]
-        rows = query.size(0) * query.size(1)
-        if rows > _CAKE_MLA_MAX_TUNE_ROWS:
-            return []
-        domain = self._domain(inputs)
-        if domain is None:
-            return []
-        # Build the program here so a missing toolchain or architecture
-        # (e.g. an nvcc without sm_103a) drops Cake from tuning instead of
-        # failing the tuned call.
+        families = set()
         try:
             arch, num_sms = _device_facts(query.device.index)
-            family = launch_family(domain, arch, num_sms, rows)
+            for batch_size in batch_sizes:
+                domain = self._domain(inputs, batch_size)
+                if domain is None:
+                    return None
+                families.add(
+                    launch_family(domain, arch, num_sms, batch_size * query.size(1))
+                )
         except (RuntimeError, ValueError):
-            return []
-        if family in _CAKE_MLA_UNAVAILABLE_FAMILIES:
-            return []
-        try:
-            get_cake_trtllm_mla_blackwell_family(family)
-        except Exception as exc:
-            _CAKE_MLA_UNAVAILABLE_FAMILIES.add(family)
-            logger.debug(
-                "[MLA] Cake family %s unavailable, not tuned: %s: %s",
-                family,
-                type(exc).__name__,
-                exc,
+            return None
+        return families
+
+    @staticmethod
+    def _ready(families, device: torch.device) -> bool:
+        """Whether every family is loaded and the FP8 decode table exists.
+
+        Loads them first outside stream capture, recording a family that
+        fails to build or load as unavailable for this process.
+        """
+        from . import cake_trtllm_mla_blackwell as cake
+
+        if _CAKE_MLA_UNAVAILABLE_FAMILIES.intersection(families):
+            return False
+        if torch.cuda.is_current_stream_capturing():
+            return _CAKE_MLA_LOADED_FAMILIES.issuperset(families) and (
+                device in cake._FP8_LUTS
             )
-            return []
-        return [-1]
+        for family in families - _CAKE_MLA_LOADED_FAMILIES:
+            try:
+                cake.get_cake_trtllm_mla_blackwell_family(family)
+            except Exception as exc:
+                _CAKE_MLA_UNAVAILABLE_FAMILIES.add(family)
+                logger.warning(
+                    "[MLA] Cake family %s unavailable; backend='auto' no longer "
+                    "offers it in this process: %s: %s",
+                    family,
+                    type(exc).__name__,
+                    exc,
+                )
+                return False
+            _CAKE_MLA_LOADED_FAMILIES.add(family)
+        cake._fp8_lut(device)
+        return True
+
+    def supports(self, inputs) -> bool:
+        """Whether the route launches for these inputs (within the row cap)."""
+        return self._domain(inputs) is not None
+
+    def _serves_bucket(self, inputs, batch_size: int, profile) -> bool:
+        """Whether the route launches for every batch of the tuning bucket of
+        ``batch_size``, building its programs.
+
+        The bucket serves the batches up to the next bucket (the max of the
+        profile's batch dimension); the largest bucket also serves every larger
+        batch, beyond the row cap. Building here lets a missing toolchain or
+        architecture (e.g. an nvcc without sm_103a) drop Cake from tuning
+        instead of failing the tuned call.
+        """
+        query = inputs[0]
+        dim = profile.shapes[0][0] if profile is not None else None
+        last = getattr(dim, "max", batch_size + 1) - 1
+        if math.isinf(last) or last * query.size(1) > _CAKE_MLA_MAX_ROWS:
+            return False
+        families = self._families(inputs, range(batch_size, int(last) + 1))
+        return bool(families) and self._ready(families, query.device)
+
+    def get_valid_tactics(self, inputs, profile) -> List[int]:
+        return [-1] if self._serves_bucket(inputs, inputs[0].size(0), profile) else []
+
+    def validate_tactic(self, inputs, tactic) -> bool:
+        """Whether a cached Cake choice launches for these inputs now.
+
+        The tuner calls it on every cache hit; ``False`` makes the hit a miss.
+        """
+        if tactic != -1:
+            return False
+        families = self._families(inputs, (inputs[0].size(0),))
+        return bool(families) and self._ready(families, inputs[0].device)
+
+    def validate_tactic_for_profile(self, inputs, tactic, profile) -> bool:
+        """Validate a bucket reused during tuning against the bucket's batches."""
+        batch_size = profile.get_opt_shapes()[0][0]
+        return tactic == -1 and self._serves_bucket(inputs, batch_size, profile)
 
     def get_cache_key_extras(self, inputs):
         q = inputs[0]
@@ -3262,6 +3344,10 @@ class _CakeTrtllmMlaBlackwellRunner(TunableRunner):
         # Tensor attributes differ per dispatcher call; get_cache_key_extras
         # carries every tactic-determining value.
         return hash(type(self))
+
+
+# The class name keys the runner's tuner entries (AutoTuner.may_select_runner_class).
+_CAKE_MLA_RUNNER = _CakeTrtllmMlaBlackwellRunner.__name__
 
 
 def _validate_mla_dcp_args(
@@ -4101,23 +4187,37 @@ def _mla_with_kv_cache_impl(
     dimension tuples) joins these ``backend="auto"`` profiles as the last
     candidate on SM100a/SM103a, so it never becomes the untuned or cache-miss
     default (the first candidate, tactic ``-1``) and is selected only when it
-    measures faster. It is offered only for dense requests it serves with the
-    same semantics: BF16 or FP8 E4M3 query and cache, page size 32 or 64, a
-    generated dimension tuple, host float scales, shared K/V page indices,
-    contiguous tensors and at most one FP32 sink per head; never with sparse
-    MLA, ``sparse_mla_top_k_lens``, skip-softmax, ``use_fp16_softmax``, DCP, a
-    ``multi_ctas_kv_counter_buffer`` or LSE output. The Kimi-K3 FP8 Cake route
-    never joins. Cake is profiled up to ``512 // q_len`` requests; a cached
-    Cake choice that cannot launch for the actual batch runs the first
-    candidate's default tactic instead. Set
-    ``FLASHINFER_DISABLE_CAKE_AUTO_CANDIDATES=1`` to remove the candidate;
-    explicit ``backend="cake"`` is unaffected. Unlike explicit
-    ``backend="cake"``, the candidate keeps no per-input plan, host KV-length
-    read or cached scratch: it rebuilds its row plan and allocates its split-K
+    measures faster. Outside tuning it is listed only while the tuner holds a
+    Cake result, and tuning under
+    ``flashinfer.autotuner.set_autotune_process_group`` does not list it. It is
+    offered only for dense requests its aligned programs serve with the same
+    semantics: BF16 query and cache with page size 32 or 64, or FP8 E4M3 query
+    and cache with page size 64 and no sink; 128 heads of a generated dimension
+    tuple, host float scales, shared K/V page indices, contiguous tensors and at
+    most one FP32 sink per head; never with sparse MLA,
+    ``sparse_mla_top_k_lens``, skip-softmax, ``use_fp16_softmax``, DCP, a
+    ``multi_ctas_kv_counter_buffer`` or LSE output. Its generic tail program and
+    the Kimi-K3 FP8 Cake route never join. Cake serves at most 512 query rows
+    (``batch * q_len``) and is offered for a tuning bucket only when it launches
+    for every batch the bucket serves, so never for the largest bucket. A cached
+    Cake choice that cannot launch for the actual batch, or whose program is
+    not yet loaded during CUDA-graph capture, is a cache miss and runs the first
+    candidate's default tactic. Set ``FLASHINFER_DISABLE_CAKE_AUTO_CANDIDATES=1``
+    to remove the candidate (a bucket whose cached winner was Cake then runs the
+    first candidate's default tactic); explicit ``backend="cake"`` is
+    unaffected. Unlike explicit ``backend="cake"``, the candidate keeps no
+    per-input plan, host KV-length read or cached scratch: it rebuilds its row
+    plan with about 20 small device operations and allocates its split-K
     scratch (about 256 KiB per query row for FP8 page-64) on every call, so
-    in-place input updates and CUDA-graph replay stay correct. That per-call
-    cost is part of its measured time, and it never takes Cake's exact-length
-    programs.
+    in-place input updates and CUDA-graph replay stay correct, and it never
+    takes Cake's exact-length programs. It attends a padded request
+    (``seq_lens`` 0, or a query row with no causal KV token) to its first KV
+    token, so that request's output is unspecified; other requests are
+    unaffected. Tuning measures GPU time under
+    CUDA-graph replay, which includes those operations' GPU time but not the
+    host time of launching them: an eager caller pays that host time on every
+    call, so a Cake winner can be slower end to end for eager callers whose
+    decode is host-bound.
     Uniform explicit CuTeDSL requests use the same tuner with one candidate.
     Explicit TRTLLM-GEN requests enter the tuner only during tuning; inference
     directly executes its sole tactic. Compact variable-Q requests select an eligible backend directly
@@ -4390,29 +4490,33 @@ def _mla_with_kv_cache_impl(
                     )
                 # Cake only extends a non-empty list, as its last candidate: the
                 # untuned default stays runners[0] and Cake wins only when tuned
-                # faster.
-                cake_reason = _cake_mla_auto_candidate_reason(
-                    query=query,
-                    kv_cache=kv_cache,
-                    block_tables=block_tables,
-                    seq_lens=seq_lens,
-                    out=out,
-                    qk_nope_head_dim=qk_nope_head_dim,
-                    kv_lora_rank=kv_lora_rank,
-                    qk_rope_head_dim=qk_rope_head_dim,
-                    sparse_mla_top_k=sparse_mla_top_k,
-                    bmm1_scale=bmm1_scale,
-                    bmm2_scale=bmm2_scale,
-                    sinks=sinks,
-                    skip_softmax_threshold_scale_factor=skip_softmax_threshold_scale_factor,
-                    uses_shared_paged_kv_idx=uses_shared_paged_kv_idx,
-                    lse_requested=return_lse or lse is not None,
-                    use_fp16_softmax=use_fp16_softmax,
-                    multi_ctas_kv_counter_buffer=multi_ctas_kv_counter_buffer,
-                    sparse_mla_top_k_lens=sparse_mla_top_k_lens,
-                    enable_dcp=enable_dcp,
-                )
-                if cake_reason is None:
+                # faster. It is listed only while the tuner may select it, and
+                # never while an autotune process group tunes (rank-local
+                # builds and buckets could list different runners per rank).
+                if cake_auto_candidate_open(_CAKE_MLA_RUNNER) and (
+                    _cake_mla_auto_candidate_reason(
+                        query=query,
+                        kv_cache=kv_cache,
+                        block_tables=block_tables,
+                        seq_lens=seq_lens,
+                        out=out,
+                        qk_nope_head_dim=qk_nope_head_dim,
+                        kv_lora_rank=kv_lora_rank,
+                        qk_rope_head_dim=qk_rope_head_dim,
+                        sparse_mla_top_k=sparse_mla_top_k,
+                        bmm1_scale=bmm1_scale,
+                        bmm2_scale=bmm2_scale,
+                        sinks=sinks,
+                        skip_softmax_threshold_scale_factor=skip_softmax_threshold_scale_factor,
+                        uses_shared_paged_kv_idx=uses_shared_paged_kv_idx,
+                        lse_requested=return_lse or lse is not None,
+                        use_fp16_softmax=use_fp16_softmax,
+                        multi_ctas_kv_counter_buffer=multi_ctas_kv_counter_buffer,
+                        sparse_mla_top_k_lens=sparse_mla_top_k_lens,
+                        enable_dcp=enable_dcp,
+                    )
+                    is None
+                ):
                     runner_names.append("cake")
 
             resolved_backend = "autotune"
@@ -4562,10 +4666,10 @@ def _mla_with_kv_cache_impl(
             )
             if isinstance(
                 runner, _CakeTrtllmMlaBlackwellRunner
-            ) and not runner.supports(inputs):
-                # A bucket's Cake winner may not launch for this exact batch
-                # (e.g. a larger batch leaves Cake's aligned BF16 page-64
-                # domains); run the untuned default instead.
+            ) and not runner.validate_tactic(inputs, tactic):
+                # The tuner already turns such a cache hit into a miss; this
+                # keeps every Cake launch within its domains and row cap, and
+                # out of program builds during stream capture.
                 runner, tactic = runners[0], -1
         if isinstance(runner, _BatchMLAPagedAttentionTrtllmGenBackend):
             runner(
