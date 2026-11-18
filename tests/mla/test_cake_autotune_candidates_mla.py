@@ -927,7 +927,11 @@ def test_forced_cake_matches_trtllm_gen(monkeypatch, clean_tuner, geometry, vari
     assert torch.isfinite(cake_out[~live]).all(), f"{label}: padded rows not finite"
 
     # Each side is within the tolerance of the reference on live rows.
-    trtllm_gen_out = _decode(dict(case, backend="trtllm-gen", out=zeros()))
+    # The explicit TRTLLM-GEN entry takes the sink as one tensor, not a list.
+    trtllm_gen_case = dict(case, backend="trtllm-gen", out=zeros())
+    if case.get("sinks") is not None:
+        trtllm_gen_case["sinks"] = case["sinks"][0]
+    trtllm_gen_out = _decode(trtllm_gen_case)
     torch.testing.assert_close(
         cake_out[live],
         trtllm_gen_out[live],
