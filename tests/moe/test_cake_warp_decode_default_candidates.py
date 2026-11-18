@@ -317,12 +317,13 @@ def test_only_explicit_cake_rejects_out_of_range_expert_ids(invalid_id):
     with pytest.raises(ValueError, match="0 <= id < 60"):
         explicit.pack_inputs(act, weights)
     # The default entry drops the slot on the device, as the TRT-LLM routing
-    # kernels do: expert 0 with weight 0, and every other slot unchanged.
+    # kernels do: the id is clamped into range with weight 0, and every other
+    # slot is unchanged.
     assert default.accepts(act, weights)
     topk_weights = act.topk_weights.clone()
     inputs = default.pack_inputs(act, weights)
     expected_ids = topk_ids.clone()
-    expected_ids[0, 0] = 0
+    expected_ids[0, 0] = 0 if invalid_id < 0 else _GEOMETRY.num_experts - 1
     expected_weights = topk_weights.clone()
     expected_weights[0, 0] = 0
     torch.testing.assert_close(inputs[4], expected_ids, rtol=0, atol=0)

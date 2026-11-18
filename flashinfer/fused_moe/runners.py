@@ -1137,7 +1137,7 @@ class CakeWarpDecodeRunner(MoERunner):
     def _drop_out_of_range_routes(
         topk_ids: torch.Tensor, topk_weights: torch.Tensor, num_experts: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Route each id outside [0, num_experts) to expert 0 with weight 0."""
+        """Clamp each id outside [0, num_experts) into range with weight 0."""
         safe_ids = topk_ids.clamp(0, num_experts - 1)
         return safe_ids, topk_weights * (safe_ids == topk_ids)
 
@@ -1602,7 +1602,7 @@ class CakeWarpDecodeRunner(MoERunner):
         if self._is_default_candidate():
             # The default backend list's entry must not sync the host. It drops
             # an out-of-range id (such as -1 padding) on the device, like the
-            # TRT-LLM routing kernels: expert 0 with weight 0.
+            # TRT-LLM routing kernels: a clamped id with weight 0.
             topk_ids, topk_weights = self._drop_out_of_range_routes(
                 topk_ids, topk_weights, routing.num_experts
             )
